@@ -20,26 +20,12 @@ oxis.command("8ball", function()
   oxis.echo("🎱 " .. answers[math.random(1, #answers)])
 end, "ask the magic 8-ball a question")
 
-oxis.command("guess", function(args)
-    if not args or args == "" then
-        oxis.print("Usage: guess <number>", "err")
-        oxis.print("Pick a number from 1 to 10.", "info")
-        return
-    end
-
-    local guess = tonumber(args)
-
-    if not guess or guess < 1 or guess > 10 then
-        oxis.print("Please enter a number from 1 to 10.", "err")
-        return
-    end
+oxis.command("guess", function()
 
     local target = math.random(1, 10)
 
-    if guess == target then
-        oxis.print("You win! The number was " .. target .. ".", "ok")
-    else
-        oxis.print("You lose! The number was " .. target .. ".", "info")
-    end
+    oxis.echo("🎯 I'm thinking of a number from 1 to 10.")
+    oxis.echo("Use: guess <number>")
+
 end, "guess a random number (1-10)")
-```
+
