@@ -21,41 +21,25 @@ oxis.command("8ball", function()
 end, "ask the magic 8-ball a question")
 
 oxis.command("guess", function(args)
+    if not args or args == "" then
+        oxis.print("Usage: guess <number>", "err")
+        oxis.print("Pick a number from 1 to 10.", "info")
+        return
+    end
+
     local guess = tonumber(args)
 
-    if not guess then
-        oxis.print("Usage: guess <number>", "err")
-        oxis.print("Choose a number from 1 to 10.", "info")
+    if not guess or guess < 1 or guess > 10 then
+        oxis.print("Please enter a number from 1 to 10.", "err")
         return
     end
 
-    if guess < 1 or guess > 10 then
-        oxis.print("Please choose a number from 1 to 10.", "err")
-        return
-    end
+    local target = math.random(1, 10)
 
-    oxis.run('powershell -NoProfile -Command "$target=Get-Random -Minimum 1 -Maximum 11; if (' .. guess .. ' -eq $target) { Write-Host ''You win! The number was ''$target''.'' } else { Write-Host ''You lose! The number was ''$target''.'' }"')
+    if guess == target then
+        oxis.print("You win! The number was " .. target .. ".", "ok")
+    else
+        oxis.print("You lose! The number was " .. target .. ".", "info")
+    end
 end, "guess a random number (1-10)")
 ```
-
-So:
-
-```text
-guess
-```
-
-shows:
-
-```text
-✗ Usage: guess <number>
-  Choose a number from 1 to 10.
-```
-
-While:
-
-```text
-guess 7
-```
-
-plays the game.
-
