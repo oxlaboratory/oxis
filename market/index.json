@@ -1,0 +1,90 @@
+[
+  {
+    "name": "network",
+    "desc": "Connection testing, traceroute, geolocation, and DNS checks — prompts for a target so you're not stuck with a hardcoded host.",
+    "category": "network",
+    "version": "0.4.0",
+    "author": "Oxide Labs",
+    "file": "plugins/network.lua"
+  },
+  {
+    "name": "crypto",
+    "desc": "SHA256 hashing (any file, or the whole folder), base64 encode/decode, and a real cryptographically-random key generator.",
+    "category": "crypto",
+    "version": "0.3.0",
+    "author": "Oxide Labs",
+    "file": "plugins/crypto.lua"
+  },
+  {
+    "name": "automation",
+    "desc": "Runs a lint -> test -> build chain in one call, with each step also available as its own task and a keymap shortcut.",
+    "category": "automation",
+    "version": "0.3.0",
+    "author": "Oxide Labs",
+    "file": "plugins/automation.lua"
+  },
+  {
+    "name": "system",
+    "desc": "Disk space, battery status, and top-memory processes — fills the gaps the built-in sysmon plugin doesn't cover.",
+    "category": "system",
+    "version": "0.3.0",
+    "author": "Oxide Labs",
+    "file": "plugins/system.lua"
+  },
+  {
+    "name": "ui",
+    "desc": "Cycle through every built-in theme, jump straight to dark mode, and configure the home dashboard.",
+    "category": "ui",
+    "version": "0.3.0",
+    "author": "Oxide Labs",
+    "file": "plugins/ui.lua"
+  },
+  {
+    "name": "security",
+    "desc": "Password generation (real crypto RNG, not a weak PRNG) and an ACL/permissions audit for any path you give it.",
+    "category": "security",
+    "version": "0.3.0",
+    "author": "Oxide Labs",
+    "file": "plugins/security.lua"
+  },
+  {
+    "name": "utility",
+    "desc": "Clipboard timestamp, date lookup, word count, and a calc command that only ever evaluates numbers you actually type in.",
+    "category": "utility",
+    "version": "0.3.0",
+    "author": "Oxide Labs",
+    "file": "plugins/utility.lua"
+  },
+  {
+    "name": "filesystem",
+    "desc": "Recursive file counts, empty-folder detection, most-recently-modified listing, and a by-extension filter.",
+    "category": "filesystem",
+    "version": "0.4.0",
+    "author": "Oxide Labs",
+    "file": "plugins/filesystem.lua"
+  },
+  {
+    "name": "devops",
+    "desc": "A build-test-push deploy chain plus a pre-deploy git status check and a prefix-filtered env var listing.",
+    "category": "devops",
+    "version": "0.3.0",
+    "author": "Oxide Labs",
+    "file": "plugins/devops.lua"
+  },
+  {
+    "name": "monitoring",
+    "desc": "Tails any log file (or the newest one), runs a one-shot health-check request, and a continuous memory watch.",
+    "category": "monitoring",
+    "version": "0.3.0",
+    "author": "Oxide Labs",
+    "file": "plugins/monitoring.lua"
+  },
+  {
+    "name": "games",
+    "desc": "Dice, coin flips, a magic 8-ball, and a real interactive number-guessing game with higher/lower feedback.",
+    "category": "games",
+    "version": "0.4.0",
+    "author": "Oxide Labs",
+    "file": "plugins/games.lua"
+  }
+]

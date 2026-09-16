@@ -1,0 +1,18 @@
+{
+  "FixedFileInfo": {
+    "FileVersion":    { "Major": 1, "Minor": 2, "Patch": 0, "Build": 0 },
+    "ProductVersion": { "Major": 1, "Minor": 2, "Patch": 0, "Build": 0 }
+  },
+  "StringFileInfo": {
+    "CompanyName":      "Oxide Labs",
+    "FileDescription":  "OXIS Client",
+    "FileVersion":      "1.2.1",
+    "InternalName":     "oxis",
+    "LegalCopyright":   "OXIS Contributors",
+    "OriginalFilename": "oxis.exe",
+    "ProductName":      "OXIS",
+    "ProductVersion":   "1.2.1"
+  },
+  "VarFileInfo": { "Translation": { "LangID": 1033, "CharsetID": 1200 } },
+  "IconPath": "oxishell.ico"
+}

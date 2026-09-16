@@ -1,0 +1,800 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>OXIS // plugin.market</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:        #0b0f0d;
+    --panel:     #101613;
+    --panel-2:   #0d1311;
+    --line:      #1c2620;
+    --green:     #35e07a;
+    --green-dim: #1f8f52;
+    --green-bg:  rgba(53,224,122,0.07);
+    --grey:      #7c8b84;
+    --grey-dim:  #4a564f;
+    --white:     #d8e6de;
+    --amber:     #e8c15a;
+    --amber-dim: #4a3f1f;
+    --amber-bg:  rgba(232,193,90,0.07);
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{
+    background:var(--bg);
+    color:var(--white);
+    font-family:'JetBrains Mono', ui-monospace, monospace;
+    min-height:100vh;
+  }
+  ::selection{ background:var(--green); color:#04140a; }
+
+  @media(prefers-reduced-motion: reduce){
+    *{ transition:none !important; scroll-behavior:auto !important; }
+  }
+
+  /* visible keyboard focus on every interactive element */
+  a:focus-visible, button:focus-visible, select:focus-visible, input:focus-visible{
+    outline:2px solid var(--green);
+    outline-offset:2px;
+  }
+  .card.paid a:focus-visible, .card.paid button:focus-visible{
+    outline-color:var(--amber);
+  }
+
+  ::-webkit-scrollbar{ width:10px; }
+  ::-webkit-scrollbar-track{ background:var(--bg); }
+  ::-webkit-scrollbar-thumb{ background:var(--line); border-radius:2px; }
+  ::-webkit-scrollbar-thumb:hover{ background:var(--green-dim); }
+
+  .frame{
+    max-width:1180px;
+    margin:28px auto 60px;
+    border:1px solid var(--line);
+    background:var(--panel);
+    box-shadow:0 0 0 1px #000, 0 30px 80px -30px rgba(0,0,0,0.8);
+  }
+  @media(max-width:640px){
+    .frame{ margin:0 0 24px; border-left:none; border-right:none; }
+  }
+
+  /* ---------- titlebar ---------- */
+  .titlebar{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding:13px 18px;
+    background:#050807;
+    border-bottom:1px solid var(--line);
+  }
+  .tb-left{ display:flex; align-items:center; gap:9px; }
+  .tb-name{ font-weight:700; letter-spacing:3px; font-size:13px; color:var(--white); }
+  .tb-sep{ color:var(--grey-dim); font-size:12px; }
+  .tb-route{ color:var(--green); font-size:12px; letter-spacing:1px; }
+
+  /* ---------- hero ---------- */
+  .hero{
+    padding:36px 34px 30px;
+    border-bottom:1px solid var(--line);
+    background:
+      radial-gradient(700px 220px at 12% 0%, var(--green-bg), transparent 70%);
+    position:relative;
+  }
+  .hero-top{
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-start;
+    gap:16px;
+    flex-wrap:wrap;
+  }
+  .hero-title{
+    font-size:clamp(16px, 4.2vw, 19px);
+    letter-spacing:clamp(2px, 1vw, 4px);
+    color:var(--white);
+    font-weight:700;
+  }
+  .hero-title span{ color:var(--green); }
+  .hero-sub{
+    color:var(--grey);
+    font-size:12.5px;
+    margin-top:10px;
+    max-width:560px;
+    line-height:1.65;
+  }
+
+  .btn-creator{
+    position:relative;
+    flex-shrink:0;
+    border:1px solid var(--green-dim);
+    color:var(--green);
+    background:transparent;
+    font-family:inherit;
+    font-size:11px;
+    letter-spacing:1px;
+    padding:9px 14px;
+    text-decoration:none;
+    white-space:nowrap;
+    cursor:pointer;
+    transition:.12s;
+  }
+  .btn-creator:hover{ background:var(--green); color:#04140a; }
+  .btn-creator[data-tip]:hover::after{
+    content: attr(data-tip);
+    position:absolute;
+    top:calc(100% + 9px);
+    right:0;
+    width:250px;
+    white-space:normal;
+    background:#050807;
+    border:1px solid var(--green-dim);
+    color:var(--white);
+    padding:11px 13px;
+    font-size:10.5px;
+    line-height:1.55;
+    letter-spacing:.2px;
+    z-index:10;
+    pointer-events:none;
+  }
+  @media(max-width:640px){
+    .btn-creator[data-tip]:hover::after{ left:0; right:auto; width:220px; }
+  }
+
+  /* ---------- command bar ---------- */
+  .cmdwrap{ padding:20px 34px; border-bottom:1px solid var(--line); background:var(--panel-2); }
+  .cmdbar{
+    display:flex;
+    align-items:center;
+    border:1px solid var(--line);
+    background:var(--bg);
+    padding:11px 14px;
+    gap:10px;
+  }
+  .cmdbar:focus-within{ border-color:var(--green-dim); }
+  .cmd-label{ color:var(--green); font-size:12.5px; white-space:nowrap; }
+  .cmd-label i{ color:var(--grey-dim); font-style:normal; }
+  .cmdbar input{
+    flex:1;
+    min-width:0;
+    background:transparent;
+    border:none;
+    outline:none;
+    color:var(--white);
+    font-family:inherit;
+    font-size:13px;
+    caret-color:var(--green);
+  }
+  .cmdbar input::placeholder{ color:var(--grey-dim); }
+  .cmd-count{ color:var(--grey-dim); font-size:11px; white-space:nowrap; }
+
+  @media(max-width:640px){
+    .cmdbar{ gap:8px; padding:10px 12px; }
+    .cmd-label i{ display:none; }
+    .cmd-count{ font-size:10px; }
+  }
+
+  .filters{
+    display:flex;
+    flex-wrap:wrap;
+    gap:8px;
+    margin-top:14px;
+  }
+  .chip{
+    border:1px solid var(--line);
+    color:var(--grey);
+    font-size:11px;
+    letter-spacing:1px;
+    padding:6px 12px;
+    cursor:pointer;
+    background:transparent;
+    font-family:inherit;
+    transition:.12s;
+  }
+  .chip:hover{ border-color:var(--green-dim); color:var(--white); }
+  .chip.active{ border-color:var(--green); color:var(--green); background:var(--green-bg); }
+
+  /* ---------- region / display-currency selector ---------- */
+  .region-row{
+    margin-top:14px;
+    display:flex;
+    align-items:center;
+    gap:10px;
+    flex-wrap:wrap;
+  }
+  .region-label{ color:var(--green); font-size:11.5px; white-space:nowrap; }
+  .region-label i{ color:var(--grey-dim); font-style:normal; }
+  #region-select{
+    background:var(--bg);
+    border:1px solid var(--line);
+    color:var(--white);
+    font-family:inherit;
+    font-size:11.5px;
+    padding:7px 10px;
+    cursor:pointer;
+    outline:none;
+  }
+  #region-select:focus{ border-color:var(--green-dim); }
+  .region-hint{ color:var(--grey-dim); font-size:10px; }
+
+  /* ---------- grid ---------- */
+  .grid{
+    padding:28px 34px 10px;
+    display:grid;
+    grid-template-columns:repeat(auto-fill, minmax(min(260px, 100%), 1fr));
+    gap:16px;
+  }
+  @media(max-width:640px){
+    .grid{ padding:20px 14px 6px; gap:12px; }
+    .hero{ padding:24px 16px 22px; }
+    .cmdwrap{ padding:16px; }
+  }
+
+  .card{
+    border:1px solid var(--line);
+    background:var(--panel-2);
+    padding:16px;
+    display:flex;
+    flex-direction:column;
+    gap:10px;
+    position:relative;
+    transition:.14s border-color;
+  }
+  .card:hover{ border-color:var(--green-dim); }
+  .card.paid{ border-color:var(--amber-dim); }
+  .card.paid:hover{ border-color:var(--amber); }
+  .card.hidden{ display:none; }
+
+  .card-top{ display:flex; justify-content:space-between; align-items:flex-start; gap:10px; }
+  .card-name{ color:var(--green); font-size:13.5px; font-weight:700; letter-spacing:.4px; }
+  .card.paid .card-name{ color:var(--amber); }
+  .card-name small{ color:var(--grey-dim); font-weight:500; font-size:10.5px; margin-left:6px; }
+  .badge{
+    font-size:9.5px;
+    letter-spacing:1px;
+    padding:3px 6px;
+    border:1px solid var(--line);
+    color:var(--grey);
+    white-space:nowrap;
+    flex-shrink:0;
+  }
+  .badge.badge-in{ color:var(--green); border-color:var(--green-dim); background:var(--green-bg); }
+  .badge.badge-paid{ color:var(--amber); border-color:var(--amber-dim); background:var(--amber-bg); }
+
+  .card-desc{ color:var(--grey); font-size:11.6px; line-height:1.55; min-height:52px; }
+
+  .card-meta{
+    display:flex;
+    gap:14px;
+    color:var(--grey-dim);
+    font-size:10.5px;
+    border-top:1px dashed var(--line);
+    padding-top:10px;
+  }
+  .card-meta span{ color:var(--grey); }
+  .card-meta b{ color:var(--white); font-weight:600; }
+
+  .card-tags{ display:flex; gap:6px; flex-wrap:wrap; }
+  .tag{ font-size:9.5px; color:var(--green-dim); border:1px solid #163821; padding:2px 6px; letter-spacing:.5px; }
+  .card.paid .tag{ color:var(--amber); border-color:var(--amber-dim); }
+
+  .card-actions{ display:flex; gap:8px; margin-top:2px; }
+  .btn{
+    flex:1;
+    border:1px solid var(--green-dim);
+    color:var(--green);
+    background:transparent;
+    font-family:inherit;
+    font-size:11px;
+    letter-spacing:1px;
+    padding:9px 10px;
+    cursor:pointer;
+    transition:.12s;
+  }
+  .btn:hover{ background:var(--green); color:#04140a; }
+  .btn.installed{ background:var(--green-bg); color:var(--green); cursor:default; }
+  .btn.installed:hover{ background:var(--green-bg); color:var(--green); }
+
+  .price{ color:var(--white); font-size:14.5px; font-weight:700; }
+  .price small{ color:var(--grey-dim); font-size:10px; font-weight:500; margin-left:4px; }
+
+  .card.paid .btn{
+    border-color:var(--amber-dim);
+    color:var(--amber);
+  }
+  .card.paid .btn:hover{ background:var(--amber); color:#241d08; }
+
+  .demo-toggle{
+    width:100%;
+    border:1px solid var(--line);
+    color:var(--grey);
+    background:transparent;
+    font-family:inherit;
+    font-size:10.5px;
+    letter-spacing:.5px;
+    padding:8px 10px;
+    cursor:pointer;
+    transition:.12s;
+  }
+  .demo-toggle:hover{ border-color:var(--green-dim); color:var(--white); }
+  .demo-video{
+    border:1px solid var(--line);
+    background:#000;
+    line-height:0;
+  }
+  .demo-video video, .demo-video iframe{ display:block; width:100%; aspect-ratio:16/9; height:auto; border:none; }
+  .demo-empty{
+    border:1px dashed var(--line);
+    color:var(--grey-dim);
+    font-size:10.5px;
+    text-align:center;
+    padding:22px 10px;
+  }
+
+  .empty{
+    grid-column:1/-1;
+    text-align:center;
+    color:var(--grey-dim);
+    padding:50px 10px;
+    font-size:12px;
+    letter-spacing:1px;
+    display:none;
+  }
+
+  /* ---------- mobile: touch targets + iOS zoom-on-focus fix ----------
+     iOS Safari auto-zooms the page when a focused input/select has a
+     font-size under 16px — bumping these to 16px on mobile only (kept
+     smaller on desktop for the compact terminal look) avoids that.
+     Also widening tap targets closer to the ~44px accessibility
+     minimum, since the desktop sizes above run a bit small for touch. */
+  @media(max-width:640px){
+    .cmdbar input, #region-select{ font-size:16px; }
+    .chip{ padding:9px 14px; }
+    .btn, .demo-toggle, .btn-creator{ padding:12px 14px; }
+    #region-select{ padding:10px 12px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="frame">
+
+  <div class="titlebar">
+    <div class="tb-left">
+      <div class="tb-name">OXIS</div>
+      <span class="tb-sep">/</span>
+      <span class="tb-route">plugin.market</span>
+    </div>
+  </div>
+
+  <div class="hero">
+    <div class="hero-top">
+      <div class="hero-title">PLUGIN <span>MARKET</span></div>
+      <a class="btn-creator" href="https://discord.gg/Fu7FjDeSMQ" target="_blank" rel="noopener"
+        data-tip="Click if you want to become an official OXIS plugin creator. Get your plugins featured in this marketplace, sell paid plugins directly to users, and work with the team on new releases and API changes before they ship.">
+        Register As Creator
+      </a>
+    </div>
+    <div class="hero-sub">Extend your shell. Every free package here is a plain Lua script — read it, fork it, or run it as-is. Premium plugins are monthly subscriptions via Stripe — coming soon.</div>
+  </div>
+
+  <div class="cmdwrap">
+    <div class="cmdbar">
+      <span class="cmd-label">market<i>&lt;search-mode&gt;</i></span>
+      <input id="search" type="text" placeholder="search plugins..." autocomplete="off">
+      <span class="cmd-count"><span id="visCount">0</span> shown</span>
+    </div>
+    <div class="filters" id="filters"></div>
+    <div class="region-row">
+      <label class="region-label" for="region-select">region<i>&lt;display-currency&gt;</i></label>
+      <select id="region-select"></select>
+      <span class="region-hint">prices shown for reference — premium plugins checkout through Stripe (subscriptions only, no one-time purchases)</span>
+    </div>
+  </div>
+
+  <div class="grid" id="grid"></div>
+  <div class="empty" id="emptyState"></div>
+
+</div>
+
+<script>
+/* ================================================================
+   PLUGINS — this is the whole catalog. To add a new plugin, copy
+   one of the objects below, paste it into the array, and edit it.
+
+   REQUIRED fields (every plugin):
+     name    – unique id, lowercase-with-dashes. Used as the .lua
+               filename when downloaded, so keep it filesystem-safe.
+     ver     – version string, e.g. "1.0.0"
+     cat     – category, must exactly match one of the CATEGORIES
+               list a few lines down (all caps)
+     creator – who made it, shown on the card and searchable
+     desc    – one or two sentence description shown on the card
+     tags    – array of short lowercase keywords, shown as #tags
+     size    – display-only file size string, e.g. "12kb"
+
+   OPTIONAL fields — only add these for a PREMIUM (subscription) plugin:
+     premium      – set to true
+     priceDisplay – display string shown on the card, e.g. "$3.99/mo".
+                    This is cosmetic only — the REAL price lives on the
+                    Stripe Price object itself (stripePriceId below).
+     stripePriceId – a Stripe recurring Price ID (price_...), created
+                    in the Stripe Dashboard -> Product catalog. This is
+                    what /checkout.js actually charges — priceDisplay
+                    is just what the card shows, keep them in sync by
+                    hand.
+     comingSoon   – set to true while a premium plugin isn't
+                    purchasable yet (e.g. before its Stripe Price
+                    exists, or before an account is fully set up).
+                    Shows a "coming soon" badge instead of a buy
+                    button — see README § OXIS Market for why nothing
+                    should ever claim to be purchasable before it is.
+     stripeConnectAccountId – ONLY for third-party developer plugins
+                    (acct_...) — enables the 75/25 revenue split via
+                    Stripe Connect. Omit entirely for OXIS-owned
+                    plugins; the whole subscription is OXIS revenue.
+
+   There are no one-time-purchase plugins and no cryptocurrency
+   payments — every paid plugin is a Stripe subscription, full stop.
+
+   OPTIONAL for any plugin:
+     demoVideo – a URL to show under the "watch demo" button on that
+                 card. YouTube links (youtube.com/watch?v=... or
+                 youtu.be/...) embed automatically; anything else is
+                 treated as a direct video file URL (.mp4 etc.) and
+                 played with a plain <video> tag. Leave as null (or
+                 omit it) and the card shows "no demo video yet".
+
+   That's it — the page reads straight from this array, so nothing
+   else needs to change when you add, remove, or reorder a plugin.
+   ================================================================ */
+
+const CATEGORIES = [
+  "NETWORK", "CRYPTO", "AUTOMATION", "SYSTEM", "UI",
+  "SECURITY", "UTILITY", "FILESYSTEM",
+  "DEVOPS", "MONITORING", "GAMES"
+]; // keep this in sync with any "cat" values you use below
+
+const PLUGINS = [
+
+  // ---- free plugins, one per category — real, working .lua files ----
+  { name: "network",    ver: "0.4.0", cat: "NETWORK",    creator: "Oxide Labs", desc: "Connection testing, traceroute, geolocation, and DNS checks — prompts for a target so you're not stuck with a hardcoded host. Commands: nettest, nettrace, geoip, dnscheck.", tags: ["net-test","geoip"],       size: "1kb", demoVideo: null },
+  { name: "crypto",     ver: "0.3.0", cat: "CRYPTO",     creator: "Oxide Labs", desc: "SHA256 hashing (any file, or the whole folder), base64 encode/decode, and a real cryptographically-random key generator. Commands: sha256, b64encode, b64decode, genkey.", tags: ["hash","base64"],        size: "1kb", demoVideo: null },
+  { name: "automation", ver: "0.3.0", cat: "AUTOMATION", creator: "Oxide Labs", desc: "Runs a lint -> test -> build chain in one call, with each step also available as its own task and a keymap shortcut. Command: chain.", tags: ["tasks","chain"],        size: "1kb", demoVideo: null },
+  { name: "system",     ver: "0.3.0", cat: "SYSTEM",     creator: "Oxide Labs", desc: "Disk space, battery status, and top-memory processes — fills the gaps the built-in sysmon plugin doesn't cover. Commands: diskspace, battery, topmem.", tags: ["disk","battery"],       size: "1kb", demoVideo: null },
+  { name: "ui",         ver: "0.3.0", cat: "UI",         creator: "Oxide Labs", desc: "Cycle through every built-in theme, jump straight to dark mode, and configure the home dashboard. Command: themecycle.", tags: ["theme","dashboard"],    size: "1kb", demoVideo: null },
+  { name: "security",   ver: "0.3.0", cat: "SECURITY",   creator: "Oxide Labs", desc: "Password generation (real crypto RNG, not a weak PRNG) and an ACL/permissions audit for any path you give it. Commands: genpass, perms, permaudit.", tags: ["password","acl"],       size: "1kb", demoVideo: null },
+  { name: "utility",    ver: "0.3.0", cat: "UTILITY",    creator: "Oxide Labs", desc: "Clipboard timestamp, date lookup, word count, and a calc command that only ever evaluates numbers you actually type in — never arbitrary clipboard content. Commands: timestamp, now, calc, wordcount.", tags: ["clipboard","date"],     size: "1kb", demoVideo: null },
+  { name: "filesystem", ver: "0.4.0", cat: "FILESYSTEM", creator: "Oxide Labs", desc: "Recursive file counts, empty-folder detection, most-recently-modified listing, and a by-extension filter that asks which extension you want. Commands: fcount, fempty, frecent, fext.", tags: ["cleanup","recent"],     size: "1kb", demoVideo: null },
+  { name: "devops",     ver: "0.3.0", cat: "DEVOPS",     creator: "Oxide Labs", desc: "A build-test-push deploy chain plus a pre-deploy git status check and a prefix-filtered env var listing. Commands: deploy, predeploy, envcheck.", tags: ["deploy","git"],         size: "1kb", demoVideo: null },
+  { name: "monitoring", ver: "0.3.0", cat: "MONITORING", creator: "Oxide Labs", desc: "Tails any log file (or the newest one), runs a one-shot health-check request, and a continuous memory watch you stop with Ctrl+C. Commands: tail, healthcheck.", tags: ["logs","healthcheck"],   size: "1kb", demoVideo: null },
+  { name: "games",      ver: "0.4.0", cat: "GAMES",      creator: "Oxide Labs", desc: "Dice, coin flips, a magic 8-ball, and a real interactive number-guessing game with higher/lower feedback. Commands: roll, coinflip, 8ball, guess.", tags: ["dice","fun"],           size: "1kb", demoVideo: null },
+
+  // ---- premium plugins, Stripe subscriptions (see README § OXIS
+  // Market) — comingSoon until each has a real stripePriceId ----
+  { name: "network-pro",     ver: "1.1.0", cat: "NETWORK",    creator: "Oxide Labs", desc: "Port scanning across 10 common ports, DNS fingerprinting, and header sniffing — each one prompts for a target instead of a hardcoded host. Plus a combined 'recon command. Commands: portscan, fingerprint, sniff, recon.", tags: ["premium","recon"], size: "24kb", premium: true, priceDisplay: "$3.99/mo", stripePriceId: null, comingSoon: true, demoVideo: null },
+  { name: "ai-devops",       ver: "1.0.0", cat: "AUTOMATION", creator: "OXIS",       desc: "Code explain/fix/generate/review/debug, shell command generation, and Lua plugin scaffolding — real AI calls via any OpenAI-compatible endpoint once you set your own API key.", tags: ["premium","ai"], size: "6kb", premium: true, priceDisplay: "$4.99/mo", stripePriceId: null, comingSoon: true, demoVideo: null },
+
+];
+
+/* ================================================================
+   REGION / DISPLAY CURRENCY — this only changes what price is shown
+   on the card. It does NOT change what Stripe actually charges —
+   Stripe Checkout always bills in whatever currency the Price object
+   itself was created with. This is a cosmetic convenience for buyers
+   browsing from different countries, nothing more.
+
+   To add a country: add one line to COUNTRIES and one rate to
+   FX_RATES (USD -> that currency). FX_RATES are rough, static demo
+   figures — swap for a live rates API (e.g. exchangerate.host,
+   openexchangerates.org) before relying on this in production.
+   ================================================================ */
+
+const COUNTRIES = [
+  { country: "Australia",            flag: "🇦🇺", currency: "AUD" },
+  { country: "United States",        flag: "🇺🇸", currency: "USD" },
+  { country: "United Kingdom",       flag: "🇬🇧", currency: "GBP" },
+  { country: "Canada",               flag: "🇨🇦", currency: "CAD" },
+  { country: "New Zealand",          flag: "🇳🇿", currency: "NZD" },
+  { country: "Eurozone",             flag: "🇪🇺", currency: "EUR" },
+  { country: "Switzerland",          flag: "🇨🇭", currency: "CHF" },
+  { country: "Sweden",               flag: "🇸🇪", currency: "SEK" },
+  { country: "Norway",               flag: "🇳🇴", currency: "NOK" },
+  { country: "Poland",               flag: "🇵🇱", currency: "PLN" },
+  { country: "Japan",                flag: "🇯🇵", currency: "JPY" },
+  { country: "China",                flag: "🇨🇳", currency: "CNY" },
+  { country: "India",                flag: "🇮🇳", currency: "INR" },
+  { country: "Singapore",            flag: "🇸🇬", currency: "SGD" },
+  { country: "South Korea",          flag: "🇰🇷", currency: "KRW" },
+  { country: "Indonesia",            flag: "🇮🇩", currency: "IDR" },
+  { country: "Philippines",          flag: "🇵🇭", currency: "PHP" },
+  { country: "Thailand",             flag: "🇹🇭", currency: "THB" },
+  { country: "Hong Kong",            flag: "🇭🇰", currency: "HKD" },
+  { country: "United Arab Emirates", flag: "🇦🇪", currency: "AED" },
+  { country: "Saudi Arabia",         flag: "🇸🇦", currency: "SAR" },
+  { country: "South Africa",         flag: "🇿🇦", currency: "ZAR" },
+  { country: "Nigeria",              flag: "🇳🇬", currency: "NGN" },
+  { country: "Egypt",                flag: "🇪🇬", currency: "EGP" },
+  { country: "Brazil",               flag: "🇧🇷", currency: "BRL" },
+  { country: "Mexico",               flag: "🇲🇽", currency: "MXN" },
+  { country: "Argentina",            flag: "🇦🇷", currency: "ARS" },
+];
+
+// Approximate, static — see note above. Rate = units of currency per 1 USD.
+const FX_RATES = {
+  USD: 1,     AUD: 1.52,  GBP: 0.79,  CAD: 1.37,  NZD: 1.66,
+  EUR: 0.92,  CHF: 0.88,  SEK: 10.4,  NOK: 10.6,  PLN: 3.95,
+  JPY: 149,   CNY: 7.24,  INR: 83.4,  SGD: 1.34,  KRW: 1330,
+  IDR: 15700, PHP: 56.5,  THB: 35.7,  HKD: 7.82,  AED: 3.67,
+  SAR: 3.75,  ZAR: 18.4,  NGN: 1550,  EGP: 48.5,  BRL: 5.1,
+  MXN: 17.0,  ARS: 970,
+};
+
+const DEFAULT_CURRENCY = "AUD";
+let displayCurrency = (() => {
+  try { return localStorage.getItem('oxis-currency') || DEFAULT_CURRENCY; }
+  catch { return DEFAULT_CURRENCY; }
+})();
+
+function formatPrice(usd, currency){
+  const rate = FX_RATES[currency] ?? 1;
+  const amount = usd * rate;
+  try{
+    return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(amount);
+  }catch{
+    return `${amount.toFixed(2)} ${currency}`;
+  }
+}
+
+const CATS = ["ALL", ...CATEGORIES];
+const acquired = new Set(); // installed (free) plugins
+const demoOpen = new Set(); // plugin names with their demo video expanded
+
+function demoVideoHTML(p){
+  if(!p.demoVideo){
+    return `<div class="demo-empty">no demo video yet — set demoVideo on "${p.name}" in the PLUGINS array</div>`;
+  }
+  const yt = p.demoVideo.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([\w-]+)/);
+  if(yt){
+    return `<div class="demo-video"><iframe src="https://www.youtube.com/embed/${yt[1]}" allowfullscreen loading="lazy"></iframe></div>`;
+  }
+  return `<div class="demo-video"><video src="${p.demoVideo}" controls preload="metadata"></video></div>`;
+}
+
+function prefersReducedMotion(){
+  return window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
+const grid = document.getElementById('grid');
+const filtersEl = document.getElementById('filters');
+const emptyState = document.getElementById('emptyState');
+const regionSelect = document.getElementById('region-select');
+let activeCat = "ALL";
+let query = "";
+
+function renderRegionSelect(){
+  regionSelect.innerHTML = COUNTRIES.map(c =>
+    `<option value="${c.currency}" ${c.currency === displayCurrency ? 'selected' : ''}>${c.flag} ${c.country} — ${c.currency}</option>`
+  ).join('');
+}
+
+regionSelect.addEventListener('change', (e)=>{
+  displayCurrency = e.target.value;
+  try{ localStorage.setItem('oxis-currency', displayCurrency); }catch{}
+  renderGrid();
+});
+
+function renderFilters(){
+  filtersEl.innerHTML = "";
+  CATS.forEach(cat=>{
+    const b = document.createElement('button');
+    b.className = 'chip' + (cat===activeCat ? ' active' : '');
+    b.textContent = `[${cat}]`;
+    b.onclick = ()=>{ activeCat = cat; renderFilters(); renderGrid(); };
+    filtersEl.appendChild(b);
+  });
+}
+
+function matches(p){
+  const q = query.trim().toLowerCase();
+  const catOk = activeCat === "ALL" || p.cat === activeCat;
+  if(!catOk) return false;
+  if(!q) return true;
+  return (p.name+' '+p.cat+' '+p.tags.join(' ')+' '+p.desc+' '+p.creator).toLowerCase().includes(q);
+}
+
+function luaStub(p){
+  return `-- ${p.name}.lua${p.premium ? '  (PREMIUM PLUGIN — subscription)' : ''}
+-- category : ${p.cat}
+-- version  : ${p.ver}
+--
+-- ${p.desc}
+
+local plugin = {}
+
+plugin.name     = "${p.name}"
+plugin.version  = "${p.ver}"
+plugin.category = "${p.cat}"
+${p.premium ? 'plugin.premium  = true\n' : ''}
+function plugin.init()
+    print("[" .. plugin.name .. "] loaded${p.premium ? ' (premium)' : ''}")
+end
+
+function plugin.run(args)
+    -- TODO: implement ${p.cat.toLowerCase()} logic here
+end
+
+return plugin
+`;
+}
+
+function triggerFileDownload(blob, filename){
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+async function downloadPlugin(p){
+  const filename = `${p.name}.lua`;
+
+  // Real file wins if one's been dropped in /plugins with a matching
+  // name. Cloudflare Pages serves that folder as plain static files,
+  // so this is just a normal fetch — no backend code involved.
+  try{
+    const res = await fetch(`/plugins/${filename}`, { cache: 'no-store' });
+    if(res.ok){
+      const blob = await res.blob();
+      triggerFileDownload(blob, filename);
+      return;
+    }
+  }catch(err){
+    // network hiccup or not deployed yet — fall through to the stub
+  }
+
+  // No matching file yet -> generated placeholder, same as before.
+  const content = luaStub(p);
+  const blob = new Blob([content], { type: "text/x-lua" });
+  triggerFileDownload(blob, filename);
+}
+
+function cardHTML(p){
+  const isIn = acquired.has(p.name);
+
+  const badge = p.premium
+    ? (p.comingSoon ? `<div class="badge badge-paid">soon</div>` : `<div class="badge badge-paid">$ premium</div>`)
+    : `<div class="badge ${isIn ? 'badge-in' : ''}">${isIn ? '★ built-in' : p.cat}</div>`;
+
+  let footer;
+
+  if(!p.premium){
+    footer = `
+      <div class="card-actions">
+        <button class="btn ${isIn ? 'installed' : ''}" data-action="install" data-name="${p.name}">
+          ${isIn ? '✓ installed' : '↓ plugin>install'}
+        </button>
+      </div>
+    `;
+  } else if(p.comingSoon || !p.stripePriceId){
+    footer = `
+      <div class="price">${p.priceDisplay || ''} <small>/month</small></div>
+      <button class="btn" disabled style="opacity:.5; cursor:not-allowed;">coming soon</button>
+    `;
+  } else {
+    footer = `
+      <div class="price">${p.priceDisplay || formatPrice(0, displayCurrency)} <small>/month</small></div>
+      <button class="btn" data-action="subscribe" data-name="${p.name}">subscribe via Stripe</button>
+    `;
+  }
+
+  const isDemoOpen = demoOpen.has(p.name);
+  const demoSection = isDemoOpen
+    ? `<button class="demo-toggle" data-action="toggle-demo" data-name="${p.name}">▲ hide demo</button>${demoVideoHTML(p)}`
+    : `<button class="demo-toggle" data-action="toggle-demo" data-name="${p.name}">▶ watch demo</button>`;
+
+  return `
+    <div class="card ${p.premium ? 'paid' : ''} ${isIn ? 'purchased' : ''}" data-name="${p.name}">
+      <div class="card-top">
+        <div class="card-name">${p.name}<small>v${p.ver}</small></div>
+        ${badge}
+      </div>
+      <div class="card-desc">${p.desc}</div>
+      <div class="card-tags">${p.tags.map(t=>`<span class="tag">#${t}</span>`).join('')}</div>
+      <div class="card-meta"><span>by <b>${p.creator}</b></span>${!p.premium ? `<span><b>${p.size}</b></span>` : ''}</div>
+      ${demoSection}
+      ${footer}
+    </div>
+  `;
+}
+
+function renderGrid(){
+  const visible = PLUGINS.filter(matches);
+  grid.innerHTML = visible.map(cardHTML).join('');
+  if(visible.length){
+    emptyState.style.display = 'none';
+  } else {
+    emptyState.style.display = 'block';
+    emptyState.innerHTML = "-- no packages match that query --<br>try 'plugin&gt;list&lt;' or clear the filter";
+  }
+  document.getElementById('visCount').textContent = visible.length;
+}
+
+grid.addEventListener('click', (e)=>{
+  const btn = e.target.closest('[data-action]');
+  if(!btn) return;
+  const name = btn.dataset.name;
+  const action = btn.dataset.action;
+
+  if(action === 'install'){
+    const p = PLUGINS.find(x=>x.name===name);
+    if(!p || acquired.has(name)) return;
+    downloadPlugin(p);
+    acquired.add(name);
+    renderGrid();
+
+  } else if(action === 'toggle-demo'){
+    const opening = !demoOpen.has(name);
+    if(opening) demoOpen.add(name); else demoOpen.delete(name);
+    renderGrid();
+    if(opening){
+      requestAnimationFrame(()=>{
+        const card = grid.querySelector(`[data-name="${name}"]`);
+        if(card) card.scrollIntoView({ behavior: prefersReducedMotion() ? 'auto' : 'smooth', block: 'center' });
+      });
+    }
+
+  } else if(action === 'subscribe'){
+    startCheckout(name, btn);
+  }
+});
+
+// Real Stripe Checkout — see functions/checkout.js. This is the same
+// endpoint the OXIS desktop app's `'market subscribe` command calls;
+// the website and the app both just redirect to whatever URL Stripe
+// gives back, so there's exactly one checkout implementation, not two
+// that could drift out of sync.
+async function startCheckout(pluginName, btn){
+  const email = window.prompt("Email for your subscription (used to verify your license in the OXIS app):");
+  if(!email) return;
+
+  const original = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "starting checkout…";
+
+  try{
+    const res = await fetch('/checkout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ plugin: pluginName, customerEmail: email }),
+    });
+    const data = await res.json();
+    if(!res.ok || !data.url){
+      alert(data.error || 'checkout failed — try again in a moment');
+      btn.disabled = false;
+      btn.textContent = original;
+      return;
+    }
+    window.location.href = data.url; // hand off to Stripe's hosted Checkout page
+  }catch(err){
+    alert('couldn\'t reach the checkout server — try again in a moment');
+    btn.disabled = false;
+    btn.textContent = original;
+  }
+}
+
+document.getElementById('search').addEventListener('input', (e)=>{
+  query = e.target.value;
+  renderGrid();
+});
+
+renderFilters();
+renderRegionSelect();
+renderGrid();
+</script>
+
+</body>
+</html>

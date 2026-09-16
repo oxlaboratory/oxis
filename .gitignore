@@ -1,0 +1,96 @@
+# ── secrets & credentials — never commit real values ─────────────
+.env
+.env.*
+!.env.example
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+id_rsa
+id_rsa.*
+id_ed25519
+id_ed25519.*
+*_rsa
+*_ed25519
+.ssh/
+secrets.json
+credentials.json
+stripe.env
+
+# ── local OXIS user data — machine-specific, not source ───────────
+.oxis/session*.json
+.oxis-user/
+*.oxis-local
+
+# ── build output / binaries ────────────────────────────────────────
+dist/
+build/
+out/
+bin/
+*.exe
+*.dll
+*.dylib
+*.so
+oxis
+oxis.exe
+frontend/dist/
+frontend/build/
+
+# ── installer output ────────────────────────────────────────────────
+installer/output/
+*.msi
+*.nsi.bak
+*-setup.exe
+
+# ── dependencies ─────────────────────────────────────────────────────
+node_modules/
+frontend/node_modules/
+vendor/
+
+# ── logs, caches, temp files ─────────────────────────────────────────
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.cache/
+.tmp/
+tmp/
+*.tmp
+*.bak
+*.swp
+
+# ── databases (local/test data) ───────────────────────────────────────
+*.db
+*.sqlite
+*.sqlite3
+
+# ── IDE / editor metadata ─────────────────────────────────────────────
+.vscode/
+.idea/
+*.iml
+.vs/
+
+# ── OS-generated files ─────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── Go build artifacts ────────────────────────────────────────────────
+*.test
+*.out
+/wailsjs/
+
+# ── coverage / test artifacts ─────────────────────────────────────────
+coverage/
+*.cover
+
+# ── Cloudflare Pages (cloudflare/) — see README § Cloudflare Deployment
+cloudflare/.dev.vars
+cloudflare/.dev.vars.*
+!cloudflare/.dev.vars.example
+cloudflare/.wrangler/

@@ -1,0 +1,17 @@
+{
+  "name": "oxis",
+  "version": "1.2.1",
+  "description": "OXIS — Open Xenial Intelligent Shell",
+  "private": true,
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "build":           "node ./scripts/build-go.js",
+    "dev":             "node ./scripts/dev.js",
+    "build:msi":       "node ./scripts/build-msi.js",
+    "build:installer": "node ./scripts/build-msi.js",
+    "build:setup":     "node ./scripts/build-msi.js",
+    "setup":           "node ./scripts/setup.js"
+  }
+}

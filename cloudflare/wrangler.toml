@@ -1,0 +1,32 @@
+# Cloudflare Pages configuration for the OXIS Market — see README §
+# Cloudflare Deployment for the full setup walkthrough.
+#
+# This project deploys straight from this `cloudflare/` directory
+# inside the main OXIS monorepo (gitlab.com/oxidelab/oxis) — Cloudflare
+# Pages' "Root directory" build setting is what points it here; there
+# is no separate repository to keep in sync.
+
+name = "oxis-market"
+pages_build_output_dir = "."
+
+# ── KV namespaces ─────────────────────────────────────────────────
+# Create both with `wrangler kv namespace create OXIS_LICENSES` /
+# `OXIS_PREMIUM_SOURCE`, then paste the real ids below (or bind them
+# in the Cloudflare dashboard -> Pages project -> Settings ->
+# Functions -> KV namespace bindings, which is equivalent and doesn't
+# require committing real namespace ids to this file).
+#
+# [[kv_namespaces]]
+# binding = "OXIS_LICENSES"
+# id = "REPLACE_WITH_REAL_NAMESPACE_ID"
+#
+# [[kv_namespaces]]
+# binding = "OXIS_PREMIUM_SOURCE"
+# id = "REPLACE_WITH_REAL_NAMESPACE_ID"
+
+# ── Secrets (NOT set here — see .dev.vars.example) ─────────────────
+# STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, STRIPE_PUBLISHABLE_KEY are
+# configured as encrypted environment variables in the Cloudflare
+# Pages dashboard (Settings -> Environment variables -> Production /
+# Preview), or in a local, gitignored `.dev.vars` for `wrangler pages
+# dev`. Never in this file, which is committed.

@@ -1,0 +1,17 @@
+-- git_advanced.lua — advanced Git tools 
+
+oxis.command("glog",  function() oxis.run("git log --graph --pretty=format:'%C(yellow)%h%Creset %C(cyan)%an%Creset %s %C(green)(%cr)%Creset' --abbrev-commit -30") end, "pretty graph log of the last 30 commits")
+oxis.command("gdiff", function() oxis.run("git diff --stat HEAD") end, "diff stat against HEAD")
+oxis.command("gshow", function() oxis.run("git show --stat HEAD") end, "show stat + summary of the last commit")
+oxis.command("gwip",  function() oxis.run("git add -A && git commit -m 'wip: work in progress'") end, "commit everything as a work-in-progress checkpoint")
+oxis.command("gunwip",function() oxis.run("git log --oneline -1 | grep -q 'wip:' && git reset HEAD~1") end, "undo the last commit if it was a wip commit")
+oxis.command("gundo", function() oxis.run("git reset --soft HEAD~1 && git status") end, "undo the last commit but keep the changes staged")
+oxis.command("gcln",  function() oxis.run("git branch --merged | Where-Object { $_ -notmatch '\\*|main|master|develop' } | ForEach-Object { git branch -d $_.Trim() }") end, "delete local branches already merged into the current one")
+oxis.command("gtag",  function() oxis.run("git tag --sort=-v:refname | Select-Object -First 20") end, "list the 20 most recent tags")
+oxis.command("gblame",function() oxis.run("git log --follow -p HEAD -- .") end, "full patch history for the current path")
+oxis.command("gstash",function() oxis.run("git stash list") end, "list stashed changes")
+oxis.command("greset",function() oxis.run("git checkout -- . && git status") end, "discard all uncommitted changes")
+oxis.command("gfetch",function() oxis.run("git fetch --all --prune && git status") end, "fetch and prune all remotes, then show status")
+oxis.command("grebase",function() oxis.run("git rebase -i HEAD~5") end, "interactive rebase of the last 5 commits")
+
+oxis.task("release", "git add -A && git commit -m 'chore: release' && git push", "commit everything and push as a release")

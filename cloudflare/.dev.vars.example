@@ -1,0 +1,22 @@
+# Local-only file for `wrangler pages dev` — copy this to `.dev.vars`
+# (already gitignored) and fill in real TEST-mode values from your own
+# Stripe Dashboard. Never commit `.dev.vars` itself.
+#
+# This project used to integrate with a provider called Paymento
+# (PAYMENT_PROVIDER_SECRET / PAYMENT_PROVIDER_API_KEY) — that's gone
+# now, replaced entirely by Stripe. If your old `.dev.vars` still has
+# those two variables in it, delete them; they do nothing anymore.
+
+# Stripe Dashboard -> Developers -> API keys -> Secret key (sk_test_...)
+# Server-side only. NEVER put this in index.html, a Lua plugin, the
+# OXIS desktop app, or anywhere else that ships to a user's machine.
+STRIPE_SECRET_KEY=sk_test_replace_me
+
+# Stripe Dashboard -> Developers -> Webhooks -> your endpoint -> Signing secret
+STRIPE_WEBHOOK_SECRET=whsec_replace_me
+
+# Stripe Dashboard -> Developers -> API keys -> Publishable key (pk_test_...)
+# Safe to expose client-side (that's what "publishable" means) — used
+# by index.html if/when it embeds Stripe.js directly instead of only
+# redirecting to a Checkout Session URL.
+STRIPE_PUBLISHABLE_KEY=pk_test_replace_me

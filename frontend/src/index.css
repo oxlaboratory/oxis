@@ -1,0 +1,750 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&display=swap');
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:      #1a1b26;
+  --bg1:     #16161e;
+  --bg2:     #1f2335;
+  --bg3:     #292e42;
+  --bg4:     #31364a;
+  --border:  #2a2f45;
+  --border2: #3dff64;
+  --text:    #c0caf5;
+  --muted:   #7a809b;
+  --dim:     #565f89;
+  --comment: #414868;
+  --purple:  #3dff64;
+  --purple2: #29d84e;
+  --purple3: #7dff9a;
+  --grey:    #9aa5ce;
+  --grey2:   #565f89;
+  --accent:  #3dff64;
+  --green:   #3dff64;
+  --err:     #f7768e;
+  --warn:    #ff9e64;
+  --font: 'JetBrains Mono', 'Cascadia Code', Consolas, monospace;
+  --fs: 13px;
+  --lh: 20px;
+  --r: 3px;
+}
+
+html, body, #root {
+  width: 100%; height: 100%; overflow: hidden;
+  background: var(--bg); color: var(--text);
+  font-family: var(--font); font-size: var(--fs); line-height: var(--lh);
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+/* ── APP LAYOUT ─────────────────────────────────────────── */
+.app       { display: flex; flex-direction: column; position: fixed; inset: 0; overflow: hidden; min-width: 480px; min-height: 320px; }
+.app-body  { flex: 1 1 0; display: flex; min-height: 0; overflow: hidden; position: relative; }
+.app-pane  { flex: 1 1 0; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+
+/* ── TAB BAR ─────────────────────────────────────────────── */
+.tabs      { display: flex; align-items: stretch; height: 28px; background: var(--bg1); border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.tab       { display: flex; align-items: center; gap: 5px; padding: 0 10px; border-right: 1px solid var(--border); cursor: pointer; color: var(--dim); min-width: 60px; max-width: 140px; font-size: 10px; transition: color .1s, background .1s; }
+.tab:hover { color: var(--muted); background: var(--bg2); }
+.tab--on   { color: var(--purple3); background: var(--bg); border-bottom: 2px solid var(--purple); }
+.tab-icon  { font-size: 9px; flex-shrink: 0; color: var(--purple2); }
+.tab-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tab-close { font-size: 12px; color: var(--comment); width: 14px; height: 14px; display: flex; align-items: center; justify-content: center; opacity: 0; transition: opacity .1s; border-radius: 2px; }
+.tab:hover .tab-close { opacity: 1; }
+.tab-close:hover { color: var(--muted); }
+.tabs-fill { flex: 1; }
+.tab-new   { height: 100%; padding: 0 10px; font-size: 9px; font-weight: 700; letter-spacing: .08em; color: var(--dim); border-left: 1px solid var(--border); transition: color .1s, background .1s; }
+.tab-new:hover { color: var(--purple); background: rgba(139,92,246,.06); }
+
+/* ── STATUS BAR ──────────────────────────────────────────── */
+.statusline { height: 20px; display: flex; align-items: center; background: var(--purple2); flex-shrink: 0; color: var(--bg); }
+.sl-mode    { padding: 0 14px; font-weight: 700; background: var(--bg1); color: var(--purple3); height: 100%; display: flex; align-items: center; letter-spacing: .12em; font-size: 10px; }
+.sl-sep     { width: 0; height: 0; border-style: solid; border-width: 20px 9px 0 0; border-color: var(--bg1) transparent transparent transparent; flex-shrink: 0; }
+.sl-mid     { flex: 1; padding: 0 8px; color: var(--bg1); font-size: 10px; font-weight: 600; letter-spacing: .04em; opacity: .85; white-space: nowrap; overflow: hidden; }
+.sl-right   { padding: 0 10px; color: var(--bg1); font-size: 10px; display: flex; align-items: center; gap: 10px; font-weight: 600; opacity: .85; flex-shrink: 0; }
+.sl-theme   { opacity: .7; font-size: 9px; }
+.sl-time    { font-variant-numeric: tabular-nums; }
+
+/* ── TERMINAL ─────────────────────────────────────────────── */
+.term       { flex: 1 1 0; display: flex; flex-direction: column; min-height: 0; overflow: hidden; background: var(--bg); cursor: default; position: relative; }
+.term-error { padding: 4px 18px; background: rgba(247,118,142,.07); border-bottom: 1px solid rgba(247,118,142,.2); font-size: 11px; color: var(--err); flex-shrink: 0; letter-spacing: .02em; }
+
+.term-out {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 10px 18px 4px;
+  cursor: text;
+  scroll-behavior: auto;
+}
+.term-out:focus { outline: none; }
+
+.term-line {
+  white-space: pre-wrap;
+  word-break: break-word;
+  min-height: var(--lh);
+  color: var(--text);
+  user-select: text;
+  line-height: var(--lh);
+  font-size: var(--fs);
+}
+.term-line--banner {
+  text-align: center;
+  white-space: pre;
+  letter-spacing: .03em;
+}
+
+/* Input row */
+.term-input-row {
+  display: flex;
+  align-items: baseline;
+  padding: 3px 0 10px;
+  min-height: calc(var(--lh) + 13px);
+  cursor: text;
+}
+.term-prompt      { color: var(--purple); font-weight: 700; flex-shrink: 0; white-space: pre; font-size: 14px; }
+.term-input-pre   { white-space: pre-wrap; word-break: break-all; color: var(--text); user-select: text; }
+.term-input-post  { white-space: pre-wrap; word-break: break-all; color: var(--text); user-select: text; }
+
+/* Block cursor */
+.term-caret       { display: inline-block; min-width: 8.5px; position: relative; border-radius: 1px; }
+.term-caret--on   { background: var(--purple); color: var(--bg); animation: blink 1.1s step-end infinite; }
+.term-caret--off  { background: var(--dim); color: var(--bg); opacity: .35; }
+
+/* Reverse search bar */
+.term-search-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 5px 18px 6px;
+  background: var(--bg2);
+  border-top: 1px solid var(--border2);
+  font-size: 11px;
+  flex-shrink: 0;
+}
+.term-search-label { color: var(--purple3); font-weight: 700; flex-shrink: 0; }
+.term-search-sep   { color: var(--dim); flex-shrink: 0; }
+.term-search-query { color: var(--text); min-width: 60px; user-select: text; }
+.term-search-ph    { color: var(--dim); font-style: italic; }
+.term-search-match { color: var(--purple3); font-weight: 600; user-select: text; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.term-search-count { color: var(--dim); font-size: 10px; flex-shrink: 0; }
+.term-search-hint  { color: var(--comment); font-size: 9px; margin-left: auto; flex-shrink: 0; }
+
+/* Ghost — invisible, captures keystrokes only */
+.term-ghost {
+  position: absolute;
+  left: -9999px; top: 0;
+  width: 1px; height: 1px;
+  opacity: 0;
+  background: transparent;
+  border: none;
+  color: transparent;
+  resize: none;
+  outline: none;
+  overflow: hidden;
+  pointer-events: none;
+  caret-color: transparent;
+}
+/* Re-enable pointer-events so focus works */
+.term-ghost:focus { pointer-events: auto; }
+
+/* ── BUILT-IN EDITOR ─────────────────────────────────────── */
+.editor { flex: 1 1 0; display: flex; flex-direction: column; min-height: 0; background: var(--bg); }
+
+.editor-bar {
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--bg1);
+  border-bottom: 1px solid var(--border);
+  padding: 0 10px;
+  flex-shrink: 0;
+  gap: 8px;
+}
+.editor-bar-left  { display: flex; align-items: center; gap: 7px; min-width: 0; overflow: hidden; }
+.editor-bar-right { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.editor-icon  { color: var(--dim); font-size: 10px; flex-shrink: 0; }
+.editor-path  { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.editor-dirty { color: var(--purple3); font-size: 13px; line-height: 1; }
+.editor-meta  { font-size: 10px; color: var(--dim); }
+
+/* Mode badge — Normal/Insert/Visual (see README § Input Modes) */
+.editor-mode {
+  font-size: 9px; font-weight: 700; letter-spacing: .06em;
+  padding: 2px 6px; border-radius: var(--r); border: 1px solid var(--border);
+}
+.editor-mode--normal { color: var(--purple3); border-color: var(--purple3); }
+.editor-mode--insert { color: var(--ok, var(--purple2)); border-color: var(--purple2); }
+.editor-mode--visual { color: var(--accent, var(--purple)); border-color: var(--purple); }
+
+.editor-btn {
+  font-size: 10px; color: var(--dim); border: 1px solid var(--border);
+  border-radius: var(--r); padding: 2px 8px; cursor: pointer;
+  font-family: var(--font); transition: all .1s; background: none;
+}
+.editor-btn:hover        { color: var(--muted); border-color: var(--border2); background: var(--bg2); }
+.editor-btn--close:hover { color: var(--err); border-color: var(--err); }
+
+.editor-ta {
+  flex: 1 1 0; min-height: 0; width: 100%;
+  background: var(--bg); color: var(--text);
+  font-family: var(--font); font-size: var(--fs); line-height: var(--lh);
+  border: none; outline: none; padding: 12px 18px;
+  resize: none; overflow-y: auto; overflow-x: auto;
+  white-space: pre; user-select: text; cursor: text;
+  tab-size: 2; caret-color: var(--purple);
+}
+.editor-ta::selection { background: rgba(203,166,247,.2); }
+
+.editor-loading {
+  flex: 1 1 0; display: flex; align-items: center; justify-content: center;
+  color: var(--dim); font-size: 12px; letter-spacing: .04em;
+}
+.editor-error {
+  flex: 1 1 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
+  gap: 8px; color: var(--err); font-size: 12px; text-align: center; padding: 20px;
+  overflow-y: auto;
+}
+.editor-error-detail { color: var(--dim); font-size: 11px; max-width: 640px; white-space: pre-wrap; word-break: break-word; text-align: left; }
+
+.editor-footer {
+  height: 18px; display: flex; align-items: center; gap: 18px;
+  padding: 0 12px; background: var(--bg1); border-top: 1px solid var(--border);
+  flex-shrink: 0; font-size: 9px; color: var(--comment); letter-spacing: .04em;
+}
+
+/* ── PLUGIN CREATOR ──────────────────────────────────────── */
+.plugin-creator { flex: 1 1 0; display: flex; flex-direction: column; min-height: 0; background: var(--bg); }
+.pc-name-input {
+  background: var(--bg3); border: 1px solid var(--border); border-radius: var(--r);
+  color: var(--text); font-family: var(--font); font-size: 11px; padding: 2px 8px;
+  outline: none; width: 120px;
+}
+.pc-name-input:focus { border-color: var(--border2); }
+.pc-saved { font-size: 10px; color: var(--green); }
+.pc-err   { font-size: 10px; color: var(--err);   }
+.pc-ta    { font-size: 12px; }
+
+/* ── THEME EDITOR ────────────────────────────────────────── */
+.overlay {
+  position: absolute; inset: 0;
+  background: rgba(0,0,0,.6);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 100;
+}
+.overlay-panel { width: min(860px, 92vw); height: min(640px, 88vh); display: flex; flex-direction: column; }
+.overlay-panel .plugin-creator { flex: 1 1 0; border: 1px solid var(--border2); border-radius: 4px; box-shadow: 0 12px 48px rgba(0,0,0,.7); }
+
+.theme-editor {
+  width: min(540px, 94vw); height: min(700px, 90vh);
+  background: var(--bg1);
+  border: 1px solid var(--border2);
+  border-radius: 5px;
+  display: flex; flex-direction: column; overflow: hidden;
+  box-shadow: 0 12px 48px rgba(0,0,0,.7);
+}
+
+.te-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 14px; border-bottom: 1px solid var(--border); flex-shrink: 0;
+}
+.te-title       { font-size: 11px; font-weight: 700; color: var(--purple3); letter-spacing: .1em; }
+.te-header-right { display: flex; align-items: center; gap: 8px; }
+.te-name-input {
+  background: var(--bg2); border: 1px solid var(--border); border-radius: var(--r);
+  color: var(--text); font-family: var(--font); font-size: 11px; padding: 3px 8px;
+  outline: none; width: 140px;
+}
+.te-name-input:focus { border-color: var(--border2); }
+
+.te-scroll {
+  flex: 1 1 0; min-height: 0; overflow-y: auto; padding: 10px 14px;
+  display: flex; flex-direction: column; gap: 3px;
+}
+
+.te-row {
+  display: flex; align-items: center; gap: 8px; padding: 2px 0;
+}
+.te-swatch {
+  width: 22px; height: 22px; border-radius: 3px;
+  border: 1px solid rgba(255,255,255,.1); flex-shrink: 0;
+}
+.te-color {
+  width: 30px; height: 22px; padding: 0; border: none;
+  background: none; cursor: pointer; flex-shrink: 0; border-radius: 2px;
+}
+.te-label-group { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.te-label { font-size: 11px; color: var(--text); }
+.te-hint  { font-size: 9px; color: var(--dim); }
+.te-hex {
+  width: 80px; background: var(--bg2); border: 1px solid var(--border);
+  border-radius: var(--r); color: var(--text); font-family: var(--font);
+  font-size: 11px; padding: 2px 6px; outline: none; flex-shrink: 0;
+}
+.te-hex:focus { border-color: var(--border2); }
+
+.te-footer {
+  display: flex; align-items: center; gap: 6px;
+  padding: 10px 14px; border-top: 1px solid var(--border); flex-shrink: 0;
+}
+.te-err { font-size: 10px; color: var(--err); flex: 1; }
+.te-ok  { font-size: 10px; color: var(--green); flex: 1; }
+
+.te-btn {
+  padding: 5px 14px; font-size: 10px; font-family: var(--font);
+  border-radius: var(--r); cursor: pointer; border: 1px solid var(--border);
+  background: none; color: var(--dim); transition: all .1s;
+}
+.te-btn:hover         { color: var(--muted); border-color: var(--border2); background: var(--bg2); }
+.te-btn--save         { color: var(--purple3); border-color: var(--purple2); background: rgba(139,92,246,.08); }
+.te-btn--save:hover   { background: rgba(139,92,246,.18); }
+.te-btn--cancel:hover { color: var(--muted); }
+
+/* ── HOME ────────────────────────────────────────────────── */
+.home {
+  flex: 1; display: flex; align-items: center; justify-content: center;
+  overflow-y: auto; background: var(--bg); padding: 14px 24px;
+  position: relative;
+}
+
+.oxis-home {
+  display: flex; flex-direction: column; align-items: center;
+  width: 100%; max-width: 700px; font-family: var(--font);
+  user-select: none;
+}
+
+/* ── Train + smoke wrapper ──────────────────────────────── */
+.oxis-train-wrap {
+  position: relative;
+  display: inline-flex; flex-direction: column; align-items: flex-start;
+  margin-bottom: 6px;
+}
+
+/* Chimney anchor — wraps the literal "[]" glyph in the train art
+   (see renderTrainRow in App.tsx). Positioned smoke stacks nest
+   *inside* this span (as its child, not a sibling elsewhere in the
+   page) so they inherit its exact rendered position — at whatever
+   font-size, letter-spacing, or row-height the surrounding context
+   uses — instead of a calc()'d guess about where that position will
+   land. That guessing (ch-based `left`, row-height-based `top`) is
+   what used to drift out of sync per call site; anchoring to the
+   glyph itself can't drift, because the smoke's position is defined
+   relative to the glyph, not computed to predict it. */
+.oxis-chimney { position: relative; display: inline-block; }
+
+/* Smoke stack — nested inside .oxis-chimney (see above). `left:50%` +
+   `translateX(-50%)` centers it on the "[]"; `bottom:100%` anchors it
+   to the chimney's top edge, i.e. right where smoke should start.
+   `.puff` then sits at this container's own bottom (`bottom:0`) and
+   rises upward from there (see `.puff` / @keyframes puff-rise
+   below) — so smoke visibly originates at the chimney and climbs,
+   rather than floating in a fixed box positioned near it. `height`
+   is passed per call site (110px on the home screen's larger art,
+   90px for the smaller boot-banner/startup-splash art) via inline
+   style, since it's the one thing that does still vary intentionally
+   by context. */
+.oxis-smoke-stack {
+  position: absolute;
+  left: 50%; bottom: 100%;
+  transform: translateX(calc(-50% + 75px));
+  width: 70px;
+  pointer-events: none;
+}
+.puff {
+  position: absolute;
+  left: 0; bottom: 0;
+  font-family: var(--font); font-size: 11px; color: var(--dim);
+  opacity: 0;
+  animation: puff-rise 2.8s ease-in infinite;
+  letter-spacing: 0;
+}
+.puff-1 { animation-delay: 0s;    left: 0px;  font-size: 9px;  color: var(--comment); }
+.puff-2 { animation-delay: .46s;  left: 6px;  font-size: 11px; color: var(--dim); }
+.puff-3 { animation-delay: .92s;  left: 2px;  font-size: 12px; color: var(--dim); }
+.puff-4 { animation-delay: 1.38s; left: 10px; font-size: 13px; color: var(--muted); }
+.puff-5 { animation-delay: 1.84s; left: 4px;  font-size: 11px; color: var(--comment); }
+.puff-6 { animation-delay: 2.3s;  left: 14px; font-size: 12px; color: var(--purple3); }
+
+@keyframes puff-rise {
+  0%   { transform: translate(0, 0)  scale(.5); opacity: 0; }
+  8%   { opacity: .9; }
+  70%  { opacity: .6; }
+  100% { transform: translate(22px, -52px) scale(1.4); opacity: 0; }
+}
+
+/* Train ASCII */
+.oxis-ascii     { display: flex; flex-direction: column; }
+.oxis-ascii-row { font-family: var(--font); font-size: var(--fs); line-height: 1.35; white-space: pre; font-weight: 700; }
+
+/* Wheels row — each "0" rotates to simulate spinning */
+.oxis-ascii-wheels {
+  font-family: var(--font); font-size: var(--fs); line-height: 1.35;
+  white-space: pre; font-weight: 700; color: var(--dim);
+  display: block;
+}
+/* Home screen train is PARKED — wheels are static (no spin/pulse).
+   The moving version lives in the startup splash + shell boot banner
+   (see StartupSplash / trainWheelFrame in App.tsx), which use the
+   same art but animate the wheel row on a timer instead of CSS,
+   since that art is plain text rather than individual spans. */
+.wheel {
+  display: inline-block; color: var(--purple2);
+}
+
+/* Boot-banner / startup-splash wrappers still need width:fit-content
+   so the centered ASCII block doesn't stretch to its parent's full
+   width — unrelated to smoke positioning now that the smoke anchors
+   to .oxis-chimney directly, but kept for the art's own layout. */
+.term-banner-block { position: relative; width: fit-content; margin: 0 auto; }
+
+
+/* Subtitle / version */
+.oxis-sub-row {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 1.8rem;
+
+  width: 100%;
+  max-width: 540px;
+  margin-top: 4px;
+
+  font-size: var(--fs);
+  color: var(--text);
+  font-weight: 500;
+  letter-spacing: 0.08em;
+}
+
+.oxis-sub-row span {
+  white-space: nowrap;
+}
+
+.oxis-letter {
+  color: #39ff14;
+  font-weight: 900;
+  display: inline-block;
+  text-shadow:
+    0 0 2px rgba(57,255,20,.32),
+    0 0 4px rgba(57,255,20,.20),
+    0 0 7px rgba(57,255,20,.12);
+}
+
+.oxis-ver-row {
+  display: flex; align-items: baseline; gap: 8px; margin-top: 2px;
+  font-size: var(--fs); font-style: italic; color: var(--muted);
+}
+
+/* Bordered box — sizes kept compact so the Home screen's WORKSPACE
+   panel + help box + Shell command line all fit in one view without
+   scrolling on a typical ~800px-tall window. */
+.oxis-box {
+  border: 1px solid var(--border2);
+  border-radius: 2px; padding: 7px 14px;
+  width: 100%; max-width: 620px; margin-bottom: 8px;
+  display: flex; flex-direction: column; gap: 3px;
+}
+.oxis-box-row { display: flex; align-items: baseline; font-size: var(--fs); white-space: nowrap; }
+.oxis-wl { color: var(--purple3); font-weight: 700; font-style: italic; min-width: 80px; }
+.oxis-we { color: var(--dim); padding: 0 4px; }
+.oxis-wa { color: var(--purple2); font-weight: 700; font-style: italic; letter-spacing: .01em; }
+
+/* Workspace panel — Home screen (see README § Home Screen & Workspace Panel) */
+.oxis-workspace-box { margin-top: 10px; }
+.oxis-workspace-box .oxis-box-row { white-space: normal; word-break: break-all; }
+.oxis-workspace-header { justify-content: space-between; margin-bottom: 2px; }
+.oxis-workspace-status { font-size: var(--fs); font-style: italic; color: var(--dim); }
+.oxis-workspace-status--ready   { color: var(--purple3); }
+.oxis-workspace-status--loading { color: var(--muted); }
+.oxis-workspace-footer { justify-content: flex-end; margin-top: 4px; }
+.oxis-workspace-hint { font-size: var(--fs); font-style: italic; color: var(--dim); }
+.oxis-workspace-hint code { color: var(--purple2); }
+.oxis-workspace-support-link {
+  background: none; border: none; cursor: pointer; padding: 0;
+  font-size: var(--fs); font-style: italic; color: var(--dim);
+  transition: color .15s ease;
+}
+.oxis-workspace-support-link:hover { color: var(--purple2); }
+
+.oxis-help-box { margin-top: 0; }
+.oxis-help-row { display: flex; align-items: baseline; gap: 4px; font-size: var(--fs); font-style: italic; }
+.oht { color: var(--dim);    font-style: italic; }
+.ohc { color: var(--purple3); font-weight: 700; font-style: italic; }
+.oha { color: var(--purple);  font-weight: 700; font-style: italic; }
+.ohr { color: var(--muted);   font-style: italic; }
+
+/* Cmdline (neovim-style) */
+.oxis-cmdline {
+  display: flex; align-items: baseline; margin-top: 18px;
+  font-size: var(--fs); width: 100%; max-width: 620px;
+}
+.oxis-cmdline-label { color: var(--text); font-style: italic; }
+.oxis-cmdline-mode  { color: var(--dim);  font-style: italic; margin-right: 4px; }
+.oxis-cmdline-input {
+  flex: 1; background: none; border: none; outline: none;
+  color: var(--text); font-family: var(--font); font-size: var(--fs);
+  font-style: italic; caret-color: var(--purple);
+}
+.oxis-cmdline-input::placeholder { color: var(--dim); font-style: italic; }
+
+/* Shell-open hint bar */
+.home-tab-hint {
+  height: 22px; display: flex; align-items: center;
+  padding: 0 14px; background: var(--bg1);
+  border-bottom: 1px solid var(--border);
+  font-size: 10px; color: var(--purple); cursor: pointer;
+  flex-shrink: 0; transition: background .1s;
+}
+.home-tab-hint:hover { background: var(--bg2); }
+
+/* ── Sky widget — top-right corner of home, sun/moon by time ──── */
+.sky-widget {
+  position: absolute;
+  top: 20px; right: 32px;
+  width: 90px; height: 70px;
+  pointer-events: none;
+}
+
+/* ── ASCII Sky widget ───────────────────────────────────── */
+.sky-ascii {
+  font-family: var(--font); white-space: pre; line-height: 1.2;
+  background: none; border: none; margin: 0; padding: 0;
+}
+.sky-sun {
+  position: absolute; top: 6px; right: 8px;
+  font-size: 11px; color: #ffd24a;
+  text-shadow: 0 0 6px rgba(255,210,74,.35);
+  animation: sun-pulse 4s ease-in-out infinite;
+  line-height: 1.2;
+}
+@keyframes sun-pulse {
+  0%, 100% { opacity: .9; }
+  50%      { opacity: 1;  text-shadow: 0 0 11px rgba(255,210,74,.55); }
+}
+
+.sky-cloud {
+  position: absolute; font-size: 10px; color: var(--muted); font-family: var(--font);
+  white-space: pre; opacity: .75; animation: cloud-drift 16s linear infinite;
+}
+.sky-cloud--1 { top: 46px; right: 42px; animation-duration: 18s; }
+.sky-cloud--2 { top: 60px; right: 6px;  animation-duration: 24s; animation-delay: -9s; font-size: 9px; opacity: .5; }
+@keyframes cloud-drift {
+  0%   { transform: translateX(24px); opacity: 0; }
+  12%  { opacity: .75; }
+  88%  { opacity: .75; }
+  100% { transform: translateX(-48px); opacity: 0; }
+}
+
+.sky-moon {
+  position: absolute; top: 4px; right: 6px;
+  font-size: 11px; color: #c8d2ff; font-family: var(--font);
+  white-space: pre; line-height: 1.2;
+  text-shadow: 0 0 5px rgba(200,210,255,.28);
+  animation: moon-glow 5s ease-in-out infinite;
+}
+@keyframes moon-glow {
+  0%, 100% { opacity: .8; } 50% { opacity: 1; }
+}
+
+.sky-star {
+  position: absolute; color: var(--purple3); font-family: var(--font);
+  animation: star-twinkle 2.4s ease-in-out infinite; font-size: 9px;
+}
+.sky-star--1 { top: 10px; right: 64px; animation-delay: 0s;   }
+.sky-star--2 { top: 32px; right: 78px; font-size: 7px; animation-delay: .6s; }
+.sky-star--3 { top: 18px; right: 40px; font-size: 8px; animation-delay: 1.2s;}
+.sky-star--4 { top: 44px; right: 58px; font-size: 7px; animation-delay: 1.8s;}
+.sky-star--5 { top: 56px; right: 28px; font-size: 8px; animation-delay: 0.9s;}
+@keyframes star-twinkle {
+  0%, 100% { opacity: .2;  }
+  50%      { opacity: .95; }
+}
+
+/* Startup animation — the train arriving. 10s (was 5s) so there's
+   real time to see the wheels spin and the smoke rise before it
+   fades. Previously `.startup-anim` had `pointer-events: none` baked
+   into the BASE rule (not just the keyframe's end state), which
+   silently broke the "click to skip" handler in App.tsx the whole
+   time — fixed here by only disabling pointer events once the
+   fade-out keyframe actually reaches 0 opacity, same as before, but
+   not before. Duration here MUST match the setTimeout(onClick, ...)
+   in StartupSplash (App.tsx) — that's the actual auto-dismiss; this
+   animation only controls how it looks along the way. */
+.startup-anim {
+  position: fixed; inset: 0; z-index: 999; background: var(--bg);
+  display: flex; align-items: center; justify-content: center;
+  animation: startup-fade 16s ease forwards; cursor: pointer;
+}
+.startup-logo {
+  position: relative; width: fit-content;
+  /* Same size as the home screen's train (.oxis-ascii-row) — was a
+     smaller 10px/1.3 of its own, now matches so the train doesn't
+     visibly grow when the splash hands off to the home screen. */
+  font-family: var(--font); font-size: var(--fs); line-height: 1.35;
+  color: var(--purple); font-weight: 700; white-space: pre; text-align: center;
+  text-shadow: 0 0 18px rgba(61,255,100,.2);
+  animation: startup-glow 16s ease forwards;
+}
+@keyframes startup-fade { 0%{opacity:1;} 78%{opacity:1;} 100%{opacity:0;pointer-events:none;} }
+@keyframes startup-glow { 0%{transform:scale(.96);opacity:0;} 8%{transform:scale(1);opacity:1;} 90%{transform:scale(1);opacity:1;} 100%{transform:scale(1.01);opacity:0;} }
+
+/* Status bar additions */
+.sl-dot     { color: var(--bg); opacity: .5; }
+.sl-project { color: var(--bg); font-weight: 700; opacity: .9; }
+.sl-update  { color: var(--bg); opacity: .85; }
+
+/* ── PANEL (themes / plugins view) ──────────────────────── */
+.nv-panel {
+  width: min(720px, 94vw); display: flex; flex-direction: column; gap: 10px;
+  max-height: 84vh;
+}
+
+.nv-panel-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding-bottom: 8px; border-bottom: 1px solid var(--border);
+}
+
+.nv-panel-title {
+  font-size: 11px; font-weight: 700; color: var(--purple3); letter-spacing: .1em;
+  text-transform: uppercase;
+}
+
+.nv-count { color: var(--dim); font-weight: 400; margin-left: 6px; font-size: 10px; }
+
+.nv-panel-actions { display: flex; align-items: center; gap: 8px; }
+
+.nv-back {
+  font-size: 10px; color: var(--dim); background: none; border: none;
+  cursor: pointer; font-family: var(--font); transition: color .1s;
+}
+.nv-back:hover { color: var(--muted); }
+
+.nv-action-btn {
+  font-size: 10px; color: var(--purple3); border: 1px solid var(--purple2);
+  border-radius: var(--r); padding: 2px 10px; cursor: pointer;
+  background: rgba(61,255,100,.06); font-family: var(--font); transition: all .1s;
+}
+.nv-action-btn:hover { background: rgba(61,255,100,.14); }
+
+/* Plugin list */
+.nv-search-wrap {
+  display: flex; align-items: center; background: var(--bg2);
+  border: 1px solid var(--border); border-radius: var(--r); padding: 0 10px; gap: 6px;
+  transition: border-color .1s;
+}
+.nv-search-wrap:focus-within { border-color: var(--border2); }
+.nv-search-icon  { color: var(--dim); font-size: 14px; flex-shrink: 0; }
+.nv-search-input {
+  flex: 1; background: none; border: none; outline: none;
+  color: var(--text); font-family: var(--font); font-size: 11px; padding: 6px 0;
+}
+.nv-search-input::placeholder { color: var(--dim); }
+.nv-search-clear { background: none; border: none; color: var(--dim); cursor: pointer; font-size: 14px; }
+.nv-search-clear:hover { color: var(--muted); }
+
+.nv-plugin-list { display: flex; flex-direction: column; gap: 1px; overflow-y: auto; max-height: 55vh; }
+
+.nv-plugin-row {
+  display: grid;
+  grid-template-columns: 16px 130px 70px 1fr 42px;
+  align-items: center; gap: 8px;
+  padding: 5px 8px; border-radius: 2px; transition: background .08s;
+  cursor: default;
+}
+.nv-plugin-row:hover { background: var(--bg2); }
+
+.nv-plugin-dot     { font-size: 8px; color: var(--comment); }
+.nv-plugin-dot--on { color: var(--purple); }
+.nv-plugin-name    { font-size: 11px; font-weight: 600; color: var(--text); }
+.nv-plugin-cat     { font-size: 9px; color: var(--dim); }
+.nv-plugin-desc    { font-size: 10px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+
+.nv-plugin-tog {
+  font-size: 9px; padding: 2px 6px; border: 1px solid var(--border2);
+  border-radius: 2px; color: var(--dim); text-transform: uppercase;
+  letter-spacing: .06em; cursor: pointer; background: none;
+  font-family: var(--font); transition: all .1s;
+}
+.nv-plugin-tog--on       { color: var(--purple); border-color: var(--purple2); background: rgba(61,255,100,.07); }
+.nv-plugin-tog--on:hover { background: rgba(61,255,100,.16); }
+
+.nv-empty { padding: 20px; text-align: center; color: var(--dim); font-size: 11px; }
+
+/* Theme tiles */
+.themes-grid {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px;
+  overflow-y: auto; max-height: 65vh;
+}
+.theme-tile {
+  cursor: pointer; border-radius: var(--r); overflow: hidden;
+  border: 1px solid var(--border); transition: border-color .12s;
+}
+.theme-tile:hover   { border-color: var(--border2); }
+.theme-tile--on     { border-color: var(--purple2); box-shadow: 0 0 0 1px var(--purple2); }
+.theme-tile--new    { border-style: dashed; opacity: .45; display: flex; flex-direction: column; }
+.theme-tile--new:hover { opacity: 1; }
+.theme-tile-preview { height: 40px; overflow: hidden; border-bottom: 1px solid rgba(255,255,255,.04); }
+.theme-tile-add {
+  display: flex; align-items: center; justify-content: center;
+  background: var(--bg2) !important; font-size: 18px; color: var(--dim);
+}
+.theme-tile-bar  { height: 12px; display: flex; align-items: center; padding: 0 5px; }
+.theme-tile-body { padding: 3px 5px; }
+.theme-tile-name {
+  font-size: 9px; padding: 3px 6px;
+  display: flex; justify-content: space-between; align-items: center; color: var(--muted);
+}
+.theme-tile-del {
+  font-size: 11px; color: var(--dim); background: none; border: none;
+  cursor: pointer; padding: 0 2px; line-height: 1; opacity: 0; transition: opacity .1s;
+}
+.theme-tile:hover .theme-tile-del { opacity: 1; }
+.theme-tile-del:hover { color: var(--err); }
+
+
+/* ── SCROLLBAR ───────────────────────────────────────────── */
+::-webkit-scrollbar       { width: 3px; height: 3px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--bg4); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: var(--grey2); }
+
+/* ── MISC ────────────────────────────────────────────────── */
+::selection { background: rgba(203,166,247,.2); color: var(--text); }
+button  { background: none; border: none; cursor: pointer; font-family: var(--font); font-size: var(--fs); color: inherit; }
+input, textarea { font-family: var(--font); }
+
+/* ── ANIMATIONS ──────────────────────────────────────────── */
+@keyframes blink   { 50%  { opacity: 0; } }
+@keyframes fadein  { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+/* ── WAILS TITLEBAR (wails-mode only, frameless native window) ─── */
+.wails-titlebar {
+  display: flex; align-items: center; height: 34px; flex-shrink: 0;
+  background: var(--bg1); border-bottom: 1px solid var(--border);
+  padding: 0 10px; gap: 10px; user-select: none;
+  --wails-draggable: drag;
+}
+.wails-traffic { display: flex; align-items: center; gap: 8px; --wails-draggable: no-drag; }
+.wails-dot {
+  width: 12px; height: 12px; border-radius: 50%; padding: 0;
+  border: 1px solid rgba(0,0,0,.25); transition: filter .1s, transform .1s;
+}
+.wails-dot:hover { filter: brightness(1.15); transform: scale(1.06); }
+.wails-dot:active { transform: scale(.94); }
+.wails-dot--close { background: #ff5f57; }
+.wails-dot--min   { background: #febc2e; }
+.wails-drag {
+  flex: 1; height: 100%; display: flex; align-items: center; justify-content: center;
+  gap: 8px; --wails-draggable: drag;
+}
+.wails-title {
+  font-size: 11px; font-weight: 700; letter-spacing: .16em; color: var(--muted);
+}
+.wails-mode-pill {
+  font-size: 9px; letter-spacing: .08em; color: var(--bg1); background: var(--purple);
+  padding: 1px 6px; border-radius: 8px; text-transform: uppercase; font-weight: 700;
+}
+/* Balances the traffic-light cluster on the left so the centered
+   title/pill in .wails-drag sits visually centered in the window. */
+.wails-spacer { width: 62px; flex-shrink: 0; }

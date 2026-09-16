@@ -1,0 +1,26 @@
+{
+  "name": "oxis",
+  "version": "1.2.1",
+  "description": "OXIS — browser-based local terminal. Starts on port 1420.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://gitlab.com/oxis/oxis.git"
+  },
+  "homepage": "https://gitlab.com/oxis/oxis",
+  "keywords": ["terminal", "shell", "oxis", "browser", "pty", "websocket"],
+  "bin": {
+    "oxis": "./bin/oxis.js",
+    "oxi":      "./bin/oxis.js"
+  },
+  "scripts": {
+    "postinstall": "node scripts/install.js"
+  },
+  "files": [
+    "bin/",
+    "scripts/"
+  ],
+  "engines": {
+    "node": ">=24.0.0"
+  }
+}
