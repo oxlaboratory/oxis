@@ -143,7 +143,13 @@ fs.mkdirSync(OUT, { recursive:true });
 
 const binaryName = IS_WIN ? "oxis.exe" : "oxis";
 const outBinary  = path.join(OUT, binaryName);
-const ldflags    = IS_WIN ? `"-s -w -H windowsgui"` : `"-s -w"`;
+// -X wailsapp.Version=... stamps the running VERSION into the binary
+// so 'update (internal/update.Check, called from App.CheckForUpdate)
+// has something real to compare GitLab's latest release tag against —
+// without this it'd stay at Go's "0.0.0-dev" and 'update would look
+// broken (never newer than anything) on every release build.
+const versionFlag = `-X github.com/oxis/oxis/internal/wailsapp.Version=${VERSION}`;
+const ldflags    = IS_WIN ? `"-s -w -H windowsgui ${versionFlag}"` : `"-s -w ${versionFlag}"`;
 // Wails v2 requires the "desktop" build tag (selects its native webview
 // bindings) — a plain `go build` without it links, but the resulting
 // binary refuses to start and shows an error dialog pointing at `wails

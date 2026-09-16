@@ -49,7 +49,7 @@ import { pluginManager }                   from "./plugins/pluginManager";
 import { initPlugins }                     from "./plugins/loader";
 import type { LuaJSValue }                 from "./plugins/luaRuntime";
 import * as market                         from "./plugins/market";
-import { readFile, writeFile, isNativeApp, openUrl } from "./native";
+import { readFile, writeFile, isNativeApp, openUrl, checkForUpdate } from "./native";
 import Titlebar from "./components/Titlebar";
 
 // ══════════════════════════════════════════════════════════════
@@ -85,6 +85,10 @@ function writePersistedOption(key: string, value: LuaJSValue): void {
 
 // ── init flag so we only register commands once ──────────────
 let _commandsRegistered = false;
+// Gates the background update check to once per app run (see onReady
+// below) — Terminal mounts once per tab, and there's no reason to hit
+// gitlab.com again for a tab opened later in the same session.
+let _updateCheckedThisRun = false;
 // Stable ref so clear/print/send always call the latest Terminal instance
 const _ctxRef: { current: ShellCtx | null } = { current: null };
 
@@ -223,6 +227,17 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
 
   registry.register({ name:"edit",   category:"files", description:"Open in built-in editor",
     handler:(_,r)=>{ if(!r){err("usage: 'edit <file>");return;} _ctxRef.current?.openEditor(r); ok(`opening ${r}`); }});
+
+  registry.register({ name:"update", category:"files", description:"Check for a newer OXIS release",
+    handler:()=>{
+      ok("checking gitlab.com/oxidelab/oxis for a newer release...");
+      checkForUpdate().then(info => {
+        if (!info.available) { ok(`up to date (${info.current || "dev build"})`); return; }
+        ok(`update available: ${info.current || "current"} → ${info.latest}`);
+        if (info.downloadUrl) openUrl(info.downloadUrl);
+        else if (info.releaseUrl) openUrl(info.releaseUrl);
+      }).catch(() => err("update check failed — check your connection"));
+    }});
 
   // ── shell ─────────────────────────────────────────────
   registry.register({ name:"clear",   category:"shell", description:"Clear terminal output",
@@ -640,7 +655,7 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
       h("'cat <f>","read file"); h("'new / 'touch <f>","create file"); h("'mkdir <d>","create directory");
       h("'rm <p>","delete"); h("'cp <s> <d>","copy"); h("'mv <s> <d>","move/rename");
       h("'write <f> [text]","write file"); h("'append <f> <text>","append to file");
-      h("'edit <f>","built-in editor"); h("'hash <f>","SHA256"); h("'size <p>","disk size");
+      h("'edit <f>","built-in editor"); h("'hash <f>","SHA256"); h("'size <p>","disk size"); h("'update","check for a newer release");
       info(""); h("── shell ─────────────────────────────","");
       h("'clear","clear output (keeps the banner)"); h("'run <cmd>","raw command"); h("'env","env vars");
       h("'ps","processes"); h("'kill <pid|name>","kill process"); h("'ip","network");
@@ -1508,6 +1523,22 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
         // detection on launch actually automatic instead of requiring
         // the user to run 'workspace reload by hand.
         setTimeout(probeCwd, 500);
+
+        // Background update check — once per app run, well after
+        // startup (see _updateCheckedThisRun) so a slow/offline
+        // gitlab.com never delays the shell becoming usable. Silent
+        // when up to date; a single line (not a popup) when not, same
+        // as every other passive notice in this terminal.
+        if (!_updateCheckedThisRun) {
+          _updateCheckedThisRun = true;
+          setTimeout(() => {
+            checkForUpdate().then(info => {
+              if (info.available) {
+                addLine(`  ↑  OXIS ${info.latest} is available (you're on ${info.current || "an older build"}) — run 'update to open it`, "info");
+              }
+            }).catch(() => {}); // silent — a background check should never surface as an error
+          }, 2000);
+        }
       },
       onExit: code => {
         if (code !== -1) setConnErr(`shell exited (code ${code})`);

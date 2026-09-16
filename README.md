@@ -35,6 +35,7 @@ current codebase today, **[in progress]** — partially built, **[planned]**
 - [PTY Architecture](#pty-architecture)
 - [Task Runner](#task-runner)
 - [Built-in Editor](#built-in-editor)
+- [Auto-Update](#auto-update)
 - [Session Management](#session-management)
 - [OXIS Market — Subscriptions & Premium Plugins](#oxis-market--subscriptions--premium-plugins)
 - [Premium Plugin Licensing & Encryption](#premium-plugin-licensing--encryption)
@@ -90,6 +91,10 @@ today, not a roadmap item:
   into a project that has one — see [Workspace System](#workspace-system)
 - **Editor** — built-in, with real modal Normal/Insert/Visual editing
   (not just a plain textarea) — see [Built-in Editor](#built-in-editor)
+- **Auto-update check** — compares the running build against
+  `gitlab.com/oxidelab/oxis`'s latest published Release and surfaces a
+  one-line notice + `'update` to open the download — see
+  [Auto-Update](#auto-update)
 - **Themes** — JSON-defined, hot-reloadable, Lua-controllable
 - **Automation** — tasks, keymaps, and event hooks (`oxis.autocmd`)
   that plugins and workspace files can register
@@ -358,7 +363,9 @@ oxis/
 │   └── windows.go              Windows console-hiding build tag
 ├── internal/
 │   ├── wailsapp/
-│   │   └── app.go              Native Wails v2 window + bound window-control/file/plugin methods
+│   │   └── app.go              Native Wails v2 window + bound window-control/file/plugin/update methods
+│   ├── update/
+│   │   └── update.go           GitLab Releases check (gitlab.com/oxidelab/oxis) — see Auto-Update
 │   ├── server/
 │   │   └── server.go           /ws (PTY) + frontend, on a real 127.0.0.1 port — see Browser Mode
 │   └── pty/
@@ -1108,7 +1115,7 @@ Both are dispatched identically when the user runs `'hello`.
 
 | Category  | Commands                                                   |
 |-----------|------------------------------------------------------------|
-| files     | new, touch, mkdir, rm, cat, ls, cd, pwd, cp, mv, write, edit, hash, size |
+| files     | new, touch, mkdir, rm, cat, ls, cd, pwd, cp, mv, write, edit, hash, size, update |
 | shell     | clear, run, env, ps, kill, ip, disk, sysinfo, which, find, history, ports, user, path, alias, home |
 | themes    | theme                                                      |
 | plugins   | plugin, market                                              |
@@ -1327,6 +1334,59 @@ Example:
 | Tab      | Insert 2 spaces       |
 
 The editor reads and writes files through the active PTY shell using PowerShell's `Get-Content` and `Set-Content`. This means it works anywhere the shell can reach.
+
+---
+
+## Auto-Update
+
+**[shipped]** — OXIS checks `gitlab.com/oxidelab/oxis`'s latest
+**Release** (not just the latest commit/push — an actual tagged
+GitLab Release) against the version baked into the running binary,
+and lets you know if something newer is out. It never replaces the
+running `.exe` itself — Windows won't let a process overwrite its own
+binary while it's executing, and there's no separate updater process
+— it just hands you the link.
+
+### How it fires
+
+- **On startup** — once per run, ~2s after the shell connects (so a
+  slow or offline GitLab never delays the shell becoming usable).
+  Silent if you're up to date; a single terminal line if not:
+  ```
+  ↑  OXIS 1.3.0 is available (you're on 1.2.1) — run 'update to open it
+  ```
+- **On demand** — `'update` checks immediately and, if a newer
+  release exists, opens its first `.exe`/`.msi` asset (falling back to
+  the release page itself) in your default browser via the same
+  `OpenURL` native call the Market's checkout flow uses.
+
+### How the version is determined
+
+`scripts/build-go.js`'s `VERSION` constant gets stamped into the
+binary at compile time via `-ldflags -X .../wailsapp.Version=...` — a
+`go run`/unlinked build falls back to `"0.0.0-dev"`, which never
+reports as newer than a real release. Bump `VERSION` in
+`build-go.js` (and `cmd/oxi/versioninfo.json`, so the `.exe`'s own
+file-properties version matches) when you cut a release.
+
+### What actually triggers a notification
+
+**Pushing to a branch does nothing here.** The check hits GitLab's
+`/releases/permalink/latest` API, which only returns something once
+you've cut a real Release off a tag (Repository → Tags → a tag, then
+Releases → New release, or `glab release create`) — not on every
+`git push`. Draft/upcoming releases aren't returned by that endpoint
+either.
+
+### Files
+
+| File                                | Role                                                        |
+|--------------------------------------|--------------------------------------------------------------|
+| `internal/update/update.go`          | `Check(currentVersion)` — hits the GitLab API, compares semver, never returns an error (a failed/offline check just comes back `Available: false`) |
+| `internal/wailsapp/app.go`           | `Version` var (ldflags target) + `CheckForUpdate()` bound method |
+| `frontend/src/native.ts`             | `checkForUpdate()` — typed wrapper around the bound method |
+| `frontend/src/App.tsx`               | `'update` command + the once-per-run startup check          |
+| `scripts/build-go.js`                | Stamps `VERSION` into the binary via ldflags                 |
 
 ---
 
@@ -2105,5 +2165,3 @@ split happens, treat everything in this repository as proprietary
 and all rights reserved.
 
 ---
-
-*OXIS — terminals were the beginning.*

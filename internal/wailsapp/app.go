@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/oxis/oxis/internal/server"
+	"github.com/oxis/oxis/internal/update"
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
@@ -32,6 +33,22 @@ type App struct {
 }
 
 func NewApp() *App { return &App{} }
+
+// Version is this build's version string (e.g. "1.2.1"), set at build
+// time via -ldflags "-X .../wailsapp.Version=..." — see VERSION in
+// scripts/build-go.js. Left at its dev default for `go run`/unlinked
+// builds; CheckForUpdate below still works fine against that (it just
+// never reports "0.0.0-dev" as newer than anything).
+var Version = "0.0.0-dev"
+
+// CheckForUpdate backs 'update and the frontend's own background
+// check-once-per-run on shell startup — compares this build against
+// OXIS's latest gitlab.com/oxidelab/oxis release (see internal/update).
+// The frontend calls this directly rather than Go pushing a
+// Wails EventsEmit, since a plain request/response call is the only
+// Go->frontend channel this app already uses anywhere (see native.ts)
+// — no new event-bridge wiring needed for an occasional check.
+func (a *App) CheckForUpdate() update.Info { return update.Check(Version) }
 
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
@@ -305,12 +322,12 @@ func (a *App) DeletePath(path string) error {
 // system_health.lua currently get by shelling out to platform-specific
 // commands, exposed as one first-class call instead.
 type SystemInfo struct {
-	OS          string `json:"os"`
-	Arch        string `json:"arch"`
-	NumCPU      int    `json:"numCPU"`
-	GoVersion   string `json:"goVersion"`
-	AllocMB     uint64 `json:"allocMB"`     // OXIS process's own heap, not total system memory
-	NumGoroutine int   `json:"numGoroutine"`
+	OS           string `json:"os"`
+	Arch         string `json:"arch"`
+	NumCPU       int    `json:"numCPU"`
+	GoVersion    string `json:"goVersion"`
+	AllocMB      uint64 `json:"allocMB"` // OXIS process's own heap, not total system memory
+	NumGoroutine int    `json:"numGoroutine"`
 }
 
 func (a *App) SystemInfo() SystemInfo {

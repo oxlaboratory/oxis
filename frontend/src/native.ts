@@ -47,6 +47,7 @@ declare global {
           ListProcesses?: () => Promise<NativeProcessInfo[]>;
           KillProcess?: (pid: number) => Promise<void>;
           OpenURL?: (url: string) => Promise<void>;
+          CheckForUpdate?: () => Promise<NativeUpdateInfo>;
         };
       };
     };
@@ -73,6 +74,10 @@ export interface NativeFileEntry { name: string; isDir: boolean; size: number; m
 export interface NativeStatResult { exists: boolean; isDir: boolean; size: number; modTime: number; }
 export interface NativeSystemInfo { os: string; arch: string; numCPU: number; goVersion: string; allocMB: number; numGoroutine: number; }
 export interface NativeProcessInfo { pid: number; name: string; }
+export interface NativeUpdateInfo {
+  available: boolean; current: string; latest: string;
+  releaseUrl: string; downloadUrl: string; notes: string;
+}
 
 /** True if running inside the native Wails window; false in a plain
  *  browser tab (e.g. http://127.0.0.1:1420 opened directly). Synchronous
@@ -207,4 +212,16 @@ export async function openUrl(url: string): Promise<void> {
   const fn = window.go?.wailsapp?.App?.OpenURL;
   if (fn) { await fn(url); return; }
   window.open(url, "_blank", "noopener,noreferrer");
+}
+
+/** Checks gitlab.com/oxidelab/oxis's latest release against this
+ *  build (see CheckForUpdate in internal/wailsapp/app.go). Native
+ *  window only — in browser mode there's no running-binary version to
+ *  compare against, so this just reports nothing available rather
+ *  than throwing (unlike the other native-only calls above): a stray
+ *  'update in a browser tab shouldn't look like an error. */
+export async function checkForUpdate(): Promise<NativeUpdateInfo> {
+  const fn = window.go?.wailsapp?.App?.CheckForUpdate;
+  if (!fn) return { available: false, current: "", latest: "", releaseUrl: "", downloadUrl: "", notes: "" };
+  return fn();
 }
