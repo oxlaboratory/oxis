@@ -249,8 +249,18 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
   registry.register({ name:"home",    category:"shell", description:"Return to OXIS home screen",
     handler:()=>_goHomeRef.current?.() });
 
-  registry.register({ name:"run",     category:"shell", description:"Run raw command",
-    handler:(_,r)=>{ if(!r){err("usage: 'run <cmd>");return;} ps(r); }});
+  registry.register({
+  name: "run",
+  category: "shell",
+  description: "Run raw command",
+  handler: (_, r) => {
+    if (!r) {
+      err("usage: 'run <cmd>");
+      return;
+    }
+    ps(r);
+  }
+});
 
   registry.register({ name:"env",     category:"shell", description:"Environment variables",
     handler:()=> ps(shellCmd(

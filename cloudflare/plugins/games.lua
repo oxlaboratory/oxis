@@ -20,27 +20,42 @@ oxis.command("8ball", function()
   oxis.echo("🎱 " .. answers[math.random(1, #answers)])
 end, "ask the magic 8-ball a question")
 
--- Real interactive guessing game, using Read-Host in a loop
-oxis.command("guess", function()
-    local target = math.random(1, 10)
+oxis.command("guess", function(args)
+    local guess = tonumber(args)
 
-    oxis.print("I'm thinking of a number between 1 and 10.")
-
-    while true do
-        local input = oxis.input("Your guess: ")
-        local guess = tonumber(input)
-
-        if not guess then
-            oxis.print("Please enter a number between 1 and 10.")
-        elseif guess < 1 or guess > 10 then
-            oxis.print("Please enter a number between 1 and 10.")
-        elseif guess == target then
-            oxis.print("Correct! It was " .. target .. ".")
-            break
-        elseif guess < target then
-            oxis.print("Too low.")
-        else
-            oxis.print("Too high.")
-        end
+    if not guess then
+        oxis.print("Usage: guess <number>", "err")
+        oxis.print("Choose a number from 1 to 10.", "info")
+        return
     end
-end, "play a number-guessing game (1-10)")
+
+    if guess < 1 or guess > 10 then
+        oxis.print("Please choose a number from 1 to 10.", "err")
+        return
+    end
+
+    oxis.run('powershell -NoProfile -Command "$target=Get-Random -Minimum 1 -Maximum 11; if (' .. guess .. ' -eq $target) { Write-Host ''You win! The number was ''$target''.'' } else { Write-Host ''You lose! The number was ''$target''.'' }"')
+end, "guess a random number (1-10)")
+```
+
+So:
+
+```text
+guess
+```
+
+shows:
+
+```text
+✗ Usage: guess <number>
+  Choose a number from 1 to 10.
+```
+
+While:
+
+```text
+guess 7
+```
+
+plays the game.
+
