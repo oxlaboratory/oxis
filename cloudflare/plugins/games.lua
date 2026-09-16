@@ -21,10 +21,10 @@ oxis.command("8ball", function()
 end, "ask the magic 8-ball a question")
 
 
+
 oxis.command("guess", function()
+    local number = math.random(1, 10)
 
-  oxis.run('powershell -NoProfile -Command "$target=Get-Random -Minimum 1 -Maximum 11; $guess=Read-Host ''Pick a number from 1 to 10''; if($guess -match ''^[1-9]$|^10$''){if([int]$guess -eq $target){Write-Host ''🎯 You win! The number was ''$target''.''}else{Write-Host ''❌ You lose! The number was ''$target''.''}}else{Write-Host ''Please enter a number from 1 to 10.''}"')
-
-end, "guess a random number (1-10)")
-
+    oxis.echo("🎯 Random number: " .. number)
+end, "generate a random number (1-10)")
 
