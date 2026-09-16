@@ -2166,7 +2166,11 @@ npm run dev
 
 ## Screenshots
 
-> Coming soon — submit yours via merge request.
+<p align="center">
+  <img src="assets/screenshot-home.png" width="32%">
+  <img src="assets/screenshot-editor.png" width="32%">
+  <img src="assets/screenshot-market.png" width="32%">
+</p>
 
 ---
 
