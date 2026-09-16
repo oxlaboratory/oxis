@@ -48,6 +48,7 @@ declare global {
           KillProcess?: (pid: number) => Promise<void>;
           OpenURL?: (url: string) => Promise<void>;
           CheckForUpdate?: () => Promise<NativeUpdateInfo>;
+          WriteTempScript?: (ext: string, content: string) => Promise<string>;
         };
       };
     };
@@ -224,4 +225,15 @@ export async function checkForUpdate(): Promise<NativeUpdateInfo> {
   const fn = window.go?.wailsapp?.App?.CheckForUpdate;
   if (!fn) return { available: false, current: "", latest: "", releaseUrl: "", downloadUrl: "", notes: "" };
   return fn();
+}
+
+/** Writes content to a fresh file in the OS temp dir and returns its
+ *  absolute path — see WriteTempScript in internal/wailsapp/app.go.
+ *  Backs oxis.run()'s multi-line-script fix in pluginAPI.ts; not
+ *  meant for general use (there's no matching read/delete wrapper —
+ *  the caller cleans it up itself via a shell command, see there). */
+export async function writeTempScript(ext: string, content: string): Promise<string> {
+  const fn = window.go?.wailsapp?.App?.WriteTempScript;
+  if (!fn) throw new NativeUnavailableError();
+  return fn(ext, content);
 }

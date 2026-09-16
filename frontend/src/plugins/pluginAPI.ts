@@ -40,10 +40,12 @@ import { registry } from "../terminal/commandRegistry";
 import { keybinds } from "../terminal/keybinds";
 import { themeManager } from "../terminal/themeManager";
 import { events } from "../terminal/events";
+import { isWindows } from "../terminal/terminal";
 import type { OxisBindings, LuaJSValue } from "./luaRuntime";
 import {
   readFile, writeFile, listDir, statPath, makeDir, deletePath,
   systemInfo as nativeSystemInfo, listProcesses, killProcess, isNativeApp,
+  writeTempScript,
 } from "../native";
 import { requestPermission } from "./permissions";
 
@@ -66,6 +68,64 @@ export interface APIContext {
   setOption: (key: string, value: LuaJSValue) => void;
   /** Plugin name (set per-plugin) */
   pluginName: string;
+}
+
+/**
+ * Backs oxis.run() — used by nearly every builtin/market Lua plugin
+ * for anything beyond a single command (session_notes, ssh_manager,
+ * system_health, http, fuzzy, file_ops, env_manager, benchmark,
+ * project_init, clipboard, docker_compose, snippets, process_manager…
+ * — see frontend/src/plugins/builtins/*.lua).
+ *
+ * A single-line command is sent to the PTY exactly as always:
+ * ctx.sendToShell(cmd + "\r") — fast, no filesystem I/O, nothing to
+ * clean up. A MULTI-line command used to be sent the exact same way —
+ * one PTY write whose string just happens to contain embedded
+ * newlines — and that's where "'command spills the raw PowerShell
+ * into the terminal instead of running it" came from: a PTY write
+ * with embedded \n characters types each line into the LIVE
+ * interactive shell as its own keystroke-then-Enter, not as one
+ * parsed script. Anything with control flow (if/while, a `{ ... }`
+ * block spanning lines) or an interactive Read-Host prompt gets its
+ * lines fed out of step with the shell's own prompt state — a
+ * Read-Host prompt ends up receiving the NEXT script line as its
+ * typed answer instead of real input, producing exactly the
+ * reordered/garbled ">>" continuation-prompt output this was reported
+ * against, for effectively every plugin with a multi-line oxis.run().
+ *
+ * Fix: write the whole script to a real temp .ps1 file (native OS
+ * temp dir — see WriteTempScript in internal/wailsapp/app.go) and
+ * tell the shell to run THAT file, then delete it — all as one
+ * single-line PTY write. It's PowerShell's own script-file parser
+ * reading it then, not our raw keystrokes, so control flow and
+ * Read-Host inside the script behave exactly like running any other
+ * .ps1: Read-Host waits for genuine keystrokes typed into the live
+ * PTY session, same as if the user had run the file themselves.
+ *
+ * Falls back to the old single-write behavior in browser mode (no
+ * native filesystem to write a temp file to) and on non-Windows —
+ * every shipped plugin script is PowerShell-specific (Get-ChildItem,
+ * $env:USERPROFILE, Write-Host), so there's no cross-platform script
+ * to run there either way; a plain write is no worse than before.
+ */
+function runScript(ctx: APIContext, cmd: string): void {
+  if (!cmd.includes("\n") || !isNativeApp() || !isWindows()) {
+    ctx.sendToShell(cmd + "\r");
+    return;
+  }
+  writeTempScript(".ps1", cmd)
+    .then((path) => {
+      // -ErrorAction SilentlyContinue on the cleanup only — a delete
+      // that fails (e.g. antivirus briefly holding the file open)
+      // shouldn't surface as a scary error tacked onto the script's
+      // own output.
+      ctx.sendToShell(`& "${path}"; Remove-Item "${path}" -Force -ErrorAction SilentlyContinue\r`);
+    })
+    .catch(() => {
+      // Couldn't write the temp file (disk full, permissions, etc.)
+      // — fall back rather than silently doing nothing.
+      ctx.sendToShell(cmd + "\r");
+    });
 }
 
 export function buildLuaAPI(ctx: APIContext): OxisBindings {
@@ -100,7 +160,7 @@ export function buildLuaAPI(ctx: APIContext): OxisBindings {
     },
 
     echo: (text) => ctx.print(`  ${text}`, "info"),
-    run: (cmd) => ctx.sendToShell(cmd + "\r"),
+    run: (cmd) => runScript(ctx, cmd),
     theme: (name) => { themeManager.apply(name); },
     cwd: () => ctx.getCwd(),
     newTerminal: () => ctx.newTerminal(),

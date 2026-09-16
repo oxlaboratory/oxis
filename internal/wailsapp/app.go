@@ -244,6 +244,35 @@ func resolvePath(path string) string {
 	return filepath.Join(wd, path)
 }
 
+// WriteTempScript backs oxis.run()'s multi-line-script fix (see the
+// long comment on `run` in pluginAPI.ts for the actual bug this
+// solves). Writes content to a fresh file in the OS temp directory
+// and returns its absolute path. Deliberately NOT resolvePath-based —
+// this needs a path that's valid regardless of the PTY's current
+// working directory (which can be anywhere the user has `cd`'d to),
+// and os.TempDir() already returns an absolute, OS-correct path
+// (%TEMP% on Windows) with no ambiguity to resolve. The frontend
+// tells the shell to run this file, then delete it, in one line — see
+// pluginAPI.ts.
+func (a *App) WriteTempScript(ext string, content string) (string, error) {
+	if ext == "" {
+		ext = ".txt"
+	}
+	if ext[0] != '.' {
+		ext = "." + ext
+	}
+	f, err := os.CreateTemp("", "oxis-run-*"+ext)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	if _, err := f.WriteString(content); err != nil {
+		os.Remove(f.Name())
+		return "", err
+	}
+	return f.Name(), nil
+}
+
 // ═══════════════════════════════════════════════════════════════
 // Core System APIs — backs oxis.fs.*, oxis.process.*, oxis.system.*
 // (see README § Core System APIs). Every one of these is meant to sit

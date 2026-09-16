@@ -249,18 +249,8 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
   registry.register({ name:"home",    category:"shell", description:"Return to OXIS home screen",
     handler:()=>_goHomeRef.current?.() });
 
-  registry.register({
-  name: "run",
-  category: "shell",
-  description: "Run raw command",
-  handler: (_, r) => {
-    if (!r) {
-      err("usage: 'run <cmd>");
-      return;
-    }
-    ps(r);
-  }
-});
+  registry.register({ name:"run",     category:"shell", description:"Run raw command",
+    handler:(_,r)=>{ if(!r){err("usage: 'run <cmd>");return;} ps(r); }});
 
   registry.register({ name:"env",     category:"shell", description:"Environment variables",
     handler:()=> ps(shellCmd(
@@ -2268,6 +2258,27 @@ function Home({ onNew, currentTheme, onTheme, onOpenThemeEditor, onOpenPluginCre
 
   const refresh = () => setPlugins(pluginManager.all());
   useEffect(() => { if (view === "plugins") refresh(); }, [view]);
+
+  // Keep the plugin count/list live instead of a one-time snapshot —
+  // useState(() => pluginManager.all()) above only ever reflects
+  // whatever was registered at the exact instant Home first rendered,
+  // which is BEFORE initPlugins()'s effect in the root App component
+  // has run at all (state initializers run during render; plugin
+  // registration happens in an effect, which fires after). That's why
+  // the workspace panel always showed "0 plugins" — every plugin,
+  // built-in or market-installed, finishes registering strictly after
+  // this snapshot was taken, and nothing ever told this component to
+  // look again unless the user happened to open the Plugins tab (see
+  // the effect above). plugin_loaded/plugin_unloaded (emitted by
+  // pluginManager.load()/unload() — see pluginManager.ts) fire for
+  // every one of those registrations, on startup and later, so
+  // subscribing here keeps this accurate everywhere it's shown, not
+  // just inside the Plugins tab.
+  useEffect(() => {
+    const u1 = events.on("plugin_loaded", refresh);
+    const u2 = events.on("plugin_unloaded", refresh);
+    return () => { u1(); u2(); };
+  }, []);
 
   const allThemes = useMemo(() => themeManager.all(), [currentTheme]);
   const fp = useMemo(() => {

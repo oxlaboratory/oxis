@@ -243,15 +243,29 @@ class PluginManager {
    *  both 'plugin new (PluginCreator) and 'market install. Writes the
    *  real .lua file to disk (native window only; returns false there
    *  instead of throwing in browser mode, where there's no filesystem
-   *  access to write to at all). The plugin is registered and loaded
-   *  — and so already usable this session — regardless of whether the
-   *  disk write succeeds; the return value tells the caller which
-   *  happened, so "it works but didn't save" and "it failed outright"
-   *  don't get reported as the same thing. */
+   *  access to write to at all) — but only once load() actually
+   *  succeeds. A plugin that fails to load (a real syntax error, or —
+   *  what was actually happening here before the Cloudflare Pages
+   *  root-directory fix — a "market install" that silently downloaded
+   *  the wrong HTML page instead of real Lua source, since a
+   *  misconfigured Market deployment serves *something* at every
+   *  path, just not the plugin) used to get written to disk anyway.
+   *  That's what made a single bad install self-perpetuating: every
+   *  future launch would load that same broken file from disk again,
+   *  fail again, and print the same error again — with no obvious way
+   *  to tell "this plugin is broken" from "this plugin never actually
+   *  installed". Skipping the write on failure means a failed install
+   *  leaves nothing behind to retry against; running the same
+   *  install/'plugin new again is a clean retry, not a repeat of
+   *  whatever went wrong the first time. */
   async addLuaPlugin(name: string, lua: string, category = "plugin"): Promise<{ persisted: boolean; persistError?: unknown }> {
     this.register({ name, desc: "User Lua plugin", category, builtin: false, enabled: true, lua });
     this.persist();
     this.load(name);
+    // load() sets enabled back to false on failure (see its own doc
+    // comment) — check the real post-load state, not the optimistic
+    // one register() set above.
+    if (!this.plugins.get(name)?.enabled) return { persisted: false };
     if (!isNativeApp()) return { persisted: false };
     try {
       await writePluginFile(name, lua);

@@ -1675,10 +1675,11 @@ own plugin against their own Connect account (right now that's a
 manual `index.json` edit).
 
 The long-term goal is for other developers to publish and sell their
-own subscription plugins through the OXIS Market — `network-pro` on
-the live Market site is a real example of a third-party-style
-listing (Oxide Labs, not OXIS itself), currently `comingSoon` while
-it doesn't have a Stripe Price yet.
+own subscription plugins through the OXIS Market. Third-party listings
+are tracked the same way OXIS's own premium plugins are — by whether
+`index.json` carries a `stripeConnectAccountId` (see the 75/25
+revenue split below) — nothing else in the pipeline treats them
+differently.
 
 ### Onboarding — real, working today
 
@@ -1716,6 +1717,48 @@ Every plugin is published as either:
 
 - **Free** — works exactly like today's community `'market` plugins
 - **Premium subscription** — no one-time-paid tier exists
+
+### Submitting a Free Plugin — the actual process today
+
+**[shipped]** — there's no publishing dashboard yet (see below), but
+the underlying pipeline is real and already how every plugin in the
+current catalog got there:
+
+1. **Fork this repository** (or clone it if you already have write
+   access) and create a branch.
+2. **Add the plugin** in the required structure:
+   - The Lua source itself goes in `cloudflare/plugins/<name>.lua`
+     (see any existing file there, or [Lua API](#lua-api), for the
+     `oxis.command`/`oxis.task` API surface every command must use).
+   - Add one entry to `cloudflare/index.json` — this is the file
+     `'market list/search/install` actually reads (see [market.ts §
+     Expected contract](#plugin-marketplace)); a plugin with no entry
+     here is invisible to the desktop app no matter how correct its
+     Lua is.
+   - Add a matching card entry to the plugin array in
+     `cloudflare/index.html` — this is what renders on the
+     `oxis-market.pages.dev` website itself; it's a separate,
+     display-only list from `index.json`; both need the entry.
+3. **Test it locally in OXIS** before opening a PR: point a local
+   OXIS build at your branch's plugin file (or just drop the `.lua`
+   into your own `plugins/` folder and `'plugin reload`) and confirm
+   every command actually runs — see [Built-in Command
+   Categories](#built-in-command-categories) for what "actually runs"
+   should look like, not just "registers without a Lua error."
+4. **Submit a Pull Request** against this repository with the plugin
+   file, its `index.json` entry, and its `index.html` card together —
+   a PR missing any one of the three doesn't result in a working
+   listing.
+5. **Review** covers four things before a merge: the code itself,
+   that every command does what its description claims, that it only
+   requests the [Core System API](#core-system-apis) permissions
+   (`fs`/`process`/`net`/`system`) it actually needs, and that its
+   metadata (name, description, category, author) is accurate.
+6. **On merge**, nothing further is required — `cloudflare/` deploys
+   straight to Cloudflare Pages on every push to the connected branch
+   (see `wrangler.toml`), so a merged PR is live on
+   `oxis-market.pages.dev`, and installable via `'market install
+   <name>`, automatically.
 
 ### 75/25 Revenue Share — real, verified working
 
@@ -2165,3 +2208,5 @@ split happens, treat everything in this repository as proprietary
 and all rights reserved.
 
 ---
+
+*OXIS — terminals were the beginning.*

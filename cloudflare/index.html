@@ -104,43 +104,6 @@
     line-height:1.65;
   }
 
-  .btn-creator{
-    position:relative;
-    flex-shrink:0;
-    border:1px solid var(--green-dim);
-    color:var(--green);
-    background:transparent;
-    font-family:inherit;
-    font-size:11px;
-    letter-spacing:1px;
-    padding:9px 14px;
-    text-decoration:none;
-    white-space:nowrap;
-    cursor:pointer;
-    transition:.12s;
-  }
-  .btn-creator:hover{ background:var(--green); color:#04140a; }
-  .btn-creator[data-tip]:hover::after{
-    content: attr(data-tip);
-    position:absolute;
-    top:calc(100% + 9px);
-    right:0;
-    width:250px;
-    white-space:normal;
-    background:#050807;
-    border:1px solid var(--green-dim);
-    color:var(--white);
-    padding:11px 13px;
-    font-size:10.5px;
-    line-height:1.55;
-    letter-spacing:.2px;
-    z-index:10;
-    pointer-events:none;
-  }
-  @media(max-width:640px){
-    .btn-creator[data-tip]:hover::after{ left:0; right:auto; width:220px; }
-  }
-
   /* ---------- command bar ---------- */
   .cmdwrap{ padding:20px 34px; border-bottom:1px solid var(--line); background:var(--panel-2); }
   .cmdbar{
@@ -350,7 +313,7 @@
   @media(max-width:640px){
     .cmdbar input, #region-select{ font-size:16px; }
     .chip{ padding:9px 14px; }
-    .btn, .demo-toggle, .btn-creator{ padding:12px 14px; }
+    .btn, .demo-toggle{ padding:12px 14px; }
     #region-select{ padding:10px 12px; }
   }
 </style>
@@ -370,10 +333,6 @@
   <div class="hero">
     <div class="hero-top">
       <div class="hero-title">PLUGIN <span>MARKET</span></div>
-      <a class="btn-creator" href="https://discord.gg/Fu7FjDeSMQ" target="_blank" rel="noopener"
-        data-tip="Click if you want to become an official OXIS plugin creator. Get your plugins featured in this marketplace, sell paid plugins directly to users, and work with the team on new releases and API changes before they ship.">
-        Register As Creator
-      </a>
     </div>
     <div class="hero-sub">Extend your shell. Every free package here is a plain Lua script — read it, fork it, or run it as-is. Premium plugins are monthly subscriptions via Stripe — coming soon.</div>
   </div>
@@ -472,7 +431,6 @@ const PLUGINS = [
 
   // ---- premium plugins, Stripe subscriptions (see README § OXIS
   // Market) — comingSoon until each has a real stripePriceId ----
-  { name: "network-pro",     ver: "1.1.0", cat: "NETWORK",    creator: "Oxide Labs", desc: "Port scanning across 10 common ports, DNS fingerprinting, and header sniffing — each one prompts for a target instead of a hardcoded host. Plus a combined 'recon command. Commands: portscan, fingerprint, sniff, recon.", tags: ["premium","recon"], size: "24kb", premium: true, priceDisplay: "$3.99/mo", stripePriceId: null, comingSoon: true, demoVideo: null },
   { name: "ai-devops",       ver: "1.0.0", cat: "AUTOMATION", creator: "OXIS",       desc: "Code explain/fix/generate/review/debug, shell command generation, and Lua plugin scaffolding — real AI calls via any OpenAI-compatible endpoint once you set your own API key.", tags: ["premium","ai"], size: "6kb", premium: true, priceDisplay: "$4.99/mo", stripePriceId: null, comingSoon: true, demoVideo: null },
 
 ];
