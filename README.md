@@ -24,6 +24,7 @@ current codebase today, **[in progress]** — partially built, **[planned]**
 - [Directory Structure](#directory-structure)
 - [Cloudflare Deployment](#cloudflare-deployment)
 - [Getting Started](#getting-started)
+- [Continuous Integration](#continuous-integration)
 - [Plugin System](#plugin-system)
 - [Core System APIs](#core-system-apis)
 - [Lua API](#lua-api)
@@ -614,6 +615,48 @@ you happened to launch OXIS from:
 
 `'plugin new` and `'market install` both write real `.lua` files
 there — see [Plugin System](#plugin-system).
+
+---
+
+## Continuous Integration
+
+**[shipped]** `.gitlab-ci.yml` builds OXIS for both platforms on
+every push, in one `build` stage:
+
+| Job              | Runs on              | Produces                                                    |
+|-------------------|----------------------|--------------------------------------------------------------|
+| `build:linux`     | runner tagged `linux`   | `dist/oxis` (binary), `dist/oxis_<version>_amd64.deb`      |
+| `build:windows`   | runner tagged `windows` | `dist/oxis.exe`, `dist/oxis-<version>.msi`                 |
+
+Both jobs upload their output as pipeline artifacts (30-day
+expiry) — open the pipeline in GitLab's UI and download them from
+the job's **Browse** / **Download** buttons, no separate release
+step required.
+
+**Runner setup.** GitLab.com's default shared runners are Linux-only,
+so:
+
+- `build:linux` works out of the box on GitLab.com's shared runners
+  (it uses the `golang:1.22-bookworm` Docker image and installs
+  Node.js itself).
+- `build:windows` needs a runner you register with the `windows` tag
+  — a Windows machine/VM running `gitlab-runner register` (or your
+  GitLab instance's own Windows runner, if it has one). The job
+  installs Go, Node.js and the WiX Toolset via
+  [Chocolatey](https://chocolatey.org/) in `before_script`, so a
+  fresh Windows runner with `choco` available is enough; if your
+  runner's image already has some of these, trim that line to skip
+  the ones it doesn't need.
+- If WiX isn't actually available at build time, `scripts/build-msi.js`
+  falls back to producing an NSIS `.exe` installer instead of a
+  `.msi` — see [Installer & bundled source](#installer--bundled-source)
+  above. The Windows job's artifact list includes both patterns
+  (`dist/oxis-*.msi` and `dist/oxis-*-setup.exe`) so either output
+  gets picked up.
+
+Self-hosted GitLab instances with their own shared Windows/Linux
+runners can drop the `tags:` lines (or point them at whatever tags
+those runners actually use).
 
 ---
 
@@ -1334,6 +1377,15 @@ Example:
 | Tab      | Insert 2 spaces       |
 
 The editor reads and writes files through the active PTY shell using PowerShell's `Get-Content` and `Set-Content`. This means it works anywhere the shell can reach.
+
+**[shipped]** Syntax highlighting — a small built-in highlighter (no
+Monaco/CodeMirror dependency) colors comments, strings, numbers,
+keywords and `name(` function calls, based on the file's extension
+(`.ts`/`.tsx`, `.js`, `.go`, `.lua`, `.py`, `.json`, `.css`, `.html`,
+`.md`, `.sh`, `.yaml` are recognized; anything else renders as plain
+text). It's the same highlighter — and the same underlying editor —
+used by the [Plugin Creator](#creating-a-plugin) below, so Lua plugin
+source gets highlighting too.
 
 ---
 

@@ -188,16 +188,43 @@ html, body, #root {
 .editor-btn:hover        { color: var(--muted); border-color: var(--border2); background: var(--bg2); }
 .editor-btn--close:hover { color: var(--err); border-color: var(--err); }
 
-.editor-ta {
-  flex: 1 1 0; min-height: 0; width: 100%;
-  background: var(--bg); color: var(--text);
+/* ── CODE AREA — shared highlighted textarea (Editor + Plugin
+   Creator; see syntaxHighlight.ts and CodeArea in App.tsx). A <pre>
+   of highlighted spans sits behind a transparent <textarea>; both
+   are absolutely positioned over the same box so every character
+   lines up exactly, and the textarea's scroll position is copied
+   onto the <pre> on every scroll event. ── */
+.code-area { position: relative; flex: 1 1 0; min-height: 0; overflow: hidden; }
+
+.code-area-highlight,
+.code-area-input {
+  position: absolute; inset: 0; margin: 0; width: 100%; height: 100%;
+  box-sizing: border-box; padding: 12px 18px;
   font-family: var(--font); font-size: var(--fs); line-height: var(--lh);
-  border: none; outline: none; padding: 12px 18px;
-  resize: none; overflow-y: auto; overflow-x: auto;
-  white-space: pre; user-select: text; cursor: text;
-  tab-size: 2; caret-color: var(--purple);
+  white-space: pre; tab-size: 2; border: none;
+  overflow: auto;
 }
-.editor-ta::selection { background: rgba(203,166,247,.2); }
+
+.code-area-highlight {
+  color: var(--text); background: var(--bg);
+  pointer-events: none; overflow: hidden; /* scrolled via JS, see syncScroll */
+}
+.code-area-highlight code { font: inherit; white-space: inherit; }
+
+.code-area-input {
+  background: transparent; color: transparent; caret-color: var(--purple);
+  outline: none; resize: none; user-select: text; cursor: text;
+  position: relative; /* sits on top of the highlight layer */
+}
+.code-area-input::selection { background: rgba(203,166,247,.3); }
+
+/* Token colors — reuse existing theme variables (see ThemeEditor)
+   rather than inventing new ones, so custom themes cover these too. */
+.tok-comment  { color: var(--comment); font-style: italic; }
+.tok-string   { color: var(--purple3); }
+.tok-number   { color: var(--purple2); }
+.tok-keyword  { color: var(--purple); font-weight: 600; }
+.tok-function { color: var(--text); font-weight: 600; }
 
 .editor-loading {
   flex: 1 1 0; display: flex; align-items: center; justify-content: center;
@@ -235,8 +262,6 @@ html, body, #root {
   display: flex; align-items: center; justify-content: center;
   z-index: 100;
 }
-.overlay-panel { width: min(860px, 92vw); height: min(640px, 88vh); display: flex; flex-direction: column; }
-.overlay-panel .plugin-creator { flex: 1 1 0; border: 1px solid var(--border2); border-radius: 4px; box-shadow: 0 12px 48px rgba(0,0,0,.7); }
 
 .theme-editor {
   width: min(540px, 94vw); height: min(700px, 90vh);

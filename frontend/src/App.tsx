@@ -45,6 +45,8 @@ import {
   deleteChar, deleteLine, deleteWord, openLineBelow, openLineAbove,
   deleteSelection, selectedText,
 } from "./terminal/editorModes";
+import { highlight, detectLang } from "./terminal/syntaxHighlight";
+import type { EditorLang }       from "./terminal/syntaxHighlight";
 import { pluginManager }                   from "./plugins/pluginManager";
 import { initPlugins }                     from "./plugins/loader";
 import type { LuaJSValue }                 from "./plugins/luaRuntime";
@@ -740,6 +742,57 @@ class ErrorBoundary extends React.Component<
   }
 }
 
+// ══════════════════════════════════════════════════════════════
+// CODE AREA — shared syntax-highlighted text area used by both the
+// Editor and the Plugin Creator (see syntaxHighlight.ts). Classic
+// "highlighted textarea" trick: a <pre> with highlighted spans sits
+// behind a real <textarea> whose text is transparent but whose caret
+// and selection stay visible, so typing/selecting/vim-motions keep
+// working exactly as before — only the paint underneath changes.
+// ══════════════════════════════════════════════════════════════
+const CodeArea = React.forwardRef<HTMLTextAreaElement, {
+  value: string;
+  lang: EditorLang;
+  className?: string;
+  onChange?: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
+  onKeyDown?: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
+}>(function CodeArea({ value, lang, className, onChange, onKeyDown }, ref) {
+  const preRef = useRef<HTMLPreElement>(null);
+
+  const html = useMemo(() => {
+    const h = highlight(value, lang);
+    // Match a trailing newline so the highlight layer's height/scroll
+    // extent lines up with the textarea's (otherwise the last empty
+    // line makes them drift out of sync by one row).
+    return value.endsWith("\n") ? h + "\n" : h;
+  }, [value, lang]);
+
+  const syncScroll = useCallback((e: React.UIEvent<HTMLTextAreaElement>) => {
+    const pre = preRef.current;
+    if (!pre) return;
+    pre.scrollTop  = e.currentTarget.scrollTop;
+    pre.scrollLeft = e.currentTarget.scrollLeft;
+  }, []);
+
+  return (
+    <div className="code-area">
+      <pre ref={preRef} className="code-area-highlight" aria-hidden="true">
+        <code dangerouslySetInnerHTML={{ __html: html }} />
+      </pre>
+      <textarea
+        ref={ref}
+        className={`code-area-input ${className ?? ""}`}
+        value={value}
+        onChange={onChange}
+        onKeyDown={onKeyDown}
+        onScroll={syncScroll}
+        spellCheck={false}
+        autoComplete="off" autoCorrect="off" autoCapitalize="off"
+      />
+    </div>
+  );
+});
+
 function Editor({ file, onClose, onSave }: {
   file:    EditorFile;
   onClose: () => void;
@@ -777,9 +830,24 @@ function Editor({ file, onClose, onSave }: {
   const setPos = useCallback((pos: number, keepAnchor = false) => {
     const ta = taRef.current;
     if (!ta) return;
-    requestAnimationFrame(() => { ta.selectionStart = ta.selectionEnd = pos; });
-    if (!keepAnchor) setAnchor(null);
-  }, []);
+    if (keepAnchor) {
+      // Visual mode — extend the *real* browser selection from the
+      // anchor to `pos` so the selected range is actually visible
+      // (via ::selection) instead of only being tracked invisibly in
+      // React state. `direction` records which end is the "active"
+      // side so the next motion can recover the true cursor position
+      // back out of selectionStart/selectionEnd (see handleModalKey).
+      const a = anchor ?? pos;
+      if (pos >= a) {
+        requestAnimationFrame(() => ta.setSelectionRange(a, Math.min(pos + 1, content.length), "forward"));
+      } else {
+        requestAnimationFrame(() => ta.setSelectionRange(pos, Math.min(a + 1, content.length), "backward"));
+      }
+    } else {
+      requestAnimationFrame(() => { ta.selectionStart = ta.selectionEnd = pos; });
+      setAnchor(null);
+    }
+  }, [anchor, content]);
 
   const applyEdit = useCallback((next: CursorState, opts?: { toInsert?: boolean }) => {
     setContent(next.content);
@@ -799,7 +867,14 @@ function Editor({ file, onClose, onSave }: {
     // is even called.
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     const ta = taRef.current!;
-    const pos = ta.selectionStart;
+    // In Visual mode, selectionStart/selectionEnd are a real range now
+    // (see setPos), so the "current cursor" isn't always
+    // selectionStart — it's whichever end is the active one, per
+    // selectionDirection. Outside Visual mode there's never an active
+    // range, so selectionStart alone is the caret as before.
+    const pos = mode === "visual" && ta.selectionStart !== ta.selectionEnd
+      ? (ta.selectionDirection === "backward" ? ta.selectionStart : ta.selectionEnd - 1)
+      : ta.selectionStart;
     const cur: CursorState = { content, pos, anchor: mode === "visual" ? (anchor ?? pos) : undefined };
     const pending = pendingKeyRef.current;
 
@@ -821,7 +896,7 @@ function Editor({ file, onClose, onSave }: {
     switch (e.key) {
       case "Escape":
         e.preventDefault();
-        if (mode === "visual") { setMode("normal"); setAnchor(null); return; }
+        if (mode === "visual") { setPos(pos); setMode("normal"); return; }
         if (dirty && !confirm("Discard unsaved changes?")) return;
         onClose();
         return;
@@ -834,7 +909,7 @@ function Editor({ file, onClose, onSave }: {
       case "v":
         if (e.ctrlKey || e.metaKey) return; // let Ctrl/Cmd+V paste through
         e.preventDefault();
-        if (mode === "visual") { setMode("normal"); setAnchor(null); }
+        if (mode === "visual") { setPos(pos); setMode("normal"); }
         else { setAnchor(pos); setMode("visual"); }
         return;
       case "h": case "ArrowLeft":  e.preventDefault(); setPos(moveLeft(cur),  mode === "visual"); return;
@@ -861,7 +936,7 @@ function Editor({ file, onClose, onSave }: {
         if (mode === "visual") {
           e.preventDefault();
           navigator.clipboard?.writeText(selectedText(cur)).catch(() => { /* clipboard unavailable */ });
-          setMode("normal"); setAnchor(null);
+          setPos(pos); setMode("normal");
         }
         return;
       case "Tab": {
@@ -962,10 +1037,10 @@ function Editor({ file, onClose, onSave }: {
           }}>×</button>
         </div>
       </div>
-      <textarea ref={taRef} className={`editor-ta editor-ta--${mode}`} value={content}
+      <CodeArea ref={taRef} className={`editor-ta editor-ta--${mode}`} value={content}
+        lang={detectLang(file.path)}
         onChange={e => { if (mode === "insert") { setContent(e.target.value); setDirty(true); } }}
-        onKeyDown={onKeyDown} spellCheck={false}
-        autoComplete="off" autoCorrect="off" autoCapitalize="off" />
+        onKeyDown={onKeyDown} />
       <div className="editor-footer">
         {mode === "insert" && <><span>Esc  normal mode</span><span>Ctrl+S  save</span><span>Tab  2 spaces</span></>}
         {mode === "normal" && <><span>i/a/o  insert</span><span>hjkl  move</span><span>v  visual</span><span>dd/dw/x  delete</span><span>Esc  close</span></>}
@@ -1061,9 +1136,8 @@ function PluginCreator({ name: initName, onClose }: { name: string; onClose: () 
           <button className="editor-btn editor-btn--close" onClick={onClose}>×</button>
         </div>
       </div>
-      <textarea ref={taRef} className="editor-ta pc-ta" value={source}
-        onChange={e => setSource(e.target.value)} onKeyDown={onKeyDown}
-        spellCheck={false} autoComplete="off" autoCorrect="off" autoCapitalize="off" />
+      <CodeArea ref={taRef} className="editor-ta pc-ta" value={source} lang="lua"
+        onChange={e => setSource(e.target.value)} onKeyDown={onKeyDown} />
       <div className="editor-footer">
         <span>Ctrl+S  save &amp; load</span>
         <span>Esc  close</span>
@@ -2534,7 +2608,6 @@ export default function App() {
   const [ready,     setReady]     = useState(false);
   const [curTheme,  setCurTheme]  = useState(() => themeManager.getCurrent());
   const [themeEditorName,  setThemeEditorName]  = useState<string | null>(null);
-  const [pluginCreatorOpen, setPluginCreatorOpen] = useState(false);
   const [activeProject, setActiveProject] = useState(() => workspaceState.get().projectName);
   const [updateMsg,     setUpdateMsg]     = useState("");
   const [showAnim, setShowAnim] = useState(true);
@@ -2583,11 +2656,19 @@ export default function App() {
   }, []);
 
   // Event listeners
+  // Note: "open_plugin_creator" is deliberately NOT listened to here.
+  // The Terminal component already renders the Plugin Creator in the
+  // exact same full-pane slot it renders the file Editor in (see
+  // Terminal's `if (pluginCreator !== null) { ... }` early return) —
+  // that's the one, main Plugin Creator. A second listener used to
+  // live at this root level too, popping up its own overlay copy on
+  // top of it, which is why two editors would show up at once for
+  // every 'plugin new. See onOpenPluginCreator below for how Home's
+  // "+ new" button now reaches that single instance instead.
   useEffect(() => {
     const u1 = events.on("open_theme_editor", p => { if (p?.name) setThemeEditorName(String(p.name)); });
     const u2 = events.on("theme_changed",     p => { if (p?.name) setCurTheme(String(p.name)); });
-    const u3 = events.on("open_plugin_creator", () => setPluginCreatorOpen(true));
-    return () => { u1(); u2(); u3(); };
+    return () => { u1(); u2(); };
   }, []);
 
   // Persist minimal session state
@@ -2662,14 +2743,6 @@ export default function App() {
             <ThemeEditor name={themeEditorName} onClose={() => setThemeEditorName(null)} />
           </div>
         )}
-        {pluginCreatorOpen && (
-          <div className="overlay">
-            <div className="overlay-panel">
-              <PluginCreator name="myplugin" onClose={() => setPluginCreatorOpen(false)} />
-            </div>
-          </div>
-        )}
-
         {/* Home page — hidden (not unmounted) when shell active */}
         <div style={{ display: isHome ? "flex" : "none", flex: 1, minHeight: 0, overflow: "hidden" }}>
           <Home
@@ -2677,7 +2750,21 @@ export default function App() {
             currentTheme={curTheme}
             onTheme={n => { themeManager.apply(n); setCurTheme(n); }}
             onOpenThemeEditor={n => setThemeEditorName(n)}
-            onOpenPluginCreator={() => setPluginCreatorOpen(true)}
+            // Routed through the shell's own "plugin new <name>" command
+            // (same as typing it) rather than a separate root-level
+            // overlay, so there's exactly one Plugin Creator — the one
+            // Terminal renders in its main editor slot. Mirrors onCommand
+            // just below.
+            onOpenPluginCreator={() => {
+              const cmd = "plugin new myplugin";
+              if (ready) {
+                openShell();
+                setTimeout(() => _ctxRef.current?.runLine(cmd), 60);
+              } else {
+                pendingHomeCmd.current = cmd;
+                openShell();
+              }
+            }}
             onCommand={cmd => {
               if (ready) {
                 openShell();

@@ -1,0 +1,67 @@
+# ══════════════════════════════════════════════════════════════════
+# GitLab CI — builds OXIS for both platforms on every push.
+#
+#   build:linux    → dist/oxis (binary) + dist/oxis_<ver>_amd64.deb
+#   build:windows  → dist/oxis.exe + dist/oxis-<ver>.msi
+#
+# Requires a Linux runner tagged "linux" and a Windows runner tagged
+# "windows" (GitLab.com's default shared runners are Linux-only, so
+# the Windows job needs a runner you register yourself — a Windows
+# VM/machine with `gitlab-runner register` and the "windows" tag —
+# unless your GitLab instance already provides one). See README.md
+# § Continuous Integration for setup notes.
+# ══════════════════════════════════════════════════════════════════
+
+stages:
+  - build
+
+variables:
+  GIT_DEPTH: "1"
+
+# ── Linux: binary + .deb ─────────────────────────────────────────
+build:linux:
+  stage: build
+  tags: [linux]
+  image: golang:1.22-bookworm
+  before_script:
+    - apt-get update -qq
+    - apt-get install -y -qq curl ca-certificates dpkg-dev
+    - curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+    - apt-get install -y -qq nodejs
+    - node -v
+    - npm -v
+    - go version
+  script:
+    - chmod +x build-linux.sh
+    - ./build-linux.sh
+  artifacts:
+    name: "oxis-linux-$CI_COMMIT_SHORT_SHA"
+    paths:
+      - dist/oxis
+      - dist/oxis_*_amd64.deb
+    expire_in: 30 days
+
+# ── Windows: .exe + .msi installer ───────────────────────────────
+# npm run build (scripts/build-go.js) compiles dist/oxis.exe, then
+# automatically runs scripts/build-msi.js to produce the .msi (via
+# WiX) — see that script's own fallback to an NSIS .exe installer if
+# WiX isn't present. Installing Go/Node/WiX here via choco assumes a
+# fresh runner; drop steps your runner's image already includes.
+build:windows:
+  stage: build
+  tags: [windows]
+  before_script:
+    - choco install -y golang nodejs-lts wixtoolset --no-progress
+    - refreshenv
+    - go version
+    - node -v
+    - npm -v
+  script:
+    - npm run build
+  artifacts:
+    name: "oxis-windows-$CI_COMMIT_SHORT_SHA"
+    paths:
+      - dist/oxis.exe
+      - dist/oxis-*.msi
+      - dist/oxis-*-setup.exe
+    expire_in: 30 days
