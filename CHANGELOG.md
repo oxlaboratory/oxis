@@ -5,10 +5,18 @@ change was made, not necessarily when a version was tagged.
 
 ## [Unreleased]
 
-- none
-
 ### Added
 
+- **`oxis.platform`** — a plain `"windows"`/`"unix"` string exposed to
+  Lua plugins, so a plugin can offer both a PowerShell and a bash
+  version of its `oxis.run()`/`oxis.task()` scripts. Used to fix
+  `cloudflare/plugins/monitoring.lua` (`'tail`, `'healthcheck`,
+  `'task watch-mem`), which previously only ever wrote PowerShell and
+  so didn't work on Linux/macOS at all — not just worse, not at all
+  (PowerShell syntax errors, or a `Read-Host` prompt with no bash
+  equivalent). Several other builtin plugins have the same
+  PowerShell-only limitation and are good candidates for the same fix
+  — see README § Platform Detection.
 - **Named workspaces.** `'workspace init "name"` / `list` / `switch`
   / `rename` / `delete`, on top of the existing single-project
   `.oxis/workspace.lua` flow. Each named workspace is a real folder
@@ -71,8 +79,11 @@ change was made, not necessarily when a version was tagged.
 - **WiX and NSIS installer output reorganized** into `dist/wix/` and
   `dist/nsis/` respectively, instead of loose files at the `dist/`
   root. `dist/source/` (the bundled project source, used by both
-  installer paths) is unchanged. See README § dist/ layout for the
-  full, current tree.
+  installer paths) is unchanged. The Linux `.deb` now follows the same
+  pattern — `dist/deb/` (both `build-go.js` and the standalone
+  `build-linux.sh` used by GitLab CI's `build:linux` job) — so the
+  installer output layout is consistent across all three platforms.
+  See README § dist/ layout for the full, current tree.
 - **GitLab CI fixed.** Both `build:linux` and `build:windows` were
   stuck permanently pending — tagged for runners (`linux`, `windows`)
   the project had none of. `build:linux` no longer requires a tag, so

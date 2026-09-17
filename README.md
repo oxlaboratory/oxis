@@ -486,7 +486,9 @@ dist/
 ├── nsis/                      NSIS-generated installer files (Windows only, used if WiX isn't installed)
 │   ├── oxis-setup.nsi
 │   └── oxis-<version>-setup.exe
-└── oxis_<version>_amd64.deb   Linux only (see build-linux.sh)
+└── deb/                       Linux only — mirrors wix/ and nsis/'s "own subfolder" pattern
+    ├── oxis_<version>_amd64/   staging tree dpkg-deb builds from (not shipped itself)
+    └── oxis_<version>_amd64.deb   the actual installer
 ```
 
 A few things worth calling out:
@@ -943,6 +945,44 @@ oxis.run("git status")
 -- Print a message to the terminal
 oxis.echo("Hello World")
 ```
+
+### Platform Detection
+
+**[shipped]** `oxis.platform` is a plain string, `"windows"` or
+`"unix"` — check it before writing a `oxis.run()`/`oxis.task()` script
+so the same plugin can offer both a PowerShell and a bash version
+instead of only working on whichever platform it was written on:
+
+```lua
+-- oxis.task() takes a fixed command string, so branch once at
+-- registration time, picking whichever line actually gets registered
+if oxis.platform == "windows" then
+  oxis.task("watch-mem", "while ($true) { Get-Process | Sort-Object WS -Descending | Select-Object -First 5 Name,WS; Start-Sleep 5 }", "top 5 memory users, every 5s")
+else
+  oxis.task("watch-mem", "while true; do ps -eo comm,%mem --sort=-%mem | head -n 6; sleep 5; done", "top 5 memory users, every 5s")
+end
+
+-- oxis.command()'s handler is a real function, so it can just branch inline
+oxis.command("healthcheck", function()
+  if oxis.platform == "windows" then
+    oxis.run([[ Invoke-WebRequest http://localhost:3000/health -UseBasicParsing | Select-Object StatusCode ]])
+  else
+    oxis.run([[ curl -s -o /dev/null -w "%{http_code}\n" http://localhost:3000/health ]])
+  end
+end)
+```
+
+See `cloudflare/plugins/monitoring.lua` for a complete example
+(`'tail`, `'healthcheck`, `'task watch-mem`) — this was added
+specifically because that plugin (and several other builtins) only
+ever wrote PowerShell, so those commands didn't just work worse on
+Linux/macOS, they didn't work at all (PowerShell syntax errors, or an
+interactive `Read-Host` prompt bash has no equivalent for). Other
+builtin plugins with the same PowerShell-only limitation
+(`crypto.lua`, `network.lua`, `network-pro.lua`, `filesystem.lua`,
+`utility.lua`, `security.lua`, `devops.lua`, and a few of the
+Plugin-Creator-facing builtins under `frontend/src/plugins/builtins/`)
+are good candidates for the same fix, using the same pattern.
 
 ### Themes
 

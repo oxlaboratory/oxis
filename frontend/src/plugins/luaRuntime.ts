@@ -65,6 +65,11 @@ export interface OxisBindings {
   workspace(path: string): void;
   dashboard(config: LuaJSValue): void;
   newTerminal(): void;
+  /** "windows" or "unix" — lets a plugin branch its oxis.run()/
+   *  oxis.task() shell scripts per platform (PowerShell vs bash)
+   *  without needing an async permission-gated call just to find out.
+   *  See README § Core System APIs. */
+  platform: string;
 
   // ── Core System APIs — see README § Core System APIs ─────────
   // All async (real file/process/network I/O can't be synchronous),
@@ -209,6 +214,11 @@ function buildOxisTable(L: LuaState, b: OxisBindings, closedRef: { closed: boole
     lua.lua_pushcfunction(L, cfn);
     lua.lua_setfield(L, -2, to_luastring(name));
   };
+
+  // oxis.platform — a plain string, not a function (no () needed on
+  // the Lua side: `if oxis.platform == "windows" then ... end`).
+  pushLuaValue(L, b.platform);
+  lua.lua_setfield(L, -2, to_luastring("platform"));
 
   setfn("command", (L) => {
     const name = lua.lua_tojsstring(L, 1);

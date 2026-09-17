@@ -152,6 +152,8 @@ export function buildLuaAPI(ctx: APIContext): OxisBindings {
   const options: Record<string, LuaJSValue> = {};
 
   return {
+    platform: isWindows() ? "windows" : "unix",
+
     // oxis.command("name", fn, "what it does")
     command: (name, invoke, description) => {
       const hasDesc = typeof description === "string" && description.trim().length > 0;

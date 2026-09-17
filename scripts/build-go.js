@@ -168,6 +168,10 @@ if (fs.existsSync(logoSrc)) {
 }
 
 // ── Step 7: .deb (Linux only) ─────────────────────────────────
+// dist/deb/ holds both the staging tree AND the final .deb — same
+// "installer files live in their own subfolder" pattern as
+// dist/wix/ and dist/nsis/ on Windows (see build-msi.js), so dist/
+// itself only ever has oxis(.exe)/logo.png loose at its root.
 if (!IS_WIN) {
   const hasDpkg = spawnSync("dpkg-deb", ["--version"], {shell:true, stdio:"pipe"}).status === 0;
   if (hasDpkg) {
@@ -214,9 +218,9 @@ Categories=System;TerminalEmulator;
     fs.writeFileSync(postinst, "#!/bin/sh\nupdate-desktop-database /usr/share/applications 2>/dev/null || true\ngtk-update-icon-cache /usr/share/icons/hicolor 2>/dev/null || true\nexit 0\n");
     fs.chmodSync(postinst, 0o755);
 
-    const debFile = path.join(OUT, `oxis_${VERSION}_amd64.deb`);
+    const debFile = path.join(OUT, "deb", `oxis_${VERSION}_amd64.deb`);
     run(`dpkg-deb --build --root-owner-group "${debStage}" "${debFile}"`, ROOT);
-    ok(`dist/oxis_${VERSION}_amd64.deb`);
+    ok(`dist/deb/oxis_${VERSION}_amd64.deb`);
   } else {
     log("   (skipping .deb — dpkg-deb not found)", col.grey);
   }

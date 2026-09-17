@@ -73,7 +73,7 @@ build:linux:
     name: "oxis-linux-$CI_COMMIT_SHORT_SHA"
     paths:
       - dist/oxis
-      - dist/oxis_*_amd64.deb
+      - dist/deb/oxis_*_amd64.deb
     expire_in: 30 days
 
 # ── Windows: .exe + .msi installer — needs a real Windows runner ──

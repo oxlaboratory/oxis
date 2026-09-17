@@ -91,7 +91,7 @@ exit 0
 POSTINST
 chmod 755 "$DEB_STAGE/DEBIAN/postinst"
 
-dpkg-deb --build --root-owner-group "$DEB_STAGE" "$OUT/oxis_${VERSION}_amd64.deb"
+dpkg-deb --build --root-owner-group "$DEB_STAGE" "$OUT/deb/oxis_${VERSION}_amd64.deb"
 
 echo ""
 echo "╔══════════════════════════════════╗"
@@ -99,7 +99,7 @@ echo "║  Build complete!                 ║"
 echo "╚══════════════════════════════════╝"
 echo ""
 echo "  Binary : dist/oxis"
-echo "  Package: dist/oxis_${VERSION}_amd64.deb"
+echo "  Package: dist/deb/oxis_${VERSION}_amd64.deb"
 echo ""
-echo "  Install:  sudo dpkg -i dist/oxis_${VERSION}_amd64.deb && oxis"
+echo "  Install:  sudo dpkg -i dist/deb/oxis_${VERSION}_amd64.deb && oxis"
 echo "  Or run:   ./dist/oxis"
