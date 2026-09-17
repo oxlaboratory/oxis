@@ -22,6 +22,7 @@ declare global {
         App?: {
           ReadFile?: (path: string) => Promise<string>;
           WriteFile?: (path: string, content: string) => Promise<void>;
+          AppDir?: () => Promise<string>;
           WindowMinimise?: () => void;
           WindowClose?: () => void;
           // No WindowStartDrag here (and none on the JS runtime side
@@ -100,6 +101,21 @@ export async function writeFile(path: string, content: string): Promise<void> {
   const fn = window.go?.wailsapp?.App?.WriteFile;
   if (!fn) throw new NativeUnavailableError();
   return fn(path, content);
+}
+
+/** The directory the running executable lives in (e.g. the "dist"
+ *  folder the app was extracted/installed into) — see AppDirPath in
+ *  internal/wailsapp/app.go. Every OXIS-managed folder (created
+ *  documents, created plugins, workspaces) is built from this rather
+ *  than a hardcoded or cached path, specifically so moving the whole
+ *  install folder doesn't orphan any of it: each call re-resolves
+ *  against wherever the executable currently is. Not cached here
+ *  either, for the same reason — the cost of one extra native round
+ *  trip is trivial next to correctness after a move. */
+export async function appDir(): Promise<string> {
+  const fn = window.go?.wailsapp?.App?.AppDir;
+  if (!fn) throw new NativeUnavailableError();
+  return fn();
 }
 
 /**

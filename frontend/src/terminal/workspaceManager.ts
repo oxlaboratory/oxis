@@ -18,7 +18,7 @@
  * message rather than silently doing nothing.
  */
 
-import { readFile, writeFile, statPath, isNativeApp } from "../native";
+import { readFile, writeFile, statPath, listDir, makeDir, deletePath, isNativeApp } from "../native";
 import { loadLuaPlugin, type LoadedLuaPlugin } from "../plugins/luaRuntime";
 import { buildLuaAPI, type APIContext } from "../plugins/pluginAPI";
 import { registry } from "./commandRegistry";
@@ -26,6 +26,33 @@ import { events } from "./events";
 
 const WORKSPACE_PLUGIN_NAME = "__workspace__";
 const WORKSPACE_REL_PATH = ".oxis/workspace.lua";
+const NAMED_SUBDIRS = ["documents", "plugins", "scripts", "tasks", "workflows", ".oxis"] as const;
+const REGISTRY_PATH = "workspaces/registry.json";
+// A workspace name becomes a real folder name under workspaces/, so
+// keep it to something safe on every OS's filesystem and that can't
+// escape that folder via ".." or a path separator.
+const NAME_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
+
+function validateWorkspaceName(name: string): string | null {
+  if (!NAME_RE.test(name)) {
+    return "workspace names: letters, numbers, - and _ only, up to 64 chars, can't start with - or _";
+  }
+  return null;
+}
+
+/** One row of the multi-workspace registry (workspaces/registry.json)
+ *  — see the "Named workspaces" section below. Kept separate from the
+ *  single-directory .oxis/workspace.lua concept above; a named
+ *  workspace just happens to have one of those files inside its own
+ *  folder and reuses load()/close() to run it. */
+export interface NamedWorkspaceEntry {
+  name: string;
+  createdAt: string;
+  /** An existing project directory elsewhere on disk this workspace
+   *  is linked to — see linkExternal(). Absolute path, set by the
+   *  user, never written to by anything here. */
+  externalPath?: string;
+}
 
 export interface WorkspaceOpResult {
   ok: boolean;
@@ -65,6 +92,12 @@ class WorkspaceManager {
   private apiCtx: APIContext | null = null;
   private disposer: LoadedLuaPlugin | null = null;
   private activeDir: string | null = null;
+  // Which NAMED workspace (see "Named workspaces" below), if any, is
+  // currently active — separate from activeDir because activeDir can
+  // also be an ad-hoc directory that just happens to have its own
+  // .oxis/workspace.lua (the original, still-supported flow), which
+  // isn't part of the workspaces/ registry at all.
+  private activeNamed: string | null = null;
 
   /** Must be called once at startup, same as pluginManager.init(). */
   init(ctx: APIContext): void {
@@ -125,10 +158,10 @@ class WorkspaceManager {
 
   /** `'workspace info` — human-readable dump of the active workspace. */
   info(): WorkspaceOpResult {
-    if (!this.activeDir) return { ok: false, message: "no workspace loaded — try 'workspace init or open a directory that has one" };
+    if (!this.activeDir) return { ok: false, message: "no workspace loaded — try 'workspace init \"name\" or open a directory that has one" };
     const tasks = registry.all().filter(c => c.category === "task" && c.fromPlugin === WORKSPACE_PLUGIN_NAME);
     const lines = [
-      `workspace: ${this.activeDir}`,
+      this.activeNamed ? `workspace: "${this.activeNamed}"  (workspaces/${this.activeNamed}/)` : `workspace: ${this.activeDir}`,
       `tasks: ${tasks.length ? tasks.map(t => t.name.replace(/^task:/, "")).join(", ") : "none"}`,
     ];
     return { ok: true, message: lines.join("\n") };
@@ -148,6 +181,7 @@ class WorkspaceManager {
     try { this.disposer.dispose(); } catch { /* VM already gone */ }
     this.disposer = null;
     this.activeDir = null;
+    this.activeNamed = null;
     events.emit("workspace_unloaded", {});
     return { ok: true, message: "workspace closed" };
   }
@@ -192,6 +226,177 @@ class WorkspaceManager {
 
   getActiveDir(): string | null {
     return this.activeDir;
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // Named workspaces — 'workspace init "name" / list / switch /
+  // rename / delete / link / unlink.
+  //
+  // Each named workspace is a real folder, workspaces/<name>/, holding
+  // its own documents/, plugins/, scripts/, tasks/, workflows/ and a
+  // .oxis/workspace.lua — the SAME kind of file the single-directory
+  // flow above uses, so switching to a named workspace just calls the
+  // existing load() against workspaces/<name>, reusing all of its
+  // Lua-loading, task-registration, and event-emitting behavior
+  // instead of duplicating it. workspaces/registry.json is the only
+  // new piece of state: a flat list of {name, createdAt, externalPath}
+  // so 'workspace list doesn't need to guess folder names apart from
+  // scanning workspaces/ (which would also work, but the registry is
+  // what carries externalPath and survives a workspace being briefly
+  // absent/renamed mid-operation cleanly).
+  //
+  // scripts/, tasks/, and workflows/ are plain folders you keep your
+  // own files in and open with 'edit — there's no separate "workflow
+  // engine" here, same as there's no separate "script engine": running
+  // things still goes through 'task / oxis.command in .oxis/workspace.lua
+  // like it always has. What's new is a tidy, separate place per
+  // project to keep the source for that instead of one shared pile.
+  // ══════════════════════════════════════════════════════════════
+
+  private async readRegistry(): Promise<NamedWorkspaceEntry[]> {
+    try {
+      const raw = await readFile(REGISTRY_PATH);
+      return JSON.parse(raw) as NamedWorkspaceEntry[];
+    } catch { return []; }
+  }
+
+  private async writeRegistry(entries: NamedWorkspaceEntry[]): Promise<void> {
+    await writeFile(REGISTRY_PATH, JSON.stringify(entries, null, 2));
+  }
+
+  private async copyTree(src: string, dst: string): Promise<void> {
+    let entries;
+    try { entries = await listDir(src); } catch { return; }
+    for (const e of entries) {
+      const s = `${src}/${e.name}`, d = `${dst}/${e.name}`;
+      if (e.isDir) { await makeDir(d); await this.copyTree(s, d); }
+      else { try { await writeFile(d, await readFile(s)); } catch { /* skip unreadable/binary file */ } }
+    }
+  }
+
+  /** `'workspace init "name"` — create a new named workspace and its
+   *  folders. Does NOT switch to it (mirrors 'plugin new not
+   *  auto-enabling silently) — 'workspace switch <name> right after. */
+  async createNamed(name: string): Promise<WorkspaceOpResult> {
+    const unavailable = this.unavailable();
+    if (unavailable) return unavailable;
+    const nameErr = validateWorkspaceName(name);
+    if (nameErr) return { ok: false, message: nameErr };
+    const entries = await this.readRegistry();
+    if (entries.some(e => e.name === name)) {
+      return { ok: false, message: `workspace "${name}" already exists — 'workspace switch ${name} to use it` };
+    }
+    const dir = `workspaces/${name}`;
+    try {
+      for (const sub of NAMED_SUBDIRS) await makeDir(`${dir}/${sub}`);
+      await writeFile(joinPath(dir, WORKSPACE_REL_PATH), DEFAULT_TEMPLATE(name));
+    } catch (e) {
+      return { ok: false, message: `couldn't create ${dir}: ${e}` };
+    }
+    entries.push({ name, createdAt: new Date().toISOString() });
+    await this.writeRegistry(entries);
+    return { ok: true, message: `workspace "${name}" created (${dir}/) — 'workspace switch ${name} to activate it` };
+  }
+
+  /** `'workspace list` */
+  async listNamed(): Promise<NamedWorkspaceEntry[]> {
+    if (!isNativeApp()) return [];
+    const entries = await this.readRegistry();
+    return entries.sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  /** `'workspace switch <name>` (or "default"/omitted to close back to
+   *  no active workspace). */
+  async switchNamed(name: string | null): Promise<WorkspaceOpResult> {
+    if (name === null || name.toLowerCase() === "default") {
+      return this.disposer ? this.close() : { ok: true, message: "no workspace was active" };
+    }
+    const entries = await this.readRegistry();
+    if (!entries.some(e => e.name === name)) {
+      return { ok: false, message: `no workspace named "${name}" — see 'workspace list` };
+    }
+    const result = await this.load(`workspaces/${name}`);
+    if (!result.ok) return result;
+    this.activeNamed = name;
+    return { ok: true, message: `switched to workspace "${name}"` };
+  }
+
+  /** `'workspace rename <old> <new>` */
+  async renameNamed(oldName: string, newName: string): Promise<WorkspaceOpResult> {
+    const nameErr = validateWorkspaceName(newName);
+    if (nameErr) return { ok: false, message: nameErr };
+    const entries = await this.readRegistry();
+    const entry = entries.find(e => e.name === oldName);
+    if (!entry) return { ok: false, message: `no workspace named "${oldName}"` };
+    if (entries.some(e => e.name === newName)) return { ok: false, message: `workspace "${newName}" already exists` };
+
+    const wasActive = this.activeNamed === oldName;
+    if (wasActive) this.close(); // don't rename folders out from under a loaded Lua VM
+
+    const oldDir = `workspaces/${oldName}`, newDir = `workspaces/${newName}`;
+    for (const sub of NAMED_SUBDIRS) {
+      await makeDir(`${newDir}/${sub}`);
+      await this.copyTree(`${oldDir}/${sub}`, `${newDir}/${sub}`);
+    }
+    await deletePath(oldDir);
+    entry.name = newName;
+    await this.writeRegistry(entries);
+    if (wasActive) return this.switchNamed(newName);
+    return { ok: true, message: `renamed workspace "${oldName}" → "${newName}"` };
+  }
+
+  /** `'workspace delete <name>` */
+  async removeNamed(name: string): Promise<WorkspaceOpResult> {
+    const entries = await this.readRegistry();
+    const idx = entries.findIndex(e => e.name === name);
+    if (idx === -1) return { ok: false, message: `no workspace named "${name}"` };
+    if (this.activeNamed === name) this.close();
+    await deletePath(`workspaces/${name}`);
+    entries.splice(idx, 1);
+    await this.writeRegistry(entries);
+    return { ok: true, message: `deleted workspace "${name}"` };
+  }
+
+  /** `'workspace link "<path>"` — connect the ACTIVE named workspace
+   *  to an existing project directory elsewhere on disk. This doesn't
+   *  copy anything into dist/ — externalPath is just remembered on
+   *  the workspace's registry entry for your own scripts/tasks/
+   *  workflows to reference (e.g. a task that `cd`s there before
+   *  running a build), while OXIS keeps managing the workspace's own
+   *  documents/plugins/scripts/tasks/workflows folders around it. */
+  async linkExternal(path: string): Promise<WorkspaceOpResult> {
+    if (!this.activeNamed) {
+      return { ok: false, message: "no workspace active — 'workspace switch <name> first (or 'workspace init \"name\" then switch)" };
+    }
+    const entries = await this.readRegistry();
+    const entry = entries.find(e => e.name === this.activeNamed);
+    if (!entry) return { ok: false, message: `active workspace "${this.activeNamed}" is missing its registry entry` };
+    entry.externalPath = path;
+    await this.writeRegistry(entries);
+    return { ok: true, message: `workspace "${this.activeNamed}" linked to ${path}` };
+  }
+
+  /** `'workspace unlink` — remove the active workspace's external path. */
+  async unlinkExternal(): Promise<WorkspaceOpResult> {
+    if (!this.activeNamed) return { ok: false, message: "no workspace active" };
+    const entries = await this.readRegistry();
+    const entry = entries.find(e => e.name === this.activeNamed);
+    if (!entry) return { ok: false, message: `active workspace "${this.activeNamed}" is missing its registry entry` };
+    delete entry.externalPath;
+    await this.writeRegistry(entries);
+    return { ok: true, message: `workspace "${this.activeNamed}" unlinked` };
+  }
+
+  getActiveNamed(): string | null { return this.activeNamed; }
+
+  /** Where 'new should write documents right now. */
+  documentsDir(): string {
+    return this.activeNamed ? `workspaces/${this.activeNamed}/documents` : "created-documents";
+  }
+
+  /** Where Plugin Creator should write user-created plugins right now. */
+  pluginsDir(): string {
+    return this.activeNamed ? `workspaces/${this.activeNamed}/plugins` : "created-plugins";
   }
 }
 

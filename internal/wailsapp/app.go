@@ -113,16 +113,37 @@ func (a *App) GetPTYPort() int { return a.ptyPort }
 // it never existed as a file. This is the actual fix for that, not
 // just a better error message.
 func pluginsDir() (string, error) {
-	exe, err := os.Executable()
+	dir, err := AppDirPath()
 	if err != nil {
 		return "", err
 	}
-	dir := filepath.Join(filepath.Dir(exe), "plugins")
+	dir = filepath.Join(dir, "plugins")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
 	return dir, nil
 }
+
+// AppDirPath returns the directory the running executable lives in —
+// e.g. the "dist" folder a user extracted the app into, whatever it's
+// actually named or wherever it's been moved, since this is resolved
+// fresh from os.Executable() every call rather than cached. Every
+// "where does OXIS keep its stuff" path (plugins, created documents,
+// created plugins, workspaces) is built from this, specifically so
+// that moving the whole install folder doesn't orphan any of it — the
+// next call just resolves against the new location automatically.
+func AppDirPath() (string, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Dir(exe), nil
+}
+
+// AppDir exposes AppDirPath to the frontend (window.go.wailsapp.App.AppDir)
+// so JS can build paths like "<AppDir>/created-documents/notes.md"
+// without hardcoding or guessing where the app is installed.
+func (a *App) AppDir() (string, error) { return AppDirPath() }
 
 // pluginFilePath resolves a plugin name to its file, rejecting
 // anything that isn't a plain name — no path separators, no "..".
@@ -197,11 +218,12 @@ func (a *App) DeletePluginFile(name string) error {
 const maxEditableSize = 8 * 1024 * 1024 // 8MB
 
 // ReadFile backs the built-in editor ('edit <file>). Relative paths
-// resolve against the OXIS process's own working directory (typically
-// wherever the app was launched from) — not the PTY shell's current
-// directory, which Go has no reliable cross-platform way to observe
-// from outside the shell process. Pass an absolute path if you've cd'd
-// elsewhere in the terminal.
+// resolve against the app's own directory (see resolvePath) — not the
+// PTY shell's current directory, which Go has no reliable
+// cross-platform way to observe from outside the shell process. Pass
+// an absolute path (quote it if it contains spaces — e.g.
+// 'edit "C:\Users\Admin\My Docs\file.txt") to edit a file anywhere
+// else, regardless of where you've cd'd to in the terminal.
 func (a *App) ReadFile(path string) (string, error) {
 	full := resolvePath(path)
 	info, err := os.Stat(full)
@@ -233,15 +255,32 @@ func (a *App) WriteFile(path string, content string) error {
 	return os.WriteFile(full, []byte(content), 0o644)
 }
 
+// resolvePath anchors a relative path against the app's own directory
+// (see AppDirPath) — NOT the process's working directory, which
+// varies by how the user launched OXIS (double-click vs a shortcut
+// with a different "Start in" folder vs a terminal) in a way the app
+// directory doesn't. This is also what makes moving the whole install
+// folder "just work": every relative path resolves fresh against
+// wherever the executable currently is, every call. Pass an absolute
+// path (e.g. from 'edit "C:\Users\...\LICENSE") to bypass this
+// entirely and read/write exactly that file, wherever it lives.
 func resolvePath(path string) string {
 	if filepath.IsAbs(path) {
 		return filepath.Clean(path)
 	}
-	wd, err := os.Getwd()
+	dir, err := AppDirPath()
 	if err != nil {
-		return filepath.Clean(path)
+		// Fall back to the old behavior rather than failing outright —
+		// os.Executable() failing at all is rare (unusual sandboxing),
+		// and a relative path resolved against cwd is still better
+		// than none of this working.
+		wd, wdErr := os.Getwd()
+		if wdErr != nil {
+			return filepath.Clean(path)
+		}
+		return filepath.Join(wd, path)
 	}
-	return filepath.Join(wd, path)
+	return filepath.Join(dir, path)
 }
 
 // WriteTempScript backs oxis.run()'s multi-line-script fix (see the

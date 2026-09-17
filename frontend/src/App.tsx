@@ -73,6 +73,21 @@ interface ShellCtx {
 // so any plugin option not already cached in that plugin's own VM
 // session never actually persisted across a reload or app restart.
 const OPTIONS_KEY = "oxis-plugin-options-v1";
+// Splits an OXIS command line into arguments, honoring "double" and
+// 'single' quotes as one argument each (with the quotes themselves
+// stripped) — e.g. 'edit "C:\Users\Admin\My Docs\file.txt" keeps that
+// whole path as one argument instead of splitting on its spaces.
+// Unquoted runs of non-whitespace still split on whitespace as before.
+function splitCmdArgs(body: string): string[] {
+  const out: string[] = [];
+  const re = /"([^"]*)"|'([^']*)'|(\S+)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(body)) !== null) {
+    out.push(m[1] !== undefined ? m[1] : m[2] !== undefined ? m[2] : m[3]);
+  }
+  return out;
+}
+
 function readAllOptions(): Record<string, unknown> {
   try { return JSON.parse(localStorage.getItem(OPTIONS_KEY) || "{}"); }
   catch { return {}; }
@@ -145,15 +160,24 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
   // (ps/ok/err/dim/info/sep/h/shellCmd defined above via _ctxRef)
 
   // ── files ──────────────────────────────────────────────
-  registry.register({ name:"new",    category:"files", description:"Create file",
+  // 'new / 'touch: land in created-documents/ (or the active
+  // workspace's own documents/ — see workspaceManager.documentsDir())
+  // via the native file bridge, NOT a raw shell command — the old
+  // version ran New-Item/touch through whatever the *shell's* current
+  // directory happened to be, which is why files it created were
+  // scattered wherever the user last `cd`'d rather than somewhere
+  // predictable. An absolute-looking path (drive letter, leading / or
+  // \\) is still respected as-is, same as 'edit.
+  const looksAbsolute = (p: string) => /^[A-Za-z]:[\\/]/.test(p) || p.startsWith("/") || p.startsWith("\\");
+  registry.register({ name:"new",    category:"files", description:"Create a document (in created-documents/, or the active workspace)",
     handler:(_,r)=>{ if(!r){err("usage: 'new <file>");return;}
-      ps(shellCmd(`New-Item -ItemType File -Path "${r}" -Force | Out-Null; Write-Host "created: ${r}"`,
-                  `touch "${r}" && echo "created: ${r}"`)); }});
+      const dest = looksAbsolute(r) ? r : `${workspaceManager.documentsDir()}/${r}`;
+      writeFile(dest, "").then(() => ok(`created: ${dest}`)).catch(e => err(`couldn't create ${dest}: ${e}`)); }});
 
-  registry.register({ name:"touch",  category:"files", description:"Create file",
+  registry.register({ name:"touch",  category:"files", description:"Create a document (in created-documents/, or the active workspace)",
     handler:(_,r)=>{ if(!r){err("usage: 'touch <file>");return;}
-      ps(shellCmd(`New-Item -ItemType File -Path "${r}" -Force | Out-Null; Write-Host "created: ${r}"`,
-                  `touch "${r}" && echo "created: ${r}"`)); }});
+      const dest = looksAbsolute(r) ? r : `${workspaceManager.documentsDir()}/${r}`;
+      writeFile(dest, "").then(() => ok(`created: ${dest}`)).catch(e => err(`couldn't create ${dest}: ${e}`)); }});
 
   registry.register({ name:"mkdir",  category:"files", description:"Create directory",
     handler:(_,r)=>{ if(!r){err("usage: 'mkdir <dir>");return;}
@@ -591,21 +615,62 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
         err(`task not found: ${name}`); }});
 
   // ── workspace ─────────────────────────────────────────
-  // 'workspace init/info/reload/close — see workspaceManager.ts.
-  // Uses the tracked shell cwd (cwdTracker) as "this directory" when
-  // no explicit path is given, same directory 'edit/'open resolve
-  // relative paths against.
-  registry.register({ name:"workspace", category:"workspace", description:"Manage the active workspace (.oxis/workspace.lua)",
+  // 'workspace init "name" / list / switch / rename / delete / link /
+  // unlink — the new named, multi-workspace layer (see "Named
+  // workspaces" in workspaceManager.ts). 'workspace info/reload/close
+  // and bare 'workspace init (no name — inits at the current
+  // directory) are the original single-directory .oxis/workspace.lua
+  // flow, unchanged and still fully supported alongside it: switching
+  // to a named workspace uses that exact same loader under the hood.
+  registry.register({ name:"workspace", category:"workspace", description:"Manage OXIS workspaces",
     handler:(args)=>{
       const sub = args[0]?.toLowerCase();
-      const dir = args[1] || cwdTracker.get() || ".";
       if(!sub || sub==="info"){
         const r = workspaceManager.info();
         r.message.split("\n").forEach(line => (r.ok?info:dim)(line));
-        if(!r.ok) dim("'workspace init to create one here");
+        if(r.ok && workspaceManager.getActiveNamed()){
+          workspaceManager.listNamed().then(list => {
+            const entry = list.find(w => w.name === workspaceManager.getActiveNamed());
+            if(entry?.externalPath) dim(`linked to: ${entry.externalPath}`);
+          });
+        }
+        if(!r.ok) dim(`'workspace init "name" to create one`);
         return; }
       if(sub==="init"){
-        workspaceManager.initWorkspace(dir).then(r => (r.ok?ok:err)(r.message));
+        const name = args[1];
+        if(name){
+          workspaceManager.createNamed(name).then(r => (r.ok?ok:err)(r.message));
+        } else {
+          workspaceManager.initWorkspace(cwdTracker.get() || ".").then(r => (r.ok?ok:err)(r.message));
+        }
+        return; }
+      if(sub==="list" || sub==="ls"){
+        workspaceManager.listNamed().then(list => {
+          if(!list.length){ dim("no named workspaces yet — 'workspace init \"name\" to create one"); return; }
+          const active = workspaceManager.getActiveNamed();
+          list.forEach(w => {
+            const mark = w.name === active ? "* " : "  ";
+            info(`${mark}${w.name}${w.externalPath ? `  → ${w.externalPath}` : ""}`);
+          });
+        });
+        return; }
+      if(sub==="switch" || sub==="use"){
+        workspaceManager.switchNamed(args[1] ?? null).then(r => (r.ok?ok:err)(r.message));
+        return; }
+      if(sub==="rename" || sub==="mv"){
+        if(!args[1] || !args[2]){ err(`usage: 'workspace rename <old> <new>`); return; }
+        workspaceManager.renameNamed(args[1], args[2]).then(r => (r.ok?ok:err)(r.message));
+        return; }
+      if(sub==="delete" || sub==="rm" || sub==="remove"){
+        if(!args[1]){ err(`usage: 'workspace delete <name>`); return; }
+        workspaceManager.removeNamed(args[1]).then(r => (r.ok?ok:err)(r.message));
+        return; }
+      if(sub==="link"){
+        if(!args[1]){ err(`usage: 'workspace link "<path>"`); return; }
+        workspaceManager.linkExternal(args[1]).then(r => (r.ok?ok:err)(r.message));
+        return; }
+      if(sub==="unlink"){
+        workspaceManager.unlinkExternal().then(r => (r.ok?ok:err)(r.message));
         return; }
       if(sub==="reload"){
         workspaceManager.reload(args[1]).then(r => (r.ok?ok:err)(r.message));
@@ -614,7 +679,7 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
         const r = workspaceManager.close();
         (r.ok?ok:err)(r.message);
         return; }
-      err(`unknown: 'workspace ${sub} — try init, info, reload, or close`); }});
+      err(`unknown: 'workspace ${sub} — try init, list, switch, rename, delete, link, unlink, info, reload, or close`); }});
 
   // ── history management ────────────────────────────────
   registry.register({ name:"histclear", category:"shell", description:"Clear command history",
@@ -825,12 +890,69 @@ function useModalEditor(opts: {
   const [anchor, setAnchor] = useState<number | null>(null);
   const pendingKeyRef = useRef<string>(""); // for two-key commands: dd, dw, gg
 
+  // ── Undo / Redo ────────────────────────────────────────────
+  // A snapshot per undo step: the content BEFORE that step, plus
+  // where the caret was, so undoing/redoing restores the cursor
+  // somewhere sensible too, not just the text.
+  type Snapshot = { content: string; pos: number };
+  const undoStack = useRef<Snapshot[]>([]);
+  const redoStack = useRef<Snapshot[]>([]);
+  // Consecutive keystrokes from ONE Insert-mode session (i/a/o/etc.
+  // until Escape) collapse into a single undo step, same as real
+  // editors/vim — otherwise Ctrl+Z after typing a sentence would undo
+  // one character at a time. `grouping` tracks "the next edit belongs
+  // to the same step as the last one" rather than starting a new one.
+  const grouping = useRef(false);
+
+  const curPos = useCallback(() => taRef.current?.selectionStart ?? 0, [taRef]);
+
+  // Every content-changing action funnels through this instead of
+  // calling onEdit directly, so nothing can mutate text without also
+  // recording how to undo it.
+  const commit = useCallback((next: string, grouped: boolean) => {
+    if (!(grouped && grouping.current)) {
+      undoStack.current.push({ content, pos: curPos() });
+      if (undoStack.current.length > 500) undoStack.current.shift();
+      redoStack.current = [];
+    }
+    grouping.current = grouped;
+    onEdit(next);
+  }, [content, curPos, onEdit]);
+
+  const restore = useCallback((snap: Snapshot) => {
+    onEdit(snap.content);
+    requestAnimationFrame(() => {
+      const ta = taRef.current; if (!ta) return;
+      ta.selectionStart = ta.selectionEnd = Math.min(snap.pos, snap.content.length);
+    });
+  }, [onEdit, taRef]);
+
+  const undo = useCallback(() => {
+    const snap = undoStack.current.pop();
+    if (!snap) return;
+    redoStack.current.push({ content, pos: curPos() });
+    grouping.current = false;
+    restore(snap);
+  }, [content, curPos, restore]);
+
+  const redo = useCallback(() => {
+    const snap = redoStack.current.pop();
+    if (!snap) return;
+    undoStack.current.push({ content, pos: curPos() });
+    grouping.current = false;
+    restore(snap);
+  }, [content, curPos, restore]);
+
   // Mode changes are visible to Lua plugins too (see README § Input
   // Modes — "Mode transitions fire events that plugins can subscribe
   // to"), and drive which `oxis.keymap(mode, ...)` binds are live.
   useEffect(() => {
     events.emit("mode_changed", { mode, context: "editor" });
     keybinds.setActiveMode(mode);
+    // Leaving Insert mode always closes the current undo group, so
+    // the NEXT insert session (or o/O, dd, etc.) starts a fresh one
+    // instead of silently merging with whatever was typed before.
+    if (mode !== "insert") grouping.current = false;
     return () => { keybinds.setActiveMode("normal"); }; // don't leak editor mode to the rest of the app on close
   }, [mode]);
 
@@ -857,13 +979,19 @@ function useModalEditor(opts: {
   }, [anchor, content, taRef]);
 
   const applyEdit = useCallback((next: CursorState, editOpts?: { toInsert?: boolean }) => {
-    onEdit(next.content);
+    commit(next.content, false);
     requestAnimationFrame(() => {
       const ta = taRef.current; if (!ta) return;
       ta.selectionStart = ta.selectionEnd = next.pos;
     });
-    if (editOpts?.toInsert) setMode("insert");
-  }, [onEdit, taRef]);
+    if (editOpts?.toInsert) {
+      setMode("insert");
+      // o/O's newline-insert and the typing that follows it are ONE
+      // undo step in vim, not two — extend this group into the
+      // upcoming Insert-mode keystrokes instead of starting a new one.
+      grouping.current = true;
+    }
+  }, [commit, taRef]);
 
   // ── Normal / Visual mode command dispatch ────────────────────
   const handleModalKey = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -948,7 +1076,7 @@ function useModalEditor(opts: {
         e.preventDefault();
         const s = ta.selectionStart, en = ta.selectionEnd;
         const next = content.slice(0, s) + "  " + content.slice(en);
-        onEdit(next);
+        commit(next, false);
         requestAnimationFrame(() => { ta.selectionStart = ta.selectionEnd = s + 2; });
         return;
       }
@@ -967,6 +1095,22 @@ function useModalEditor(opts: {
   const onKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.ctrlKey && e.key === "s") { e.preventDefault(); onSave(); return; }
 
+    // Undo/Redo — standard editor bindings, work in any mode (real
+    // vim uses "u"/Ctrl+R instead, but this app already leans on
+    // Ctrl+S etc. over vim's own conventions, so Ctrl+Z/Ctrl+Y here
+    // matches that and matches what most people reach for first).
+    // Both Ctrl+Y and Ctrl+Shift+Z redo, to cover Windows and Mac muscle memory.
+    if (e.ctrlKey && !e.altKey && e.key.toLowerCase() === "z") {
+      e.preventDefault();
+      if (e.shiftKey) redo(); else undo();
+      return;
+    }
+    if (e.ctrlKey && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "y") {
+      e.preventDefault();
+      redo();
+      return;
+    }
+
     if (mode !== "insert") { handleModalKey(e); return; }
 
     // Insert Mode — ordinary typing, same behavior as before modes existed.
@@ -982,14 +1126,26 @@ function useModalEditor(opts: {
       const ta = taRef.current!;
       const s = ta.selectionStart, en = ta.selectionEnd;
       const next = content.slice(0, s) + "  " + content.slice(en);
-      onEdit(next);
+      commit(next, true); // part of the same Insert-mode undo group as the surrounding typing
       requestAnimationFrame(() => { ta.selectionStart = ta.selectionEnd = s + 2; });
     }
-  }, [onSave, mode, handleModalKey, content, setPos, onEdit, taRef]);
+  }, [onSave, undo, redo, mode, handleModalKey, content, setPos, commit, taRef]);
 
-  const resetModal = useCallback(() => { setMode("normal"); setAnchor(null); }, []);
+  const resetModal = useCallback(() => {
+    setMode("normal"); setAnchor(null);
+    undoStack.current = []; redoStack.current = []; grouping.current = false;
+  }, []);
 
-  return { mode, setMode, resetModal, onKeyDown };
+  // Typing in Insert mode (the textarea's own onChange) — routed
+  // through here instead of the caller setting content directly, so
+  // ordinary typing is captured by undo/redo too, grouped one
+  // keystroke-run per Insert-mode session (see `commit` above).
+  const handleChange = useCallback((next: string) => {
+    if (mode !== "insert") return;
+    commit(next, true);
+  }, [mode, commit]);
+
+  return { mode, setMode, resetModal, onKeyDown, handleChange, undo, redo };
 }
 
 function Editor({ file, onClose, onSave }: {
@@ -1015,7 +1171,7 @@ function Editor({ file, onClose, onSave }: {
     setContent(prev => { if (next !== prev) setDirty(true); return next; });
   }, []);
 
-  const { mode, resetModal, onKeyDown } = useModalEditor({
+  const { mode, resetModal, onKeyDown, handleChange } = useModalEditor({
     taRef,
     content,
     onEdit,
@@ -1085,11 +1241,11 @@ function Editor({ file, onClose, onSave }: {
       </div>
       <CodeArea ref={taRef} className={`editor-ta editor-ta--${mode}`} value={content}
         lang={detectLang(file.path)}
-        onChange={e => { if (mode === "insert") { setContent(e.target.value); setDirty(true); } }}
+        onChange={e => handleChange(e.target.value)}
         onKeyDown={onKeyDown} />
       <div className="editor-footer">
         {mode === "insert" && <><span>Esc  normal mode</span><span>Ctrl+S  save</span><span>Tab  2 spaces</span></>}
-        {mode === "normal" && <><span>i/a/o  insert</span><span>hjkl  move</span><span>v  visual</span><span>dd/dw/x  delete</span><span>Esc  close</span></>}
+        {mode === "normal" && <><span>i/a/o  insert</span><span>hjkl  move</span><span>v  visual</span><span>dd/dw/x  delete</span><span>Ctrl+Z/Y  undo/redo</span><span>Esc  close</span></>}
         {mode === "visual" && <><span>hjkl  extend</span><span>d/x  delete</span><span>y  yank</span><span>Esc  cancel</span></>}
       </div>
     </div>
@@ -1140,7 +1296,7 @@ function PluginCreator({ name: initName, onClose }: { name: string; onClose: () 
     if (!name.trim()) { setErr("Plugin name required"); return; }
     if (!/^[a-z0-9_-]+$/i.test(name)) { setErr("Name: letters, numbers, - _ only"); return; }
     setErr("");
-    pluginManager.addLuaPlugin(name, source).then(({ persisted, persistError }) => {
+    pluginManager.addLuaPlugin(name, source, "plugin", "user").then(({ persisted, persistError }) => {
       if (persisted) {
         setSaved(true);
         setTimeout(() => setSaved(false), 2000);
@@ -1157,7 +1313,7 @@ function PluginCreator({ name: initName, onClose }: { name: string; onClose: () 
   // Same Normal/Insert/Visual modal editing as the file Editor above
   // (see README § Input Modes) — this IS that editor, not a second,
   // simpler one; see useModalEditor.
-  const { mode, onKeyDown } = useModalEditor({
+  const { mode, onKeyDown, handleChange } = useModalEditor({
     taRef,
     content: source,
     onEdit,
@@ -1184,10 +1340,10 @@ function PluginCreator({ name: initName, onClose }: { name: string; onClose: () 
         </div>
       </div>
       <CodeArea ref={taRef} className={`editor-ta pc-ta editor-ta--${mode}`} value={source} lang="lua"
-        onChange={e => { if (mode === "insert") setSource(e.target.value); }} onKeyDown={onKeyDown} />
+        onChange={e => handleChange(e.target.value)} onKeyDown={onKeyDown} />
       <div className="editor-footer">
         {mode === "insert" && <><span>Esc  normal mode</span><span>Ctrl+S  save &amp; load</span><span>Tab  2 spaces</span></>}
-        {mode === "normal" && <><span>i/a/o  insert</span><span>hjkl  move</span><span>v  visual</span><span>dd/dw/x  delete</span><span>Esc  close</span></>}
+        {mode === "normal" && <><span>i/a/o  insert</span><span>hjkl  move</span><span>v  visual</span><span>dd/dw/x  delete</span><span>Ctrl+Z/Y  undo/redo</span><span>Esc  close</span></>}
         {mode === "visual" && <><span>hjkl  extend</span><span>d/x  delete</span><span>y  yank</span><span>Esc  cancel</span></>}
         <span style={{color:"var(--dim)"}}>saved to localStorage · reload with 'plugin reload {name}</span>
       </div>
@@ -1538,6 +1694,37 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
     return () => window.removeEventListener("focus", onWindowFocus);
   }, [isActive, editorFile, pluginCreator]);
 
+  // Ctrl+C safety net — it MUST always be able to interrupt whatever's
+  // running in the shell (e.g. 'task watch-mem's infinite polling
+  // loop), which normally goes through the hidden input's own key
+  // handler below. But continuous/rapid PTY output while a foreground
+  // loop is running can end up stealing focus off that hidden input
+  // (scrollback re-rendering, etc.) — the reported "no way to stop
+  // watch-mem" — after which Ctrl+C just does the browser's default
+  // (nothing, or copy) instead of ever reaching sendToShell. Catch it
+  // at the window level too as a fallback, but bow out if focus is in
+  // some OTHER real text field (plugin name box, search box, the file
+  // Editor/Plugin Creator's own textarea — closed here anyway) or
+  // there's an actual text selection, so normal copy and that field's
+  // own Ctrl+Z/undo still work as expected.
+  useEffect(() => {
+    if (!isActive || editorFile || pluginCreator) return;
+    const onWindowKeyDown = (e: KeyboardEvent) => {
+      if (!e.ctrlKey || e.metaKey || e.altKey || e.key.toLowerCase() !== "c") return;
+      const active = document.activeElement;
+      if (active instanceof HTMLElement && active !== ghostRef.current
+          && (active.tagName === "INPUT" || active.tagName === "TEXTAREA")) return;
+      const sel = window.getSelection?.();
+      if (sel && sel.toString().length > 0) return; // let the browser copy the selection instead
+      e.preventDefault();
+      sendToShell("\x03");
+      scriptRunTracker.cancel();
+      focusGhost();
+    };
+    window.addEventListener("keydown", onWindowKeyDown);
+    return () => window.removeEventListener("keydown", onWindowKeyDown);
+  }, [isActive, editorFile, pluginCreator, sendToShell, focusGhost]);
+
   // ── PTY output ────────────────────────────────────────────
   const onOutput = useCallback((raw: string) => {
     // Always strip the cwd probe marker first — see cwdTracker.ts —
@@ -1580,7 +1767,7 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
       return true;
     }
 
-    const parts = body.split(/\s+/);
+    const parts = splitCmdArgs(body);
     const verb  = parts[0].toLowerCase();
     const args  = parts.slice(1);
     const rest  = args.join(" ");

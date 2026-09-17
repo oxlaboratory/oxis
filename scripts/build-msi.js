@@ -13,6 +13,14 @@ const EXE     = path.join(DIST, "oxis.exe");
 const ICO     = path.join(ROOT, "cmd", "oxi", "oxis.ico");
 const VERSION = "1.2.1";
 const SRC_DIR_NAME = "source"; // installed to $INSTDIR\source
+const SOURCE_ABS = path.join(DIST, SRC_DIR_NAME);
+// Every WiX/NSIS-generated file (scripts, intermediate .wixobj, and
+// the final installer itself) lives under its own subfolder instead
+// of loose in dist/ — see README § dist/ layout. dist/source (the
+// bundled project source those installers package up) stays put:
+// it's not itself a WiX/NSIS-authored file, just something they read.
+const WIX_DIR  = path.join(DIST, "wix");
+const NSIS_DIR = path.join(DIST, "nsis");
 
 const col = {
   cyan:"\x1b[36m", green:"\x1b[32m", red:"\x1b[31m",
@@ -136,8 +144,9 @@ function buildMSI(wixBinDir) {
   }
 
   const sourceDir   = collectSourceBundle();
-  const productWxs  = path.join(DIST, "oxis-product.wxs");
-  const sourceWxs   = path.join(DIST, "oxis-source-fragment.wxs");
+  fs.mkdirSync(WIX_DIR, { recursive: true });
+  const productWxs  = path.join(WIX_DIR, "oxis-product.wxs");
+  const sourceWxs   = path.join(WIX_DIR, "oxis-source-fragment.wxs");
   const outMsi      = `oxis-${VERSION}.msi`;
   // WiX needs a stable GUID per product/upgrade-code so future
   // versions can upgrade in place instead of side-by-side installing.
@@ -154,13 +163,13 @@ function buildMSI(wixBinDir) {
     "-var", "var.SourceDir",
     "-srd", "-gg", "-sfrag", "-scom", "-sreg",
   ];
-  const heatRes = spawnSync(`"${heat}"`, heatArgs, { shell: true, stdio: "pipe", cwd: DIST });
+  const heatRes = spawnSync(`"${heat}"`, heatArgs, { shell: true, stdio: "pipe", cwd: WIX_DIR });
   if (heatRes.status !== 0) {
     warn("heat.exe failed to harvest dist/source — MSI build aborted");
     if (heatRes.stderr) log(heatRes.stderr.toString(), col.grey);
     return false;
   }
-  ok("source harvested: dist/oxis-source-fragment.wxs");
+  ok("source harvested: dist/wix/oxis-source-fragment.wxs");
 
   const icoLine = fs.existsSync(ICO)
     ? `<Icon Id="OxisIcon" SourceFile="${ICO}" />\n    <Property Id="ARPPRODUCTICON" Value="OxisIcon" />`
@@ -232,27 +241,27 @@ function buildMSI(wixBinDir) {
 </Wix>`.trim();
 
   fs.writeFileSync(productWxs, product);
-  ok("WiX product script: dist/oxis-product.wxs");
+  ok("WiX product script: dist/wix/oxis-product.wxs");
 
   info("Compiling with candle.exe...");
   const candleRes = spawnSync(
     `"${candle}"`,
-    [`-dSourceDir="${sourceDir}"`, `"${productWxs}"`, `"${sourceWxs}"`, "-out", "dist\\"],
+    [`-dSourceDir="${sourceDir}"`, `"${productWxs}"`, `"${sourceWxs}"`, "-out", WIX_DIR + path.sep],
     { shell: true, stdio: "inherit", cwd: ROOT }
   );
   if (candleRes.status !== 0) {
     warn("candle.exe failed — WiX scripts saved for manual build");
-    log(`  candle -dSourceDir="${sourceDir}" "${productWxs}" "${sourceWxs}" -out dist\\`, col.grey);
+    log(`  candle -dSourceDir="${sourceDir}" "${productWxs}" "${sourceWxs}" -out ${WIX_DIR}${path.sep}`, col.grey);
     return false;
   }
 
   info("Linking with light.exe...");
-  const productObj = path.join(DIST, "oxis-product.wixobj");
-  const sourceObj  = path.join(DIST, "oxis-source-fragment.wixobj");
+  const productObj = path.join(WIX_DIR, "oxis-product.wixobj");
+  const sourceObj  = path.join(WIX_DIR, "oxis-source-fragment.wixobj");
   const lightRes = spawnSync(
     `"${light}"`,
     ["-ext", "WixUtilExtension", `"${productObj}"`, `"${sourceObj}"`,
-     "-out", path.join(DIST, outMsi), "-sval"],
+     "-out", path.join(WIX_DIR, outMsi), "-sval"],
     { shell: true, stdio: "inherit", cwd: ROOT }
   );
   if (lightRes.status !== 0) {
@@ -260,13 +269,14 @@ function buildMSI(wixBinDir) {
     return false;
   }
 
-  ok(`dist/${outMsi}  ← MSI installer ready`);
+  ok(`dist/wix/${outMsi}  ← MSI installer ready`);
   return true;
 }
 
 // ── Generate NSIS script ───────────────────────────────────
 function buildNSI(nsisBin) {
-  const nsiFile  = path.join(DIST, "oxis-setup.nsi");
+  fs.mkdirSync(NSIS_DIR, { recursive: true });
+  const nsiFile  = path.join(NSIS_DIR, "oxis-setup.nsi");
   const outExe   = `oxis-${VERSION}-setup.exe`;
   const icoLine = fs.existsSync(ICO) ? `Icon "${ICO}"` : ""
 
@@ -320,7 +330,7 @@ Section "Source code" SecSource
   ; modifying, writing plugins against, or rebuilding from scratch.
   ; See $INSTDIR\\source\\README.md for build instructions.
   SetOutPath "$INSTDIR\\\\${SRC_DIR_NAME}"
-  File /r "${SRC_DIR_NAME}\\\\*.*"
+  File /r "${SOURCE_ABS.replace(/\\/g,"\\\\\\\\")}\\\\*.*"
 SectionEnd
 
 Section "Uninstall"
@@ -339,15 +349,15 @@ SectionEnd
 `.trim();
 
   fs.writeFileSync(nsiFile, script);
-  ok(`NSI script: dist/oxis-setup.nsi`);
+  ok("NSI script: dist/nsis/oxis-setup.nsi");
 
   info("Running makensis...");
   const r = spawnSync(`"${nsisBin}"`, [`"${nsiFile}"`], {
-    shell: true, stdio: "inherit", cwd: DIST
+    shell: true, stdio: "inherit", cwd: NSIS_DIR
   });
 
   if (r.status === 0) {
-    ok(`dist/${outExe}  ← installer ready`);
+    ok(`dist/nsis/${outExe}  ← installer ready`);
     return true;
   } else {
     warn("makensis failed — NSI script saved for manual build");
@@ -369,7 +379,8 @@ if (!nsisBin && !wixBin) {
 
   collectSourceBundle();
 
-  const nsiFile = path.join(DIST, "oxis-setup.nsi");
+  fs.mkdirSync(NSIS_DIR, { recursive: true });
+  const nsiFile = path.join(NSIS_DIR, "oxis-setup.nsi");
   fs.writeFileSync(nsiFile, `; Run: makensis oxis-setup.nsi\n; Install NSIS from: https://nsis.sourceforge.io\n`);
   process.exit(0);
 }

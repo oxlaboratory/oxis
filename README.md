@@ -423,11 +423,8 @@ oxis/
 │   ├── build-go.js             Builds dist/oxis(.exe)
 │   ├── dev.js                  Watch + rebuild + relaunch loop (no true HMR — see Getting Started)
 │   └── build-msi.js            NSIS installer builder — bundles full source
-├── dist/
-│   ├── oxis.exe
-│   ├── source/                 Full project source (installer bundles this)
-│   └── oxis-1.2.1-setup.exe
-├── cloudflare/                 OXIS Market website + backend — see Cloudflare Deployment.
+├── dist/                        See "dist/ layout" just below for the full, runtime-grown tree
+├── cloudflare/                  OXIS Market website + backend — see Cloudflare Deployment.
 │   │                           One repo, independently deployable: Cloudflare Pages
 │   │                           points its "Root directory" build setting at this folder.
 │   ├── index.html              The Market website itself
@@ -452,6 +449,69 @@ oxis/
 ├── go.sum
 └── README.md
 ```
+
+### dist/ layout
+
+`dist/` is what a build actually produces, and what a user installs
+and runs — a self-contained, organized folder, not files loose next
+to whatever else lands in a build output directory. Everything below
+`oxis.exe` grows lazily at runtime (a folder like `created-plugins/`
+simply doesn't exist until you've made your first plugin) rather than
+being pre-created by the build:
+
+```
+dist/
+├── oxis.exe                  the app itself (dist/oxis on Linux, no extension)
+├── logo.png
+├── plugins/                  market-installed plugins ('market install) — see Plugin System
+├── created-documents/        files 'new creates, with no workspace active
+├── created-plugins/          plugins the Plugin Creator writes, with no workspace active
+├── workspaces/                every named workspace — see Named Workspaces
+│   ├── registry.json          the list of named workspaces (name, created date, link if any)
+│   └── <name>/
+│       ├── .oxis/workspace.lua
+│       ├── documents/
+│       ├── plugins/
+│       ├── scripts/
+│       ├── tasks/
+│       └── workflows/
+├── source/                   full project source, bundled by the Windows installer only
+│                              (see Installer & bundled source) — NOT the same thing as any
+│                              folder above; this is a snapshot of THIS repo, not your data
+├── wix/                       WiX-generated installer files (Windows only)
+│   ├── oxis-product.wxs
+│   ├── oxis-source-fragment.wxs
+│   ├── *.wixobj
+│   └── oxis-<version>.msi     the actual installer
+├── nsis/                      NSIS-generated installer files (Windows only, used if WiX isn't installed)
+│   ├── oxis-setup.nsi
+│   └── oxis-<version>-setup.exe
+└── oxis_<version>_amd64.deb   Linux only (see build-linux.sh)
+```
+
+A few things worth calling out:
+
+- **`created-documents/`, `created-plugins/`, and everything under
+  `workspaces/`** are built from generic native file operations
+  (`AppDir`/`ReadFile`/`WriteFile`/`ListDir`/`MakeDir`/`DeletePath` in
+  `internal/wailsapp/app.go`) resolved against wherever `oxis.exe`
+  currently is (see `resolvePath` in that file) — **moving the whole
+  `dist/` folder anywhere else doesn't break any of it**: the next
+  read/write just resolves against the new location automatically,
+  the same way `plugins/` already did before any of this.
+- **`created-documents/`/`created-plugins/` vs. a named workspace's
+  `documents/`/`plugins/`**: only one is "active" at a time. With no
+  workspace switched on (the default), `'new` and the Plugin Creator
+  use the top-level folders; `'workspace switch <name>` redirects both
+  to that workspace's own folders until you switch back to `default`.
+- **Documents, workspaces, and plugins made this way are plain files
+  on disk** — open and edit any of them directly with `'edit
+  created-documents/notes.md`, `'edit workspaces/my-app/tasks/deploy.ps1`,
+  etc., exactly like any other file (see `'edit` below).
+- **`plugins/` (market-installed) is separate from `created-plugins/`
+  (yours)** on purpose, so `'market install` and the Plugin Creator
+  never collide or overwrite each other, and so it's obvious at a
+  glance which plugins came from where.
 
 ---
 
@@ -1117,6 +1177,63 @@ Usage after loading the workspace:
 'task test
 ```
 
+### Named Workspaces
+
+**[shipped]** On top of the single-project `.oxis/workspace.lua` file
+above, OXIS also supports multiple **named** workspaces — separate
+folders for separate apps, builds, or projects, each with its own
+documents, plugins, scripts, tasks, and workflows, switchable without
+touching the filesystem yourself:
+
+```
+'workspace init "my-app"        create a new named workspace
+'workspace list                 list every named workspace ('*' marks the active one)
+'workspace switch "my-app"      activate it (or 'workspace switch default to go back)
+'workspace rename "my-app" "app2"
+'workspace delete "my-app"
+'workspace link "C:\Users\you\Projects\my-app"    connect it to an existing project directory
+'workspace unlink                remove that link
+'workspace info                  show the active workspace (name, tasks, link if any)
+```
+
+Each named workspace is a real folder, `workspaces/<name>/`, next to
+`dist/oxis.exe` (see [dist/ layout](#dist-layout)):
+
+```
+workspaces/
+└── my-app/
+    ├── .oxis/workspace.lua   ← same format as the single-project version above
+    ├── documents/            ← where 'new writes while this workspace is active
+    ├── plugins/               ← where the Plugin Creator writes while this workspace is active
+    ├── scripts/               ← your own script files — open/edit with 'edit
+    ├── tasks/                 ← your own task definitions — open/edit with 'edit
+    └── workflows/             ← your own workflow files — open/edit with 'edit
+```
+
+`scripts/`, `tasks/`, and `workflows/` are plain storage folders, not
+a separate execution engine — OXIS doesn't have a standalone "workflow
+runner"; automation still goes through `'task` and `oxis.command`/
+`oxis.task` inside that workspace's `.oxis/workspace.lua`, same as the
+single-project flow. What's new is a tidy, separate place *per
+project* to keep the source for that, instead of one shared pile.
+
+**External project directories.** `'workspace link "<path>"` connects
+the *active* workspace to an existing project directory anywhere on
+disk, without moving or copying it into `dist/`. OXIS doesn't do
+anything with that path automatically — it's recorded on the
+workspace so your own tasks, scripts, and workflows can reference it
+(e.g. a task that `cd`s there before running a build), while OXIS
+keeps managing that workspace's own documents/plugins/scripts/tasks/
+workflows folders around it. `'workspace info` shows the link if one
+is set; `'workspace unlink` removes it.
+
+With no workspace active — the default, and what every existing
+install already has — `'new` and the Plugin Creator keep using the
+shared top-level `created-documents/` and `created-plugins/` folders
+exactly as before (see [dist/ layout](#dist-layout)). Switching to a
+named workspace is opt-in, and switching back to `default` goes right
+back to that shared context.
+
 ### Workspace Persistence
 
 OXIS saves and restores per-session:
@@ -1360,23 +1477,46 @@ OXIS includes a built-in editor so you never need to leave the app to edit files
 'edit <file>
 ```
 
-Example:
+Relative paths resolve against the app's own directory (see `AppDir`/
+`resolvePath` in `internal/wailsapp/app.go`) — the same place
+`created-documents/`, `created-plugins/`, and `workspaces/` live (see
+[dist/ layout](#dist-layout)) — not the PTY shell's current directory,
+which OXIS has no reliable way to observe from outside the shell.
+
+**[shipped]** Absolute paths work too, and open that exact file
+regardless of where it lives — quote the path if it contains spaces:
 
 ```
 'edit config.lua
-'edit workspace.lua
-'edit src/main.go
+'edit created-documents/notes.md
+'edit workspaces/my-app/tasks/deploy.ps1
+'edit "C:\Users\Admin\Downloads\FluxKey_Plus_v6\FKP_v5\LICENSE"
+'edit /home/me/projects/site/index.html
 ```
+
+(Quoting matters even when the path has no spaces, if you're in the
+habit of always quoting paths — `'edit` splits arguments the same
+quote-aware way every other `'`-command does, so `"a path"` and
+`'a path'` both come through as one argument with the quotes
+stripped, not split on the whitespace inside them.)
 
 ### Editor Keybinds
 
 | Key      | Action                |
 |----------|-----------------------|
 | Ctrl+S   | Save file             |
+| Ctrl+Z   | Undo                  |
+| Ctrl+Y / Ctrl+Shift+Z | Redo     |
 | Esc      | Close (prompts if dirty) |
 | Tab      | Insert 2 spaces       |
 
-The editor reads and writes files through the active PTY shell using PowerShell's `Get-Content` and `Set-Content`. This means it works anywhere the shell can reach.
+**[shipped]** Undo/redo — Ctrl+Z undoes, Ctrl+Y or Ctrl+Shift+Z redoes,
+in both the file editor and the Plugin Creator. Typing in Insert mode
+groups into one undo step per insert session (matching most editors,
+including vim's own undo granularity); `dd`/`dw`/`x`/`o`/`O`/Tab-indent
+are each their own step.
+
+The editor reads and writes files directly through the native file bridge (`ReadFile`/`WriteFile` in `internal/wailsapp/app.go`) — not by shelling out to the PTY — so it works the same way whether or not a shell session happens to be open.
 
 **[shipped]** Syntax highlighting — a small built-in highlighter (no
 Monaco/CodeMirror dependency) colors comments, strings, numbers,

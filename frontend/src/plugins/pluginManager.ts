@@ -32,9 +32,10 @@
 
 import { registry } from "../terminal/commandRegistry";
 import { events } from "../terminal/events";
+import { workspaceManager } from "../terminal/workspaceManager";
 import { loadLuaPlugin, type LoadedLuaPlugin } from "./luaRuntime";
 import { buildLuaAPI, UNDOCUMENTED_SENTINEL, type APIContext } from "./pluginAPI";
-import { isNativeApp, listPluginFiles, readPluginFile, writePluginFile, deletePluginFile } from "../native";
+import { isNativeApp, listPluginFiles, readPluginFile, writePluginFile, deletePluginFile, readFile, writeFile, listDir, deletePath } from "../native";
 import type { CommandHandler } from "../terminal/commandRegistry";
 
 export type PluginCategory = "dev" | "devops" | "system" | "files" | "plugin" | string;
@@ -52,6 +53,18 @@ export interface PluginMeta {
   lua?: string;
   /** TypeScript shortcut table (for built-in plugins) */
   shortcuts?: Record<string, string | ((a: string) => string)>;
+  /** Where a non-builtin plugin's .lua file actually lives:
+   *  "market" → dist/plugins/ (via the dedicated ListPlugins/
+   *  ReadPluginFile/WritePluginFile/DeletePluginFile Go bindings —
+   *  see pluginsDir() in internal/wailsapp/app.go), the original
+   *  location, still used for 'market install.
+   *  "user" → created-plugins/ (or the active workspace's own
+   *  plugins/ — see workspaceManager.pluginsDir()), via the generic
+   *  file bridge. Used for plugins made with the Plugin Creator
+   *  ('plugin new), so a user's own plugins land somewhere separate
+   *  from ones installed from the marketplace. Undefined for
+   *  premium plugins (never written to disk at all) and builtins. */
+  origin?: "user" | "market";
 }
 
 const PERSIST_KEY = "oxis-plugins-v2";
@@ -204,7 +217,10 @@ class PluginManager {
     this.plugins.delete(name);
     this.persist();
     if (!p.builtin && isNativeApp()) {
-      try { await deletePluginFile(name); } catch { /* already gone, or browser mode */ }
+      try {
+        if (p.origin === "user") await deletePath(`${workspaceManager.pluginsDir()}/${name}.lua`);
+        else await deletePluginFile(name);
+      } catch { /* already gone, or browser mode */ }
     }
   }
 
@@ -258,8 +274,8 @@ class PluginManager {
    *  leaves nothing behind to retry against; running the same
    *  install/'plugin new again is a clean retry, not a repeat of
    *  whatever went wrong the first time. */
-  async addLuaPlugin(name: string, lua: string, category = "plugin"): Promise<{ persisted: boolean; persistError?: unknown }> {
-    this.register({ name, desc: "User Lua plugin", category, builtin: false, enabled: true, lua });
+  async addLuaPlugin(name: string, lua: string, category = "plugin", origin: "user" | "market" = "market"): Promise<{ persisted: boolean; persistError?: unknown }> {
+    this.register({ name, desc: "User Lua plugin", category, builtin: false, enabled: true, lua, origin });
     this.persist();
     this.load(name);
     // load() sets enabled back to false on failure (see its own doc
@@ -268,7 +284,8 @@ class PluginManager {
     if (!this.plugins.get(name)?.enabled) return { persisted: false };
     if (!isNativeApp()) return { persisted: false };
     try {
-      await writePluginFile(name, lua);
+      if (origin === "user") await writeFile(`${workspaceManager.pluginsDir()}/${name}.lua`, lua);
+      else await writePluginFile(name, lua);
       return { persisted: true };
     } catch (persistError) {
       return { persisted: false, persistError };
@@ -300,7 +317,8 @@ class PluginManager {
     if (p) p.lua = lua;
     if (!isNativeApp()) return { persisted: false };
     try {
-      await writePluginFile(name, lua);
+      if (p?.origin === "user") await writeFile(`${workspaceManager.pluginsDir()}/${name}.lua`, lua);
+      else await writePluginFile(name, lua);
       return { persisted: true };
     } catch (persistError) {
       return { persisted: false, persistError };
@@ -318,17 +336,38 @@ class PluginManager {
    *  as enabled. */
   async loadUserPlugins(): Promise<void> {
     if (!isNativeApp()) return;
-    let names: string[];
-    try { names = await listPluginFiles(); }
-    catch { return; }
 
-    for (const name of names) {
+    // Market-installed plugins: dist/plugins/, via the dedicated Go bindings.
+    let marketNames: string[];
+    try { marketNames = await listPluginFiles(); }
+    catch { marketNames = []; }
+    for (const name of marketNames) {
       if (this.plugins.has(name)) continue; // already registered (e.g. re-init)
       let lua: string;
       try { lua = await readPluginFile(name); }
       catch { continue; }
-      this.register({ name, desc: "User Lua plugin", category: "plugin", builtin: false, enabled: true, lua });
+      this.register({ name, desc: "User Lua plugin", category: "plugin", builtin: false, enabled: true, lua, origin: "market" });
     }
+
+    // User-created plugins (Plugin Creator / 'plugin new): created-plugins/,
+    // or the active workspace's own plugins/ — via the generic file
+    // bridge (see PluginMeta.origin's doc comment for why these are
+    // kept separate from market-installed ones).
+    let userNames: string[] = [];
+    try {
+      const dir = workspaceManager.pluginsDir();
+      const entries = await listDir(dir);
+      userNames = entries.filter(e => !e.isDir && e.name.endsWith(".lua")).map(e => e.name.slice(0, -4));
+    } catch { /* folder doesn't exist yet — nothing created there so far */ }
+    for (const name of userNames) {
+      if (this.plugins.has(name)) continue; // a market plugin of the same name wins if both exist
+      let lua: string;
+      try { lua = await readFile(`${workspaceManager.pluginsDir()}/${name}.lua`); }
+      catch { continue; }
+      this.register({ name, desc: "User Lua plugin", category: "plugin", builtin: false, enabled: true, lua, origin: "user" });
+    }
+
+    const names = [...marketNames, ...userNames];
     // restoreState() (called before this by loader.ts) already applied
     // saved enabled/disabled flags to any plugin that existed when it
     // ran — but these were just registered, so re-apply now, then
