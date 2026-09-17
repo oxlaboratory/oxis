@@ -48,6 +48,7 @@ import {
   writeTempScript,
 } from "../native";
 import { requestPermission } from "./permissions";
+import { scriptRunTracker, launchSuffix } from "../terminal/scriptRunTracker";
 
 // Exported so pluginManager can recognise it without duplicating the
 // exact string (and so it can't accidentally collide with a real
@@ -109,19 +110,38 @@ export interface APIContext {
  * to run there either way; a plain write is no worse than before.
  */
 function runScript(ctx: APIContext, cmd: string): void {
-  if (!cmd.includes("\n") || !isNativeApp() || !isWindows()) {
+  const native = isNativeApp() && isWindows();
+
+  if (!cmd.includes("\n") || !native) {
+    // Single-line command, or browser-mode/non-Windows fallback —
+    // unchanged from before. Busy-tracking (below) isn't applied
+    // here: every shipped Read-Host lives inside a multi-line
+    // (heredoc) script, so this branch is never the one blocking on
+    // interactive input, and Write-Host-based tracking only works
+    // against a real PowerShell session anyway.
     ctx.sendToShell(cmd + "\r");
     return;
   }
+
+  // Mark the shell busy from the moment we send the launch line.
+  // Read-Host inside the script blocks the shell on real keystrokes
+  // exactly like running the .ps1 by hand, and the marker below only
+  // prints once that's genuinely finished (see scriptRunTracker.ts) —
+  // that's what lets a second '-command refuse to stomp on a prompt
+  // this one is still waiting on, instead of silently corrupting it.
+  scriptRunTracker.begin();
   writeTempScript(".ps1", cmd)
     .then((path) => {
       // -ErrorAction SilentlyContinue on the cleanup only — a delete
       // that fails (e.g. antivirus briefly holding the file open)
       // shouldn't surface as a scary error tacked onto the script's
       // own output.
-      ctx.sendToShell(`& "${path}"; Remove-Item "${path}" -Force -ErrorAction SilentlyContinue\r`);
+      ctx.sendToShell(
+        `& "${path}"; Remove-Item "${path}" -Force -ErrorAction SilentlyContinue${launchSuffix()}\r`,
+      );
     })
     .catch(() => {
+      scriptRunTracker.cancel(); // never actually launched — don't leave the shell marked busy
       // Couldn't write the temp file (disk full, permissions, etc.)
       // — fall back rather than silently doing nothing.
       ctx.sendToShell(cmd + "\r");

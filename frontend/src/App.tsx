@@ -33,6 +33,7 @@ import { sessionManager }                   from "./terminal/sessionManager";
 import { workspaceState }                   from "./terminal/workspaceState";
 import { workspaceManager }                 from "./terminal/workspaceManager";
 import { cwdTracker, buildCwdProbe, looksLikeDirectoryChange } from "./terminal/cwdTracker";
+import { scriptRunTracker } from "./terminal/scriptRunTracker";
 import {
   grant as grantPermission, revoke as revokePermission, grantedTo as grantedPermissions,
   type PermissionNamespace,
@@ -793,29 +794,37 @@ const CodeArea = React.forwardRef<HTMLTextAreaElement, {
   );
 });
 
-function Editor({ file, onClose, onSave }: {
-  file:    EditorFile;
-  onClose: () => void;
-  onSave:  (path: string, content: string) => void;
+// ══════════════════════════════════════════════════════════════
+// MODAL EDITING — shared Normal/Insert/Visual mode logic (see
+// README § Input Modes), used by BOTH the file Editor and the
+// Plugin Creator. This used to live only inside Editor; the Plugin
+// Creator had its own separate, mode-less textarea handling, which
+// is why it never got Normal/Insert/Visual — it wasn't "our main
+// editor," it was a second, simpler one. Pulling this out into a
+// hook means the Plugin Creator now runs the exact same modal
+// editing as file editing, not just the same visual chrome.
+// ══════════════════════════════════════════════════════════════
+function useModalEditor(opts: {
+  taRef:   React.RefObject<HTMLTextAreaElement>;
+  content: string;
+  /** Called whenever modal editing changes the text (typing in
+   *  Insert mode, dd/dw/x deletes, o/O opening a line, Tab indent). */
+  onEdit:  (next: string) => void;
+  /** Ctrl+S in any mode. */
+  onSave:  () => void;
+  /** Escape while in Normal mode (Escape in Visual just exits to
+   *  Normal — handled internally). Caller decides what "close" means
+   *  (e.g. the file Editor confirms first if dirty; Plugin Creator
+   *  just closes). */
+  onEscapeNormal: () => void;
 }) {
-  const [content, setContent] = useState(file.content);
-  const [dirty,   setDirty]   = useState(false);
-  // Modal editing — Normal Mode is the default (see README § Input
-  // Modes); 'i'/'a'/'o'/etc. drop into Insert, Escape returns to
-  // Normal, 'v' starts Visual selection. Existing behavior (typing
-  // immediately inserts text) now lives in Insert Mode.
+  const { taRef, content, onEdit, onSave, onEscapeNormal } = opts;
+  // Normal Mode is the default; 'i'/'a'/'o'/etc. drop into Insert,
+  // Escape returns to Normal, 'v' starts Visual selection.
   const [mode, setMode] = useState<EditorMode>("normal");
   const [anchor, setAnchor] = useState<number | null>(null);
   const pendingKeyRef = useRef<string>(""); // for two-key commands: dd, dw, gg
-  const taRef = useRef<HTMLTextAreaElement>(null);
 
-  // Re-sync local content when a *different* file is opened, or when
-  // the async ReadFile for the current file finishes loading. Watching
-  // only file.path would miss the load-finished transition, since the
-  // editor opens immediately with empty content while the read is
-  // still in flight (see openEditor in the root component).
-  useEffect(() => { setContent(file.content); setDirty(false); setMode("normal"); setAnchor(null); }, [file.path, file.loading]);
-  useEffect(() => { if (!file.loading) setTimeout(() => taRef.current?.focus(), 40); }, [file.loading]);
   // Mode changes are visible to Lua plugins too (see README § Input
   // Modes — "Mode transitions fire events that plugins can subscribe
   // to"), and drive which `oxis.keymap(mode, ...)` binds are live.
@@ -824,8 +833,6 @@ function Editor({ file, onClose, onSave }: {
     keybinds.setActiveMode(mode);
     return () => { keybinds.setActiveMode("normal"); }; // don't leak editor mode to the rest of the app on close
   }, [mode]);
-
-  const save = useCallback(() => { onSave(file.path, content); setDirty(false); }, [file.path, content, onSave]);
 
   const setPos = useCallback((pos: number, keepAnchor = false) => {
     const ta = taRef.current;
@@ -836,7 +843,7 @@ function Editor({ file, onClose, onSave }: {
       // (via ::selection) instead of only being tracked invisibly in
       // React state. `direction` records which end is the "active"
       // side so the next motion can recover the true cursor position
-      // back out of selectionStart/selectionEnd (see handleModalKey).
+      // back out of selectionStart/selectionEnd (see below).
       const a = anchor ?? pos;
       if (pos >= a) {
         requestAnimationFrame(() => ta.setSelectionRange(a, Math.min(pos + 1, content.length), "forward"));
@@ -847,17 +854,16 @@ function Editor({ file, onClose, onSave }: {
       requestAnimationFrame(() => { ta.selectionStart = ta.selectionEnd = pos; });
       setAnchor(null);
     }
-  }, [anchor, content]);
+  }, [anchor, content, taRef]);
 
-  const applyEdit = useCallback((next: CursorState, opts?: { toInsert?: boolean }) => {
-    setContent(next.content);
-    if (next.content !== content) setDirty(true);
+  const applyEdit = useCallback((next: CursorState, editOpts?: { toInsert?: boolean }) => {
+    onEdit(next.content);
     requestAnimationFrame(() => {
       const ta = taRef.current; if (!ta) return;
       ta.selectionStart = ta.selectionEnd = next.pos;
     });
-    if (opts?.toInsert) setMode("insert");
-  }, [content]);
+    if (editOpts?.toInsert) setMode("insert");
+  }, [onEdit, taRef]);
 
   // ── Normal / Visual mode command dispatch ────────────────────
   const handleModalKey = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -897,8 +903,7 @@ function Editor({ file, onClose, onSave }: {
       case "Escape":
         e.preventDefault();
         if (mode === "visual") { setPos(pos); setMode("normal"); return; }
-        if (dirty && !confirm("Discard unsaved changes?")) return;
-        onClose();
+        onEscapeNormal();
         return;
       case "i": e.preventDefault(); setMode("insert"); return;
       case "a": e.preventDefault(); setPos(moveRight(cur)); setMode("insert"); return;
@@ -943,7 +948,7 @@ function Editor({ file, onClose, onSave }: {
         e.preventDefault();
         const s = ta.selectionStart, en = ta.selectionEnd;
         const next = content.slice(0, s) + "  " + content.slice(en);
-        setContent(next); setDirty(true);
+        onEdit(next);
         requestAnimationFrame(() => { ta.selectionStart = ta.selectionEnd = s + 2; });
         return;
       }
@@ -957,10 +962,10 @@ function Editor({ file, onClose, onSave }: {
         if (!e.ctrlKey && !e.altKey && !e.metaKey && e.key.length === 1) e.preventDefault();
         return;
     }
-  }, [content, mode, anchor, dirty, onClose, applyEdit, setPos]);
+  }, [content, mode, anchor, onEscapeNormal, applyEdit, setPos, onEdit, taRef]);
 
   const onKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.ctrlKey && e.key === "s") { e.preventDefault(); save(); return; }
+    if (e.ctrlKey && e.key === "s") { e.preventDefault(); onSave(); return; }
 
     if (mode !== "insert") { handleModalKey(e); return; }
 
@@ -977,10 +982,51 @@ function Editor({ file, onClose, onSave }: {
       const ta = taRef.current!;
       const s = ta.selectionStart, en = ta.selectionEnd;
       const next = content.slice(0, s) + "  " + content.slice(en);
-      setContent(next); setDirty(true);
+      onEdit(next);
       requestAnimationFrame(() => { ta.selectionStart = ta.selectionEnd = s + 2; });
     }
-  }, [save, mode, handleModalKey, content, setPos]);
+  }, [onSave, mode, handleModalKey, content, setPos, onEdit, taRef]);
+
+  const resetModal = useCallback(() => { setMode("normal"); setAnchor(null); }, []);
+
+  return { mode, setMode, resetModal, onKeyDown };
+}
+
+function Editor({ file, onClose, onSave }: {
+  file:    EditorFile;
+  onClose: () => void;
+  onSave:  (path: string, content: string) => void;
+}) {
+  const [content, setContent] = useState(file.content);
+  const [dirty,   setDirty]   = useState(false);
+  const taRef = useRef<HTMLTextAreaElement>(null);
+
+  // Re-sync local content when a *different* file is opened, or when
+  // the async ReadFile for the current file finishes loading. Watching
+  // only file.path would miss the load-finished transition, since the
+  // editor opens immediately with empty content while the read is
+  // still in flight (see openEditor in the root component).
+  useEffect(() => { setContent(file.content); setDirty(false); }, [file.path, file.loading]);
+  useEffect(() => { if (!file.loading) setTimeout(() => taRef.current?.focus(), 40); }, [file.loading]);
+
+  const save = useCallback(() => { onSave(file.path, content); setDirty(false); }, [file.path, content, onSave]);
+
+  const onEdit = useCallback((next: string) => {
+    setContent(prev => { if (next !== prev) setDirty(true); return next; });
+  }, []);
+
+  const { mode, resetModal, onKeyDown } = useModalEditor({
+    taRef,
+    content,
+    onEdit,
+    onSave: save,
+    onEscapeNormal: () => {
+      if (dirty && !confirm("Discard unsaved changes?")) return;
+      onClose();
+    },
+  });
+
+  useEffect(() => { resetModal(); }, [file.path, file.loading, resetModal]);
 
   if (file.loading) {
     return (
@@ -1090,7 +1136,7 @@ function PluginCreator({ name: initName, onClose }: { name: string; onClose: () 
 
   useEffect(() => { setTimeout(() => taRef.current?.focus(), 40); }, []);
 
-  const save = () => {
+  const save = useCallback(() => {
     if (!name.trim()) { setErr("Plugin name required"); return; }
     if (!/^[a-z0-9_-]+$/i.test(name)) { setErr("Name: letters, numbers, - _ only"); return; }
     setErr("");
@@ -1104,20 +1150,20 @@ function PluginCreator({ name: initName, onClose }: { name: string; onClose: () 
           : "Works this session, but couldn't save to disk (browser mode has no file access)");
       }
     });
-  };
+  }, [name, source]);
 
-  const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.ctrlKey && e.key === "s") { e.preventDefault(); save(); return; }
-    if (e.key === "Escape") { e.preventDefault(); onClose(); return; }
-    if (e.key === "Tab") {
-      e.preventDefault();
-      const ta = taRef.current!;
-      const s = ta.selectionStart, en = ta.selectionEnd;
-      const next = source.slice(0, s) + "  " + source.slice(en);
-      setSource(next);
-      requestAnimationFrame(() => { ta.selectionStart = ta.selectionEnd = s + 2; });
-    }
-  };
+  const onEdit = useCallback((next: string) => setSource(next), []);
+
+  // Same Normal/Insert/Visual modal editing as the file Editor above
+  // (see README § Input Modes) — this IS that editor, not a second,
+  // simpler one; see useModalEditor.
+  const { mode, onKeyDown } = useModalEditor({
+    taRef,
+    content: source,
+    onEdit,
+    onSave: save,
+    onEscapeNormal: onClose,
+  });
 
   return (
     <div className="plugin-creator">
@@ -1127,6 +1173,7 @@ function PluginCreator({ name: initName, onClose }: { name: string; onClose: () 
           <span className="editor-path">Plugin Creator</span>
         </div>
         <div className="editor-bar-right">
+          <span className={`editor-mode editor-mode--${mode}`}>{mode.toUpperCase()}</span>
           <input className="pc-name-input" value={name}
             onChange={e => { setName(e.target.value); setSource(PLUGIN_TEMPLATE(e.target.value)); }}
             placeholder="plugin-name" maxLength={32} />
@@ -1136,12 +1183,12 @@ function PluginCreator({ name: initName, onClose }: { name: string; onClose: () 
           <button className="editor-btn editor-btn--close" onClick={onClose}>×</button>
         </div>
       </div>
-      <CodeArea ref={taRef} className="editor-ta pc-ta" value={source} lang="lua"
-        onChange={e => setSource(e.target.value)} onKeyDown={onKeyDown} />
+      <CodeArea ref={taRef} className={`editor-ta pc-ta editor-ta--${mode}`} value={source} lang="lua"
+        onChange={e => { if (mode === "insert") setSource(e.target.value); }} onKeyDown={onKeyDown} />
       <div className="editor-footer">
-        <span>Ctrl+S  save &amp; load</span>
-        <span>Esc  close</span>
-        <span>Tab  2 spaces</span>
+        {mode === "insert" && <><span>Esc  normal mode</span><span>Ctrl+S  save &amp; load</span><span>Tab  2 spaces</span></>}
+        {mode === "normal" && <><span>i/a/o  insert</span><span>hjkl  move</span><span>v  visual</span><span>dd/dw/x  delete</span><span>Esc  close</span></>}
+        {mode === "visual" && <><span>hjkl  extend</span><span>d/x  delete</span><span>y  yank</span><span>Esc  cancel</span></>}
         <span style={{color:"var(--dim)"}}>saved to localStorage · reload with 'plugin reload {name}</span>
       </div>
     </div>
@@ -1497,6 +1544,7 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
     // so it happens even during a suppressOutput window (startup
     // noise) instead of just being silently thrown away with it.
     raw = cwdTracker.consume(raw);
+    raw = scriptRunTracker.consume(raw);
     if (suppressOutput.current) { pending.current = ""; return; }
     if (!raw) return;
     const { completedLines, newPending } = processOutput(raw, pending.current);
@@ -1518,6 +1566,19 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
     else return false;
 
     if (!body) { addLine("  OXIS · type 'help for commands", "accent"); return true; }
+
+    // A previous '-command's oxis.run() script may still be running —
+    // possibly blocked on its own Read-Host prompt waiting for real
+    // keystrokes. Launching a second one on top of it would send this
+    // command's own launch line into that pending prompt instead of
+    // running it, corrupting both (see scriptRunTracker.ts for the
+    // full story — this is the "'tail right after 'healthcheck"
+    // bug). Refuse instead: answer the prompt (or Ctrl+C to cancel
+    // it) first.
+    if (scriptRunTracker.isBusy()) {
+      addLine("  ⚠  a previous command is still running (possibly waiting for input) — answer its prompt or press Ctrl+C first", "err");
+      return true;
+    }
 
     const parts = body.split(/\s+/);
     const verb  = parts[0].toLowerCase();
@@ -1770,7 +1831,7 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
     if (ctrl) {
       switch (k.toLowerCase()) {
         // Interrupt / EOF / suspend
-        case "c": e.preventDefault(); sendToShell("\x03"); clearInput(); history.resetNav(); return;
+        case "c": e.preventDefault(); sendToShell("\x03"); clearInput(); history.resetNav(); scriptRunTracker.cancel(); return;
         case "d": e.preventDefault(); sendToShell("\x04"); return;
         case "z": e.preventDefault(); sendToShell("\x1a"); return;
         case "\\": e.preventDefault(); sendToShell("\x1c"); return;
@@ -2512,7 +2573,11 @@ function Home({ onNew, currentTheme, onTheme, onOpenThemeEditor, onOpenPluginCre
   <span><strong className="oxis-letter">I</strong>ntelligent</span>
   <span><strong className="oxis-letter">S</strong>hell</span>
 </div>
-        <div className="oxis-ver-row"><span className="oxis-ver-label">OXIS</span><span className="oxis-ver-num">v1.2.1</span></div>
+        <div className="oxis-ver-row">
+          <span className="oxis-ver-label">OXIS</span><span className="oxis-ver-num">v1.2.1</span>
+          <button className="oxis-gitlab-btn" onClick={() => void openUrl("https://gitlab.com/oxidelab/oxis.git")}
+            title="Open the OXIS repository on GitLab">GitLab ↗</button>
+        </div>
         <WorkspacePanel ws={ws} plugins={plugins} onOpenMarket={() => setView("plugins")} />
         <div className="oxis-box oxis-help-box">
           <div className="oxis-help-row"><span className="oht">Type</span> <span className="ohc">&apos;help</span><span className="ohr"> if you need some help</span></div>

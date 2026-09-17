@@ -462,6 +462,13 @@ html, body, #root {
   font-size: var(--fs); font-style: italic; color: var(--muted);
 }
 
+.oxis-gitlab-btn {
+  background: transparent; border: 1px solid var(--border2); border-radius: 3px;
+  color: var(--purple3); font-family: var(--font); font-size: 11px; font-style: normal;
+  padding: 2px 8px; cursor: pointer; line-height: 1.4;
+}
+.oxis-gitlab-btn:hover { border-color: var(--purple3); color: var(--purple2); background: rgba(203,166,247,.08); }
+
 /* Bordered box — sizes kept compact so the Home screen's WORKSPACE
    panel + help box + Shell command line all fit in one view without
    scrolling on a typical ~800px-tall window. */
