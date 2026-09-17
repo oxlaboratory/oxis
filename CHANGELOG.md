@@ -56,6 +56,12 @@ change was made, not necessarily when a version was tagged.
 
 ### Changed
 
+- **GitLab CI simplified to Linux-only.** `build:windows` (WiX-based
+  `.msi`, needed a dedicated Windows runner) has been removed —
+  Windows builds are done locally via Visual Studio / `npm run build`
+  instead, so there's no Windows GitLab Runner to register or
+  maintain. `build:linux` is unaffected and still runs untagged on any
+  available runner.
 - **Plugin Creator now uses the same Normal/Insert/Visual modal
   editing as the file Editor** (a shared `useModalEditor` hook),
   instead of a second, simpler, mode-less textarea. Fixes a bug where

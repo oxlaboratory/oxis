@@ -1,47 +1,24 @@
 # ══════════════════════════════════════════════════════════════════
-# GitLab CI — builds OXIS for both platforms on every push.
+# GitLab CI — builds the Linux binary + .deb on every push.
 #
-#   build:linux    → dist/oxis (binary) + dist/oxis_<ver>_amd64.deb
-#   build:windows  → dist/oxis.exe + dist/oxis-<ver>.msi
+#   build:linux → dist/oxis (binary) + dist/deb/oxis_<ver>_amd64.deb
 #
-# ── "stuck in pending, no matching runners available" ─────────────
-# That happens when a job's `tags:` don't match any runner registered
-# for this project (or its group/instance) — this project had none
-# registered for either "linux" or "windows", so both jobs just sat
-# pending forever. Fixed here for Linux; Windows needs one real step
-# from you, explained below, because there's no way around it from
-# the YAML alone.
+# Windows builds are done locally (Visual Studio / npm run build) —
+# see README § Getting Started — rather than through CI, so there's
+# no Windows runner to register or maintain here. If that ever
+# changes, see this file's git history for the previous build:windows
+# job (WiX-based .msi, needs a real Windows machine as a runner).
 #
-#   - build:linux no longer requires a tag at all. GitLab.com (and
-#     most self-managed instances) ship shared runners that pick up
-#     untagged jobs automatically, so this now just works — nothing
-#     for you to register.
+# No `tags:` on build:linux — it runs on any available runner, shared
+# or project-level. GitLab.com (and most self-managed instances) ship
+# shared runners that pick up untagged jobs automatically, so this
+# just works with nothing to register.
 #
-#   - build:windows genuinely needs a Windows machine: the .msi is
-#     built with the classic WiX v3 toolset (candle.exe/light.exe),
-#     which only runs on Windows — there's no Linux/Docker equivalent
-#     wired up here, and Wails' Windows build isn't a reliable
-#     cross-compile target from Linux either. To make it green:
-#       1. On a Windows machine (a VM is fine): install GitLab Runner
-#          — https://docs.gitlab.com/runner/install/windows.html
-#       2. Get a registration token from this project's
-#          Settings → CI/CD → Runners → "New project runner", ticking
-#          a "windows" tag when it asks for tags
-#       3. From that Windows machine:
-#            gitlab-runner register --url <your GitLab URL> `
-#              --token <token from step 2> --tag-list windows --executor shell
-#            gitlab-runner install
-#            gitlab-runner start
-#     Until step 3 is done, build:windows will keep sitting
-#     pending/failing — that's expected, and `allow_failure: true`
-#     below means it won't hold up the rest of the pipeline while you
-#     get to it.
-#
-# Both package.json files pin "engines": { "node": ">=24.0.0" }, and
-# scripts/build-go.js hard-fails below that — so jobs install Node's
-# *current LTS line* rather than a fixed old major, so they keep
-# working as LTS rolls forward instead of quietly drifting below 24
-# again.
+# package.json pins "engines": { "node": ">=24.0.0" }, and
+# scripts/build-go.js hard-fails below that — so this installs Node's
+# *current LTS line* (setup_lts.x) rather than a fixed old major, so
+# it keeps working as LTS rolls forward instead of quietly drifting
+# below 24 again.
 # ══════════════════════════════════════════════════════════════════
 
 stages:
@@ -50,9 +27,6 @@ stages:
 variables:
   GIT_DEPTH: "1"
 
-# ── Linux: binary + .deb ─────────────────────────────────────────
-# No `tags:` — runs on any available runner, shared or project-level,
-# which is exactly what fixes the "no matching runners" pending state.
 build:linux:
   stage: build
   image: golang:1.22-bookworm
@@ -74,32 +48,4 @@ build:linux:
     paths:
       - dist/oxis
       - dist/deb/oxis_*_amd64.deb
-    expire_in: 30 days
-
-# ── Windows: .exe + .msi installer — needs a real Windows runner ──
-# npm run build (scripts/build-go.js) compiles dist/oxis.exe, then
-# automatically runs scripts/build-msi.js to produce the .msi (via
-# WiX) — see that script's own fallback to an NSIS .exe installer if
-# WiX isn't present. Installing Go/Node/WiX here via choco assumes a
-# fresh runner; drop steps your runner's image already includes.
-build:windows:
-  stage: build
-  tags: [windows]
-  allow_failure: true # until a "windows"-tagged runner exists (see the setup steps above) — don't block the pipeline on it
-  before_script:
-    # "nodejs-lts" tracks Chocolatey's current LTS package (Node
-    # 24.x as of writing) — matches the ">=24.0.0" engines requirement.
-    - choco install -y golang nodejs-lts wixtoolset --no-progress
-    - refreshenv
-    - go version
-    - node -v
-    - npm -v
-  script:
-    - npm run build
-  artifacts:
-    name: "oxis-windows-$CI_COMMIT_SHORT_SHA"
-    paths:
-      - dist/oxis.exe
-      - dist/wix/oxis-*.msi
-      - dist/nsis/oxis-*-setup.exe
     expire_in: 30 days

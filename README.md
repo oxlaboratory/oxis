@@ -682,43 +682,31 @@ there — see [Plugin System](#plugin-system).
 
 ## Continuous Integration
 
-**[shipped]** `.gitlab-ci.yml` builds OXIS for both platforms on
+**[shipped]** `.gitlab-ci.yml` builds the Linux binary + `.deb` on
 every push, in one `build` stage:
 
 | Job              | Runs on              | Produces                                                    |
 |-------------------|----------------------|--------------------------------------------------------------|
-| `build:linux`     | runner tagged `linux`   | `dist/oxis` (binary), `dist/oxis_<version>_amd64.deb`      |
-| `build:windows`   | runner tagged `windows` | `dist/oxis.exe`, `dist/oxis-<version>.msi`                 |
+| `build:linux`     | any available runner | `dist/oxis` (binary), `dist/deb/oxis_<version>_amd64.deb`  |
 
-Both jobs upload their output as pipeline artifacts (30-day
-expiry) — open the pipeline in GitLab's UI and download them from
-the job's **Browse** / **Download** buttons, no separate release
-step required.
+The job uploads its output as pipeline artifacts (30-day expiry) —
+open the pipeline in GitLab's UI and download them from the job's
+**Browse** / **Download** buttons, no separate release step required.
+No `tags:` are set, so it runs on whatever runner is available first —
+GitLab.com's shared runners pick it up automatically with nothing to
+register (it uses the `golang:1.22-bookworm` Docker image and installs
+Node.js itself).
 
-**Runner setup.** GitLab.com's default shared runners are Linux-only,
-so:
-
-- `build:linux` works out of the box on GitLab.com's shared runners
-  (it uses the `golang:1.22-bookworm` Docker image and installs
-  Node.js itself).
-- `build:windows` needs a runner you register with the `windows` tag
-  — a Windows machine/VM running `gitlab-runner register` (or your
-  GitLab instance's own Windows runner, if it has one). The job
-  installs Go, Node.js and the WiX Toolset via
-  [Chocolatey](https://chocolatey.org/) in `before_script`, so a
-  fresh Windows runner with `choco` available is enough; if your
-  runner's image already has some of these, trim that line to skip
-  the ones it doesn't need.
-- If WiX isn't actually available at build time, `scripts/build-msi.js`
-  falls back to producing an NSIS `.exe` installer instead of a
-  `.msi` — see [Installer & bundled source](#installer--bundled-source)
-  above. The Windows job's artifact list includes both patterns
-  (`dist/oxis-*.msi` and `dist/oxis-*-setup.exe`) so either output
-  gets picked up.
-
-Self-hosted GitLab instances with their own shared Windows/Linux
-runners can drop the `tags:` lines (or point them at whatever tags
-those runners actually use).
+**Windows builds are local, not CI.** Build `dist/oxis.exe` (and the
+installer, via `npm run build:msi` — see [Installer & bundled
+source](#installer--bundled-source)) with Visual Studio / `npm run
+build` on your own Windows machine instead of through a pipeline job.
+This avoids needing to register and maintain a dedicated Windows
+GitLab Runner just to produce a build you can already make locally.
+If a CI-driven Windows build becomes worth it later, a `build:windows`
+job (WiX-based `.msi`, needs a real Windows runner registered with a
+matching tag) is straightforward to add back — see this file's git
+history for the previous version.
 
 ---
 
