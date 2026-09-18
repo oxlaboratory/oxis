@@ -1,6 +1,6 @@
 /**
  * App.tsx — OXIS v1.2.1
- * Complete application: terminal, editor, home, theme editor, plugin creator.
+ * Complete application: terminal, editor (also used to edit plugins), home, theme editor.
  */
 
 import React, {
@@ -29,11 +29,14 @@ import type { Theme }                       from "./terminal/themeManager";
 import { events }                           from "./terminal/events";
 import { keybinds, registerCoreKeybinds }  from "./terminal/keybinds";
 import { registry }                         from "./terminal/commandRegistry";
+import type { CommandHandler }              from "./terminal/commandRegistry";
 import { sessionManager }                   from "./terminal/sessionManager";
 import { workspaceState }                   from "./terminal/workspaceState";
 import { workspaceManager }                 from "./terminal/workspaceManager";
+import { getRecentErrors, installGlobalErrorCapture } from "./terminal/diagnostics";
 import { cwdTracker, buildCwdProbe, looksLikeDirectoryChange } from "./terminal/cwdTracker";
 import { scriptRunTracker } from "./terminal/scriptRunTracker";
+import { workflowRunner } from "./plugins/workflowRunner";
 import {
   grant as grantPermission, revoke as revokePermission, grantedTo as grantedPermissions,
   type PermissionNamespace,
@@ -49,10 +52,12 @@ import {
 import { highlight, detectLang } from "./terminal/syntaxHighlight";
 import type { EditorLang }       from "./terminal/syntaxHighlight";
 import { pluginManager }                   from "./plugins/pluginManager";
+import { UNDOCUMENTED_SENTINEL }           from "./plugins/pluginAPI";
 import { initPlugins }                     from "./plugins/loader";
 import type { LuaJSValue }                 from "./plugins/luaRuntime";
 import * as market                         from "./plugins/market";
-import { readFile, writeFile, isNativeApp, openUrl, checkForUpdate } from "./native";
+import { updatePlugin, updateAllPlugins, rollbackPlugin } from "./plugins/marketUpdate";
+import { readFile, writeFile, listDir, isNativeApp, openUrl, checkForUpdate } from "./native";
 import Titlebar from "./components/Titlebar";
 
 // ══════════════════════════════════════════════════════════════
@@ -88,6 +93,23 @@ function splitCmdArgs(body: string): string[] {
   return out;
 }
 
+// Is this file path where a currently-registered plugin's .lua source
+// actually lives? Used by the Editor's save path (see editorSave in
+// the Terminal component) so saving a plugin file reloads it live —
+// plugins are edited in the exact same Editor as any other file, not
+// a second editor with its own save button, so the Editor itself has
+// to know when "save" also means "reload this plugin".
+function findPluginForPath(path: string): string | null {
+  for (const p of pluginManager.all()) {
+    if (p.builtin || !p.lua) continue;
+    const expected = p.origin === "user"
+      ? `${workspaceManager.pluginsDir()}/${p.name}.lua`
+      : `plugins/${p.name}.lua`;
+    if (expected === path) return p.name;
+  }
+  return null;
+}
+
 function readAllOptions(): Record<string, unknown> {
   try { return JSON.parse(localStorage.getItem(OPTIONS_KEY) || "{}"); }
   catch { return {}; }
@@ -99,6 +121,101 @@ function writePersistedOption(key: string, value: LuaJSValue): void {
   const all = readAllOptions();
   all[key] = value;
   try { localStorage.setItem(OPTIONS_KEY, JSON.stringify(all)); } catch { /* storage full/unavailable — option still works for this session via the per-plugin in-memory cache in pluginAPI.ts */ }
+}
+
+// ══════════════════════════════════════════════════════════════
+// SETTINGS — 'config / 'settings. Backed by the SAME localStorage
+// option store as oxis.getOption/setOption above (keys prefixed
+// "setting." to avoid colliding with a plugin's own option names) —
+// not a second, parallel persistence mechanism. Each setting knows
+// how to actually apply itself (a real, immediate side effect, not
+// just a stored value nothing reads) — applyAllSettings() runs once
+// at startup so a setting from last session takes effect again
+// without a restart, same as changing it live does.
+// ══════════════════════════════════════════════════════════════
+interface SettingDef {
+  key: string;
+  label: string;
+  description: string;
+  default: string | number | boolean;
+  choices?: string[]; // for a "pick one of these" setting; omitted = free string/number/boolean
+  apply: (value: string | number | boolean) => void;
+}
+
+const SETTINGS: SettingDef[] = [
+  {
+    key: "fontSize", label: "Font Size", default: 13,
+    description: "Terminal & editor font size in px (line height scales with it)",
+    apply: (v) => {
+      const n = Number(v) || 13;
+      document.documentElement.style.setProperty("--fs", `${n}px`);
+      document.documentElement.style.setProperty("--lh", `${Math.round(n * 1.54)}px`);
+    },
+  },
+  {
+    key: "cursorStyle", label: "Cursor Style", default: "block", choices: ["block", "bar", "underline"],
+    description: "Terminal cursor shape",
+    apply: (v) => document.documentElement.setAttribute("data-cursor-style", String(v)),
+  },
+  {
+    key: "cursorBlink", label: "Cursor Blink", default: true,
+    description: "Whether the terminal cursor blinks",
+    apply: (v) => document.documentElement.setAttribute("data-cursor-blink", v ? "on" : "off"),
+  },
+  {
+    key: "updateCheckOnStartup", label: "Check for Updates", default: true,
+    description: "Check gitlab.com for a newer OXIS release on startup",
+    apply: () => { /* read directly where used — see checkUpdate() in the root App component */ },
+  },
+];
+
+function settingDef(key: string): SettingDef | undefined {
+  return SETTINGS.find(s => s.key.toLowerCase() === key.toLowerCase());
+}
+
+function getSetting(key: string): string | number | boolean {
+  const def = settingDef(key);
+  if (!def) return "";
+  const stored = readPersistedOption(`setting.${def.key}`);
+  return (stored === undefined || stored === null) ? def.default : (stored as string | number | boolean);
+}
+
+function setSetting(key: string, rawValue: string): { ok: boolean; message: string } {
+  const def = settingDef(key);
+  if (!def) return { ok: false, message: `unknown setting: ${key} — 'config list to see all` };
+  let value: string | number | boolean;
+  if (def.choices) {
+    if (!def.choices.includes(rawValue)) return { ok: false, message: `${def.key} expects one of: ${def.choices.join(", ")}` };
+    value = rawValue;
+  } else if (typeof def.default === "boolean") {
+    const v = rawValue.toLowerCase();
+    if (!["true", "false", "on", "off", "1", "0", "yes", "no"].includes(v)) return { ok: false, message: `${def.key} expects true/false` };
+    value = ["true", "on", "1", "yes"].includes(v);
+  } else if (typeof def.default === "number") {
+    const n = Number(rawValue);
+    if (!Number.isFinite(n)) return { ok: false, message: `${def.key} expects a number` };
+    value = n;
+  } else {
+    value = rawValue;
+  }
+  writePersistedOption(`setting.${def.key}`, value);
+  def.apply(value);
+  return { ok: true, message: `${def.key} = ${value}` };
+}
+
+function resetSetting(key: string): { ok: boolean; message: string } {
+  const def = settingDef(key);
+  if (!def) return { ok: false, message: `unknown setting: ${key} — 'config list to see all` };
+  writePersistedOption(`setting.${def.key}`, def.default as LuaJSValue);
+  def.apply(def.default);
+  return { ok: true, message: `${def.key} reset to ${def.default}` };
+}
+
+/** Applies every setting's persisted (or default) value — called once
+ *  at startup so settings from last session take effect immediately,
+ *  same as this session's changes already do live. */
+function applyAllSettings(): void {
+  for (const def of SETTINGS) def.apply(getSetting(def.key));
 }
 
 // ── init flag so we only register commands once ──────────────
@@ -143,6 +260,131 @@ const forwardingApiCtx: import("./plugins/pluginAPI").APIContext = {
 
 // Global "go home" trigger, set by the root App component
 const _goHomeRef: { current: (() => void) | null } = { current: null };
+
+// ══════════════════════════════════════════════════════════════
+// COMMAND DETAILS — backs 'help <command> for the commands with a
+// real "other ways to use it" surface (subcommands): every syntax
+// variant a command actually accepts, described individually, plus
+// worked examples. Kept separate from CommandEntry.description (a
+// one-liner for the all-commands listing) rather than cramming all of
+// this into that single string — one is for scanning a big list
+// quickly, this is for "I picked this one, now show me everything it
+// can do." Simple one-verb commands ('ls, 'cat, etc.) don't need an
+// entry here; their registry description already says what they do,
+// and 'help <command> falls back to that automatically — see the
+// 'help handler below.
+// ══════════════════════════════════════════════════════════════
+interface CommandUsage { syntax: string; description: string }
+interface CommandDetail { summary: string; usage: CommandUsage[]; examples?: string[]; notes?: string }
+
+const COMMAND_DETAILS: Record<string, CommandDetail> = {
+  workspace: {
+    summary: "Manage OXIS workspaces — the single-directory .oxis/workspace.lua flow, and named, switchable workspaces built on top of it.",
+    usage: [
+      { syntax: "'workspace init",                    description: "create .oxis/workspace.lua in the CURRENT directory (the original, single-project flow)" },
+      { syntax: "'workspace init \"name\"",              description: "create a NAMED workspace (workspaces/<name>/) with its own documents/plugins/scripts/tasks/workflows folders" },
+      { syntax: "'workspace list",                    description: "list every named workspace — '*' marks the active one" },
+      { syntax: "'workspace switch <name>",           description: "activate a named workspace (or 'workspace switch default to go back to the shared, unnamed context)" },
+      { syntax: "'workspace rename <old> <new>",      description: "rename a named workspace" },
+      { syntax: "'workspace delete <name>",           description: "delete a named workspace and everything inside it" },
+      { syntax: "'workspace link \"<path>\"",           description: "connect the ACTIVE named workspace to an existing project directory elsewhere on disk, without moving it" },
+      { syntax: "'workspace unlink",                  description: "remove that link" },
+      { syntax: "'workspace info",                    description: "show the active workspace's state — name, tasks, link if any" },
+      { syntax: "'workspace reload",                  description: "re-run .oxis/workspace.lua (picks up edits without switching away and back)" },
+      { syntax: "'workspace close",                   description: "unload the active workspace, undoing everything its workspace.lua registered" },
+    ],
+    examples: [
+      "'workspace init \"my-app\"          — create a workspace called my-app",
+      "'workspace switch my-app          — make it the active one",
+      "'workspace link \"C:\\Projects\\my-app\"  — point it at a real project directory",
+      "'workspace switch default         — step back out of it",
+    ],
+    notes: "Switching workspaces clears the previously-active one's tasks/commands/workflows first — one workspace's stuff never leaks into another's.",
+  },
+  plugin: {
+    summary: "Create, manage, and inspect plugins — both your own (Plugin Creator/'plugin new) and ones installed from the Market.",
+    usage: [
+      { syntax: "'plugin list",                                          description: "every plugin + enabled/disabled status" },
+      { syntax: "'plugin enable <name>",                                 description: "enable one plugin" },
+      { syntax: "'plugin enable all",                                    description: "enable every registered plugin" },
+      { syntax: "'plugin disable <name>",                                description: "disable one plugin" },
+      { syntax: "'plugin reload <name>",                                 description: "reload a single plugin (picks up file changes without a restart)" },
+      { syntax: "'plugin reloadall",                                     description: "reload every enabled plugin" },
+      { syntax: "'plugin new <name> [--template=basic|dev|devops|system]", description: "create a new plugin from a real starter template, register it live, and open it in the Editor" },
+      { syntax: "'plugin uninstall <name> [--force]",                    description: "remove a plugin's file — refuses if another installed plugin depends on it, unless --force" },
+      { syntax: "'plugin delete <name>",                                 description: "alias for uninstall" },
+      { syntax: "'plugin info <name>",                                   description: "full metadata: version, author, permissions declared, dependencies + their status" },
+      { syntax: "'plugin docs <name>",                                   description: "a plugin's own documentation, if its manifest declares any" },
+      { syntax: "'plugin validate <name>",                               description: "check manifest/Lua-syntax/dependencies/compatibility WITHOUT loading it — safe to run on a plugin that's currently in use" },
+      { syntax: "'plugin test <name>",                                   description: "actually load it and report what it registered, then restore its prior enabled/disabled state" },
+      { syntax: "'plugin doctor",                                        description: "inspect every installed plugin at once — broken/missing dependencies, incompatible versions, invalid manifests, permission gaps, Lua errors, missing files — errors vs. warnings clearly distinguished, with suggested fixes" },
+      { syntax: "'plugin permissions <name>",                            description: "see a plugin's fs/process/net/system/workspace/editor/terminal grants" },
+      { syntax: "'plugin permissions <name> grant <ns>",                 description: "grant one permission namespace" },
+      { syntax: "'plugin permissions <name> revoke <ns>",                description: "revoke one" },
+      { syntax: "'plugin rollback <name>",                               description: "restore the backup taken by the last 'market update — works any time after an update, not just right after a failed one" },
+    ],
+    examples: [
+      "'plugin new mytools --template=devops   — start a new devops-flavored plugin",
+      "'plugin validate mytools                — check it before relying on it",
+      "'plugin permissions mytools grant fs     — let it read/write files",
+    ],
+  },
+  market: {
+    summary: "Browse and install plugins from the free OXIS Market.",
+    usage: [
+      { syntax: "'market list",         description: "every free plugin in the Market" },
+      { syntax: "'market search <q>",   description: "search by name/description" },
+      { syntax: "'market info <name>",  description: "one plugin's details before installing it" },
+      { syntax: "'market install <name>", description: "install it — registers and loads it live, same as 'plugin new does for your own" },
+      { syntax: "'market update <name>", description: "check for and apply an update — checks OXIS-version/OS compatibility and dependencies against the NEW version first, backs up the current one, and automatically rolls back if the new version fails to load" },
+      { syntax: "'market update all", description: "the same, for every Market-installed plugin with an available update; already-current ones are reported, not skipped silently" },
+    ],
+    notes: "'plugin rollback <name> undoes the last update manually, any time after it — not just automatically right after a failed one.",
+  },
+  config: {
+    summary: "View or change OXIS settings — see README § Settings for the full list and what each one actually does.",
+    usage: [
+      { syntax: "'config list",              description: "every setting + its current value" },
+      { syntax: "'config get <key>",         description: "show one setting" },
+      { syntax: "'config set <key> <value>", description: "change a setting — takes effect immediately, no restart" },
+      { syntax: "'config reset <key>",       description: "reset a setting to its default" },
+    ],
+    examples: [
+      "'config set fontSize 15",
+      "'config set cursorStyle bar",
+      "'config set updateCheckOnStartup false",
+    ],
+    notes: "'settings is an alias for 'config. Theme isn't a \"setting\" here — see 'theme instead, which has its own dedicated persistence.",
+  },
+  workflow: {
+    summary: "Run multi-step workflows declared in the active workspace's workflows/*.lua files.",
+    usage: [
+      { syntax: "'workflow list",        description: "workflows loaded from the active workspace" },
+      { syntax: "'workflow <name>",      description: "run one — e.g. 'workflow build" },
+      { syntax: "'workflow info <name>", description: "show its steps without running it" },
+      { syntax: "'workflow cancel",      description: "stop whichever workflow is currently running" },
+    ],
+    notes: "No workspace active, or that workspace has no workflows/ folder → 'workflow list will say so rather than error.",
+  },
+  edit: {
+    summary: "Open a file in the built-in Editor — Normal/Insert/Visual modes, undo/redo, find & replace, multiple tabs, a file tree (Ctrl+B).",
+    usage: [
+      { syntax: "'edit <file>",           description: "relative paths resolve against the app's own directory (created-documents/, created-plugins/, workspaces/, plugins/ all live there — see README § dist/ layout)" },
+      { syntax: "'edit \"<absolute path>\"", description: "quote it if it contains spaces — opens that exact file regardless of where it lives" },
+    ],
+    examples: [
+      "'edit created-documents/notes.md",
+      "'edit \"C:\\Users\\Admin\\Downloads\\LICENSE\"",
+    ],
+  },
+  task: {
+    summary: "Run a task defined by the active workspace's .oxis/workspace.lua (oxis.task(...)).",
+    usage: [
+      { syntax: "'task <name>", description: "run it — sends the task's command straight to the shell, same as typing it yourself" },
+    ],
+    notes: "Long-running tasks (e.g. a polling loop meant to run 'until stopped') are interrupted with Ctrl+C, same as any other foreground shell command.",
+  },
+};
 
 function registerBuiltinCommands(ctx: ShellCtx): void {
   if (_commandsRegistered) return;
@@ -405,7 +647,7 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
           all.filter(p=>p.category===cat).forEach(p=>
             ctx.print(`  ${p.enabled?"●":"○"}  ${p.name.padEnd(16)} ${p.desc}`,p.enabled?"accent":"dim"));
         }
-        sep(); dim("'plugin enable <n>  ·  'plugin enable all  ·  'plugin disable <n>  ·  'plugin reload <n>  ·  'plugin delete <n>  ·  'plugin permissions <n>"); return; }
+        sep(); dim("'plugin enable <n>  ·  'plugin disable <n>  ·  'plugin reload <n>  ·  'plugin uninstall <n>  ·  'plugin info <n>  ·  'plugin validate <n>  ·  'plugin permissions <n>  ·  'plugin new <n>"); return; }
       if(sub==="enable"){
         if(!name){err("usage: 'plugin enable <name>");return;}
         if(name.toLowerCase()==="all"){
@@ -435,24 +677,94 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
         else err(`${name} didn't reload cleanly — see the message above for why`);
         return; }
       if(sub==="reloadall"){ pluginManager.reloadAll(); ok("all plugins reloaded"); return; }
-      if(sub==="new"){
-        if(!name){err("usage: 'plugin new <name>");return;}
-        events.emit("open_plugin_creator",{name}); return; }
-      if(sub==="delete"||sub==="rm"){
+      if(sub==="delete"||sub==="rm"||sub==="uninstall"){
         if(!name){err(`usage: 'plugin ${sub} <name>`);return;}
         const p=pluginManager.get(name);
         if(!p){ err(`not found: ${name}`); return; }
         if(p.builtin){ err(`${name} is a built-in plugin — 'plugin disable it instead`); return; }
-        pluginManager.remove(name).then(()=>ok(`deleted ${name}`));
+        const force = args.includes("--force");
+        pluginManager.remove(name, force).then(r => (r.ok?ok:err)(r.message));
+        return; }
+      if(sub==="info"){
+        if(!name){err("usage: 'plugin info <name>");return;}
+        const r = pluginManager.info(name);
+        if(r.ok) r.text.split("\n").forEach(line => line ? info(line) : ctx.print(""));
+        else err(r.message);
+        return; }
+      if(sub==="docs"){
+        if(!name){err("usage: 'plugin docs <name>");return;}
+        const p = pluginManager.get(name);
+        if(!p){ err(`not found: ${name}`); return; }
+        const doc = p.manifest?.description;
+        if(doc) { sep(); ctx.print(`  ${name}`,"accent"); sep(); dim(doc); sep(); }
+        else dim(`${name} hasn't declared any documentation beyond its command descriptions — see 'help ${name}`);
+        return; }
+      if(sub==="validate"){
+        if(!name){err("usage: 'plugin validate <name>");return;}
+        const r = pluginManager.validate(name);
+        if(r.ok){ ok(`${name}: no issues found`); return; }
+        err(`${name}: ${r.issues.length} issue(s)`);
+        r.issues.forEach(issue => dim(`  · ${issue}`));
+        return; }
+      if(sub==="test"){
+        if(!name){err("usage: 'plugin test <name>");return;}
+        const r = pluginManager.test(name);
+        (r.ok?ok:err)(r.message);
+        return; }
+      if(sub==="doctor"){
+        pluginManager.doctor().then(results => {
+          sep(); info("Plugin Doctor"); sep();
+          if(results.length === 0){ ok("no issues found across any installed plugin"); sep(); return; }
+          const sevIcon = { error: "✗", warning: "⚠", info: "·" } as const;
+          for(const r of results){
+            ctx.print(`  ${r.name}`, "accent");
+            for(const f of r.findings){
+              ctx.print(`    ${sevIcon[f.severity]}  [${f.severity}]  ${f.message}`, f.severity === "error" ? "err" : f.severity === "warning" ? "warn" : "dim");
+              if(f.suggestion) dim(`         → ${f.suggestion}`);
+            }
+          }
+          sep();
+          const errCount = results.reduce((n,r) => n + r.findings.filter(f=>f.severity==="error").length, 0);
+          const warnCount = results.reduce((n,r) => n + r.findings.filter(f=>f.severity==="warning").length, 0);
+          dim(`${errCount} error(s), ${warnCount} warning(s) across ${results.length} plugin(s) with findings`);
+          sep();
+        });
+        return; }
+      if(sub==="rollback"){
+        if(!name){err("usage: 'plugin rollback <name>");return;}
+        rollbackPlugin(name).then(r => (r.ok?ok:err)(r.message));
+        return; }
+      if(sub==="new"){
+        if(!name){err("usage: 'plugin new <name> [--template=basic|dev|devops|system]");return;}
+        if(!/^[a-z0-9_-]+$/i.test(name)){ err("plugin name: letters, numbers, - _ only"); return; }
+        const templateArg = args.find(a=>a.toLowerCase().startsWith("--template="));
+        const template = templateArg ? templateArg.split("=")[1]?.toLowerCase() : undefined;
+        const path = `${workspaceManager.pluginsDir()}/${name}.lua`;
+        const existing = pluginManager.get(name);
+        if(existing){
+          dim(`"${name}" already exists — opening it for editing instead of overwriting it`);
+          _ctxRef.current?.openEditor(path);
+          return;
+        }
+        // Same register+persist+load addLuaPlugin() the old Plugin
+        // Creator's "save & load" button called — the plugin is live
+        // immediately with the template's starter code; the Editor
+        // that opens right after is just for customizing it further,
+        // exactly like opening any other file (see findPluginForPath).
+        pluginManager.addLuaPlugin(name, pluginTemplate(name, template), "plugin", "user").then(({ persisted, persistError }) => {
+          if(persisted) ok(`created & loaded: ${name}`);
+          else err(`created (this session only) — couldn't save to disk: ${persistError instanceof Error ? persistError.message : String(persistError ?? "unknown error")}`);
+          _ctxRef.current?.openEditor(path);
+        });
         return; }
       if(sub==="permissions"||sub==="perms"){
         // 'plugin permissions <name>                 — list grants
         // 'plugin permissions <name> grant  <ns>      — grant fs/process/net/system
         // 'plugin permissions <name> revoke <ns>      — revoke it
-        if(!name){err("usage: 'plugin permissions <name> [grant|revoke <fs|process|net|system>]");return;}
+        if(!name){err("usage: 'plugin permissions <name> [grant|revoke <fs|process|net|system|workspace|editor|terminal>]");return;}
         const action = args[2]?.toLowerCase();
         const ns = args[3]?.toLowerCase() as PermissionNamespace | undefined;
-        const VALID: PermissionNamespace[] = ["fs","process","net","system"];
+        const VALID: PermissionNamespace[] = ["fs","process","net","system","workspace","editor","terminal"];
         if(action==="grant"||action==="revoke"){
           if(!ns || !VALID.includes(ns)){ err(`usage: 'plugin permissions ${name} ${action} <fs|process|net|system>`); return; }
           if(action==="grant") grantPermission(name, ns); else revokePermission(name, ns);
@@ -464,7 +776,7 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
         for(const v of VALID) ctx.print(`  ${granted.includes(v)?"●":"○"}  ${v}`, granted.includes(v)?"accent":"dim");
         sep(); dim(`'plugin permissions ${name} grant <ns>  ·  'plugin permissions ${name} revoke <ns>`);
         return; }
-      err(`unknown: 'plugin ${sub}`); }});
+      err(`unknown: 'plugin ${sub} — try list, enable, disable, reload, new, uninstall, info, docs, validate, test, doctor, rollback, or permissions`); }});
 
   // ── plugin marketplace (oxis-market.pages.dev) ─────────
   registry.register({ name:"market",  category:"plugins", description:"Browse and install plugins from oxis-market.pages.dev",
@@ -551,6 +863,24 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
             })
             .catch(e => err(`install failed: ${e instanceof Error ? e.message : e}`));
         }).catch(e => err(`marketplace unreachable: ${e instanceof Error ? e.message : e}`));
+        return;
+      }
+
+      if (sub === "update") {
+        const name = args[1];
+        if (!name) { err("usage: 'market update <name>  ·  or 'market update all"); return; }
+        if (name.toLowerCase() === "all") {
+          info("checking every Market-installed plugin for updates…");
+          updateAllPlugins().then(results => {
+            if (results.length === 0) { dim("no Market-installed plugins to update"); return; }
+            sep(); info("Market Update — all"); sep();
+            for (const r of results) (r.ok ? ok : err)(r.message);
+            sep();
+          });
+          return;
+        }
+        info(`checking ${name} for an update…`);
+        updatePlugin(name).then(r => (r.ok ? ok : err)(r.message));
         return;
       }
 
@@ -681,6 +1011,80 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
         return; }
       err(`unknown: 'workspace ${sub} — try init, list, switch, rename, delete, link, unlink, info, reload, or close`); }});
 
+  // ── workflow ──────────────────────────────────────────
+  // 'workflow list / <name> / info <name> / cancel — see
+  // workflowRunner.ts. Workflows come from the active workspace's
+  // workflows/*.lua files (loaded by workspaceManager.ts when a
+  // workspace is switched to); with no workspace active, there are
+  // none registered ('workflow list says so rather than erroring).
+  registry.register({ name:"workflow", category:"workspace", description:"Run a workspace workflow",
+    handler:(args)=>{
+      const sub = args[0]?.toLowerCase();
+      if(!sub || sub==="list"){
+        const all = workflowRunner.all();
+        if(!all.length){ dim("no workflows loaded — switch to a workspace with a workflows/ folder ('workspace switch <name>), or add one"); return; }
+        sep(); info("Workflows"); sep();
+        all.forEach(w => info(`${w.name === workflowRunner.currentlyRunning() ? "▶" : "○"}  ${w.name.padEnd(16)} ${w.description}`));
+        sep(); dim("'workflow <name>  ·  'workflow info <name>  ·  'workflow cancel"); return; }
+      if(sub==="cancel"){
+        if(!workflowRunner.isRunning()){ dim("no workflow is currently running"); return; }
+        workflowRunner.cancel(); scriptRunTracker.cancel(); _ctxRef.current?.send("\x03");
+        ok(`cancelling ${workflowRunner.currentlyRunning()}...`); return; }
+      if(sub==="info"){
+        const name = args[1];
+        if(!name){ err("usage: 'workflow info <name>"); return; }
+        const w = workflowRunner.get(name);
+        if(!w){ err(`not found: ${name}`); return; }
+        sep(); info(w.name); sep();
+        if(w.description) dim(w.description);
+        if(Object.keys(w.env).length) dim(`env: ${Object.entries(w.env).map(([k,v])=>`${k}=${v}`).join(", ")}`);
+        const describeStep = (s: typeof w.steps[number]): string =>
+          s.parallel ? `parallel (${s.parallel.length} steps)` : s.task ? `task: ${s.task}` : s.command ? `command: '${s.command}` : s.run ? `run: ${s.run.split("\n")[0]}` : "?";
+        w.steps.forEach((s,i) => info(`${i+1}. ${describeStep(s)}${s.continueOnError ? "  (continue on error)" : ""}${s.retry ? `  (retry ${s.retry})` : ""}`));
+        return; }
+      // Anything else is treated as a workflow name to run — 'workflow build, 'workflow deploy, etc.
+      const name = sub;
+      if(!workflowRunner.get(name)){ err(`no such workflow: ${name} — 'workflow list to see what's loaded`); return; }
+      workflowRunner.run(name, { sendToShell: (data) => _ctxRef.current?.send(data), print: (t,k) => _ctxRef.current?.print(t,k) })
+        .catch((e) => err(`workflow ${name} crashed: ${e instanceof Error ? e.message : e}`)); }});
+
+  // ── config / settings ─────────────────────────────────
+  // Persisted via the same option store oxis.getOption/setOption use
+  // (see writePersistedOption above) — not a second config system.
+  // Theme has its own dedicated 'theme <n> command already (and its
+  // own persistence via themeManager) so it's deliberately not
+  // duplicated here as a "setting" — 'config list says so.
+  const configHandler: CommandHandler = (args) => {
+    const sub = args[0]?.toLowerCase();
+    if(!sub || sub==="list"){
+      sep(); info("Settings"); sep();
+      for(const def of SETTINGS){
+        const val = getSetting(def.key);
+        info(`${def.key.padEnd(20)} = ${String(val).padEnd(10)} ${def.description}${def.choices ? `  [${def.choices.join("|")}]` : ""}`);
+      }
+      sep(); dim("theme is managed separately — see 'theme");
+      dim("'config set <key> <value>  ·  'config get <key>  ·  'config reset <key>"); return; }
+    if(sub==="get"){
+      const key = args[1];
+      if(!key){ err("usage: 'config get <key>"); return; }
+      const def = settingDef(key);
+      if(!def){ err(`unknown setting: ${key} — 'config list to see all`); return; }
+      info(`${def.key} = ${getSetting(def.key)}`); return; }
+    if(sub==="set"){
+      const key = args[1], value = args.slice(2).join(" ");
+      if(!key || !value){ err("usage: 'config set <key> <value>"); return; }
+      const r = setSetting(key, value);
+      (r.ok?ok:err)(r.message); return; }
+    if(sub==="reset"){
+      const key = args[1];
+      if(!key){ err("usage: 'config reset <key>"); return; }
+      const r = resetSetting(key);
+      (r.ok?ok:err)(r.message); return; }
+    err(`unknown: 'config ${sub} — try list, get, set, or reset`);
+  };
+  registry.register({ name:"config", category:"system", description:"View or change OXIS settings", handler: configHandler });
+  registry.register({ name:"settings", category:"system", description:"Alias for 'config", handler: configHandler });
+
   // ── history management ────────────────────────────────
   registry.register({ name:"histclear", category:"shell", description:"Clear command history",
     handler:()=>{ history.clear(); ok("history cleared"); }});
@@ -695,29 +1099,85 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
   registry.register({ name:"v",       category:"info", description:"Version info",
     handler:()=> registry.execute("version",[],"") });
 
-  registry.register({ name:"help",    category:"info", description:"All commands — or 'help <plugin> for a single plugin's commands",
+  // ── diagnostics ────────────────────────────────────────
+  // Purely local — see diagnostics.ts. Nothing here is ever sent
+  // anywhere; this exists so YOU can see what's going on, not for
+  // OXIS to collect anything about you.
+  registry.register({ name:"diagnostics", category:"info", description:"Local diagnostic info — version, OS, runtime, plugins, workspace, recent errors",
+    handler:()=>{
+      sep(); info("Diagnostics"); sep();
+      info(`OXIS version:     1.2.1`);
+      info(`OS:                ${isWindows() ? "Windows" : "Linux/Unix"}`);
+      info(`Runtime:           ${isNativeApp() ? "native (Wails desktop app)" : "browser"}`);
+      const all = pluginManager.all();
+      const enabled = all.filter(p => p.enabled);
+      info(`Plugins:           ${enabled.length}/${all.length} enabled`);
+      const active = workspaceManager.getActiveNamed();
+      info(`Active workspace:  ${active || "default (no named workspace active)"}`);
+      info("");
+      const recent = getRecentErrors();
+      if (recent.length === 0) {
+        dim("Recent errors: none recorded this session");
+      } else {
+        dim(`Recent errors (${recent.length}, most recent last):`);
+        for (const e of recent.slice(-10)) {
+          const t = new Date(e.time).toLocaleTimeString();
+          ctx.print(`  [${t}] [${e.source}]  ${e.message.split("\n")[0]}`, "err");
+        }
+      }
+      sep(); dim("This is purely local — nothing on this screen is ever transmitted anywhere.");
+      dim("'plugin doctor for a focused check of installed plugins specifically."); sep();
+    }});
+
+  registry.register({ name:"help",    category:"info", description:"All commands — 'help <command> for details on one, 'help <plugin> for a plugin's commands",
     handler:(args)=>{
-      const pluginName = args[0];
-      if (pluginName) {
-        const p = pluginManager.get(pluginName);
-        if (!p) { err(`no such plugin: ${pluginName} — run 'plugin list to see all`); return; }
-        const cmds = registry.all()
-          .filter(c => c.fromPlugin === pluginName)
-          .sort((a, b) => a.name.localeCompare(b.name));
-        sep(); ctx.print(`  ${p.name}  —  ${p.desc}`, "accent"); sep();
-        if (!p.enabled) {
-          dim(`plugin is disabled — run 'plugin enable ${p.name} to see its commands`); sep(); return;
+      const query = args[0];
+      if (query) {
+        // 1. A command with real subcommand structure (see COMMAND_DETAILS).
+        const detail = COMMAND_DETAILS[query.toLowerCase()];
+        if (detail) {
+          sep(); ctx.print(`  '${query}`, "accent"); sep();
+          dim(detail.summary); info("");
+          for (const u of detail.usage) h(u.syntax, u.description);
+          if (detail.examples?.length) {
+            info(""); dim("examples:");
+            for (const ex of detail.examples) dim(`  ${ex}`);
+          }
+          if (detail.notes) { info(""); dim(detail.notes); }
+          sep(); return;
         }
-        if (!cmds.length) {
-          dim("(this plugin registers no commands)"); sep(); return;
+        // 2. A plugin name — every command it registers.
+        const p = pluginManager.get(query);
+        if (p) {
+          const cmds = registry.all()
+            .filter(c => c.fromPlugin === query)
+            .sort((a, b) => a.name.localeCompare(b.name));
+          sep(); ctx.print(`  ${p.name}  —  ${p.desc}`, "accent"); sep();
+          if (!p.enabled) { dim(`plugin is disabled — run 'plugin enable ${p.name} to see its commands`); sep(); return; }
+          if (!cmds.length) { dim("(this plugin registers no commands)"); sep(); return; }
+          for (const c of cmds) {
+            const label = c.name.startsWith("task:") ? `'task ${c.name.slice(5)}` : `'${c.name}`;
+            h(label, c.description === UNDOCUMENTED_SENTINEL ? "(no description provided)" : c.description);
+          }
+          sep(); return;
         }
-        for (const c of cmds) {
-          const label = c.name.startsWith("task:") ? `'task ${c.name.slice(5)}` : `'${c.name}`;
-          h(label, c.description);
+        // 3. A plain single-verb command — whatever's actually in the
+        // registry, not a hardcoded copy of it. Covers every builtin
+        // ('ls, 'cat, ...) and any plugin command by its own name.
+        const entry = registry.get(query) ?? registry.get(query.replace(/^'/, ""));
+        if (entry) {
+          sep(); ctx.print(`  '${entry.name}`, "accent"); sep();
+          info(entry.description === UNDOCUMENTED_SENTINEL ? "(no description provided)" : entry.description);
+          dim(`category: ${entry.category}${entry.fromPlugin ? `  ·  from plugin: ${entry.fromPlugin}` : ""}`);
+          sep(); return;
         }
-        sep(); return;
+        err(`no such command or plugin: ${query}\ntry 'help with no arguments to see everything, or 'plugin list / 'market search to find a plugin`);
+        return;
       }
       sep(); ctx.print("  OXIS commands  (prefix: ')","accent"); sep();
+      dim("'help <command>   — details + every way to use one command (e.g. 'help workspace)");
+      dim("'help <plugin>    — one plugin's commands (e.g. 'help git)");
+      dim("'? or 'help       — this list"); info("");
       h("── files ────────────────────────────","");
       h("'ls [dir]","list directory"); h("'cd [dir]","change directory"); h("'pwd","current path");
       h("'cat <f>","read file"); h("'new / 'touch <f>","create file"); h("'mkdir <d>","create directory");
@@ -737,19 +1197,46 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
       info(""); h("── plugins ───────────────────────────","");
       h("'plugin list","all plugins + status"); h("'plugin enable <n>","enable");
       h("'plugin enable all","enable every plugin"); h("'plugin disable <n>","disable"); h("'plugin reload <n>","reload");
-      h("'plugin new <n>","create Lua plugin in-app");
+      h("'plugin new <n> [--template=basic|dev|devops|system]","create Lua plugin in-app");
       h("'plugin delete <n>","delete a user/market plugin's file");
+      h("'plugin uninstall <n> [--force]","same as delete, but refuses if another plugin depends on it");
+      h("'plugin info <n>","full metadata: version, permissions, dependencies");
+      h("'plugin validate <n>","check a plugin's manifest/deps/compatibility without loading it");
+      h("'plugin test <n>","actually load it and report what it registered");
+      h("'plugin doctor","check every installed plugin at once — errors vs warnings, with suggested fixes");
+      h("'plugin rollback <n>","restore the backup from the last 'market update, any time after it");
+      h("'plugin docs <n>","a plugin's own documentation, if it declares any");
+      h("'plugin permissions <n>","see/grant/revoke fs, process, net, system, workspace, editor, terminal");
       h("'help <n>","show one plugin's commands + what they do");
       h("'market list","browse the free OXIS Market"); h("'market search <q>","search the Market");
       h("'market info <n>","plugin details"); h("'market install <n>","install a Market plugin");
+      h("'market update <n>","update one Market-installed plugin — checks compat/deps first, auto-rolls-back on failure");
+      h("'market update all","update every Market-installed plugin with an available compatible update");
       info(""); h("── workspace ─────────────────────────","");
       h("'workspace init","create .oxis/workspace.lua in this directory");
+      h("'workspace init \"name\"","create a NAMED workspace (workspaces/<name>/)");
+      h("'workspace list","list named workspaces"); h("'workspace switch <name>","activate one");
+      h("'workspace rename <old> <new>","rename a named workspace"); h("'workspace delete <name>","delete one");
+      h("'workspace link \"<path>\"","connect the active workspace to an external project dir");
+      h("'workspace unlink","remove that link");
       h("'workspace info","show the active workspace's state");
       h("'workspace reload","re-run .oxis/workspace.lua");
       h("'workspace close","unload the active workspace");
       h("'task <name>","run a workspace task (see .oxis/workspace.lua)");
+      info(""); h("── workflow ──────────────────────────","");
+      h("'workflow list","list workflows loaded from the active workspace");
+      h("'workflow <name>","run one, e.g. 'workflow build");
+      h("'workflow info <name>","show its steps without running it");
+      h("'workflow cancel","stop whichever workflow is currently running");
+      info(""); h("── settings ──────────────────────────","");
+      h("'config list","show every setting + its current value");
+      h("'config get <key>","show one setting");
+      h("'config set <key> <value>","change a setting — takes effect immediately");
+      h("'config reset <key>","reset a setting to its default");
       h("'version","version + platform info");
-      sep(); dim(`Platform: ${isWindows()?"Windows":"Linux"} · Plugin shortcuts: gs, nb, dps, top…`); sep(); }});
+      h("'diagnostics","local diagnostic info — version, OS, runtime, plugins, workspace, recent errors (never transmitted anywhere)");
+      sep(); dim(`Platform: ${isWindows()?"Windows":"Linux"} · Plugin shortcuts: gs, nb, dps, top…`);
+      dim("Need more detail on any of these? 'help <command> — e.g. 'help plugin, 'help workspace, 'help config"); sep(); }});
 
   registry.register({ name:"?",       category:"info", description:"All commands",
     handler:()=> registry.execute("help",[],"") });
@@ -824,6 +1311,7 @@ const CodeArea = React.forwardRef<HTMLTextAreaElement, {
   onKeyDown?: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
 }>(function CodeArea({ value, lang, className, onChange, onKeyDown }, ref) {
   const preRef = useRef<HTMLPreElement>(null);
+  const gutterRef = useRef<HTMLDivElement>(null);
 
   const html = useMemo(() => {
     const h = highlight(value, lang);
@@ -833,28 +1321,45 @@ const CodeArea = React.forwardRef<HTMLTextAreaElement, {
     return value.endsWith("\n") ? h + "\n" : h;
   }, [value, lang]);
 
+  // Line numbers — a third layer, scrolled in sync with the other two
+  // exactly like the highlight <pre> already is (see syncScroll). Its
+  // own width is based on the actual line count so a 4-digit file
+  // doesn't clip against a gutter sized for 3, and the highlight/input
+  // layers below get that same width as a left inset so the numbers
+  // never overlap real text.
+  const lineCount = useMemo(() => value.split("\n").length, [value]);
+  const gutterWidth = useMemo(() => Math.max(2, String(lineCount).length), [lineCount]);
+  const lineNumbers = useMemo(
+    () => Array.from({ length: lineCount }, (_, i) => i + 1).join("\n"),
+    [lineCount],
+  );
+
   const syncScroll = useCallback((e: React.UIEvent<HTMLTextAreaElement>) => {
-    const pre = preRef.current;
-    if (!pre) return;
-    pre.scrollTop  = e.currentTarget.scrollTop;
-    pre.scrollLeft = e.currentTarget.scrollLeft;
+    const pre = preRef.current, gutter = gutterRef.current;
+    if (pre) { pre.scrollTop = e.currentTarget.scrollTop; pre.scrollLeft = e.currentTarget.scrollLeft; }
+    if (gutter) gutter.scrollTop = e.currentTarget.scrollTop;
   }, []);
 
   return (
     <div className="code-area">
-      <pre ref={preRef} className="code-area-highlight" aria-hidden="true">
-        <code dangerouslySetInnerHTML={{ __html: html }} />
-      </pre>
-      <textarea
-        ref={ref}
-        className={`code-area-input ${className ?? ""}`}
-        value={value}
-        onChange={onChange}
-        onKeyDown={onKeyDown}
-        onScroll={syncScroll}
-        spellCheck={false}
-        autoComplete="off" autoCorrect="off" autoCapitalize="off"
-      />
+      <div ref={gutterRef} className="code-area-gutter" style={{ width: `${gutterWidth + 2}ch` }} aria-hidden="true">
+        <pre>{lineNumbers}</pre>
+      </div>
+      <div className="code-area-body" style={{ left: `${gutterWidth + 2}ch` }}>
+        <pre ref={preRef} className="code-area-highlight" aria-hidden="true">
+          <code dangerouslySetInnerHTML={{ __html: html }} />
+        </pre>
+        <textarea
+          ref={ref}
+          className={`code-area-input ${className ?? ""}`}
+          value={value}
+          onChange={onChange}
+          onKeyDown={onKeyDown}
+          onScroll={syncScroll}
+          spellCheck={false}
+          autoComplete="off" autoCorrect="off" autoCapitalize="off"
+        />
+      </div>
     </div>
   );
 });
@@ -1092,8 +1597,137 @@ function useModalEditor(opts: {
     }
   }, [content, mode, anchor, onEscapeNormal, applyEdit, setPos, onEdit, taRef]);
 
+  // ── Find / Find & Replace / Go to line ────────────────────────
+  // A separate DOM <input> (see FindBar below), not part of the
+  // Normal/Insert/Visual modal system above — typing a search term
+  // was never meant to be vim motions, so giving it its own real
+  // input sidesteps that entirely rather than needing a fourth mode.
+  const [findOpen, setFindOpen] = useState(false);
+  const [findMode, setFindMode] = useState<"find" | "replace" | "goto">("find");
+  const [findQuery, setFindQuery] = useState("");
+  const [replaceWith, setReplaceWith] = useState("");
+  const [matchIndex, setMatchIndex] = useState(0);
+  const findInputRef = useRef<HTMLInputElement>(null);
+
+  // Plain substring search, case-insensitive — not regex. A search
+  // box that can hang the tab on a malicious/accidental catastrophic
+  // regex isn't worth the extra power for what this is for.
+  const matches = useMemo(() => {
+    if (!findQuery) return [] as number[];
+    const idxs: number[] = [];
+    const hay = content.toLowerCase();
+    const needle = findQuery.toLowerCase();
+    let i = 0;
+    while (i <= hay.length) {
+      const found = hay.indexOf(needle, i);
+      if (found === -1) break;
+      idxs.push(found);
+      i = found + needle.length;
+    }
+    return idxs;
+  }, [content, findQuery]);
+
+  const selectMatch = useCallback((idx: number) => {
+    const ta = taRef.current;
+    if (!ta || matches.length === 0) return;
+    const wrapped = ((idx % matches.length) + matches.length) % matches.length;
+    const pos = matches[wrapped];
+    ta.setSelectionRange(pos, pos + findQuery.length);
+    // Textareas don't reliably auto-scroll a programmatic selection
+    // into view — approximate it by line position, generous enough
+    // that the match always ends up on-screen even if not perfectly centered.
+    const lineNum = content.slice(0, pos).split("\n").length;
+    const totalLines = Math.max(1, content.split("\n").length);
+    ta.scrollTop = Math.max(0, ((lineNum - 4) / totalLines) * ta.scrollHeight);
+  }, [matches, findQuery, content, taRef]);
+
+  useEffect(() => {
+    setMatchIndex(0);
+    if (matches.length > 0) selectMatch(0);
+    // selectMatch intentionally omitted — it's derived from the same
+    // matches/findQuery this already re-runs on, including it would
+    // just re-fire this identically on every content keystroke.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [matches, findQuery]);
+
+  const openFind = useCallback((asMode: "find" | "replace" | "goto") => {
+    setFindMode(asMode);
+    setFindOpen(true);
+    setTimeout(() => findInputRef.current?.focus(), 20);
+  }, []);
+
+  const closeFind = useCallback(() => {
+    setFindOpen(false);
+    setTimeout(() => taRef.current?.focus(), 20);
+  }, [taRef]);
+
+  const findNext = useCallback(() => {
+    if (matches.length === 0) return;
+    const next = matchIndex + 1;
+    setMatchIndex(next);
+    selectMatch(next);
+  }, [matches.length, matchIndex, selectMatch]);
+
+  const findPrev = useCallback(() => {
+    if (matches.length === 0) return;
+    const prev = matchIndex - 1;
+    setMatchIndex(prev);
+    selectMatch(prev);
+  }, [matches.length, matchIndex, selectMatch]);
+
+  const replaceCurrent = useCallback(() => {
+    if (matches.length === 0) return;
+    const wrapped = ((matchIndex % matches.length) + matches.length) % matches.length;
+    const pos = matches[wrapped];
+    const next = content.slice(0, pos) + replaceWith + content.slice(pos + findQuery.length);
+    commit(next, false);
+    requestAnimationFrame(() => {
+      const ta = taRef.current;
+      if (ta) ta.selectionStart = ta.selectionEnd = pos + replaceWith.length;
+    });
+  }, [matches, matchIndex, content, findQuery, replaceWith, commit, taRef]);
+
+  const replaceAll = useCallback(() => {
+    if (matches.length === 0 || !findQuery) return;
+    // Rebuild left-to-right from the match offsets already computed
+    // above, rather than a global replace, so this can't behave
+    // differently from what "matches" (and thus the find count the
+    // user is looking at) actually says.
+    let next = "";
+    let last = 0;
+    for (const pos of matches) {
+      next += content.slice(last, pos) + replaceWith;
+      last = pos + findQuery.length;
+    }
+    next += content.slice(last);
+    const count = matches.length;
+    commit(next, false); // one undo step for the whole operation, not one per match
+    return count;
+  }, [matches, findQuery, replaceWith, content, commit]);
+
+  const goToLine = useCallback((lineStr: string) => {
+    const n = parseInt(lineStr, 10);
+    if (!Number.isFinite(n) || n < 1) return;
+    const lines = content.split("\n");
+    const target = Math.min(n, lines.length);
+    let pos = 0;
+    for (let i = 0; i < target - 1; i++) pos += lines[i].length + 1;
+    const ta = taRef.current;
+    if (!ta) return;
+    ta.focus();
+    ta.selectionStart = ta.selectionEnd = pos;
+    ta.scrollTop = Math.max(0, ((target - 4) / lines.length) * ta.scrollHeight);
+  }, [content, taRef]);
+
   const onKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.ctrlKey && e.key === "s") { e.preventDefault(); onSave(); return; }
+
+    // Find / Find & Replace / Go to line — work in any mode, same as
+    // Ctrl+Z/Y below, since "I want to search" shouldn't depend on
+    // which mode you happen to be in.
+    if (e.ctrlKey && !e.altKey && e.key.toLowerCase() === "f") { e.preventDefault(); openFind("find"); return; }
+    if (e.ctrlKey && !e.altKey && e.key.toLowerCase() === "h") { e.preventDefault(); openFind("replace"); return; }
+    if (e.ctrlKey && !e.altKey && e.key.toLowerCase() === "g") { e.preventDefault(); openFind("goto"); return; }
 
     // Undo/Redo — standard editor bindings, work in any mode (real
     // vim uses "u"/Ctrl+R instead, but this app already leans on
@@ -1129,7 +1763,7 @@ function useModalEditor(opts: {
       commit(next, true); // part of the same Insert-mode undo group as the surrounding typing
       requestAnimationFrame(() => { ta.selectionStart = ta.selectionEnd = s + 2; });
     }
-  }, [onSave, undo, redo, mode, handleModalKey, content, setPos, commit, taRef]);
+  }, [onSave, openFind, undo, redo, mode, handleModalKey, content, setPos, commit, taRef]);
 
   const resetModal = useCallback(() => {
     setMode("normal"); setAnchor(null);
@@ -1145,7 +1779,103 @@ function useModalEditor(opts: {
     commit(next, true);
   }, [mode, commit]);
 
-  return { mode, setMode, resetModal, onKeyDown, handleChange, undo, redo };
+  return {
+    mode, setMode, resetModal, onKeyDown, handleChange, undo, redo,
+    findOpen, findMode, findQuery, setFindQuery, replaceWith, setReplaceWith,
+    matches, matchIndex, findInputRef, openFind, closeFind, findNext, findPrev,
+    replaceCurrent, replaceAll, goToLine,
+  };
+}
+
+// ══════════════════════════════════════════════════════════════
+// FIND BAR — Find / Find & Replace / Go to line, shared by the
+// Editor and Plugin Creator (see useModalEditor's find state above).
+// A plain DOM input, deliberately outside the modal Normal/Insert/
+// Visual system — typing a search term was never meant to be vim
+// motions.
+// ══════════════════════════════════════════════════════════════
+function FindBar({ findMode, findQuery, setFindQuery, replaceWith, setReplaceWith, matches, matchIndex, findInputRef, findNext, findPrev, closeFind, replaceCurrent, replaceAll, goToLine }: {
+  findMode: "find" | "replace" | "goto";
+  findQuery: string;
+  setFindQuery: (v: string) => void;
+  replaceWith: string;
+  setReplaceWith: (v: string) => void;
+  matches: number[];
+  matchIndex: number;
+  findInputRef: React.RefObject<HTMLInputElement>;
+  findNext: () => void;
+  findPrev: () => void;
+  closeFind: () => void;
+  replaceCurrent: () => void;
+  replaceAll: () => number | undefined;
+  goToLine: (line: string) => void;
+}) {
+  const [gotoVal, setGotoVal] = useState("");
+  const [replacedMsg, setReplacedMsg] = useState("");
+
+  if (findMode === "goto") {
+    return (
+      <div className="find-bar">
+        <span className="find-bar-icon">→</span>
+        <input
+          ref={findInputRef}
+          className="find-bar-input"
+          placeholder="Go to line…"
+          value={gotoVal}
+          onChange={e => setGotoVal(e.target.value.replace(/\D/g, ""))}
+          onKeyDown={e => {
+            if (e.key === "Enter") { e.preventDefault(); goToLine(gotoVal); closeFind(); }
+            if (e.key === "Escape") { e.preventDefault(); closeFind(); }
+          }}
+        />
+        <button className="find-bar-btn find-bar-btn--close" onClick={closeFind}>×</button>
+      </div>
+    );
+  }
+
+  const count = matches.length;
+  const displayIndex = count > 0 ? (((matchIndex % count) + count) % count) + 1 : 0;
+
+  return (
+    <div className="find-bar">
+      <span className="find-bar-icon">⌕</span>
+      <input
+        ref={findInputRef}
+        className="find-bar-input"
+        placeholder="Find…"
+        value={findQuery}
+        onChange={e => setFindQuery(e.target.value)}
+        onKeyDown={e => {
+          if (e.key === "Enter") { e.preventDefault(); if (e.shiftKey) findPrev(); else findNext(); }
+          if (e.key === "Escape") { e.preventDefault(); closeFind(); }
+        }}
+      />
+      <span className="find-bar-count">{findQuery ? (count > 0 ? `${displayIndex}/${count}` : "0/0") : ""}</span>
+      <button className="find-bar-btn" onClick={findPrev} disabled={count === 0} title="Previous (Shift+Enter)">↑</button>
+      <button className="find-bar-btn" onClick={findNext} disabled={count === 0} title="Next (Enter)">↓</button>
+      {findMode === "replace" && (
+        <>
+          <input
+            className="find-bar-input"
+            placeholder="Replace with…"
+            value={replaceWith}
+            onChange={e => setReplaceWith(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === "Enter") { e.preventDefault(); replaceCurrent(); }
+              if (e.key === "Escape") { e.preventDefault(); closeFind(); }
+            }}
+          />
+          <button className="find-bar-btn" onClick={replaceCurrent} disabled={count === 0}>Replace</button>
+          <button className="find-bar-btn" onClick={() => {
+            const n = replaceAll();
+            if (n) { setReplacedMsg(`${n} replaced`); setTimeout(() => setReplacedMsg(""), 2000); }
+          }} disabled={count === 0}>Replace All</button>
+          {replacedMsg && <span className="find-bar-count">{replacedMsg}</span>}
+        </>
+      )}
+      <button className="find-bar-btn find-bar-btn--close" onClick={closeFind}>×</button>
+    </div>
+  );
 }
 
 function Editor({ file, onClose, onSave }: {
@@ -1171,7 +1901,11 @@ function Editor({ file, onClose, onSave }: {
     setContent(prev => { if (next !== prev) setDirty(true); return next; });
   }, []);
 
-  const { mode, resetModal, onKeyDown, handleChange } = useModalEditor({
+  const {
+    mode, resetModal, onKeyDown, handleChange,
+    findOpen, findMode, findQuery, setFindQuery, replaceWith, setReplaceWith,
+    matches, matchIndex, findInputRef, closeFind, findNext, findPrev, replaceCurrent, replaceAll, goToLine,
+  } = useModalEditor({
     taRef,
     content,
     onEdit,
@@ -1239,13 +1973,20 @@ function Editor({ file, onClose, onSave }: {
           }}>×</button>
         </div>
       </div>
+      {findOpen && (
+        <FindBar findMode={findMode} findQuery={findQuery} setFindQuery={setFindQuery}
+          replaceWith={replaceWith} setReplaceWith={setReplaceWith}
+          matches={matches} matchIndex={matchIndex} findInputRef={findInputRef}
+          findNext={findNext} findPrev={findPrev} closeFind={closeFind}
+          replaceCurrent={replaceCurrent} replaceAll={replaceAll} goToLine={goToLine} />
+      )}
       <CodeArea ref={taRef} className={`editor-ta editor-ta--${mode}`} value={content}
         lang={detectLang(file.path)}
         onChange={e => handleChange(e.target.value)}
         onKeyDown={onKeyDown} />
       <div className="editor-footer">
         {mode === "insert" && <><span>Esc  normal mode</span><span>Ctrl+S  save</span><span>Tab  2 spaces</span></>}
-        {mode === "normal" && <><span>i/a/o  insert</span><span>hjkl  move</span><span>v  visual</span><span>dd/dw/x  delete</span><span>Ctrl+Z/Y  undo/redo</span><span>Esc  close</span></>}
+        {mode === "normal" && <><span>i/a/o  insert</span><span>hjkl  move</span><span>v  visual</span><span>dd/dw/x  delete</span><span>Ctrl+Z/Y  undo/redo</span><span>Ctrl+F/H/G  find/replace/go to</span><span>Esc  close</span></>}
         {mode === "visual" && <><span>hjkl  extend</span><span>d/x  delete</span><span>y  yank</span><span>Esc  cancel</span></>}
       </div>
     </div>
@@ -1255,19 +1996,26 @@ function Editor({ file, onClose, onSave }: {
 // ══════════════════════════════════════════════════════════════
 // PLUGIN CREATOR — create Lua plugins inside OXIS
 // ══════════════════════════════════════════════════════════════
-const PLUGIN_TEMPLATE = (name: string) =>
-`-- ${name}.lua — OXIS Lua plugin
+const PLUGIN_TEMPLATES: Record<string, (name: string) => string> = {
+  basic: (name) =>
+`--[[@manifest
+version: 1.0.0
+description: ${name} — say hello and run a shell command
+author: you
+category: plugin
+]]
+-- ${name}.lua — OXIS Lua plugin
 -- Created in OXIS · edit and save, then run 'plugin reload ${name}
 
 -- Register a command  (invoked with '${name})
 oxis.command("${name}", function()
   oxis.echo("Hello from ${name}!")
-end)
+end, "say hello")
 
 -- Run a shell command
 oxis.command("${name}run", function()
   oxis.run("echo running ${name}")
-end)
+end, "run a shell command")
 
 -- Listen to events
 oxis.autocmd("ShellOpen", function()
@@ -1280,75 +2028,95 @@ end)
 -- end)
 
 -- Define a task  (run with 'task ${name})
--- oxis.task("${name}-build", "npm run build")
-`;
+-- oxis.task("${name}-build", "npm run build", "build the project")
+`,
 
-function PluginCreator({ name: initName, onClose }: { name: string; onClose: () => void }) {
-  const [name,    setName]    = useState(initName);
-  const [source,  setSource]  = useState(() => PLUGIN_TEMPLATE(initName));
-  const [err,     setErr]     = useState("");
-  const [saved,   setSaved]   = useState(false);
-  const taRef = useRef<HTMLTextAreaElement>(null);
+  dev: (name) =>
+`--[[@manifest
+version: 1.0.0
+description: ${name} — git/dev shortcuts
+author: you
+category: dev
+]]
+-- ${name}.lua — dev-workflow plugin template.
+-- oxis.run() needs no declared permission (every plugin can already
+-- run shell commands — see README § Plugin Permissions), so a plugin
+-- that's "just shortcuts for commands you'd type anyway" needs
+-- nothing beyond this manifest's version/description/category.
 
-  useEffect(() => { setTimeout(() => taRef.current?.focus(), 40); }, []);
+oxis.command("${name}-status", function()
+  oxis.run("git status -sb")
+end, "short git status")
 
-  const save = useCallback(() => {
-    if (!name.trim()) { setErr("Plugin name required"); return; }
-    if (!/^[a-z0-9_-]+$/i.test(name)) { setErr("Name: letters, numbers, - _ only"); return; }
-    setErr("");
-    pluginManager.addLuaPlugin(name, source, "plugin", "user").then(({ persisted, persistError }) => {
-      if (persisted) {
-        setSaved(true);
-        setTimeout(() => setSaved(false), 2000);
-      } else {
-        setErr(persistError
-          ? `Works this session, but couldn't save to disk: ${persistError}`
-          : "Works this session, but couldn't save to disk (browser mode has no file access)");
-      }
-    });
-  }, [name, source]);
+oxis.command("${name}-sync", function()
+  oxis.run("git pull --rebase && git push")
+end, "pull --rebase then push")
 
-  const onEdit = useCallback((next: string) => setSource(next), []);
+oxis.keymap("normal", "<C-g>", function()
+  oxis.run("git status -sb")
+end)
+`,
 
-  // Same Normal/Insert/Visual modal editing as the file Editor above
-  // (see README § Input Modes) — this IS that editor, not a second,
-  // simpler one; see useModalEditor.
-  const { mode, onKeyDown, handleChange } = useModalEditor({
-    taRef,
-    content: source,
-    onEdit,
-    onSave: save,
-    onEscapeNormal: onClose,
-  });
+  devops: (name) =>
+`--[[@manifest
+version: 1.0.0
+description: ${name} — deployment/process helpers
+author: you
+category: devops
+permissions: fs, process
+]]
+-- ${name}.lua — devops-flavored template. Declares "fs" and "process"
+-- since it reads a deploy config file and can list/stop processes —
+-- both prompt the user for one-time approval the first time this
+-- plugin actually calls oxis.fs.*/oxis.process.* (see README § Plugin
+-- Permissions); nothing here is granted just by existing.
 
-  return (
-    <div className="plugin-creator">
-      <div className="editor-bar">
-        <div className="editor-bar-left">
-          <span className="editor-icon">⬡</span>
-          <span className="editor-path">Plugin Creator</span>
-        </div>
-        <div className="editor-bar-right">
-          <span className={`editor-mode editor-mode--${mode}`}>{mode.toUpperCase()}</span>
-          <input className="pc-name-input" value={name}
-            onChange={e => { setName(e.target.value); setSource(PLUGIN_TEMPLATE(e.target.value)); }}
-            placeholder="plugin-name" maxLength={32} />
-          {saved && <span className="pc-saved">✓ saved</span>}
-          {err   && <span className="pc-err">{err}</span>}
-          <button className="editor-btn" style={{color:"var(--purple3)"}} onClick={save}>save &amp; load</button>
-          <button className="editor-btn editor-btn--close" onClick={onClose}>×</button>
-        </div>
-      </div>
-      <CodeArea ref={taRef} className={`editor-ta pc-ta editor-ta--${mode}`} value={source} lang="lua"
-        onChange={e => handleChange(e.target.value)} onKeyDown={onKeyDown} />
-      <div className="editor-footer">
-        {mode === "insert" && <><span>Esc  normal mode</span><span>Ctrl+S  save &amp; load</span><span>Tab  2 spaces</span></>}
-        {mode === "normal" && <><span>i/a/o  insert</span><span>hjkl  move</span><span>v  visual</span><span>dd/dw/x  delete</span><span>Ctrl+Z/Y  undo/redo</span><span>Esc  close</span></>}
-        {mode === "visual" && <><span>hjkl  extend</span><span>d/x  delete</span><span>y  yank</span><span>Esc  cancel</span></>}
-        <span style={{color:"var(--dim)"}}>saved to localStorage · reload with 'plugin reload {name}</span>
-      </div>
-    </div>
-  );
+oxis.command("${name}-deploy", function()
+  oxis.fs.read("deploy.json", function(err, content)
+    if err then
+      oxis.echo("no deploy.json found in the current directory")
+      return
+    end
+    oxis.echo("deploying with config: " .. content)
+    -- oxis.run("./deploy.sh")
+  end)
+end, "read deploy.json and (eventually) deploy")
+
+oxis.command("${name}-procs", function()
+  oxis.process.list(function(err, procs)
+    if err then oxis.echo("couldn't list processes: " .. tostring(err)); return end
+    oxis.echo(#procs .. " processes running")
+  end)
+end, "count running processes")
+
+oxis.task("${name}-watch", "while ($true) { Get-Date; Start-Sleep 5 }", "example long-running task (stop with Ctrl+C)")
+`,
+
+  system: (name) =>
+`--[[@manifest
+version: 1.0.0
+description: ${name} — system info reporting
+author: you
+category: system
+permissions: system
+]]
+-- ${name}.lua — reads OS/CPU/memory info via oxis.system.info().
+-- Declares "system" so that call prompts for one-time approval
+-- instead of silently having access nothing else in this plugin asked
+-- for.
+
+oxis.command("${name}-info", function()
+  oxis.system.info(function(err, info)
+    if err then oxis.echo("system info unavailable: " .. tostring(err)); return end
+    oxis.echo(info.os .. " / " .. info.arch .. " — " .. info.numCPU .. " CPUs, " .. info.allocMB .. " MB allocated")
+  end)
+end, "print OS/arch/CPU/memory info")
+`,
+};
+
+function pluginTemplate(name: string, template?: string): string {
+  const fn = PLUGIN_TEMPLATES[template?.toLowerCase() || "basic"] ?? PLUGIN_TEMPLATES.basic;
+  return fn(name);
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -1510,6 +2278,35 @@ function ChimneySmoke({ height }: { height: number }) {
  *  ("how high the smoke can rise") fits the context — the shell boot
  *  banner's smaller art uses a shorter one (90) than the home screen
  *  and startup splash (110), which now share the same larger art size. */
+// Clickable URLs and file paths in terminal output — a URL opens in
+// the real system browser (openUrl, native.ts); a path opens in the
+// built-in Editor (the same openEditor() 'edit uses). Deliberately
+// conservative about what counts as a "path" (must end in a real
+// extension) rather than linkifying every bare "/" or "C:\" — a
+// terminal line has plenty of those that aren't actually paths (CLI
+// flags, ratios, etc.), and a wrong guess that's clickable is worse
+// than a real path that isn't.
+const LINE_LINK_RE = /(https?:\/\/[^\s"'<>()]+)|([A-Za-z]:\\[^\s"'<>]+?\.[A-Za-z0-9]{1,8}(?=[\s"'<>)]|$))|(\/[^\s"'<>]+?\.[A-Za-z0-9]{1,8}(?=[\s"'<>)]|$))/g;
+
+function renderLineWithLinks(text: string, onOpenUrl: (url: string) => void, onOpenPath: (path: string) => void): React.ReactNode {
+  if (!text) return "\u00a0";
+  LINE_LINK_RE.lastIndex = 0;
+  const parts: React.ReactNode[] = [];
+  let last = 0, key = 0, m: RegExpExecArray | null;
+  while ((m = LINE_LINK_RE.exec(text)) !== null) {
+    if (m.index > last) parts.push(text.slice(last, m.index));
+    const matched = m[0];
+    if (m[1]) {
+      parts.push(<span key={key++} className="term-link" onClick={e => { e.stopPropagation(); onOpenUrl(matched); }} title={`open ${matched}`}>{matched}</span>);
+    } else {
+      parts.push(<span key={key++} className="term-link term-link--path" onClick={e => { e.stopPropagation(); onOpenPath(matched); }} title={`edit ${matched}`}>{matched}</span>);
+    }
+    last = LINE_LINK_RE.lastIndex;
+  }
+  if (last < text.length) parts.push(text.slice(last));
+  return parts;
+}
+
 function renderTrainRow(text: string, smokeHeight: number): React.ReactNode {
   const i = text.indexOf("[]");
   if (i === -1) return text || "\u00a0";
@@ -1539,9 +2336,21 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
   const [searching,    setSearching]    = useState(false);
   const [searchResult, setSearchResult] = useState<SearchResult | null>(null);
 
-  // ── editor / plugin creator ───────────────────────────────
-  const [editorFile,    setEditorFile]    = useState<EditorFile | null>(null);
-  const [pluginCreator, setPluginCreator] = useState<string | null>(null);
+  // ── output search (Ctrl+F) — distinct from the above, which is
+  // Ctrl+R's reverse-i-search through COMMAND HISTORY. This searches
+  // the actual on-screen scrollback (`lines`) instead — "did I already
+  // see X printed somewhere above". ──────────────────────────────
+  const [outputSearchOpen,  setOutputSearchOpen]  = useState(false);
+  const [outputSearchQuery, setOutputSearchQuery] = useState("");
+  const [outputSearchIndex, setOutputSearchIndex] = useState(0);
+  const outputSearchInputRef = useRef<HTMLInputElement>(null);
+
+  // ── editor (also used for plugin editing — see findPluginForPath
+  // in editorSave below; plugins open in this exact Editor, not a
+  // second one) ──────────────────────────────────────────────
+  const [editorFiles,   setEditorFiles]   = useState<EditorFile[]>([]);
+  const [activeEditorPath, setActiveEditorPath] = useState<string | null>(null);
+  const [fileTreeOpen, setFileTreeOpen] = useState(false);
 
   // ── refs ──────────────────────────────────────────────────
   const outRef        = useRef<HTMLDivElement>(null);
@@ -1670,12 +2479,57 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
     ghostRef.current?.focus({ preventScroll: true });
   }, []);
 
+  // Output search (Ctrl+F) — distinct from Ctrl+R's reverse-i-search
+  // through COMMAND HISTORY above; this searches the actual on-screen
+  // scrollback (`lines`) instead — "did I already see X printed
+  // somewhere above".
+  const outputSearchMatches = useMemo(() => {
+    const q = outputSearchQuery.trim().toLowerCase();
+    if (!q) return [] as number[]; // line ids
+    return lines.filter(l => l.text.toLowerCase().includes(q)).map(l => l.id);
+  }, [lines, outputSearchQuery]);
+
+  const jumpToOutputMatch = useCallback((idx: number) => {
+    if (outputSearchMatches.length === 0) return;
+    const wrapped = ((idx % outputSearchMatches.length) + outputSearchMatches.length) % outputSearchMatches.length;
+    const lineId = outputSearchMatches[wrapped];
+    const el = outRef.current?.querySelector(`[data-line-id="${lineId}"]`);
+    el?.scrollIntoView({ block: "center" });
+  }, [outputSearchMatches]);
+
+  useEffect(() => {
+    setOutputSearchIndex(0);
+    if (outputSearchMatches.length > 0) jumpToOutputMatch(0);
+    // jumpToOutputMatch intentionally omitted — derived from the same
+    // matches/query this already re-runs on (see the equivalent note
+    // on the Editor's find-bar effect).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [outputSearchMatches, outputSearchQuery]);
+
+  const openOutputSearch = useCallback(() => {
+    setOutputSearchOpen(true);
+    setTimeout(() => outputSearchInputRef.current?.focus(), 20);
+  }, []);
+  const closeOutputSearch = useCallback(() => {
+    setOutputSearchOpen(false);
+    setTimeout(() => focusGhost(), 20);
+  }, [focusGhost]);
+
   // Refocus the hidden input on a plain click anywhere in the terminal
   // (output scrollback included) — but not when the mousedown/up was
   // actually a text-selection drag, so copy still works normally.
+  // Also copy-on-select: a real terminal-emulator convention (X11
+  // PRIMARY-selection-style) — finishing a drag-select copies it to
+  // the clipboard immediately, no separate Ctrl+C needed. Ctrl+C
+  // still works too (see the window-level Ctrl+C handler elsewhere),
+  // for anyone used to that instead.
   const refocusUnlessSelecting = useCallback(() => {
     const sel = window.getSelection?.();
-    if (sel && sel.toString().length > 0) return;
+    const text = sel?.toString() ?? "";
+    if (text.length > 0) {
+      navigator.clipboard?.writeText(text).catch(() => { /* clipboard unavailable — selection itself still stands */ });
+      return;
+    }
     focusGhost();
   }, [focusGhost]);
 
@@ -1686,13 +2540,13 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
   useEffect(() => {
     if (!isActive) return;
     const onWindowFocus = () => {
-      if (!editorFile && !pluginCreator) {
+      if (editorFiles.length === 0) {
         setTimeout(() => ghostRef.current?.focus({ preventScroll: true }), 30);
       }
     };
     window.addEventListener("focus", onWindowFocus);
     return () => window.removeEventListener("focus", onWindowFocus);
-  }, [isActive, editorFile, pluginCreator]);
+  }, [isActive, editorFiles.length]);
 
   // Ctrl+C safety net — it MUST always be able to interrupt whatever's
   // running in the shell (e.g. 'task watch-mem's infinite polling
@@ -1708,7 +2562,7 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
   // there's an actual text selection, so normal copy and that field's
   // own Ctrl+Z/undo still work as expected.
   useEffect(() => {
-    if (!isActive || editorFile || pluginCreator) return;
+    if (!isActive || editorFiles.length > 0) return;
     const onWindowKeyDown = (e: KeyboardEvent) => {
       if (!e.ctrlKey || e.metaKey || e.altKey || e.key.toLowerCase() !== "c") return;
       const active = document.activeElement;
@@ -1723,7 +2577,21 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
     };
     window.addEventListener("keydown", onWindowKeyDown);
     return () => window.removeEventListener("keydown", onWindowKeyDown);
-  }, [isActive, editorFile, pluginCreator, sendToShell, focusGhost]);
+  }, [isActive, editorFiles.length, sendToShell, focusGhost]);
+
+  // Ctrl+B toggles the file tree — only wired up while the Editor is
+  // actually showing (editorFiles.length > 0); harmless to bind
+  // globally too, but there's nothing for it to toggle otherwise.
+  useEffect(() => {
+    if (!isActive || editorFiles.length === 0) return;
+    const onWindowKeyDown = (e: KeyboardEvent) => {
+      if (!e.ctrlKey || e.metaKey || e.altKey || e.shiftKey || e.key.toLowerCase() !== "b") return;
+      e.preventDefault();
+      setFileTreeOpen(o => !o);
+    };
+    window.addEventListener("keydown", onWindowKeyDown);
+    return () => window.removeEventListener("keydown", onWindowKeyDown);
+  }, [isActive, editorFiles.length]);
 
   // ── PTY output ────────────────────────────────────────────
   const onOutput = useCallback((raw: string) => {
@@ -1894,12 +2762,16 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
       print: addLine,
       clear,
       openEditor: path => {
-        setEditorFile({ path, content: "", dirty: false, loading: true });
+        setEditorFiles(files => {
+          if (files.some(f => f.path === path)) return files; // already open — just switch to it
+          return [...files, { path, content: "", dirty: false, loading: true }];
+        });
+        setActiveEditorPath(path);
         readFile(path)
-          .then(content => setEditorFile(f => (f && f.path === path) ? { ...f, content, loading: false } : f))
-          .catch(e => setEditorFile(f => (f && f.path === path)
+          .then(content => setEditorFiles(files => files.map(f => f.path === path ? { ...f, content, loading: false } : f)))
+          .catch(e => setEditorFiles(files => files.map(f => f.path === path
             ? { ...f, loading: false, loadError: e instanceof Error ? e.message : String(e) }
-            : f));
+            : f)));
       },
       newTerminal: onNewTab,
     };
@@ -1924,11 +2796,7 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
     _commandsRegistered = false;
     registerBuiltinCommands(ctxRef.current);
 
-    // Listen for open_plugin_creator event
-    const unsub = events.on("open_plugin_creator", p => {
-      if (p?.name) setPluginCreator(String(p.name));
-    });
-    return unsub;
+    return undefined;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -2000,6 +2868,31 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
     if (ctrl && k === "w") { e.preventDefault(); onCloseTab(); return; }
     if (ctrl && k >= "1" && k <= "9") { e.preventDefault(); onSwitchTab(+k - 1); return; }
 
+    // ── TERMINAL ZOOM — Ctrl+= / Ctrl+- / Ctrl+0, the same keys every
+    // browser already uses for page zoom, so it's muscle memory
+    // instead of a new thing to learn. Reuses the real fontSize
+    // setting ('config set fontSize <n>) rather than a separate
+    // zoom-only mechanism, so the effect persists across restarts
+    // exactly like setting it directly would, and 'config get
+    // fontSize always reflects what zoom last left it at.
+    if (ctrl && (k === "=" || k === "+")) {
+      e.preventDefault();
+      const cur = Number(getSetting("fontSize")) || 13;
+      setSetting("fontSize", String(Math.min(28, cur + 1)));
+      return;
+    }
+    if (ctrl && k === "-") {
+      e.preventDefault();
+      const cur = Number(getSetting("fontSize")) || 13;
+      setSetting("fontSize", String(Math.max(9, cur - 1)));
+      return;
+    }
+    if (ctrl && k === "0") {
+      e.preventDefault();
+      resetSetting("fontSize");
+      return;
+    }
+
     // ── PASSTHROUGH when input empty (program is running) ─
     if (!val) {
       const passSeq: Record<string, string> = {
@@ -2012,6 +2905,43 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
         F9:"\x1b[20~",F10:"\x1b[21~",F11:"\x1b[23~",F12:"\x1b[24~",
       };
       if (passSeq[k]) { e.preventDefault(); sendToShell(passSeq[k]); return; }
+    }
+
+    // ── TAB COMPLETION ─────────────────────────────────────
+    // A "'command <tab>" completes against the REAL command registry
+    // (registry.all()) — every name it offers is one that actually
+    // works, not a hardcoded guess list. Scoped to just the verb (the
+    // first word after '), not subcommands like 'workspace <tab> ->
+    // init/list/switch/... — those aren't their own registry entries
+    // (they're just strings matched inside each command's own
+    // handler), so faking a subcommand list here would be exactly the
+    // "autocomplete disconnected from the real registry" this is
+    // meant to avoid. Anything NOT starting with ' (an ordinary shell
+    // command) passes a real \t through to the shell instead, so
+    // PowerShell/bash's own native completion still works exactly as
+    // it always has — this only ever intercepts Tab for OXIS's own
+    // '-commands, never shell ones.
+    if (!ctrl && !alt && k === "Tab") {
+      e.preventDefault();
+      if (!val.startsWith("'")) { sendToShell("\t"); return; }
+      const body = val.slice(1);
+      if (body.includes(" ")) return; // past the verb — nothing to complete yet
+      const prefix = body.toLowerCase();
+      const names = [...new Set(registry.all().map(c => c.name).filter(n => !n.includes(":")))].sort();
+      const matches = prefix ? names.filter(n => n.toLowerCase().startsWith(prefix)) : names;
+      if (matches.length === 1) {
+        syncInput(`'${matches[0]} `, matches[0].length + 2);
+      } else if (matches.length > 1) {
+        // Extend as far as unambiguous (like bash), same as pressing
+        // Tab again with more matches than fit on one line still does.
+        let common = matches[0];
+        for (const m of matches.slice(1)) {
+          while (!m.toLowerCase().startsWith(common.toLowerCase())) common = common.slice(0, -1);
+        }
+        if (common.length > body.length) syncInput(`'${common}`, common.length + 1);
+        else addLine(`  ${matches.slice(0, 20).join("  ")}${matches.length > 20 ? "  …" : ""}`, "dim");
+      }
+      return;
     }
 
     // ── CTRL BINDINGS ─────────────────────────────────────
@@ -2068,7 +2998,9 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
         }
         case "l": e.preventDefault(); clear(); return; // clear screen
 
-        case "r": e.preventDefault(); enterSearch(); return; // reverse search
+        case "r": e.preventDefault(); enterSearch(); return; // reverse search (command HISTORY)
+
+        case "f": e.preventDefault(); openOutputSearch(); return; // output search (on-screen SCROLLBACK)
 
         case "p": // previous history (like up arrow)
           e.preventDefault();
@@ -2220,8 +3152,25 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
     syncInput(next, cur + text.length);
   }, [syncInput, clearInput, sendToShell]);
 
-  // ── Editor save — native file write, no PTY round-trip ────
+  // ── Editor save — native file write, no PTY round-trip. Plugin-aware:
+  // a file that's actually a registered plugin's source saves (and
+  // reloads live) through pluginManager.saveLuaPlugin instead of a
+  // plain write — see findPluginForPath. This is what makes plugin
+  // editing "the same Editor as any file" instead of a second one:
+  // the Editor itself doesn't know or care it's a plugin, only this
+  // save path does.
   const editorSave = useCallback(async (path: string, content: string): Promise<boolean> => {
+    const pluginName = findPluginForPath(path);
+    if (pluginName) {
+      const { persisted, persistError } = await pluginManager.saveLuaPlugin(pluginName, content);
+      if (persisted) {
+        addLine(`  ✓  saved & reloaded plugin: ${pluginName}`, "ok");
+        events.emit("editor_closed", { path });
+        return true;
+      }
+      addLine(`  ✗  save failed: ${persistError instanceof Error ? persistError.message : String(persistError ?? "unknown error")}`, "err");
+      return false;
+    }
     try {
       await writeFile(path, content);
       addLine(`  ✓  saved: ${path}`, "ok");
@@ -2233,43 +3182,90 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
     }
   }, [addLine]);
 
+  const closeEditorTab = useCallback((path: string) => {
+    setEditorFiles(files => {
+      const remaining = files.filter(f => f.path !== path);
+      setActiveEditorPath(cur => {
+        if (cur !== path) return cur; // closing a background tab doesn't change which one's active
+        const idx = files.findIndex(f => f.path === path);
+        const next = remaining[Math.min(idx, remaining.length - 1)];
+        return next ? next.path : null;
+      });
+      return remaining;
+    });
+  }, []);
+
+  const requestCloseEditorTab = useCallback((path: string) => {
+    const f = editorFiles.find(e => e.path === path);
+    if (f?.dirty && !confirm(`Discard unsaved changes to ${path}?`)) return;
+    closeEditorTab(path);
+    if (editorFiles.length <= 1) setTimeout(focusGhost, 50);
+  }, [editorFiles, closeEditorTab, focusGhost]);
+
+  const saveAllEditorTabs = useCallback(() => {
+    const dirty = editorFiles.filter(f => f.dirty && !f.loading);
+    if (dirty.length === 0) { addLine("  nothing to save — no dirty tabs", "dim"); return; }
+    for (const f of dirty) {
+      editorSave(f.path, f.content).then(saved => {
+        if (saved) setEditorFiles(files => files.map(x => x.path === f.path ? { ...x, dirty: false } : x));
+      });
+    }
+  }, [editorFiles, editorSave, addLine]);
+
   // ── Render ────────────────────────────────────────────────
-  // bannerEnd MUST be computed unconditionally, before the editor/
-  // plugin-creator early returns below — it's a hook, and calling it
-  // only on the "normal" render path (skipped whenever editorFile or
-  // pluginCreator is set) violates the Rules of Hooks: React sees a
-  // different hook count between renders and throws, which is what
-  // was producing the blank screen when opening 'edit.
+  // bannerEnd MUST be computed unconditionally, before the editor
+  // early return below — it's a hook, and calling it only on the
+  // "normal" render path (skipped whenever editorFiles is non-empty)
+  // violates the Rules of Hooks: React sees a different hook count
+  // between renders and throws, which is what was producing the blank
+  // screen when opening 'edit.
   const bannerEnd = useMemo(() => {
     let i = 0;
     while (i < lines.length && (lines[i].kind === "banner" || lines[i].kind === "banner-wheel")) i++;
     return i;
   }, [lines]);
 
-  if (pluginCreator !== null) {
+  if (editorFiles.length > 0) {
+    const activeFile = editorFiles.find(f => f.path === activeEditorPath) ?? editorFiles[0];
     return (
-      <div className="app-pane">
-        <ErrorBoundary onClose={() => setPluginCreator(null)}>
-          <PluginCreator name={pluginCreator} onClose={() => { setPluginCreator(null); setTimeout(focusGhost, 50); }} />
-        </ErrorBoundary>
-      </div>
-    );
-  }
-
-  if (editorFile) {
-    return (
-      <div className="app-pane">
-        <ErrorBoundary onClose={() => setEditorFile(null)}>
+      <div className="app-pane app-pane--editor">
+        <div className="filetree-rail">
+          <button className="filetree-toggle" onClick={() => setFileTreeOpen(o => !o)} title="Toggle file tree (Ctrl+B)">☰</button>
+        </div>
+        {fileTreeOpen && (
+          <FileTree onOpenFile={path => ctxRef.current?.openEditor(path)} onClose={() => setFileTreeOpen(false)} />
+        )}
+        <div className="editor-column">
+        {editorFiles.length > 1 && (
+          <div className="editor-tabs">
+            {editorFiles.map(f => (
+              <div
+                key={f.path}
+                className={`editor-tab${f.path === activeFile.path ? " editor-tab--active" : ""}`}
+                onClick={() => setActiveEditorPath(f.path)}
+                title={f.path}
+              >
+                <span className="editor-tab-name">{f.path.split(/[\\/]/).pop()}</span>
+                {f.dirty && <span className="editor-tab-dirty">●</span>}
+                <span className="editor-tab-close" onClick={e => { e.stopPropagation(); requestCloseEditorTab(f.path); }}>×</span>
+              </div>
+            ))}
+            <button className="editor-tabs-saveall" onClick={saveAllEditorTabs} title="Save all dirty tabs">Save All</button>
+          </div>
+        )}
+        <ErrorBoundary onClose={() => requestCloseEditorTab(activeFile.path)}>
           <Editor
-            file={editorFile}
-            onClose={() => { setEditorFile(null); setTimeout(focusGhost, 50); }}
+            key={activeFile.path}
+            file={activeFile}
+            onClose={() => requestCloseEditorTab(activeFile.path)}
             onSave={(p, c) => {
               editorSave(p, c).then(saved => {
-                if (saved) setEditorFile(f => (f && f.path === p) ? { ...f, content: c, dirty: false } : f);
+                if (saved) setEditorFiles(files => files.map(f => f.path === p ? { ...f, content: c, dirty: false } : f));
               });
             }}
           />
         </ErrorBoundary>
+        </div>
       </div>
     );
   }
@@ -2306,9 +3302,10 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
         )}
         {restPart.map(line => (
           <div key={line.id}
-            className="term-line"
+            data-line-id={line.id}
+            className={`term-line${outputSearchMatches.includes(line.id) ? " term-line--match" : ""}`}
             style={{ color: line.kind ? LINE_COLORS[line.kind] : undefined }}>
-            {line.text || "\u00a0"}
+            {renderLineWithLinks(line.text, u => void openUrl(u), p => _ctxRef.current?.openEditor(p))}
           </div>
         ))}
 
@@ -2330,6 +3327,35 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
           </div>
         )}
 
+        {outputSearchOpen && (
+          <div className="term-search-bar term-search-bar--output">
+            <span className="term-search-label">find in output</span>
+            <span className="term-search-sep">›</span>
+            <input
+              ref={outputSearchInputRef}
+              className="term-search-input"
+              value={outputSearchQuery}
+              onChange={e => setOutputSearchQuery(e.target.value)}
+              placeholder="type to search…"
+              onKeyDown={e => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  const next = e.shiftKey ? outputSearchIndex - 1 : outputSearchIndex + 1;
+                  setOutputSearchIndex(next);
+                  jumpToOutputMatch(next);
+                }
+                if (e.key === "Escape") { e.preventDefault(); closeOutputSearch(); }
+              }}
+            />
+            <span className="term-search-count">
+              {outputSearchQuery ? (outputSearchMatches.length > 0
+                ? `${((outputSearchIndex % outputSearchMatches.length) + outputSearchMatches.length) % outputSearchMatches.length + 1}/${outputSearchMatches.length}`
+                : "0/0") : ""}
+            </span>
+            <span className="term-search-hint">Enter next · Shift+Enter prev · Esc close</span>
+          </div>
+        )}
+
         {!searching && (
           <div className="term-input-row">
             <span className="term-prompt">❯{"\u00a0"}</span>
@@ -2347,10 +3373,10 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
         rows={1} tabIndex={0} aria-label="terminal input"
         onFocus={() => { /* keep ghost focused */ }}
         onBlur={e => {
-          // An overlay (editor / plugin creator) legitimately owns focus —
-          // this component isn't even rendering the ghost in that case,
-          // but guard anyway in case of a same-render toggle.
-          if (editorFile || pluginCreator) return;
+          // An overlay (editor) legitimately owns focus — this
+          // component isn't even rendering the ghost in that case, but
+          // guard anyway in case of a same-render toggle.
+          if (editorFiles.length > 0) return;
           const next = e.relatedTarget as HTMLElement | null;
           // Don't steal focus from something the user deliberately
           // clicked into elsewhere (a real input/textarea/select/button —
@@ -2557,6 +3583,7 @@ function Home({ onNew, currentTheme, onTheme, onOpenThemeEditor, onOpenPluginCre
   const [plugins, setPlugins] = useState(() => pluginManager.all());
   const [psearch, setPsearch] = useState("");
   const [ws, setWs] = useState(() => workspaceState.get());
+  const [activeWorkspace, setActiveWorkspace] = useState<string | null>(() => workspaceManager.getActiveNamed());
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Home is always mounted (see root App — it's hidden, not unmounted,
@@ -2570,6 +3597,19 @@ function Home({ onNew, currentTheme, onTheme, onOpenThemeEditor, onOpenPluginCre
   }), []);
 
   useEffect(() => workspaceState.subscribe(setWs), []);
+  // workspaceState's own projectName is derived from whatever path
+  // .oxis/workspace.lua loaded from — correct for a NAMED workspace
+  // (switchNamed loads "workspaces/<name>", so the last path segment
+  // IS the name) but not distinguishable there from an ad-hoc
+  // directory-based workspace with no name at all. Track the
+  // authoritative named-workspace state directly instead, so the
+  // "workspace" row below is always right regardless of that.
+  useEffect(() => {
+    const update = () => setActiveWorkspace(workspaceManager.getActiveNamed());
+    const u1 = events.on("workspace_loaded", update);
+    const u2 = events.on("workspace_unloaded", update);
+    return () => { u1(); u2(); };
+  }, []);
 
   // Keep focus on the input — re-focus only if focus was lost to something
   // other than another interactive element (prevents stealing focus from buttons)
@@ -2765,7 +3805,7 @@ function Home({ onNew, currentTheme, onTheme, onOpenThemeEditor, onOpenPluginCre
           <button className="oxis-gitlab-btn" onClick={() => void openUrl("https://gitlab.com/oxidelab/oxis.git")}
             title="Open the OXIS repository on GitLab">GitLab ↗</button>
         </div>
-        <WorkspacePanel ws={ws} plugins={plugins} onOpenMarket={() => setView("plugins")} />
+        <WorkspacePanel ws={ws} plugins={plugins} activeWorkspace={activeWorkspace} onOpenMarket={() => setView("plugins")} />
         <div className="oxis-box oxis-help-box">
           <div className="oxis-help-row"><span className="oht">Type</span> <span className="ohc">&apos;help</span><span className="ohr"> if you need some help</span></div>
           <div className="oxis-help-row"><span className="oht">Type</span> <span className="ohc">&apos;edit</span> <span className="oha">&lt;file&gt;</span><span className="ohr"> to open the built-in editor</span></div>
@@ -2783,9 +3823,16 @@ function Home({ onNew, currentTheme, onTheme, onOpenThemeEditor, onOpenPluginCre
 // donation box (see README § Home Screen & Workspace Panel).
 // Read-only: reflects workspaceState/pluginManager, doesn't accept
 // input itself, so it never competes with Command Mode for focus.
-function WorkspacePanel({ ws, plugins, onOpenMarket }: {
+function WorkspacePanel({ ws, plugins, activeWorkspace, onOpenMarket }: {
   ws: ReturnType<typeof workspaceState.get>;
   plugins: ReturnType<typeof pluginManager.all>;
+  /** The active NAMED workspace ('workspace switch <name>), or null
+   *  for the shared default context — see workspaceManager.ts's
+   *  getActiveNamed(). Distinct from ws.projectName (an ad-hoc
+   *  directory's .oxis/workspace.lua can be loaded with no name at
+   *  all) — shown as its own row so it's never ambiguous which one
+   *  is active, especially once more than one named workspace exists. */
+  activeWorkspace: string | null;
   onOpenMarket: () => void;
 }) {
   const active = plugins.filter(p => p.enabled);
@@ -2798,6 +3845,7 @@ function WorkspacePanel({ ws, plugins, onOpenMarket }: {
           {ws.status === "ready" ? "● ready" : ws.status === "loading" ? "◐ loading" : "○ no workspace"}
         </span>
       </div>
+      <div className="oxis-box-row"><span className="oxis-wl">workspace</span><span className="oxis-we"> = </span><span className="oxis-wa oxis-wa--name">{activeWorkspace || "default"}</span></div>
       <div className="oxis-box-row"><span className="oxis-wl">project</span><span className="oxis-we"> = </span><span className="oxis-wa">{ws.projectName || "no project loaded"}</span></div>
       {ws.projectPath && (
         <div className="oxis-box-row"><span className="oxis-wl">path</span><span className="oxis-we"> = </span><span className="oxis-wa">{ws.projectPath}</span></div>
@@ -2855,11 +3903,181 @@ function StatusBar({ mode, count, idx, ready, theme, project, updateMsg }: {
 // tab with its own chrome, so the custom titlebar has nothing to do
 // and is skipped entirely (isNativeApp() — see native.ts).
 // ══════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════
+// COMMAND PALETTE — Ctrl+Shift+P. Searches the REAL command registry
+// (registry.all()) — the exact same one dispatchOxisCmd looks up
+// every typed '-command against, and the same one Tab completion
+// reads from (see the terminal's onKey) — not a second, hand-curated
+// action list that could list something that doesn't actually work.
+// Selecting an entry opens the shell (if needed) and runs it through
+// the same runLine() path Home's own buttons already use.
+// ══════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════
+// FILE TREE — Ctrl+B toggles it, or the ☰ button pinned over the
+// editor. Browses from the app's own directory (".", same root
+// created-documents/created-plugins/workspaces/plugins resolve
+// against — see resolvePath in internal/wailsapp/app.go), via the
+// generic listDir() native call — lazily: a folder's contents are
+// only fetched the first time it's expanded, not the whole tree
+// upfront. Clicking a file opens it in the Editor via openEditor(),
+// the exact same call 'edit and 'plugin new use.
+// ══════════════════════════════════════════════════════════════
+interface FileTreeEntry { name: string; path: string; isDir: boolean }
+
+function FileTree({ onOpenFile, onClose }: { onOpenFile: (path: string) => void; onClose: () => void }) {
+  const [childrenOf, setChildrenOf] = useState<Map<string, FileTreeEntry[]>>(new Map());
+  const [expanded,   setExpanded]   = useState<Set<string>>(new Set());
+  const [loading,    setLoading]    = useState<Set<string>>(new Set());
+  const [error,      setError]      = useState("");
+
+  const load = useCallback(async (dirPath: string) => {
+    setLoading(s => new Set(s).add(dirPath));
+    try {
+      const entries = await listDir(dirPath);
+      const items: FileTreeEntry[] = entries
+        .filter(e => !e.name.startsWith(".")) // hide dotfiles/.git/.oxis clutter
+        .sort((a, b) => (a.isDir === b.isDir ? a.name.localeCompare(b.name) : a.isDir ? -1 : 1))
+        .map(e => ({ name: e.name, path: dirPath === "." ? e.name : `${dirPath}/${e.name}`, isDir: e.isDir }));
+      setChildrenOf(m => new Map(m).set(dirPath, items));
+      setError("");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(s => { const n = new Set(s); n.delete(dirPath); return n; });
+    }
+  }, []);
+
+  useEffect(() => { load("."); }, [load]);
+
+  const toggleDir = useCallback((path: string) => {
+    setExpanded(prev => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else { next.add(path); if (!childrenOf.has(path)) load(path); }
+      return next;
+    });
+  }, [childrenOf, load]);
+
+  const renderNode = (node: FileTreeEntry, depth: number): React.ReactNode => (
+    <div key={node.path}>
+      <div
+        className="filetree-row"
+        style={{ paddingLeft: 8 + depth * 14 }}
+        onClick={() => node.isDir ? toggleDir(node.path) : onOpenFile(node.path)}
+        title={node.path}
+      >
+        <span className="filetree-icon">{node.isDir ? (expanded.has(node.path) ? "▾" : "▸") : "·"}</span>
+        <span className="filetree-name">{node.name}</span>
+      </div>
+      {node.isDir && expanded.has(node.path) && (childrenOf.get(node.path) ?? []).map(c => renderNode(c, depth + 1))}
+      {node.isDir && expanded.has(node.path) && loading.has(node.path) && (
+        <div className="filetree-loading" style={{ paddingLeft: 8 + (depth + 1) * 14 }}>loading…</div>
+      )}
+    </div>
+  );
+
+  const rootItems = childrenOf.get(".") ?? [];
+
+  return (
+    <div className="filetree">
+      <div className="filetree-header">
+        <span>FILES</span>
+        <span className="filetree-close" onClick={onClose} title="Close (Ctrl+B)">×</span>
+      </div>
+      {error && <div className="filetree-error">{error}</div>}
+      <div className="filetree-body">
+        {loading.has(".") && rootItems.length === 0 && <div className="filetree-loading" style={{ paddingLeft: 8 }}>loading…</div>}
+        {rootItems.map(n => renderNode(n, 0))}
+      </div>
+    </div>
+  );
+}
+
+function CommandPalette({ onRun, onClose }: { onRun: (cmd: string) => void; onClose: () => void }) {
+  const [query, setQuery] = useState("");
+  const [selected, setSelected] = useState(0);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => { setTimeout(() => inputRef.current?.focus(), 20); }, []);
+
+  const results = useMemo(() => {
+    const all = registry.all().filter(c => !c.name.includes(":")); // exclude task:/other internal-only entries — same rule Tab completion uses
+    const q = query.trim().toLowerCase();
+    if (!q) return all.slice(0, 50).sort((a, b) => a.name.localeCompare(b.name));
+    // Simple scored fuzzy-ish match: exact-prefix > name-contains > description-contains.
+    const scored = all
+      .map(c => {
+        const name = c.name.toLowerCase();
+        let score = -1;
+        if (name.startsWith(q)) score = 3;
+        else if (name.includes(q)) score = 2;
+        else if (c.description.toLowerCase().includes(q)) score = 1;
+        return { c, score };
+      })
+      .filter(r => r.score > 0)
+      .sort((a, b) => b.score - a.score || a.c.name.localeCompare(b.c.name));
+    return scored.slice(0, 50).map(r => r.c);
+  }, [query]);
+
+  useEffect(() => { setSelected(0); }, [query]);
+
+  const run = useCallback((cmd: string) => {
+    onRun(`'${cmd}`);
+  }, [onRun]);
+
+  const onKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === "Escape") { e.preventDefault(); onClose(); return; }
+    if (e.key === "ArrowDown") { e.preventDefault(); setSelected(i => Math.min(i + 1, results.length - 1)); return; }
+    if (e.key === "ArrowUp")   { e.preventDefault(); setSelected(i => Math.max(i - 1, 0)); return; }
+    if (e.key === "Enter") {
+      e.preventDefault();
+      const entry = results[selected];
+      if (entry) run(entry.name);
+      return;
+    }
+  }, [results, selected, run, onClose]);
+
+  return (
+    <div className="cmdp-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="cmdp">
+        <div className="cmdp-input-row">
+          <span className="cmdp-icon">⌘</span>
+          <input
+            ref={inputRef}
+            className="cmdp-input"
+            placeholder="Search commands…"
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            onKeyDown={onKeyDown}
+          />
+          <span className="cmdp-hint">↑↓ navigate · ↵ run · esc close</span>
+        </div>
+        <div className="cmdp-list">
+          {results.length === 0 && <div className="cmdp-empty">no matching commands</div>}
+          {results.map((c, i) => (
+            <div
+              key={c.name}
+              className={`cmdp-item${i === selected ? " cmdp-item--selected" : ""}`}
+              onMouseEnter={() => setSelected(i)}
+              onMouseDown={e => { e.preventDefault(); run(c.name); }}
+            >
+              <span className="cmdp-item-name">'{c.name}</span>
+              <span className="cmdp-item-desc">{c.description === UNDOCUMENTED_SENTINEL ? "" : c.description}</span>
+              <span className="cmdp-item-cat">{c.category}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [view,      setView]      = useState<"home" | "shell">("home");
   const [ready,     setReady]     = useState(false);
   const [curTheme,  setCurTheme]  = useState(() => themeManager.getCurrent());
   const [themeEditorName,  setThemeEditorName]  = useState<string | null>(null);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [activeProject, setActiveProject] = useState(() => workspaceState.get().projectName);
   const [updateMsg,     setUpdateMsg]     = useState("");
   const [showAnim, setShowAnim] = useState(true);
@@ -2875,9 +4093,12 @@ export default function App() {
   // Init on mount — apply theme, init plugins immediately (before any terminal opens)
   useEffect(() => {
     themeManager.apply(curTheme);
+    applyAllSettings(); // font size, cursor style/blink — persisted from last session, same as changing them live
+    installGlobalErrorCapture(); // 'diagnostics — captures uncaught JS exceptions too, not just recordError() call sites
     sessionManager.clear();
     const animT = setTimeout(() => setShowAnim(false), 1800);
     const checkUpdate = async () => {
+      if (getSetting("updateCheckOnStartup") === false) return; // 'config set updateCheckOnStartup false
       try {
         const r = await fetch("https://gitlab.com/api/v4/projects/YOUR_PROJECT_ID/releases?per_page=1", { signal: AbortSignal.timeout(4000) });
         if (!r.ok) return;
@@ -2908,15 +4129,12 @@ export default function App() {
   }, []);
 
   // Event listeners
-  // Note: "open_plugin_creator" is deliberately NOT listened to here.
-  // The Terminal component already renders the Plugin Creator in the
-  // exact same full-pane slot it renders the file Editor in (see
-  // Terminal's `if (pluginCreator !== null) { ... }` early return) —
-  // that's the one, main Plugin Creator. A second listener used to
-  // live at this root level too, popping up its own overlay copy on
-  // top of it, which is why two editors would show up at once for
-  // every 'plugin new. See onOpenPluginCreator below for how Home's
-  // "+ new" button now reaches that single instance instead.
+  // Note: plugins are edited through the exact same Editor as any
+  // other file now (see findPluginForPath in the Terminal component's
+  // editorSave) — there's no separate "open_plugin_creator" event or
+  // component to listen for here anymore. 'plugin new writes the
+  // template file, registers it live, then calls ctx.openEditor() on
+  // it directly, the same path 'edit uses.
   useEffect(() => {
     const u1 = events.on("open_theme_editor", p => { if (p?.name) setThemeEditorName(String(p.name)); });
     const u2 = events.on("theme_changed",     p => { if (p?.name) setCurTheme(String(p.name)); });
@@ -2942,6 +4160,36 @@ export default function App() {
     shellMounted.current = true;
     setView("shell");
   }, []);
+
+  // Opens the shell (if needed) and runs a command line through it —
+  // shared by Home's "+ new" button, its onCommand prop, and the
+  // Command Palette, so there's exactly one "run this for the user"
+  // path instead of three copies of the same ready/pendingHomeCmd
+  // dance drifting apart from each other.
+  const runHomeCommand = useCallback((cmd: string) => {
+    if (ready) {
+      openShell();
+      setTimeout(() => _ctxRef.current?.runLine(cmd), 60);
+    } else {
+      pendingHomeCmd.current = cmd;
+      openShell();
+    }
+  }, [ready, openShell]);
+
+  // Command Palette — Ctrl+Shift+P (Cmd+Shift+P on Mac), from
+  // anywhere. Skipped while the Theme Editor overlay is already open,
+  // so overlays don't stack confusingly on top of each other.
+  useEffect(() => {
+    const onWindowKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === "p") {
+        if (themeEditorName) return;
+        e.preventDefault();
+        setCommandPaletteOpen(o => !o);
+      }
+    };
+    window.addEventListener("keydown", onWindowKeyDown);
+    return () => window.removeEventListener("keydown", onWindowKeyDown);
+  }, [themeEditorName]);
 
   useEffect(() => {
     registerCoreKeybinds({
@@ -2995,6 +4243,12 @@ export default function App() {
             <ThemeEditor name={themeEditorName} onClose={() => setThemeEditorName(null)} />
           </div>
         )}
+        {commandPaletteOpen && (
+          <CommandPalette
+            onRun={cmd => { setCommandPaletteOpen(false); runHomeCommand(cmd); }}
+            onClose={() => setCommandPaletteOpen(false)}
+          />
+        )}
         {/* Home page — hidden (not unmounted) when shell active */}
         <div style={{ display: isHome ? "flex" : "none", flex: 1, minHeight: 0, overflow: "hidden" }}>
           <Home
@@ -3003,29 +4257,11 @@ export default function App() {
             onTheme={n => { themeManager.apply(n); setCurTheme(n); }}
             onOpenThemeEditor={n => setThemeEditorName(n)}
             // Routed through the shell's own "plugin new <name>" command
-            // (same as typing it) rather than a separate root-level
-            // overlay, so there's exactly one Plugin Creator — the one
-            // Terminal renders in its main editor slot. Mirrors onCommand
-            // just below.
-            onOpenPluginCreator={() => {
-              const cmd = "plugin new myplugin";
-              if (ready) {
-                openShell();
-                setTimeout(() => _ctxRef.current?.runLine(cmd), 60);
-              } else {
-                pendingHomeCmd.current = cmd;
-                openShell();
-              }
-            }}
-            onCommand={cmd => {
-              if (ready) {
-                openShell();
-                setTimeout(() => _ctxRef.current?.runLine(cmd), 60);
-              } else {
-                pendingHomeCmd.current = cmd;
-                openShell();
-              }
-            }}
+            // (same as typing it), which writes the file, registers it
+            // live, and opens it in the exact same Editor 'edit uses —
+            // not a separate overlay/component.
+            onOpenPluginCreator={() => runHomeCommand("plugin new myplugin")}
+            onCommand={runHomeCommand}
           />
         </div>
 

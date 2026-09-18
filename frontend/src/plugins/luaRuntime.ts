@@ -65,6 +65,11 @@ export interface OxisBindings {
   workspace(path: string): void;
   dashboard(config: LuaJSValue): void;
   newTerminal(): void;
+  /** oxis.workflow("name", { steps = {...}, env = {...} }, "desc") —
+   *  see workflowRunner.ts. `def` is the raw Lua table (validated and
+   *  converted to a real WorkflowDef by the implementation, not here —
+   *  this layer only moves values across the Lua<->JS boundary). */
+  workflow(name: string, def: LuaJSValue, desc: string | undefined): void;
   /** "windows" or "unix" — lets a plugin branch its oxis.run()/
    *  oxis.task() shell scripts per platform (PowerShell vs bash)
    *  without needing an async permission-gated call just to find out.
@@ -248,6 +253,12 @@ function buildOxisTable(L: LuaState, b: OxisBindings, closedRef: { closed: boole
   setfn("newTerminal", () => { b.newTerminal(); return 0; });
   setfn("workspace", (L) => { b.workspace(lua.lua_tojsstring(L, 1)); return 0; });
   setfn("dashboard", (L) => { b.dashboard(luaToJS(L, 1)); return 0; });
+  setfn("workflow", (L) => {
+    const name = lua.lua_tojsstring(L, 1);
+    const def = luaToJS(L, 2);
+    b.workflow(name, def, argString(L, 3));
+    return 0;
+  });
 
   // option(key) -> value   |   option(key, value) -> (sets it)
   setfn("option", (L) => {
@@ -390,6 +401,28 @@ export function loadLuaPlugin(source: string, bindings: OxisBindings): LuaLoadRe
     ok: true,
     plugin: { dispose: () => { closedRef.closed = true; lua.lua_close(L); } },
   };
+}
+
+/** Compiles (but never runs) a plugin's Lua source — catches syntax
+ *  errors with zero side effects, unlike loadLuaPlugin() which is a
+ *  real execution (registers commands, can run arbitrary top-level
+ *  code). Used by 'plugin validate, which is specifically supposed to
+ *  be safe to run on an already-loaded, currently-in-use plugin
+ *  without duplicating its registered commands or re-triggering
+ *  whatever it does at load time. luaL_loadstring alone (no
+ *  luaL_openlibs, no lua_pcall) compiles the chunk onto the stack and
+ *  reports a syntax error if there is one, without ever executing a
+ *  single instruction of it. */
+export function checkLuaSyntax(source: string): { ok: true } | { ok: false; error: string } {
+  const L = lauxlib.luaL_newstate();
+  const status = lauxlib.luaL_loadstring(L, to_luastring(source));
+  if (status !== lua.LUA_OK) {
+    const err = lua.lua_tojsstring(L, -1);
+    lua.lua_close(L);
+    return { ok: false, error: err };
+  }
+  lua.lua_close(L);
+  return { ok: true };
 }
 
 /** True — a real Lua VM is always available now (fengari is a pure-JS

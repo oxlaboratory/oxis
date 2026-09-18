@@ -47,8 +47,10 @@ import {
   systemInfo as nativeSystemInfo, listProcesses, killProcess, isNativeApp,
   writeTempScript,
 } from "../native";
-import { requestPermission } from "./permissions";
-import { scriptRunTracker, launchSuffix } from "../terminal/scriptRunTracker";
+import { requirePermission } from "./permissions";
+import { scriptRunTracker } from "../terminal/scriptRunTracker";
+import { workflowRunner } from "./workflowRunner";
+import { setTaskCommand } from "./taskCommands";
 
 // Exported so pluginManager can recognise it without duplicating the
 // exact string (and so it can't accidentally collide with a real
@@ -109,43 +111,45 @@ export interface APIContext {
  * $env:USERPROFILE, Write-Host), so there's no cross-platform script
  * to run there either way; a plain write is no worse than before.
  */
-function runScript(ctx: APIContext, cmd: string): void {
+export function runScript(ctx: APIContext, cmd: string): Promise<{ ok: boolean }> {
   const native = isNativeApp() && isWindows();
+  const send = (line: string) => ctx.sendToShell(line);
 
   if (!cmd.includes("\n") || !native) {
-    // Single-line command, or browser-mode/non-Windows fallback —
-    // unchanged from before. Busy-tracking (below) isn't applied
-    // here: every shipped Read-Host lives inside a multi-line
-    // (heredoc) script, so this branch is never the one blocking on
-    // interactive input, and Write-Host-based tracking only works
-    // against a real PowerShell session anyway.
-    ctx.sendToShell(cmd + "\r");
-    return;
+    // Single-line command, or browser-mode/non-Windows fallback. Every
+    // shipped Read-Host lives inside a multi-line (heredoc) script, so
+    // this branch was never the one that could block on interactive
+    // input — but it's routed through the same runAndAwait() as the
+    // multiline path below anyway now, so oxis.run() is properly
+    // awaitable everywhere (see workflowRunner.ts, the reason this
+    // changed from a fire-and-forget void function), and a second
+    // '-command dispatched immediately after a still-running one-liner
+    // gets the same "still busy" protection multi-line scripts already
+    // had, instead of none at all.
+    return scriptRunTracker.runAndAwait(send, cmd).then((r) => ({ ok: !r.cancelled && !r.timedOut }));
   }
 
-  // Mark the shell busy from the moment we send the launch line.
   // Read-Host inside the script blocks the shell on real keystrokes
-  // exactly like running the .ps1 by hand, and the marker below only
-  // prints once that's genuinely finished (see scriptRunTracker.ts) —
-  // that's what lets a second '-command refuse to stomp on a prompt
+  // exactly like running the .ps1 by hand, and runAndAwait()'s marker
+  // only prints once that's genuinely finished (see scriptRunTracker.ts)
+  // — that's what lets a second '-command refuse to stomp on a prompt
   // this one is still waiting on, instead of silently corrupting it.
-  scriptRunTracker.begin();
-  writeTempScript(".ps1", cmd)
+  return writeTempScript(".ps1", cmd)
     .then((path) => {
       // -ErrorAction SilentlyContinue on the cleanup only — a delete
       // that fails (e.g. antivirus briefly holding the file open)
       // shouldn't surface as a scary error tacked onto the script's
       // own output.
-      ctx.sendToShell(
-        `& "${path}"; Remove-Item "${path}" -Force -ErrorAction SilentlyContinue${launchSuffix()}\r`,
-      );
+      const launch = `& "${path}"; Remove-Item "${path}" -Force -ErrorAction SilentlyContinue`;
+      return scriptRunTracker.runAndAwait(send, launch);
     })
     .catch(() => {
-      scriptRunTracker.cancel(); // never actually launched — don't leave the shell marked busy
-      // Couldn't write the temp file (disk full, permissions, etc.)
-      // — fall back rather than silently doing nothing.
-      ctx.sendToShell(cmd + "\r");
-    });
+      // Couldn't write the temp file (disk full, permissions, etc.) —
+      // fall back to a raw single-line send, still awaited, rather
+      // than silently doing nothing.
+      return scriptRunTracker.runAndAwait(send, cmd);
+    })
+    .then((r) => ({ ok: !r.cancelled && !r.timedOut }));
 }
 
 export function buildLuaAPI(ctx: APIContext): OxisBindings {
@@ -171,6 +175,7 @@ export function buildLuaAPI(ctx: APIContext): OxisBindings {
     // oxis.task("name", "cmd", "what it does") — same documentation
     // handling as oxis.command().
     task: (name, cmd, description) => {
+      setTaskCommand(name, cmd);
       const hasDesc = typeof description === "string" && description.trim().length > 0;
       registry.register({
         name: `task:${name}`,
@@ -185,7 +190,7 @@ export function buildLuaAPI(ctx: APIContext): OxisBindings {
     run: (cmd) => runScript(ctx, cmd),
     theme: (name) => { themeManager.apply(name); },
     cwd: () => ctx.getCwd(),
-    newTerminal: () => ctx.newTerminal(),
+    newTerminal: () => { requirePermission(ctx.pluginName, "terminal"); ctx.newTerminal(); },
 
     // oxis.option("key") -> value   |   oxis.option("key", value) -> sets it
     getOption: (key) => (options[key] ?? ctx.getOption(key)),
@@ -220,8 +225,18 @@ export function buildLuaAPI(ctx: APIContext): OxisBindings {
     pluginEnable:  (name) => events.emit("plugin_enable_request",  { name }),
     pluginDisable: (name) => events.emit("plugin_disable_request", { name }),
 
-    workspace: (path) => events.emit("workspace_loaded", { path }),
+    // Gated (unlike pluginEnable/Disable/dashboard above, which are
+    // low-stakes UI events) because these change what the user is
+    // looking at / where OXIS's configuration comes from — a plugin
+    // silently switching workspaces or popping open new terminal tabs
+    // is the kind of thing worth a one-time confirmation, same as
+    // fs/process/net/system already get.
+    workspace: (path) => { requirePermission(ctx.pluginName, "workspace"); events.emit("workspace_loaded", { path }); },
     dashboard: (config) => events.emit("dashboard_config", { config }),
+    workflow: (name, def, description) => {
+      const warnings = workflowRunner.register(name, def, description);
+      for (const w of warnings) ctx.print(`  ⚠  workflow ${name}: ${w}`, "dim");
+    },
 
     // ── Core System APIs — see README § Core System APIs ─────────
     // Every one of these is gated by requestPermission() first: a
@@ -231,46 +246,46 @@ export function buildLuaAPI(ctx: APIContext): OxisBindings {
     // Wails Go bindings) — there's no browser-mode equivalent, same
     // constraint the editor's readFile/writeFile already have.
     fsRead: async (path) => {
-      if (!requestPermission(ctx.pluginName, "fs")) throw new Error("fs permission denied");
+      requirePermission(ctx.pluginName, "fs");
       if (!isNativeApp()) throw new Error("oxis.fs needs the native OXIS app (no filesystem access in browser mode)");
       return readFile(path);
     },
     fsWrite: async (path, content) => {
-      if (!requestPermission(ctx.pluginName, "fs")) throw new Error("fs permission denied");
+      requirePermission(ctx.pluginName, "fs");
       if (!isNativeApp()) throw new Error("oxis.fs needs the native OXIS app (no filesystem access in browser mode)");
       await writeFile(path, content);
     },
     fsList: async (path) => {
-      if (!requestPermission(ctx.pluginName, "fs")) throw new Error("fs permission denied");
+      requirePermission(ctx.pluginName, "fs");
       if (!isNativeApp()) throw new Error("oxis.fs needs the native OXIS app (no filesystem access in browser mode)");
       const entries = await listDir(path);
       return entries as unknown as LuaJSValue[];
     },
     fsStat: async (path) => {
-      if (!requestPermission(ctx.pluginName, "fs")) throw new Error("fs permission denied");
+      requirePermission(ctx.pluginName, "fs");
       if (!isNativeApp()) throw new Error("oxis.fs needs the native OXIS app (no filesystem access in browser mode)");
       const s = await statPath(path);
       return s as unknown as LuaJSValue;
     },
     fsMkdir: async (path) => {
-      if (!requestPermission(ctx.pluginName, "fs")) throw new Error("fs permission denied");
+      requirePermission(ctx.pluginName, "fs");
       if (!isNativeApp()) throw new Error("oxis.fs needs the native OXIS app (no filesystem access in browser mode)");
       await makeDir(path);
     },
     fsRemove: async (path) => {
-      if (!requestPermission(ctx.pluginName, "fs")) throw new Error("fs permission denied");
+      requirePermission(ctx.pluginName, "fs");
       if (!isNativeApp()) throw new Error("oxis.fs needs the native OXIS app (no filesystem access in browser mode)");
       await deletePath(path);
     },
 
     processList: async () => {
-      if (!requestPermission(ctx.pluginName, "process")) throw new Error("process permission denied");
+      requirePermission(ctx.pluginName, "process");
       if (!isNativeApp()) throw new Error("oxis.process needs the native OXIS app");
       const list = await listProcesses();
       return list as unknown as LuaJSValue[];
     },
     processKill: async (pid) => {
-      if (!requestPermission(ctx.pluginName, "process")) throw new Error("process permission denied");
+      requirePermission(ctx.pluginName, "process");
       if (!isNativeApp()) throw new Error("oxis.process needs the native OXIS app");
       await killProcess(pid);
     },
@@ -282,7 +297,7 @@ export function buildLuaAPI(ctx: APIContext): OxisBindings {
     // plugin like AI DevOps (see README § AI DevOps) has no more
     // access than any third-party plugin could ask a user to grant.
     netRequest: async (opts) => {
-      if (!requestPermission(ctx.pluginName, "net")) throw new Error("net permission denied");
+      requirePermission(ctx.pluginName, "net");
       const o = (opts ?? {}) as { url?: string; method?: string; headers?: Record<string, string>; body?: string };
       if (!o.url) throw new Error("oxis.net.request requires { url = ... }");
       const res = await fetch(o.url, { method: o.method || "GET", headers: o.headers, body: o.body });
@@ -293,7 +308,7 @@ export function buildLuaAPI(ctx: APIContext): OxisBindings {
     },
 
     systemInfo: async () => {
-      if (!requestPermission(ctx.pluginName, "system")) throw new Error("system permission denied");
+      requirePermission(ctx.pluginName, "system");
       if (!isNativeApp()) throw new Error("oxis.system needs the native OXIS app");
       const info = await nativeSystemInfo();
       return info as unknown as LuaJSValue;

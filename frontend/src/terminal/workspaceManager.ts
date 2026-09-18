@@ -21,6 +21,7 @@
 import { readFile, writeFile, statPath, listDir, makeDir, deletePath, isNativeApp } from "../native";
 import { loadLuaPlugin, type LoadedLuaPlugin } from "../plugins/luaRuntime";
 import { buildLuaAPI, type APIContext } from "../plugins/pluginAPI";
+import { workflowRunner } from "../plugins/workflowRunner";
 import { registry } from "./commandRegistry";
 import { events } from "./events";
 
@@ -182,6 +183,7 @@ class WorkspaceManager {
     this.disposer = null;
     this.activeDir = null;
     this.activeNamed = null;
+    workflowRunner.clear(); // workflows are workspace-scoped — see loadWorkflows() below
     events.emit("workspace_unloaded", {});
     return { ok: true, message: "workspace closed" };
   }
@@ -198,14 +200,17 @@ class WorkspaceManager {
       return { ok: false, message: `no workspace found at ${path} — try 'workspace init` };
     }
 
-    // Unload whatever was there before (tasks/commands/etc. it
-    // registered) — a reload shouldn't leave the previous run's
-    // registrations dangling alongside the new ones.
+    // Unload whatever was there before (tasks/commands/workflows/etc.
+    // it registered) — a reload shouldn't leave the previous run's
+    // registrations dangling alongside the new ones, and switching to
+    // a DIFFERENT workspace must not leak its workflows into this one
+    // (workflow isolation — see workflowRunner.ts's clear()).
     if (this.disposer) {
       registry.unregisterByPlugin(WORKSPACE_PLUGIN_NAME);
       try { this.disposer.dispose(); } catch { /* ignore */ }
       this.disposer = null;
     }
+    workflowRunner.clear();
 
     events.emit("workspace_loading", { path: dir });
     const bindings = buildLuaAPI({ ...this.apiCtx!, pluginName: WORKSPACE_PLUGIN_NAME });
@@ -216,12 +221,47 @@ class WorkspaceManager {
     }
     this.disposer = result.plugin;
     this.activeDir = dir;
+    await this.loadWorkflows(dir);
     // Authoritative "workspace_loaded" with the real absolute
     // directory — separate from whatever oxis.workspace(path) inside
     // the .lua file itself passed (usually just "."), which
     // workspaceState.ts explicitly does NOT use for display.
     events.emit("workspace_loaded", { path: dir });
     return { ok: true, message: `workspace loaded from ${path}` };
+  }
+
+  /** Loads every workflows/*.lua file in this workspace — each one is
+   *  just Lua source that calls oxis.workflow("name", {...}, "desc")
+   *  (the same oxis.* API everything else uses), executed once to
+   *  register its definition into workflowRunner and then disposed —
+   *  a workflow's definition is plain JS data after that (see
+   *  workflowRunner.ts), so nothing needs the Lua VM to stay alive.
+   *  Errors in one workflow file are reported and skipped rather than
+   *  aborting the rest — consistent with how a broken plugin doesn't
+   *  take down plugin loading generally. */
+  private async loadWorkflows(dir: string): Promise<void> {
+    let entries;
+    try { entries = await listDir(`${dir}/workflows`); }
+    catch { return; } // no workflows/ folder (or it's empty) — nothing to load
+    const files = entries.filter(e => !e.isDir && e.name.endsWith(".lua"));
+    for (const file of files) {
+      let source: string;
+      try { source = await readFile(`${dir}/workflows/${file.name}`); }
+      catch { continue; }
+      const pluginName = `__workflow_file__:${file.name}`;
+      const bindings = buildLuaAPI({ ...this.apiCtx!, pluginName });
+      const result = loadLuaPlugin(source, bindings);
+      if (!result.ok) {
+        this.apiCtx?.print(`  ✗  workflows/${file.name} failed to load: ${result.error}`, "err");
+        continue;
+      }
+      // Only oxis.workflow() calls matter here — if the file also
+      // called oxis.command()/oxis.task() (unusual, but not
+      // forbidden), unregister those too so this stays purely additive
+      // to workflowRunner rather than leaving stray commands behind.
+      registry.unregisterByPlugin(pluginName);
+      try { result.plugin.dispose(); } catch { /* ignore */ }
+    }
   }
 
   getActiveDir(): string | null {
@@ -245,12 +285,12 @@ class WorkspaceManager {
   // what carries externalPath and survives a workspace being briefly
   // absent/renamed mid-operation cleanly).
   //
-  // scripts/, tasks/, and workflows/ are plain folders you keep your
-  // own files in and open with 'edit — there's no separate "workflow
-  // engine" here, same as there's no separate "script engine": running
-  // things still goes through 'task / oxis.command in .oxis/workspace.lua
-  // like it always has. What's new is a tidy, separate place per
-  // project to keep the source for that instead of one shared pile.
+  // scripts/ and tasks/ are plain folders you keep your own files in
+  // and open with 'edit — there's no separate "script engine" here;
+  // running things still goes through 'task / oxis.command in
+  // .oxis/workspace.lua like it always has. workflows/ is different:
+  // see loadWorkflows() below and workflowRunner.ts — 'workflow <name>
+  // is a real, if intentionally scoped, execution engine now.
   // ══════════════════════════════════════════════════════════════
 
   private async readRegistry(): Promise<NamedWorkspaceEntry[]> {

@@ -33,10 +33,14 @@
 import { registry } from "../terminal/commandRegistry";
 import { events } from "../terminal/events";
 import { workspaceManager } from "../terminal/workspaceManager";
-import { loadLuaPlugin, type LoadedLuaPlugin } from "./luaRuntime";
+import { loadLuaPlugin, checkLuaSyntax, type LoadedLuaPlugin } from "./luaRuntime";
 import { buildLuaAPI, UNDOCUMENTED_SENTINEL, type APIContext } from "./pluginAPI";
 import { isNativeApp, listPluginFiles, readPluginFile, writePluginFile, deletePluginFile, readFile, writeFile, listDir, deletePath } from "../native";
 import type { CommandHandler } from "../terminal/commandRegistry";
+import { parseManifest, satisfiesMin, satisfiesRange, OXIS_VERSION, type PluginManifest } from "./manifest";
+import { setDeclaredPermissions, declaredPermissionsOf, type PermissionNamespace } from "./permissions";
+import { isWindows } from "../terminal/terminal";
+import { recordError } from "../terminal/diagnostics";
 
 export type PluginCategory = "dev" | "devops" | "system" | "files" | "plugin" | string;
 
@@ -65,6 +69,13 @@ export interface PluginMeta {
    *  from ones installed from the marketplace. Undefined for
    *  premium plugins (never written to disk at all) and builtins. */
   origin?: "user" | "market";
+  /** Parsed from a `--[[@manifest ... ]]` block in the plugin's Lua
+   *  source — see manifest.ts. Undefined for a "legacy" plugin (no
+   *  manifest block at all, including every built-in) — see
+   *  checkCompatibility() and permissions.ts's declaredPermissions for
+   *  where legacy vs. manifest'd plugins are actually treated
+   *  differently. */
+  manifest?: PluginManifest;
 }
 
 const PERSIST_KEY = "oxis-plugins-v2";
@@ -74,6 +85,52 @@ const PERSIST_KEY = "oxis-plugins-v2";
  *  description — e.g. "gwip" -> "[games] gwip". */
 function fallbackDescription(pluginName: string, commandName: string): string {
   return `[${pluginName}] ${commandName.replace(/^task:/, "task: ")}`;
+}
+
+export interface PluginErrorInfo {
+  plugin: string;
+  command?: string;
+  error: string;
+  permission?: PermissionNamespace;
+  dependency?: string;
+  suggestion?: string;
+}
+
+export type DoctorSeverity = "error" | "warning" | "info";
+export interface PluginDoctorFinding { severity: DoctorSeverity; message: string; suggestion?: string }
+export interface PluginDoctorResult { name: string; findings: PluginDoctorFinding[] }
+
+/** A plain-language suggestion for one of validate()'s issue strings
+ *  — matched by what the message is ABOUT (dependency/version/OS/
+ *  permission/syntax), not the exact wording, so this doesn't quietly
+ *  break the moment validate()'s phrasing changes. */
+function suggestionFor(issue: string, pluginName: string): string | undefined {
+  const low = issue.toLowerCase();
+  if (low.startsWith("missing dependency")) return `Install the missing plugin, then 'plugin reload ${pluginName}`;
+  if (low.startsWith("incompatible dependency")) return `Check if a compatible version is available — 'market info <dependency>`;
+  if (low.includes("dependency cycle")) return `Break the cycle by removing one side of the mutual dependency from the manifest`;
+  if (low.startsWith("not supported on this os")) return `This plugin can't run on this machine — 'plugin disable ${pluginName} to stop it being attempted`;
+  if (low.startsWith("requires oxis >=")) return `Update OXIS, or find an older version of this plugin compatible with what's installed`;
+  if (low.startsWith("lua syntax error")) return `Fix the syntax error — 'edit the plugin's .lua file (see 'plugin info ${pluginName} for where it lives)`;
+  if (low.includes("no permissions list")) return `Add a permissions: line to the manifest — 'plugin info ${pluginName} to see what it's declared so far`;
+  if (low.includes("no version")) return `Add a version: line to the manifest so dependents can check compatibility against it`;
+  return undefined;
+}
+
+/** The one place a plugin-related failure becomes text a user reads —
+ *  used for Lua exec errors (load(), oxis.command()/oxis.task()
+ *  invocations in pluginAPI.ts) AND compatibility/dependency/
+ *  permission failures here, so every failure mode looks like the
+ *  same kind of thing instead of some being a formatted block and
+ *  others a raw exception message or stack trace. */
+export function formatPluginError(info: PluginErrorInfo): string {
+  const lines = ["Plugin Error", `Plugin: ${info.plugin}`];
+  if (info.command) lines.push(`Command: ${info.command}`);
+  if (info.permission) lines.push(`Permission: ${info.permission}`);
+  if (info.dependency) lines.push(`Dependency: ${info.dependency}`);
+  lines.push("", info.error);
+  if (info.suggestion) lines.push("", info.suggestion);
+  return lines.join("\n");
 }
 
 class PluginManager {
@@ -88,13 +145,116 @@ class PluginManager {
   }
 
   register(meta: PluginMeta): void {
+    if (meta.lua && !meta.manifest) {
+      const manifest = parseManifest(meta.lua);
+      if (manifest) {
+        meta.manifest = manifest;
+        // Manifest fields fill in gaps rather than overriding anything
+        // the caller (addLuaPlugin/loadUserPlugins) already set —
+        // e.g. 'market install already knows the real category from
+        // the Market index, which should win over a stale one someone
+        // hand-wrote into their own manifest.
+        if (manifest.version && !meta.version) meta.version = manifest.version;
+        if (manifest.author && !meta.author) meta.author = manifest.author;
+        if (manifest.description) meta.desc = manifest.description;
+        if (manifest.category) meta.category = manifest.category;
+      }
+    }
+    setDeclaredPermissions(meta.name, meta.manifest ? (meta.manifest.permissions ?? []) : undefined);
     this.plugins.set(meta.name, meta);
+  }
+
+  /** OS / min-OXIS-version / dependency checks — run BEFORE a manifest'd
+   *  plugin's Lua ever executes. A legacy plugin (no manifest) skips
+   *  all of this entirely, same as before manifests existed: there's
+   *  nothing declared to check compatibility against, and it already
+   *  worked, so it keeps working. Dependency resolution enables an
+   *  already-installed-but-disabled dependency automatically (with
+   *  cycle detection via `chain`); a genuinely MISSING dependency is
+   *  reported, not auto-installed from the Market — that's a bigger,
+   *  separate piece of work (see README § Plugin System's roadmap
+   *  note) this doesn't attempt to fake. */
+  private checkCompatibility(p: PluginMeta, chain: Set<string> = new Set()): { ok: true } | { ok: false; error: string; dependency?: string } {
+    const m = p.manifest;
+    if (!m) return { ok: true };
+
+    if (m.os && m.os.length > 0) {
+      const current = isWindows() ? "windows" : "unix";
+      if (!m.os.includes(current)) {
+        return { ok: false, error: `Not supported on this OS.\nSupported OS: ${m.os.join(", ")}\nThis machine: ${current}` };
+      }
+    }
+
+    if (m.minOxisVersion && !satisfiesMin(OXIS_VERSION, m.minOxisVersion)) {
+      return { ok: false, error: `Requires OXIS >= ${m.minOxisVersion} (running ${OXIS_VERSION}).` };
+    }
+
+    if (m.dependencies) {
+      if (chain.has(p.name)) {
+        return { ok: false, error: `Dependency cycle detected: ${[...chain, p.name].join(" -> ")}` };
+      }
+      const nextChain = new Set(chain).add(p.name);
+      for (const [depName, range] of Object.entries(m.dependencies)) {
+        // Checked BEFORE looking at whether depName is enabled —
+        // enabled or not, if it's already an ancestor in this
+        // resolution chain (including p itself, for a self-dependency),
+        // enabling it would mean enabling p a second time to satisfy
+        // it, which is exactly what a cycle is. Gating this behind
+        // "only recurse if disabled" (as an earlier version of this
+        // code did) missed real cycles whenever the ancestor happened
+        // to already be marked enabled — which, since the caller in
+        // load()/enable() sets `enabled = true` on p optimistically
+        // BEFORE calling this, is true almost every time p is its own
+        // indirect dependency.
+        if (nextChain.has(depName)) {
+          return { ok: false, dependency: depName, error: `Dependency cycle detected: ${[...nextChain, depName].join(" -> ")}` };
+        }
+        const dep = this.plugins.get(depName);
+        if (!dep) {
+          return {
+            ok: false, dependency: depName,
+            error: `Missing dependency: ${depName} ${range !== "*" ? range : ""}\nInstall it first — 'market install ${depName} (or 'plugin new ${depName} if it's your own).`,
+          };
+        }
+        if (dep.version && !satisfiesRange(dep.version, range)) {
+          return {
+            ok: false, dependency: depName,
+            error: `Incompatible dependency: ${depName} ${range} required, but ${dep.version} is installed.\nA newer version may be available on the Market — check 'market info ${depName}.`,
+          };
+        }
+        if (!dep.enabled) {
+          const depCheck = this.checkCompatibility(dep, nextChain);
+          if (!depCheck.ok) {
+            return { ok: false, dependency: depName, error: `Dependency "${depName}" can't be enabled: ${depCheck.error}` };
+          }
+          dep.enabled = true;
+          this.load(depName);
+          if (!dep.enabled) {
+            return { ok: false, dependency: depName, error: `Dependency "${depName}" failed to load — see the message above for why.` };
+          }
+        }
+      }
+    }
+
+    return { ok: true };
   }
 
   /** Load a plugin's commands into the registry */
   load(name: string): boolean {
     const p = this.plugins.get(name);
     if (!p || !p.enabled) return false;
+
+    if (p.manifest) {
+      const compat = this.checkCompatibility(p);
+      if (!compat.ok) {
+        p.enabled = false;
+        this.persist();
+        const msg = formatPluginError({ plugin: name, error: compat.error, dependency: compat.dependency });
+        this.apiCtx?.print(msg, "err");
+        recordError(msg);
+        return false;
+      }
+    }
 
     // TypeScript shortcut plugins — description is derived from the
     // real underlying command so 'help <plugin> shows something
@@ -124,7 +284,12 @@ class PluginManager {
       const result = loadLuaPlugin(p.lua, bindings);
       if (!result.ok) {
         console.warn(`[oxis:plugin] ${name} load error: ${result.error}`);
-        this.apiCtx.print(`  ✗  plugin ${name} failed to load: ${result.error}`, "err");
+        const msg = formatPluginError({
+          plugin: name, error: result.error,
+          suggestion: "'plugin validate " + name + " to check its manifest, or 'plugin docs " + name + " for what it expects.",
+        });
+        this.apiCtx.print(msg, "err");
+        recordError(msg);
         // A plugin that threw during exec has zero working commands —
         // don't leave it marked enabled, or 'plugin list shows a
         // green dot for something that does nothing.
@@ -208,11 +373,28 @@ class PluginManager {
     }
   }
 
+  /** Every OTHER installed plugin whose manifest depends on `name`. */
+  dependentsOf(name: string): string[] {
+    return [...this.plugins.values()]
+      .filter(p => p.name !== name && p.manifest?.dependencies && Object.keys(p.manifest.dependencies).includes(name))
+      .map(p => p.name);
+  }
+
   /** Remove a plugin entirely: unload it, drop its metadata, and (for
-   *  user/market plugins) delete its real file from disk. */
-  async remove(name: string): Promise<void> {
+   *  user/market plugins) delete its real file from disk. Refuses if
+   *  another installed plugin depends on it — pass `force` to remove
+   *  anyway (the caller is responsible for warning the user first;
+   *  see 'plugin uninstall's handler in App.tsx). */
+  async remove(name: string, force = false): Promise<{ ok: boolean; message: string }> {
     const p = this.plugins.get(name);
-    if (!p) return;
+    if (!p) return { ok: false, message: `not found: ${name}` };
+    const dependents = this.dependentsOf(name);
+    if (dependents.length > 0 && !force) {
+      return {
+        ok: false,
+        message: `"${name}" is a dependency of: ${dependents.join(", ")}. Uninstalling it would break them.\nUninstall those first, or 'plugin uninstall ${name} --force to remove it anyway.`,
+      };
+    }
     this.unload(name);
     this.plugins.delete(name);
     this.persist();
@@ -222,6 +404,162 @@ class PluginManager {
         else await deletePluginFile(name);
       } catch { /* already gone, or browser mode */ }
     }
+    return {
+      ok: true,
+      message: dependents.length > 0
+        ? `removed ${name} (⚠ was a dependency of: ${dependents.join(", ")} — they may no longer work)`
+        : `removed ${name}`,
+    };
+  }
+
+  /** 'plugin validate <name> — checks the manifest, permissions,
+   *  dependencies, version, and OS/OXIS-version compatibility, plus a
+   *  full Lua syntax check — all WITHOUT executing a single
+   *  instruction of the plugin's Lua (see checkLuaSyntax). That catches
+   *  every syntax error (Lua compiles the whole chunk upfront, so this
+   *  isn't limited to "whichever branch happens to run"), but not
+   *  runtime/logic errors that only surface when specific code
+   *  actually executes (e.g. a nil dereference inside a rarely-called
+   *  command handler) — 'plugin test actually loads the plugin for
+   *  that; this is the fast, safe, "is this installable at all" check. */
+  validate(name: string): { ok: boolean; issues: string[] } {
+    const p = this.plugins.get(name);
+    if (!p) return { ok: false, issues: [`not found: ${name}`] };
+    const issues: string[] = [];
+
+    if (!p.manifest) {
+      issues.push("no manifest block (--[[@manifest ... ]]) — running as a legacy plugin: unrestricted permissions, no declared version/OS/dependencies to check");
+    } else {
+      const m = p.manifest;
+      if (!m.version) issues.push("manifest has no version — dependency version checks against this plugin will be skipped");
+      if (!m.permissions) issues.push("manifest has no permissions list — every Core System API call will be hard-denied (no prompt) until one is added, even an empty `permissions:` line if it genuinely needs none");
+      if (m.minOxisVersion && !/^\d+\.\d+\.\d+/.test(m.minOxisVersion)) issues.push(`min_oxis_version "${m.minOxisVersion}" doesn't look like a valid version (expected e.g. "1.2.1")`);
+      const compat = this.checkCompatibility(p);
+      if (!compat.ok) issues.push(compat.error.split("\n")[0]);
+    }
+
+    if (p.lua) {
+      // checkLuaSyntax only compiles the chunk — it never executes it
+      // (unlike loadLuaPlugin, a real run), so this is safe to call on
+      // a plugin that's currently loaded/enabled: it can't duplicate
+      // its registered commands or re-trigger side effects a real
+      // load would (a top-level oxis.run(), etc.).
+      const syntaxCheck = checkLuaSyntax(p.lua);
+      if (!syntaxCheck.ok) issues.push(`Lua syntax error: ${syntaxCheck.error}`);
+    }
+
+    return { ok: issues.length === 0, issues };
+  }
+
+  /** 'plugin doctor — validate() run across EVERY installed (non-
+   *  builtin) plugin at once, plus a couple of checks validate()
+   *  doesn't do because they only matter in aggregate or against real
+   *  disk state: a missing file (deleted outside OXIS after being
+   *  registered) and whether a plugin marked enabled actually has any
+   *  commands registered right now (a real, currently-broken plugin,
+   *  vs. one that's merely disabled and fine). Severity is genuinely
+   *  distinguished, not just a flat issue list: an enabled plugin with
+   *  problems is an ERROR (it's actively not working); a disabled
+   *  plugin with the same problems is a WARNING (dormant, not
+   *  currently hurting anything); a legacy plugin's "no manifest" note
+   *  is INFO (not a problem at all, just informational). */
+  async doctor(): Promise<PluginDoctorResult[]> {
+    const results: PluginDoctorResult[] = [];
+    for (const p of this.plugins.values()) {
+      if (p.builtin) continue;
+      const { issues } = this.validate(p.name);
+      const findings: PluginDoctorFinding[] = issues.map(issue => ({
+        severity: !p.enabled ? "warning" : issue.startsWith("no manifest block") ? "info" : "error",
+        message: issue,
+        suggestion: suggestionFor(issue, p.name),
+      }));
+
+      if (isNativeApp() && !p.builtin) {
+        const path = p.origin === "user" ? `${workspaceManager.pluginsDir()}/${p.name}.lua` : `plugins/${p.name}.lua`;
+        try {
+          if (p.origin === "user") await readFile(path); else await readPluginFile(p.name);
+        } catch {
+          findings.push({
+            severity: p.enabled ? "error" : "warning",
+            message: `file missing on disk: ${path} (registered in memory, but the file behind it is gone)`,
+            suggestion: `'plugin uninstall ${p.name} to clean up the stale registration, or restore the file at ${path}`,
+          });
+        }
+      }
+
+      if (p.enabled) {
+        const registered = registry.all().filter(c => c.fromPlugin === p.name);
+        if (registered.length === 0 && findings.length === 0) {
+          findings.push({
+            severity: "warning",
+            message: "enabled, loads without error, but registers zero commands — probably fine (some plugins only add keymaps/autocmds), but worth a second look if you expected commands from it",
+            suggestion: `'plugin test ${p.name} to see exactly what it registers`,
+          });
+        }
+      }
+
+      if (findings.length > 0) results.push({ name: p.name, findings });
+    }
+    return results;
+  }
+
+  /** 'plugin info <name> — everything known about a plugin in one
+   *  place: metadata, manifest fields, permissions (declared vs.
+   *  granted), dependencies, and dependents. */
+  info(name: string): { ok: true; text: string } | { ok: false; message: string } {
+    const p = this.plugins.get(name);
+    if (!p) return { ok: false, message: `not found: ${name}` };
+    const m = p.manifest;
+    const lines = [
+      `${p.name}  ${p.version ? `v${p.version}` : "(no version declared)"}`,
+      p.desc,
+      `category: ${p.category}   status: ${p.enabled ? "enabled" : "disabled"}   origin: ${p.builtin ? "built-in" : p.origin ?? "unknown"}`,
+    ];
+    if (p.author) lines.push(`author: ${p.author}`);
+    if (m?.minOxisVersion) lines.push(`requires OXIS >= ${m.minOxisVersion} (running ${OXIS_VERSION})`);
+    if (m?.os) lines.push(`supported OS: ${m.os.join(", ")}`);
+    const declaredPerms = declaredPermissionsOf(name);
+    lines.push(declaredPerms ? `declared permissions: ${declaredPerms.join(", ") || "(none)"}` : "permissions: not declared (legacy plugin — prompts on first use)");
+    if (m?.dependencies && Object.keys(m.dependencies).length > 0) {
+      lines.push("dependencies:");
+      for (const [dep, range] of Object.entries(m.dependencies)) {
+        const installed = this.plugins.get(dep);
+        const status = !installed ? "MISSING" : installed.version && !satisfiesRange(installed.version, range) ? `installed v${installed.version}, INCOMPATIBLE` : "ok";
+        lines.push(`  ${dep} ${range !== "*" ? range : ""}  — ${status}`);
+      }
+    }
+    const dependents = this.dependentsOf(name);
+    if (dependents.length > 0) lines.push(`depended on by: ${dependents.join(", ")}`);
+    if (!p.builtin) lines.push("", "'plugin docs " + name + " for its full documentation (if provided) · 'plugin validate " + name + " to check it");
+    return { ok: true, text: lines.join("\n") };
+  }
+
+  /** 'plugin test <name> — actually loads the plugin (a real
+   *  execution, unlike validate()) and reports what got registered,
+   *  then restores whatever enabled/disabled state it had before —
+   *  so running a test on a currently-disabled plugin doesn't leave it
+   *  enabled afterward. This is a real load through the exact same
+   *  path 'plugin enable uses, not a separate sandboxed copy (OXIS
+   *  doesn't have a second, isolated Lua environment to run a
+   *  plugin-under-test in without affecting the live one) — treat it
+   *  as "does this actually load cleanly right now", not as proof
+   *  nothing it registers could ever misbehave once actually used. */
+  test(name: string): { ok: boolean; message: string } {
+    const p = this.plugins.get(name);
+    if (!p) return { ok: false, message: `not found: ${name}` };
+    const wasEnabled = p.enabled;
+    if (wasEnabled) this.unload(name); // clean slate, don't double-register
+    p.enabled = true;
+    const loaded = this.load(name);
+    const commands = loaded ? registry.all().filter(c => c.fromPlugin === name) : [];
+    if (!wasEnabled) {
+      this.unload(name);
+      p.enabled = false;
+    }
+    this.persist();
+    return loaded
+      ? { ok: true, message: `${name}: loaded successfully — ${commands.length} command(s): ${commands.map(c => c.name).join(", ") || "(none)"}` }
+      : { ok: false, message: `${name}: failed to load — see the error above` };
   }
 
   all(): PluginMeta[] {
@@ -315,14 +653,25 @@ class PluginManager {
   async saveLuaPlugin(name: string, lua: string): Promise<{ persisted: boolean; persistError?: unknown }> {
     const p = this.plugins.get(name);
     if (p) p.lua = lua;
-    if (!isNativeApp()) return { persisted: false };
-    try {
-      if (p?.origin === "user") await writeFile(`${workspaceManager.pluginsDir()}/${name}.lua`, lua);
-      else await writePluginFile(name, lua);
-      return { persisted: true };
-    } catch (persistError) {
-      return { persisted: false, persistError };
+    let result: { persisted: boolean; persistError?: unknown };
+    if (!isNativeApp()) {
+      result = { persisted: false };
+    } else {
+      try {
+        if (p?.origin === "user") await writeFile(`${workspaceManager.pluginsDir()}/${name}.lua`, lua);
+        else await writePluginFile(name, lua);
+        result = { persisted: true };
+      } catch (persistError) {
+        result = { persisted: false, persistError };
+      }
     }
+    // Actually apply the new code, not just remember/persist it — this
+    // is what makes saving a plugin file in the Editor equivalent to
+    // the old Plugin Creator's dedicated "save & load" button, now
+    // that plugins are edited in the exact same Editor as any other
+    // file (see openEditor's plugin-aware save path in App.tsx).
+    if (p?.enabled) this.reload(name);
+    return result;
   }
 
   /** Load every user/market plugin file from disk (native window

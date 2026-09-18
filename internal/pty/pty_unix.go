@@ -45,7 +45,15 @@ func HandleSession(conn *websocket.Conn) {
 				rows = 30
 			}
 
-			shell := os.Getenv("SHELL")
+			// Shell profile support: OXIS_SHELL, set before launching
+			// OXIS, overrides $SHELL — lets you use a different shell
+			// specifically for OXIS without changing your system
+			// default. Falls back to $SHELL (already the user's own
+			// configured shell, if set), then /bin/bash.
+			shell := os.Getenv("OXIS_SHELL")
+			if shell == "" {
+				shell = os.Getenv("SHELL")
+			}
 			if shell == "" {
 				shell = "/bin/bash"
 			}

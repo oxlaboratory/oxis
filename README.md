@@ -36,6 +36,8 @@ current codebase today, **[in progress]** — partially built, **[planned]**
 - [PTY Architecture](#pty-architecture)
 - [Task Runner](#task-runner)
 - [Built-in Editor](#built-in-editor)
+- [Diagnostics & Plugin Doctor](#diagnostics--plugin-doctor)
+- [Settings](#settings)
 - [Auto-Update](#auto-update)
 - [Session Management](#session-management)
 - [OXIS Market — Subscriptions & Premium Plugins](#oxis-market--subscriptions--premium-plugins)
@@ -280,7 +282,14 @@ panel** built from the same box/ASCII styling as everything else
 (`oxis-box`, terminal-aesthetic borders, no rounded skeuomorphic
 cards). It shows, live:
 
-- **Current workspace/project** — name, or "No project loaded"
+- **Active workspace** — the named workspace currently switched to
+  (`'workspace switch <name>`), or "default" if none — pulled
+  straight from `workspaceManager.getActiveNamed()`, not inferred, so
+  it's unambiguous once more than one named workspace exists
+- **Current workspace/project** — the `.oxis/workspace.lua` directory's
+  name (for a named workspace, this is the same name as above; for an
+  ad-hoc directory-based workspace with no name, it's just the
+  directory), or "No project loaded"
 - **Project path** — the resolved `.oxis/workspace.lua` directory, if any
 - **Active plugins** — count + names of currently enabled plugins
 - **Available tasks** — task names defined by the workspace (`'task <name>`)
@@ -290,6 +299,7 @@ cards). It shows, live:
 
 ```
 ┌ WORKSPACE ──────────────────────────────────────┐
+│ workspace   my-app                                │
 │ project     oxis                                  │
 │ path        C:\dev\oxis\.oxis\workspace.lua       │
 │ theme       midnight                              │
@@ -318,11 +328,34 @@ exactly as before.
 'market search <query>    search by name / description / category
 'market info <name>       show details for one plugin
 'market install <name>    download, register, and enable a plugin
+'market update <name>     check for and apply an update
+'market update all        update every installed plugin with one available
 ```
 
 Installed plugins become ordinary user Lua plugins — same as anything
 created with `'plugin new` — so `'plugin list`, `'plugin disable`, and
 `'plugin reload` all work on them afterward.
+
+### Updates and rollback
+
+**[shipped]** `'market update <name>` (`frontend/src/plugins/marketUpdate.ts`):
+checks the installed version against the Market's current one, and —
+only if a newer one's actually available — downloads it, parses its
+manifest, and refuses the update up front if it fails an OXIS-version,
+OS, or dependency check (the same checks a fresh install goes
+through, just run against the new source before anything installed
+gets touched). Before replacing anything, the currently-working
+version is backed up; if the new version fails to load, that backup
+is restored automatically — you're never left with a broken plugin
+because an update went wrong. `'market update all` does the same for
+every Market-installed plugin, reporting already-current ones as
+such rather than skipping them silently.
+
+`'plugin rollback <name>` restores that same backup manually, any
+time after an update (not just automatically right after a failed
+one) — useful if a new version loads fine but you don't actually want
+it. One backup per plugin (the version from right before the last
+update), not a full version history.
 
 ### Marketplace site contract
 
@@ -730,9 +763,13 @@ Two kinds ship with OXIS:
   fully editable, disabled by default (`'plugin enable <name>`).
 
 User and market-installed plugins are Lua files too — real `.lua`
-files in a `plugins\` folder next to `oxis.exe` (see [User Config
-Directory](#getting-started)), not localStorage, not anything tied to
-one particular window session.
+files on disk (see [dist/ layout](#dist-layout)): market-installed
+ones in `plugins/` next to `oxis.exe`, and plugins you make yourself
+(via the Plugin Creator / `'plugin new`) in `created-plugins/` (or the
+active workspace's own `plugins/` if one is switched on) — kept
+separate on purpose so the two never collide or overwrite each other.
+Either way: real files, not localStorage, not anything tied to one
+particular window session.
 
 ### Plugin Structure
 
@@ -741,6 +778,8 @@ src/plugins/
 ├── pluginManager.ts    Discovery, loading, unloading, enable/disable, reload, disk persistence
 ├── luaRuntime.ts        Real Lua 5.3 VM (fengari) + the oxis.* table's Lua<->JS boundary
 ├── pluginAPI.ts         What each oxis.* call actually does inside OXIS
+├── manifest.ts           Manifest parsing + semantic version comparison — see Plugin Manifests below
+├── permissions.ts        Per-plugin permission grants + declared-permission enforcement
 ├── loader.ts            Bootstrap built-ins + user plugins
 └── builtins/
     ├── git.lua
@@ -750,9 +789,26 @@ src/plugins/
 
 ### Creating a Plugin
 
-`'plugin new myplugin` opens the built-in Lua editor. Saving writes
-`plugins\myplugin.lua` next to `oxis.exe` — a real file, so it's just
-as easy to open and edit in any other text editor afterward.
+**[shipped]** `'plugin new myplugin` (optionally `--template=basic|dev|devops|system`
+— see [Plugin Templates](#plugin-templates)) writes a real, working
+starter plugin for that category to
+`created-plugins\myplugin.lua` (or the active workspace's `plugins\`
+— see [dist/ layout](#dist-layout)), registers and loads it live
+immediately (so it works right away, even before you've changed a
+line of the template), and opens that file in the **file Editor** —
+the exact same Editor `'edit` opens, not a second, separate "Plugin
+Creator" editor. Saving a plugin's `.lua` file (Ctrl+S) reloads it
+live too, same as the old dedicated "save & load" button used to —
+the Editor doesn't know or care the file it's editing happens to be a
+plugin; that's handled entirely by matching the saved path against
+what's actually registered (see `findPluginForPath` in `App.tsx`).
+Running `'plugin new` on a name that already exists opens the
+existing file for editing instead of overwriting it.
+
+One trade-off from unifying these: there's no longer an inline
+"change the name and regenerate from the template" text box — the
+name is chosen once, as `'plugin new <name>`, same as any other
+file's name is chosen once when it's created.
 
 ```lua
 -- myplugin.lua
@@ -792,6 +848,27 @@ Usage:
 'task dev
 ```
 
+### Plugin Templates
+
+**[shipped]** `'plugin new <name> --template=X` picks which starter
+you get — each one a real, different, working plugin (not the same
+file with a different comment), demonstrating the manifest fields and
+API calls actually relevant to that category:
+
+| Template  | Category | Demonstrates |
+|-----------|----------|--------------|
+| `basic` (default) | `plugin` | A command, a shell command via `oxis.run()`, an `autocmd`, commented-out keymap/task examples |
+| `dev`     | `dev`    | Git shortcuts via `oxis.run()` + a keymap — no permissions needed at all |
+| `devops`  | `devops` | `oxis.fs.read()` + `oxis.process.list()` — declares `fs, process` |
+| `system`  | `system` | `oxis.system.info()` — declares `system` |
+
+Each template includes a `--[[@manifest ... ]]` block (see Plugin
+Manifests above) with a real `version`/`description`/`author`/
+`category`, and — for `devops`/`system` — a real `permissions:` list
+matching what the template's own code actually calls, so a new plugin
+built from one starts out correctly declared rather than needing the
+author to figure out the manifest format from scratch.
+
 ### Plugin Commands
 
 ```
@@ -801,9 +878,145 @@ Usage:
 'plugin disable <name>          Disable a plugin
 'plugin reload <name>           Reload a plugin without restart
 'plugin reloadall               Reload all plugins
-'plugin new <name>              Create a new Lua plugin in-app
-'plugin delete <name>           Delete a user/market plugin's file
+'plugin new <name> [--template=basic|dev|devops|system]   Create a new Lua plugin in-app
+'plugin uninstall <name> [--force]   Remove it — refuses if another installed plugin depends on it
+'plugin delete <name>           Alias for uninstall
+'plugin info <name>             Full metadata: version, permissions, dependencies, dependents
+'plugin docs <name>             A plugin's own documentation, if its manifest declares any
+'plugin validate <name>         Check manifest/Lua-syntax/dependencies/compatibility WITHOUT loading it
+'plugin test <name>             Actually load it and report what it registered (restores prior enabled state after)
+'plugin permissions <name>      See/grant/revoke fs, process, net, system, workspace, editor, terminal
 ```
+
+### Plugin Manifests
+
+**[shipped]** A plugin can OPTIONALLY declare metadata in a structured
+comment block at the top of its Lua source:
+
+```lua
+--[[@manifest
+version: 1.0.0
+description: does something useful
+author: you
+category: dev
+min_oxis_version: 1.2.1
+os: windows, unix
+permissions: fs, net
+dependencies: git_advanced>=1.0.0, lsp_diag^1.2.0
+]]
+```
+
+This is parsed BEFORE any of the plugin's own Lua ever runs — parsed,
+not executed, so a plugin can't fake its own manifest by computing it
+at runtime. Every field is optional; a plugin with no manifest block
+at all (every plugin shipped before this, including every built-in) is
+treated as **legacy**: unrestricted Core System API access exactly as
+before (see Plugin Permissions below), no declared version/OS/
+dependencies to check against anything. Writing a manifest is opt-in,
+not required to keep an existing plugin working.
+
+`'plugin info <name>` shows everything a manifest declares;
+`'plugin validate <name>` checks it's well-formed and compatible
+without loading the plugin at all.
+
+### Plugin Permissions
+
+**[shipped]** Every Core System API call (`oxis.fs.*`, `oxis.process.*`,
+`oxis.net.*`, `oxis.system.*`, plus `oxis.workspace()` and
+`oxis.newTerminal()`) is gated behind a per-plugin, per-namespace
+permission — a plugin can't reach any of these until that namespace
+has been granted for it specifically. There are seven namespaces:
+`fs`, `process`, `net`, `system`, `workspace`, `editor` (reserved —
+nothing currently in the Lua API needs it, since there's no
+editor-opening call exposed to plugins yet), and `terminal`.
+
+**Legacy plugins** (no manifest — see Plugin Manifests above) work
+exactly as they always have: the first time one of these calls
+actually runs, OXIS asks with a one-time confirmation ("Plugin X wants
+to read/write files on your computer. Allow?"), and the answer is
+remembered (`'plugin permissions <name>` to see/change it later). This
+is real, persisted (`localStorage`), and already how `oxis.run()`-based
+plugins like `cloudflare/plugins/ui.lua` (which calls
+`oxis.newTerminal()`) behave — nothing already shipped loses access it
+used to have.
+
+**A plugin with a manifest** gets stricter: whatever it declares in
+`permissions:` (even an empty list, if it declares a manifest but no
+permissions at all) is the ONLY thing it can ever be granted — trying
+to use anything else is a hard, silent-to-the-user-dialog DENIAL, not
+a prompt, with an error explaining exactly why:
+
+```
+Plugin Error
+Plugin: example-plugin
+Command: deploy
+Permission: process
+
+Permission denied: process
+
+This plugin attempted to use "process" but does not declare the
+"process" permission in its manifest.
+```
+
+`oxis.command()`/`oxis.task()`/`oxis.echo()`/`oxis.run()`/`oxis.theme()`/
+`oxis.keymap()`/`oxis.autocmd()`/`oxis.option()`/`oxis.dashboard()`/
+`oxis.plugin.enable`/`disable()` need no permission at all — they don't
+touch the filesystem, processes, network, or another workspace, so
+there's nothing to gate (this is also why a plugin that's "just
+shortcuts for shell commands" needs no `permissions:` line whatsoever;
+declaring an empty one is only meaningful once a plugin ALSO calls
+something from the gated list).
+
+**Not implemented**: true Lua-VM sandboxing. Every plugin still runs
+in the same fengari interpreter process as every other plugin — the
+permission system above is a real, enforced gate in front of the JS
+implementations of fs/process/net/system/workspace/terminal (a plugin
+without the "process" grant simply never reaches
+`ListProcesses`/`KillProcess` at all, regardless of what its Lua source
+tries to call), which is the boundary that actually matters for
+"can this plugin touch my files/processes/network" — but it does not
+protect plugins from each other at the Lua-execution level (e.g. one
+plugin's Lua code could not currently be stopped from trying to
+interfere with another's in-memory state, though there's no exposed
+API for a plugin to even find another plugin's internals to try). A
+Lua error inside one plugin's command handler is caught and reported
+without crashing the session (see `formatPluginError` in
+`pluginManager.ts`) — that isolation is real — but full sandboxing
+(memory/CPU limits, blocking cross-plugin interference) is not.
+
+### Plugin Dependencies
+
+**[shipped, partial]** A manifest can declare dependencies on other
+plugins by name and version range:
+
+```lua
+dependencies: git_advanced>=1.0.0, lsp_diag^1.2.0
+```
+
+Before a manifest'd plugin loads, OXIS:
+
+- **Detects missing dependencies** — refuses to load with a clear
+  message naming exactly which one and how to get it.
+- **Detects incompatible versions** — compares the dependency's own
+  declared `version:` against the required range using real semantic
+  version comparison (`>=`, `^`, or an exact match), not string
+  comparison.
+- **Detects dependency cycles** — A depends on B depends on A (however
+  deep the chain) is refused with the full cycle shown, not a silent
+  infinite loop or a crash.
+- **Enables an already-installed-but-disabled dependency
+  automatically** — if it's present and compatible, just disabled, it
+  gets enabled (and its own dependencies resolved the same way) rather
+  than making you do it by hand first.
+
+**What this does NOT do**: automatically install a genuinely missing
+dependency from the Market. `'market install <name>` is still a
+separate, manual step OXIS tells you to run — reaching out to the
+Market mid-load, choosing the right version, and handling a failed
+download safely is real additional work this doesn't attempt to fake.
+`'market update`/`'market update all` (checking for and applying
+plugin updates) and `'plugin rollback` (reverting a bad update) are
+**not implemented** — see the roadmap note at the end of this section.
 
 ### Built-in Plugins
 
@@ -1262,6 +1475,79 @@ exactly as before (see [dist/ layout](#dist-layout)). Switching to a
 named workspace is opt-in, and switching back to `default` goes right
 back to that shared context.
 
+### Workflows
+
+**[shipped]** A workflow chains tasks, `'`-commands, and shell steps
+into one runnable, named sequence — build on top of the exact same
+mechanisms `'task` and `'`-commands already use, not a second,
+parallel execution system:
+
+```
+'workflow list              List workflows loaded from the active workspace
+'workflow <name>             Run one — e.g. 'workflow build
+'workflow info <name>        Show its steps without running it
+'workflow cancel             Stop whichever workflow is currently running
+```
+
+Workflows are declared in a workspace's `workflows/*.lua` files (one
+call per workflow, loaded automatically when you `'workspace switch`
+into that workspace):
+
+```lua
+-- workflows/build.lua
+oxis.workflow("build", {
+  env = { NODE_ENV = "production" },
+  steps = {
+    { task = "install" },                          -- run an existing oxis.task() by name
+    { run = "npm run build", retry = 2 },           -- raw shell command, retried up to twice on failure
+    { command = "version" },                        -- run an OXIS '-command
+    { run = "npm test", continueOnError = true },    -- failure here doesn't stop the workflow
+    { condition = "env:DEPLOY", run = "npm run deploy" }, -- skipped unless DEPLOY is set
+    { parallel = {                                  -- see the parallel note below
+        { command = "plugin list" },
+        { command = "workspace info" },
+      } },
+  },
+}, "build the project")
+```
+
+What's real here: sequential execution with useful step-by-step
+output (which step is running, which succeeded, exactly where a
+failure happened); real env vars (merged workflow → step, translated
+into `$env:X = "y"` or `export X=y` ahead of the actual command);
+`condition = "env:NAME"` (skips a step, not fails it, when that var
+is empty — intentionally minimal, not a general expression
+language); `retry`; `continueOnError`; and cancellation that actually
+reaches a running shell command (`'workflow cancel` — or Ctrl+C,
+which already interrupts the shell — both stop the current step
+cleanly rather than leaving it running in the background; see
+`scriptRunTracker.ts`'s `runAndAwait`, which is also what makes
+`oxis.run()` itself properly awaitable now instead of fire-and-forget).
+
+**What "parallel" honestly means.** OXIS has exactly one real PTY
+shell. Two shell-touching steps (`run`/`task`) sent to it at the same
+moment reproduces the exact corruption `scriptRunTracker.ts` exists to
+prevent (a second command's launch line getting consumed as an
+answer to the first's interactive prompt — the same class of bug
+`'task watch-mem`/`'healthcheck` had) — so inside a `parallel` group,
+shell-touching steps still run one at a time, in order; only `command`
+steps (which call the real command registry directly — no PTY write)
+genuinely run concurrently with each other and alongside whatever
+shell step is currently executing. Claiming true parallel shell
+execution on an architecture with one shared shell would be fake, so
+this doesn't.
+
+**Workspace isolation is real**: switching to a different workspace
+(or closing one) clears every previously-loaded workflow before
+loading the new workspace's own — one workspace's workflows can't
+leak into another's, same guarantee named workspaces already give
+documents/plugins/tasks.
+
+**Not implemented**: a workflow step that runs another workflow
+(no nested/composed workflows yet), and workflow *logs* are printed to
+the terminal in real time but not separately saved anywhere for later
+review (`'workflow info` shows the definition, not a run history).
+
 ### Workspace Persistence
 
 OXIS saves and restores per-session:
@@ -1298,6 +1584,29 @@ end)
 ```
 
 Both are dispatched identically when the user runs `'hello`.
+
+### Getting Help
+
+**[shipped]** `'help` has three levels, from broadest to most specific:
+
+```
+'help                'help <command>          'help <plugin>
+every command,        every way to use ONE      one plugin's own
+grouped by category   command — every sub-      commands, pulled
+                       command, what each does,  from what it
+                       worked examples           actually registered
+```
+
+`'help <command>` is real per-command documentation for the commands
+with actual subcommand structure worth documenting in depth —
+`workspace`, `plugin`, `market`, `config`, `workflow`, `edit`, `task`
+(see `COMMAND_DETAILS` in `App.tsx`) — each showing every syntax
+variant, what it does, and worked examples, not just a one-line
+description. Anything else you ask `'help` about falls through to
+whatever's actually in the command registry (`registry.get()`) —
+covers every builtin and every plugin-registered command by name,
+even ones with no dedicated detail entry — so `'help <anything>`
+never just says "no such command" for something that actually works.
 
 ### Built-in Command Categories
 
@@ -1385,15 +1694,75 @@ Keybinds live in `terminal/keybinds.ts`. Core binds are registered at startup; L
 | Ctrl+1–9 | Switch to tab N     |
 | Ctrl+L   | Clear terminal      |
 | Ctrl+C   | Interrupt (SIGINT)  |
+| Ctrl+= / Ctrl+- | Terminal zoom in/out |
+| Ctrl+0   | Reset zoom to default |
+| Ctrl+F   | Find in on-screen output (scrollback) |
+| Ctrl+R   | Search command HISTORY (different from Ctrl+F — see below) |
 | ↑ / ↓   | Command history     |
+
+**[shipped]** Output search (Ctrl+F) — searches the actual on-screen
+scrollback (`lines`), not command history (that's Ctrl+R's
+reverse-i-search, already shipped, a separate feature entirely).
+Enter/Shift+Enter step through matches, wrapping around; matched
+lines get a faint highlight so you can see all of them at a glance,
+not just the current one. Esc closes it.
+
+**[shipped]** Terminal zoom — Ctrl+=/Ctrl+- (the same keys every
+browser already uses for page zoom), Ctrl+0 to reset. Not a separate
+zoom-only mechanism — it directly adjusts the real `fontSize` setting
+(`'config set fontSize <n>`), so it persists across restarts exactly
+like setting it directly would, and `'config get fontSize` always
+matches whatever zoom last left it at. In browser mode this competes
+with the browser's own Ctrl+=/Ctrl+- page zoom, which `preventDefault`
+usually — but not always, depending on the browser — succeeds in
+overriding; reliable in the native app, where there's no browser
+chrome to compete with it (same caveat as the Command Palette's
+Ctrl+Shift+P).
+
+**[shipped]** Clickable URLs and file paths in terminal output — a
+`http(s)://...` opens in the real system browser; an absolute path
+ending in a real file extension (`C:\...\file.txt`, `/etc/hosts` —
+deliberately conservative about what counts as a path, so a stray `/`
+in a CLI flag doesn't turn into a false-positive link) opens in the
+built-in Editor. Both via the exact same `openUrl`/`openEditor` calls
+used everywhere else, not a separate mechanism.
+
+**[shipped]** Copy-on-select — finishing a text selection in the
+terminal output copies it to the clipboard immediately, a real
+terminal-emulator convention (X11 PRIMARY-selection-style), in
+addition to (not instead of) Ctrl+C, which still works exactly as
+before for anyone used to that instead.
 
 ### Editor Keybinds
 
-| Key      | Action              |
-|----------|---------------------|
-| Ctrl+S   | Save file           |
-| Esc      | Close editor        |
-| Tab      | Insert 2 spaces     |
+The file Editor and Plugin Creator share one keybind set — see
+[Editor Keybinds](#editor-keybinds-1) under Built-in Editor for the
+full, current table (Normal/Insert/Visual modes, undo/redo, find/
+replace/go to line). Not duplicated here to avoid the two tables
+drifting out of sync with each other.
+
+### Command Palette
+
+**[shipped]** **Ctrl+Shift+P**, from anywhere, opens a searchable list
+of commands. It searches the real command registry (`registry.all()`
+— the exact same list `'`-command dispatch and Tab completion already
+use), not a separate hand-curated action list, so nothing shown in it
+can be something that doesn't actually work. Type to filter
+(exact-prefix matches rank above substring matches, which rank above
+description matches), **↑/↓** to move, **Enter** to run, **Esc** to
+close. Running a command opens the shell tab if it isn't already open
+and runs it exactly as if you'd typed it — including any usage error
+for a command that needs arguments you didn't provide, same as typing
+it directly would.
+
+A few honest caveats: selecting a command while the file Editor or
+Plugin Creator is the visible pane sends it to the shell running
+*underneath* that pane, not something you'll see until you close the
+editor — there's no editor-aware routing yet. And in browser mode
+(not the native app), Ctrl+Shift+P collides with most browsers' own
+"new private window" shortcut, which browsers generally don't let a
+web page override; it works reliably in the native desktop app, where
+there's no browser chrome to compete with it.
 
 ### Lua Keymaps
 
@@ -1427,6 +1796,29 @@ keybinds.register({
 ## PTY Architecture
 
 The PTY layer (`pty/ptyClient.ts`) is a pure WebSocket bridge with no UI, no React, and no business logic. On the Go side, `internal/pty/pty.go` holds logic shared by both platform backends — message types and `stripCtrl`, which strips ANSI/VT escape sequences (SGR colors, OSC title-set, bracketed-paste toggles, etc.) before anything reaches the frontend, since OXIS renders its own theme-driven output and doesn't want raw terminal escapes leaking through. `pty_windows.go` (ConPTY) and `pty_unix.go` (creack/pty, used by `build-linux.sh`) both call into it, so output is identical on every platform.
+
+### Shell Profile Support
+
+**[shipped]** Which shell OXIS actually launches is configurable via
+the `OXIS_SHELL` environment variable, set before starting OXIS —
+overrides the normal auto-detection on both platforms:
+
+- **Windows** (`pty_windows.go`'s `buildShellCmd`): normally tries
+  PowerShell 7 → Windows PowerShell 5.1 → `cmd.exe`, in that order,
+  using whichever is actually installed. `OXIS_SHELL` skips all of
+  that and uses exactly what you set — e.g.
+  `OXIS_SHELL="C:\Program Files\Git\bin\bash.exe"` for Git Bash, or
+  `OXIS_SHELL=wsl.exe` for WSL. Passed through as a literal command
+  line (same as the auto-detected candidates), so quote it yourself
+  if the path has spaces.
+- **Linux/Unix** (`pty_unix.go`): normally uses `$SHELL` (your
+  system's own default), falling back to `/bin/bash`. `OXIS_SHELL`
+  takes priority over `$SHELL`, so you can run OXIS with a different
+  shell than your system default without changing that default.
+
+Not validated or existence-checked — an invalid `OXIS_SHELL` just
+fails to start the shell, the same as getting any other env var wrong
+would.
 
 ### Protocol
 
@@ -1497,7 +1889,31 @@ Tasks run in the active PTY shell — output appears in the terminal exactly lik
 
 ## Built-in Editor
 
-OXIS includes a built-in editor so you never need to leave the app to edit files.
+OXIS includes a built-in editor so you never need to leave the app to edit files. **This is the only editor** — the file Editor and plugin editing (`'plugin new`) are the exact same component; see [Creating a Plugin](#creating-a-plugin).
+
+**[shipped]** Line numbers — a synced-scroll gutter, sized to the
+file's actual line count (a 4-digit file gets a wider gutter than a
+3-digit one, so numbers never clip).
+
+**[shipped]** Multiple tabs — opening a second file (`'edit`, or
+`'plugin new` on a different plugin) adds a tab instead of replacing
+what's open; a tab bar appears once there are 2+ tabs (a single open
+file skips it — no point showing a bar with one entry). Click a tab to
+switch, × to close (asks first if that tab has unsaved changes), and
+a dot shows which tabs are dirty. **Save All** in the tab bar saves
+every dirty tab at once.
+
+**[shipped]** File tree — Ctrl+B (or the ☰ rail button, always
+visible along the editor's left edge) toggles a real file browser,
+lazily listing folders via the same native `listDir` call everything
+else uses (a folder's contents load the first time you expand it, not
+upfront). Starts at the app's own directory — the same root
+`created-documents/`, `created-plugins/`, `workspaces/`, and
+`plugins/` resolve against (see [dist/ layout](#dist-layout)) — so
+it's a real way to browse to and open any of those, or any other
+file, without needing to already know its exact path for `'edit`.
+Click a folder to expand/collapse it, click a file to open it in a
+tab (the same `openEditor()` call `'edit` and `'plugin new` use).
 
 ### Opening the Editor
 
@@ -1535,8 +1951,21 @@ stripped, not split on the whitespace inside them.)
 | Ctrl+S   | Save file             |
 | Ctrl+Z   | Undo                  |
 | Ctrl+Y / Ctrl+Shift+Z | Redo     |
+| Ctrl+F   | Find                  |
+| Ctrl+H   | Find & Replace        |
+| Ctrl+G   | Go to line            |
 | Esc      | Close (prompts if dirty) |
 | Tab      | Insert 2 spaces       |
+
+**[shipped]** Find / Find & Replace / Go to line — Ctrl+F opens a find
+bar (Enter/Shift+Enter step through matches, wrapping around); Ctrl+H
+adds a replace field (Replace does the current match and advances;
+Replace All does every match as one undo step); Ctrl+G jumps straight
+to a line number. All three work in the file Editor and the Plugin
+Creator, in any mode. Plain substring search, case-insensitive — not
+regex, so a pasted-in search term can't hang the tab on a runaway
+pattern. Esc closes whichever bar is open and returns focus to the
+editor.
 
 **[shipped]** Undo/redo — Ctrl+Z undoes, Ctrl+Y or Ctrl+Shift+Z redoes,
 in both the file editor and the Plugin Creator. Typing in Insert mode
@@ -1556,6 +1985,80 @@ used by the [Plugin Creator](#creating-a-plugin) below, so Lua plugin
 source gets highlighting too.
 
 ---
+
+## Diagnostics & Plugin Doctor
+
+**[shipped]** `'diagnostics` — local, honest diagnostic info: OXIS
+version, OS, runtime (native app vs. browser), how many plugins are
+enabled out of how many installed, the active named workspace (if
+any), and the last 10 recorded errors this session. **Nothing here is
+ever transmitted anywhere** — there's no telemetry in OXIS at all,
+and this doesn't add any; it exists so you can see what's going on,
+not so OXIS can collect anything about you. Errors get recorded from
+two places: real, actionable errors OXIS already produces (plugin
+load failures, compatibility failures — the same text you'd have seen
+printed to the terminal, not a paraphrase), and genuinely uncaught JS
+exceptions that would otherwise only ever show up in the browser
+devtools console.
+
+**[shipped]** `'plugin doctor` — `'plugin validate` run across every
+installed plugin at once, plus two checks that only make sense in
+aggregate or against real disk state: a plugin's file having gone
+missing after it was registered, and a plugin that's enabled, loads
+without error, but somehow registers zero commands. Severity is
+genuinely distinguished, not a flat list: an **error** is something
+actively broken on a plugin that's currently enabled; a **warning** is
+the same class of problem on a plugin that's disabled (dormant, not
+currently hurting anything); an **info** note (like "no manifest —
+running as legacy") isn't a problem at all. Each finding comes with a
+concrete suggested next step where one makes sense (install a missing
+dependency, fix a Lua syntax error, add a permissions line) — matched
+by what the underlying issue is *about*, so it doesn't silently stop
+working if `'plugin validate`'s wording changes later.
+
+## Settings
+
+**[shipped]** `'config` (or `'settings`, an alias) — a real settings
+system, not a stub:
+
+```
+'config list                    show every setting + its current value
+'config get <key>               show one setting
+'config set <key> <value>       change a setting — takes effect immediately
+'config reset <key>             reset a setting to its default
+```
+
+Backed by the same localStorage-backed option store
+`oxis.getOption`/`oxis.setOption` already use (keys prefixed
+`setting.` so they can't collide with a plugin's own option names) —
+not a second, parallel config system. Persists across restarts;
+`applyAllSettings()` runs once at startup so last session's values
+take effect again immediately, the same way changing them live does.
+
+| Setting | Default | Effect |
+|---|---|---|
+| `fontSize` | `13` | Terminal & editor font size in px — line height scales with it |
+| `cursorStyle` | `block` | `block` / `bar` / `underline` — terminal cursor shape |
+| `cursorBlink` | `true` | Whether the terminal cursor blinks |
+| `updateCheckOnStartup` | `true` | Whether OXIS checks gitlab.com for a newer release on startup — see Auto-Update below |
+
+Theme is deliberately **not** one of these — `'theme <name>` already
+exists with its own dedicated persistence via `themeManager`, and
+duplicating it here as a "setting" would mean two sources of truth
+for the same thing. `'config list` says so, rather than silently
+omitting it.
+
+**Honest about scope**: the doc this was built against also asked for
+shell/keybinding/startup-behavior/workspace-behavior/plugin-behavior/
+browser-mode settings. Those aren't included — most of those
+behaviors (which shell to launch, which keybindings are bound, plugin
+enable/disable) are already real, working features controlled their
+own way (`'plugin enable`/`disable`, `oxis.keymap()`, the OS's own
+default shell) rather than through a generic settings key that would
+just be a second, parallel way to do the same thing. What's here is a
+genuinely working foundation — new settings that need a real,
+immediate effect (not just a stored value nothing reads) fit into the
+same `SETTINGS` registry in `App.tsx` without a new subsystem.
 
 ## Auto-Update
 

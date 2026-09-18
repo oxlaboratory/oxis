@@ -1,89 +1,114 @@
+import { isWindows } from "./terminal";
+
 /**
- * scriptRunTracker.ts — tracks whether a plugin script launched by
- * oxis.run() is still executing in the shell.
+ * scriptRunTracker.ts — lets JS code that talks to the PTY shell
+ * (oxis.run(), workflowRunner.ts) actually know when a command it
+ * just sent has finished — including one that blocked on a real
+ * Read-Host prompt — instead of firing it and hoping.
  *
- * The bug this fixes: oxis.run() (see pluginAPI.ts's runScript) sends
- * one line to the PTY that launches a script and waits for it to run
- * to completion — including any interactive Read-Host prompt inside
- * it, which blocks the shell on real keyboard input exactly like
- * running the .ps1 by hand. That's correct and desired *while nothing
- * else touches the same shell*. But there was no way to tell "a
- * script launched this way is still running" — so if a SECOND
- * '-command (any oxis.run()-backed one — 'healthcheck, 'tail,
- * 'sshconnect, nearly every builtin plugin) got dispatched before the
- * first script finished (e.g. the user ran 'tail right after
- * 'healthcheck without answering healthcheck's Read-Host prompt),
- * that second command's own launch line — "& "<path>"; Remove-Item
- * ..." — got sent straight into the PTY's stdin and was silently
- * consumed as the FIRST script's Read-Host answer, instead of being
- * interpreted as a new command. PowerShell then tried to use that
- * literal text as e.g. a URL, producing exactly the "Invalid URI: The
- * hostname could not be parsed" / garbled-looking output this was
- * reported against — and since nearly every builtin/market plugin
- * uses an interactive Read-Host prompt somewhere, this could break
- * effectively any of them; plugins with no prompts at all (the
- * built-in games — 8ball/guess/roll) were never affected, which is
- * why those were the ones that "worked".
+ * The bug this originally fixed: sending a script-launch line to the
+ * PTY and moving on immediately meant nothing tracked whether it was
+ * still running. If a SECOND '-command (any oxis.run()-backed one —
+ * 'healthcheck, 'tail, 'sshconnect, nearly every builtin plugin) got
+ * dispatched before the first script finished (e.g. the user ran
+ * 'tail right after 'healthcheck without answering healthcheck's
+ * Read-Host prompt), that second command's own launch line got sent
+ * straight into the PTY's stdin and was silently consumed as the
+ * FIRST script's Read-Host answer, instead of being interpreted as a
+ * new command. PowerShell then tried to use that literal text as e.g.
+ * a URL, producing the "Invalid URI: The hostname could not be
+ * parsed" / garbled-looking output this was reported against — and
+ * since nearly every builtin/market plugin uses an interactive
+ * Read-Host prompt somewhere, this could break effectively any of
+ * them; plugins with no prompts at all (the built-in games —
+ * 8ball/guess/roll) were never affected, which is why those were the
+ * ones that "worked".
  *
- * Fix: same technique as cwdTracker.ts — append an invisible marker
- * to the END of the chained launch command (after the script and its
- * Remove-Item cleanup), so it only prints once that whole line has
- * genuinely finished, Read-Host prompts included. While no marker has
- * come back yet, treat the shell as busy and refuse to launch another
- * '-command on top of it (see dispatchOxisCmd in App.tsx) — instead of
- * silently corrupting whatever's still waiting for input.
+ * Fix: the same technique as cwdTracker.ts — append an invisible,
+ * per-call-unique marker to the end of whatever's sent, so it only
+ * prints once that whole line has genuinely finished, Read-Host
+ * prompts included. While any marker is outstanding, isBusy() is
+ * true, and dispatchOxisCmd in App.tsx refuses to launch another
+ * '-command on top of it — instead of silently corrupting whatever's
+ * still waiting for input. runAndAwait() below additionally resolves
+ * a real Promise per call, which is what lets workflowRunner.ts run
+ * steps one at a time and know exactly when each one finished.
  */
 
-const MARK = "\u2063OXISRUNDONE\u2063";
-const MARK_RE = new RegExp(MARK, "g");
-
-// Safety valve: if a script is killed in a way that skips the marker
-// entirely (e.g. antivirus holding the temp file, or some exotic
-// non-PowerShell shell), don't leave the terminal permanently
-// "busy" — auto-clear after a generous timeout.
+// Safety valve: if a marker is lost in a way that skips it entirely
+// (e.g. antivirus holding a temp file, or a shell that doesn't echo
+// output the way expected — browser mode has nothing real to send
+// commands to at all), don't leave a step hanging forever — resolve
+// it as timed out after a generous window.
 const STALE_MS = 3 * 60 * 1000;
 
 class ScriptRunTracker {
-  private busy = false;
-  private timer: ReturnType<typeof setTimeout> | null = null;
+  // Per-call completion signals — see runAndAwait(). Keyed by that
+  // call's own unique marker.
+  private pending = new Map<string, (result: { cancelled: boolean; timedOut: boolean }) => void>();
 
   isBusy(): boolean {
-    return this.busy;
+    return this.pending.size > 0;
   }
 
-  /** Call right before sending a script-launch line to the PTY. */
-  begin(): void {
-    this.busy = true;
-    if (this.timer) clearTimeout(this.timer);
-    this.timer = setTimeout(() => { this.busy = false; }, STALE_MS);
+  /** Sends `send(cmdLine + <a completion marker unique to this call>)`
+   *  and resolves once THAT marker (not just any marker) comes back
+   *  through consume() — i.e. once the shell has genuinely finished
+   *  that specific line, any Read-Host prompt included. Resolves
+   *  `{ timedOut: true }` after a generous timeout if the marker never
+   *  comes back at all, so a caller (a workflow step, in particular)
+   *  can never hang forever — treat a timeout as a failed step, since
+   *  success was never actually confirmed.
+   *
+   *  Concurrent calls each get their own marker and promise, but they
+   *  all still share the ONE real shell — sending a second one before
+   *  the first's marker has come back would reproduce the exact
+   *  corruption described above. Callers that need real concurrency
+   *  (workflowRunner's "parallel" steps) must serialize any
+   *  shell-touching steps against each other; only non-shell work can
+   *  genuinely run alongside one. */
+  runAndAwait(send: (line: string) => void, cmdLine: string): Promise<{ cancelled: boolean; timedOut: boolean }> {
+    const marker = `\u2063OXISSTEP${Math.random().toString(36).slice(2)}\u2063`;
+    return new Promise((resolve) => {
+      const localTimer = setTimeout(() => {
+        this.pending.delete(marker);
+        resolve({ cancelled: false, timedOut: true });
+      }, STALE_MS);
+      this.pending.set(marker, (result) => {
+        clearTimeout(localTimer);
+        resolve(result);
+      });
+      const suffix = isWindows() ? `; Write-Host "${marker}"` : `; printf '%s\\n' '${marker}'`;
+      send(cmdLine + suffix + "\r");
+    });
   }
 
   /** Call when the user explicitly interrupts the shell (Ctrl+C) —
-   *  they're taking back control of whatever was running/prompting. */
+   *  they're taking back control of whatever was running/prompting.
+   *  Every pending runAndAwait() resolves too (as cancelled, not
+   *  succeeded) — otherwise a cancelled step would just hang forever,
+   *  since its marker can now never come back. */
   cancel(): void {
-    this.busy = false;
-    if (this.timer) { clearTimeout(this.timer); this.timer = null; }
+    for (const resolve of this.pending.values()) resolve({ cancelled: true, timedOut: false });
+    this.pending.clear();
   }
 
-  /** Scan a raw PTY output chunk for the completion marker, strip it
-   *  (so it's invisible to the user, matching cwdTracker.consume()),
-   *  and clear the busy flag if found. App.tsx's onOutput should run
-   *  every chunk through this. */
+  /** Scan a raw PTY output chunk for any pending runAndAwait() marker,
+   *  strip it (so it's invisible to the user, matching
+   *  cwdTracker.consume()), and resolve that call. App.tsx's onOutput
+   *  should run every chunk through this. */
   consume(raw: string): string {
-    if (!raw.includes(MARK)) return raw;
-    this.busy = false;
-    if (this.timer) { clearTimeout(this.timer); this.timer = null; }
-    return raw.replace(MARK_RE, "");
+    if (this.pending.size === 0) return raw;
+    let out = raw;
+    for (const [marker, resolve] of [...this.pending]) {
+      if (out.includes(marker)) {
+        out = out.split(marker).join("");
+        this.pending.delete(marker);
+        resolve({ cancelled: false, timedOut: false });
+      }
+    }
+    return out;
   }
 }
 
 export const scriptRunTracker = new ScriptRunTracker();
-
-/** The exact suffix runScript appends to a script-launch command so
- *  the marker only appears once the WHOLE chained line — including
- *  any Read-Host it blocked on — has actually finished. PowerShell
- *  only reaches here after `& "<script>"` returns, whether that took
- *  no time or several minutes of waiting on real input. */
-export function launchSuffix(): string {
-  return `; Write-Host "${MARK}"`;
-}

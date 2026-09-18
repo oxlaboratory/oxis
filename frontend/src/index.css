@@ -89,6 +89,17 @@ html, body, #root {
   line-height: var(--lh);
   font-size: var(--fs);
 }
+
+/* Clickable URLs/file paths — see renderLineWithLinks in App.tsx.
+   underline is dotted, not solid, so a line full of real paths (e.g.
+   'find output) doesn't read as one long link. */
+.term-link {
+  color: var(--purple3); cursor: pointer;
+  text-decoration: underline dotted; text-underline-offset: 2px;
+}
+.term-link:hover { color: var(--purple2); text-decoration-style: solid; }
+.term-link--path { color: var(--purple2); }
+
 .term-line--banner {
   text-align: center;
   white-space: pre;
@@ -112,6 +123,19 @@ html, body, #root {
 .term-caret--on   { background: var(--purple); color: var(--bg); animation: blink 1.1s step-end infinite; }
 .term-caret--off  { background: var(--dim); color: var(--bg); opacity: .35; }
 
+/* Cursor style/blink — 'config set cursorStyle bar|underline|block,
+   'config set cursorBlink true|false. Applied as attributes on <html>
+   (see the SETTINGS registry in App.tsx) so they affect the cursor
+   wherever it's rendered without threading a prop through everything. */
+:root[data-cursor-style="bar"] .term-caret--on {
+  background: none; color: transparent; box-shadow: inset 2px 0 0 var(--purple);
+}
+:root[data-cursor-style="underline"] .term-caret--on {
+  background: none; color: var(--text); box-shadow: inset 0 -2px 0 var(--purple);
+}
+:root[data-cursor-blink="off"] .term-caret--on { animation: none; }
+
+
 /* Reverse search bar */
 .term-search-bar {
   display: flex;
@@ -131,6 +155,11 @@ html, body, #root {
 .term-search-match { color: var(--purple3); font-weight: 600; user-select: text; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .term-search-count { color: var(--dim); font-size: 10px; flex-shrink: 0; }
 .term-search-hint  { color: var(--comment); font-size: 9px; margin-left: auto; flex-shrink: 0; }
+.term-search-input {
+  background: none; border: none; outline: none; color: var(--text);
+  font-family: var(--font); font-size: 11px; min-width: 140px; flex: 1;
+}
+.term-line--match { background: rgba(203,166,247,.12); }
 
 /* Ghost — invisible, captures keystrokes only */
 .term-ghost {
@@ -188,13 +217,52 @@ html, body, #root {
 .editor-btn:hover        { color: var(--muted); border-color: var(--border2); background: var(--bg2); }
 .editor-btn--close:hover { color: var(--err); border-color: var(--err); }
 
+/* ── FIND BAR — Find / Find & Replace / Go to line (Ctrl+F/H/G),
+   shared by the Editor and Plugin Creator. See FindBar in App.tsx. ── */
+.find-bar {
+  display: flex; align-items: center; gap: 6px;
+  height: 30px; padding: 0 10px; flex-shrink: 0;
+  background: var(--bg2); border-bottom: 1px solid var(--border);
+}
+.find-bar-icon { color: var(--dim); font-size: 12px; flex-shrink: 0; }
+.find-bar-input {
+  background: var(--bg3); border: 1px solid var(--border); border-radius: var(--r);
+  color: var(--text); font-family: var(--font); font-size: 11px;
+  padding: 3px 8px; min-width: 120px; outline: none;
+}
+.find-bar-input:focus { border-color: var(--purple3); }
+.find-bar-count { font-size: 10px; color: var(--dim); min-width: 40px; }
+.find-bar-btn {
+  font-size: 10px; color: var(--dim); border: 1px solid var(--border);
+  border-radius: var(--r); padding: 2px 8px; cursor: pointer;
+  font-family: var(--font); transition: all .1s; background: none; flex-shrink: 0;
+}
+.find-bar-btn:hover:not(:disabled) { color: var(--muted); border-color: var(--border2); background: var(--bg3); }
+.find-bar-btn:disabled { opacity: .4; cursor: default; }
+.find-bar-btn--close:hover { color: var(--err); border-color: var(--err); }
+
 /* ── CODE AREA — shared highlighted textarea (Editor + Plugin
    Creator; see syntaxHighlight.ts and CodeArea in App.tsx). A <pre>
    of highlighted spans sits behind a transparent <textarea>; both
    are absolutely positioned over the same box so every character
    lines up exactly, and the textarea's scroll position is copied
-   onto the <pre> on every scroll event. ── */
+   onto the <pre> (and the line-number gutter) on every scroll event. ── */
 .code-area { position: relative; flex: 1 1 0; min-height: 0; overflow: hidden; }
+
+/* Line-number gutter — its own layer at a dynamic width (see
+   gutterWidth in CodeArea), scrolled vertically in lockstep with the
+   textarea via JS (it has no horizontal scrollbar of its own, and its
+   own scrollTop is never user-driven — overflow:hidden, not auto). */
+.code-area-gutter {
+  position: absolute; top: 0; left: 0; bottom: 0;
+  box-sizing: border-box; padding: 12px 0; overflow: hidden;
+  font-family: var(--font); font-size: var(--fs); line-height: var(--lh);
+  color: var(--dim); text-align: right; user-select: none; pointer-events: none;
+  border-right: 1px solid var(--border);
+}
+.code-area-gutter pre { margin: 0; padding: 0 8px 0 0; font: inherit; white-space: pre; }
+
+.code-area-body { position: absolute; top: 0; right: 0; bottom: 0; }
 
 .code-area-highlight,
 .code-area-input {
@@ -243,17 +311,76 @@ html, body, #root {
   flex-shrink: 0; font-size: 9px; color: var(--comment); letter-spacing: .04em;
 }
 
-/* ── PLUGIN CREATOR ──────────────────────────────────────── */
-.plugin-creator { flex: 1 1 0; display: flex; flex-direction: column; min-height: 0; background: var(--bg); }
-.pc-name-input {
-  background: var(--bg3); border: 1px solid var(--border); border-radius: var(--r);
-  color: var(--text); font-family: var(--font); font-size: 11px; padding: 2px 8px;
-  outline: none; width: 120px;
+/* ── EDITOR TABS — multiple open files, see the Terminal component's
+   editorFiles state. Only rendered when more than one file is open;
+   a single open file (the common case) skips this bar entirely. ── */
+.editor-tabs {
+  display: flex; align-items: center; height: 28px; flex-shrink: 0;
+  background: var(--bg2); border-bottom: 1px solid var(--border);
+  overflow-x: auto; overflow-y: hidden;
 }
-.pc-name-input:focus { border-color: var(--border2); }
-.pc-saved { font-size: 10px; color: var(--green); }
-.pc-err   { font-size: 10px; color: var(--err);   }
-.pc-ta    { font-size: 12px; }
+.editor-tab {
+  display: flex; align-items: center; gap: 6px; height: 100%;
+  padding: 0 10px; cursor: pointer; flex-shrink: 0;
+  border-right: 1px solid var(--border); color: var(--dim); font-size: 11px;
+}
+.editor-tab:hover           { color: var(--muted); background: var(--bg3); }
+.editor-tab--active         { color: var(--text); background: var(--bg1); border-bottom: 2px solid var(--purple3); }
+.editor-tab-name  { white-space: nowrap; max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
+.editor-tab-dirty { color: var(--purple3); font-size: 8px; }
+.editor-tab-close { color: var(--dim); font-size: 13px; line-height: 1; padding: 0 2px; }
+.editor-tab-close:hover { color: var(--err); }
+.editor-tabs-saveall {
+  margin-left: auto; flex-shrink: 0; font-size: 10px; color: var(--dim);
+  border: none; border-left: 1px solid var(--border); background: none;
+  cursor: pointer; padding: 0 12px; height: 100%; font-family: var(--font);
+}
+.editor-tabs-saveall:hover { color: var(--purple3); background: var(--bg3); }
+
+/* ── FILE TREE — Ctrl+B, see FileTree in App.tsx. app-pane--editor
+   switches the pane to a row layout (tree + editor side by side);
+   editor-column is everything to the right of the tree (tabs +
+   Editor), so the tree's own width doesn't fight the editor's flex. ── */
+.app-pane--editor { display: flex; flex-direction: row; }
+.editor-column { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; }
+
+/* A persistent narrow rail holding just the toggle — a normal flex
+   child (not absolutely positioned over the editor-bar), so there's
+   nothing to collide with whether the tree is open or closed. */
+.filetree-rail {
+  width: 22px; flex-shrink: 0; display: flex; flex-direction: column; align-items: center;
+  padding-top: 5px; background: var(--bg2); border-right: 1px solid var(--border);
+}
+.filetree-toggle {
+  width: 18px; height: 18px; display: flex; align-items: center; justify-content: center;
+  background: none; border: 1px solid transparent; border-radius: var(--r);
+  color: var(--dim); font-size: 11px; cursor: pointer; padding: 0;
+}
+.filetree-toggle:hover { color: var(--purple3); border-color: var(--border); background: var(--bg3); }
+
+.filetree {
+  width: 200px; flex-shrink: 0; display: flex; flex-direction: column;
+  background: var(--bg2); border-right: 1px solid var(--border);
+  overflow: hidden;
+}
+.filetree-header {
+  display: flex; align-items: center; justify-content: space-between;
+  height: 28px; padding: 0 8px;
+  font-size: 10px; font-weight: 700; letter-spacing: .06em; color: var(--dim);
+  border-bottom: 1px solid var(--border); flex-shrink: 0;
+}
+.filetree-close { cursor: pointer; font-size: 13px; }
+.filetree-close:hover { color: var(--err); }
+.filetree-error { padding: 8px; font-size: 10px; color: var(--err); word-break: break-word; }
+.filetree-body { flex: 1 1 0; overflow-y: auto; padding: 4px 0; }
+.filetree-row {
+  display: flex; align-items: center; gap: 5px; padding: 3px 8px;
+  font-size: 11px; color: var(--muted); cursor: pointer; white-space: nowrap;
+}
+.filetree-row:hover { background: var(--bg3); color: var(--text); }
+.filetree-icon { color: var(--dim); font-size: 9px; width: 10px; flex-shrink: 0; text-align: center; }
+.filetree-name { overflow: hidden; text-overflow: ellipsis; }
+.filetree-loading { font-size: 10px; color: var(--dim); padding: 3px 8px; }
 
 /* ── THEME EDITOR ────────────────────────────────────────── */
 .overlay {
@@ -262,6 +389,41 @@ html, body, #root {
   display: flex; align-items: center; justify-content: center;
   z-index: 100;
 }
+
+/* ── COMMAND PALETTE — Ctrl+Shift+P. See CommandPalette in App.tsx. ── */
+.cmdp-backdrop {
+  position: absolute; inset: 0;
+  background: rgba(0,0,0,.5);
+  display: flex; align-items: flex-start; justify-content: center;
+  padding-top: 12vh;
+  z-index: 200; /* above .overlay's 100 — the palette can open on top of the shell/home, not just alongside them */
+}
+.cmdp {
+  width: min(640px, 92vw); max-height: 60vh;
+  background: var(--bg1); border: 1px solid var(--border2); border-radius: 6px;
+  box-shadow: 0 20px 60px rgba(0,0,0,.5);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.cmdp-input-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 14px; border-bottom: 1px solid var(--border);
+}
+.cmdp-icon { color: var(--purple3); font-size: 14px; flex-shrink: 0; }
+.cmdp-input {
+  flex: 1; background: none; border: none; outline: none;
+  color: var(--text); font-family: var(--font); font-size: 13px;
+}
+.cmdp-hint { font-size: 9px; color: var(--dim); white-space: nowrap; flex-shrink: 0; }
+.cmdp-list { overflow-y: auto; padding: 6px; }
+.cmdp-empty { padding: 20px; text-align: center; color: var(--dim); font-size: 12px; }
+.cmdp-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 10px; border-radius: 4px; cursor: pointer;
+}
+.cmdp-item--selected { background: var(--bg3); }
+.cmdp-item-name { color: var(--purple3); font-size: 12px; font-weight: 700; flex-shrink: 0; }
+.cmdp-item-desc { color: var(--muted); font-size: 11px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cmdp-item-cat  { color: var(--dim); font-size: 9px; letter-spacing: .05em; text-transform: uppercase; flex-shrink: 0; }
 
 .theme-editor {
   width: min(540px, 94vw); height: min(700px, 90vh);
@@ -483,6 +645,7 @@ html, body, #root {
 .oxis-wl { color: var(--purple3); font-weight: 700; font-style: italic; min-width: 80px; }
 .oxis-we { color: var(--dim); padding: 0 4px; }
 .oxis-wa { color: var(--purple2); font-weight: 700; font-style: italic; letter-spacing: .01em; }
+.oxis-wa--name { color: var(--purple); } /* the active workspace's own name — slightly brighter, first thing to scan for */
 
 /* Workspace panel — Home screen (see README § Home Screen & Workspace Panel) */
 .oxis-workspace-box { margin-top: 10px; }
@@ -510,7 +673,7 @@ html, body, #root {
 
 /* Cmdline (neovim-style) */
 .oxis-cmdline {
-  display: flex; align-items: baseline; margin-top: 18px;
+  display: flex; align-items: baseline; margin-top: 8px;
   font-size: var(--fs); width: 100%; max-width: 620px;
 }
 .oxis-cmdline-label { color: var(--text); font-style: italic; }

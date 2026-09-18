@@ -96,6 +96,19 @@ func HandleSession(conn *websocket.Conn) {
 }
 
 func buildShellCmd() string {
+	// Shell profile support: OXIS_SHELL, set before launching OXIS,
+	// overrides the auto-detected pwsh7 > powershell5.1 > cmd.exe
+	// chain below entirely — e.g. OXIS_SHELL="C:\Program Files\Git\bin\bash.exe"
+	// to use Git Bash, or OXIS_SHELL=wsl.exe for WSL. Passed through
+	// verbatim as the whole command line to conpty.Start() (same as
+	// the auto-detected candidates below, which quote their own path)
+	// — so quote it yourself if the path has spaces:
+	// OXIS_SHELL="\"C:\Program Files\Git\bin\bash.exe\"". Not
+	// stat-checked like the candidates below are — if it's wrong, the
+	// shell just fails to start, same as a typo in any other env var.
+	if custom := os.Getenv("OXIS_SHELL"); custom != "" {
+		return custom
+	}
 	for _, c := range []struct{ path, flag string }{
 		{os.Getenv("ProgramFiles") + `\PowerShell\7\pwsh.exe`, "-NoLogo"},
 		{`C:\Program Files\PowerShell\7\pwsh.exe`, "-NoLogo"},

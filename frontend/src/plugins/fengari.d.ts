@@ -53,6 +53,10 @@ declare module "fengari" {
     luaL_ref(L: LuaState, t: number): number;
     luaL_unref(L: LuaState, t: number, ref: number): void;
     luaL_dostring(L: LuaState, s: Uint8Array): number;
+    /** Compiles a chunk WITHOUT running it (pushes it as a callable
+     *  Lua function on success) — see checkLuaSyntax in luaRuntime.ts
+     *  for why that distinction matters. Returns LUA_OK on success. */
+    luaL_loadstring(L: LuaState, s: Uint8Array): number;
     luaL_requiref(L: LuaState, name: Uint8Array, fn: (L: LuaState) => number, glb: number): void;
   };
 
