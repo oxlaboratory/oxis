@@ -278,7 +278,7 @@ change was made, not necessarily when a version was tagged.
   that still reaches the shell as long as focus isn't in some other
   real text field and there's no active text selection (so normal
   copy still works).
-- **Running a second `'`-command while a previous one was still
+- **Running a second `'`command while a previous one was still
   waiting on interactive input (e.g. `'tail` right after
   `'healthcheck`, before answering its prompt) corrupted both.** The
   second command's own launch line was silently consumed as the
