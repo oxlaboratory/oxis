@@ -258,9 +258,27 @@ html, body, #root {
   box-sizing: border-box; padding: 12px 0; overflow: hidden;
   font-family: var(--font); font-size: var(--fs); line-height: var(--lh);
   color: var(--dim); text-align: right; user-select: none; pointer-events: none;
-  border-right: 1px solid var(--border);
 }
-.code-area-gutter pre { margin: 0; padding: 0 8px 0 0; font: inherit; white-space: pre; }
+/* One row per line (not a single joined <pre>) so a changed-line
+   marker can attach to the exact row it belongs to — see
+   computeChangedLines/gutterLines in CodeArea. */
+.code-area-gutter-line {
+  height: var(--lh); line-height: var(--lh);
+  padding: 0 8px; box-sizing: border-box;
+  border-right: 1px solid var(--border);
+  position: relative; /* anchors the ::before marker bar below */
+}
+.code-area-gutter-line--changed {
+  color: var(--purple2);
+  border-right-color: var(--purple3);
+}
+/* The actual "changed" signal is this left-edge bar, not just the
+   number's color — readable even for someone who can't easily
+   distinguish the two text colors at a glance. */
+.code-area-gutter-line--changed::before {
+  content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 2px;
+  background: var(--purple3);
+}
 
 .code-area-body { position: absolute; top: 0; right: 0; bottom: 0; }
 
@@ -378,9 +396,15 @@ html, body, #root {
   font-size: 11px; color: var(--muted); cursor: pointer; white-space: nowrap;
 }
 .filetree-row:hover { background: var(--bg3); color: var(--text); }
+.filetree-row--focused { background: var(--bg3); color: var(--text); box-shadow: inset 2px 0 0 var(--purple3); }
+.filetree:focus { outline: none; } /* the focused ROW is the visible indicator, not a browser focus ring on the whole panel */
 .filetree-icon { color: var(--dim); font-size: 9px; width: 10px; flex-shrink: 0; text-align: center; }
 .filetree-name { overflow: hidden; text-overflow: ellipsis; }
 .filetree-loading { font-size: 10px; color: var(--dim); padding: 3px 8px; }
+.filetree-hint {
+  flex-shrink: 0; padding: 4px 8px; font-size: 9px; color: var(--comment);
+  border-top: 1px solid var(--border); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 
 /* ── THEME EDITOR ────────────────────────────────────────── */
 .overlay {

@@ -1895,6 +1895,18 @@ OXIS includes a built-in editor so you never need to leave the app to edit files
 file's actual line count (a 4-digit file gets a wider gutter than a
 3-digit one, so numbers never clip).
 
+**[shipped]** Unsaved-change gutter — a real line-level diff between
+the file's content at the last save and what's in the editor right
+now, shown as a colored marker on each changed line's number (a
+proper LCS-based line diff, not a naive positional compare, so
+inserting or deleting a line in the middle of a file doesn't make
+every line after it falsely light up as "changed"). The baseline
+resets on every save — the gutter always means "changed since the
+last save", the same way git's own gutter decorations mean "changed
+since the last commit", not "changed since the file was first
+opened". Works in Normal, Insert, and Visual mode alike, since it's
+driven purely by content, never by which mode you're in.
+
 **[shipped]** Multiple tabs — opening a second file (`'edit`, or
 `'plugin new` on a different plugin) adds a tab instead of replacing
 what's open; a tab bar appears once there are 2+ tabs (a single open

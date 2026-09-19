@@ -57,6 +57,8 @@ import { initPlugins }                     from "./plugins/loader";
 import type { LuaJSValue }                 from "./plugins/luaRuntime";
 import * as market                         from "./plugins/market";
 import { updatePlugin, updateAllPlugins, rollbackPlugin } from "./plugins/marketUpdate";
+import { exportSettings, importSettings, exportWorkspace, importWorkspace, exportPluginSource, createFullBackup, restoreFullBackup } from "./plugins/backup";
+import { checkPublishable, findExistingListing, prepareFreePublish, preparePaidPublishSummary, startConnectOnboarding } from "./plugins/publish";
 import { readFile, writeFile, listDir, isNativeApp, openUrl, checkForUpdate } from "./native";
 import Titlebar from "./components/Titlebar";
 
@@ -289,6 +291,8 @@ const COMMAND_DETAILS: Record<string, CommandDetail> = {
       { syntax: "'workspace delete <name>",           description: "delete a named workspace and everything inside it" },
       { syntax: "'workspace link \"<path>\"",           description: "connect the ACTIVE named workspace to an existing project directory elsewhere on disk, without moving it" },
       { syntax: "'workspace unlink",                  description: "remove that link" },
+      { syntax: "'workspace export <name> [path]",    description: "export one workspace's real files to a JSON file (default: <name>.oxisworkspace.json)" },
+      { syntax: "'workspace import <path> [name]",    description: "import one — creates a NEW workspace, never silently overwrites an existing one" },
       { syntax: "'workspace info",                    description: "show the active workspace's state — name, tasks, link if any" },
       { syntax: "'workspace reload",                  description: "re-run .oxis/workspace.lua (picks up edits without switching away and back)" },
       { syntax: "'workspace close",                   description: "unload the active workspace, undoing everything its workspace.lua registered" },
@@ -322,12 +326,19 @@ const COMMAND_DETAILS: Record<string, CommandDetail> = {
       { syntax: "'plugin permissions <name> grant <ns>",                 description: "grant one permission namespace" },
       { syntax: "'plugin permissions <name> revoke <ns>",                description: "revoke one" },
       { syntax: "'plugin rollback <name>",                               description: "restore the backup taken by the last 'market update — works any time after an update, not just right after a failed one" },
+      { syntax: "'plugin export <name> [path]",                         description: "export a plugin's .lua source to a file — for sharing it, or backing it up outside OXIS" },
+      { syntax: "'plugin publish <name>",                               description: "prepare a FREE Market listing — validates it's ready, prepares the metadata index.json needs, and tells you where to send it (no self-service submission endpoint exists yet)" },
+      { syntax: "'plugin publish <name> --price=4.99 --interval=month", description: "prepare a PAID listing — additionally creates a real Stripe Connect Express account (via the deployed /connect-onboarding endpoint) and opens the real onboarding link" },
+      { syntax: "'plugin publish <name> --email=you@example.com",       description: "email for the Stripe Connect account — defaults to whatever 'market license already has on file" },
     ],
     examples: [
       "'plugin new mytools --template=devops   — start a new devops-flavored plugin",
       "'plugin validate mytools                — check it before relying on it",
       "'plugin permissions mytools grant fs     — let it read/write files",
+      "'plugin publish mytools                  — prepare a free Market listing",
+      "'plugin publish mytools --price=4.99 --interval=month --email=you@example.com",
     ],
+    notes: "Publishing genuinely validates and prepares real data (and, for paid plugins, genuinely kicks off Stripe Connect onboarding against the deployed Market backend) but does NOT itself add anything to the Market — there's no self-service \"submit my plugin\" endpoint yet (the backend handles payments/licensing, not listing edits). Running 'plugin publish again on an already-listed plugin is automatically treated as an update (shows the version change) rather than a new listing, detected by checking the Market for an existing entry — no separate command needed for that.",
   },
   market: {
     summary: "Browse and install plugins from the free OXIS Market.",
@@ -348,6 +359,8 @@ const COMMAND_DETAILS: Record<string, CommandDetail> = {
       { syntax: "'config get <key>",         description: "show one setting" },
       { syntax: "'config set <key> <value>", description: "change a setting — takes effect immediately, no restart" },
       { syntax: "'config reset <key>",       description: "reset a setting to its default" },
+      { syntax: "'config export [path]",     description: "export settings to a JSON file (default: oxis-config.json)" },
+      { syntax: "'config import <path>",     description: "import settings from one — takes effect immediately, no restart" },
     ],
     examples: [
       "'config set fontSize 15",
@@ -383,6 +396,22 @@ const COMMAND_DETAILS: Record<string, CommandDetail> = {
       { syntax: "'task <name>", description: "run it — sends the task's command straight to the shell, same as typing it yourself" },
     ],
     notes: "Long-running tasks (e.g. a polling loop meant to run 'until stopped') are interrupted with Ctrl+C, same as any other foreground shell command.",
+  },
+  project: {
+    summary: "Set up and run an external project's own .oxis/ environment — a project ships its OWN tasks/workflows/scripts/plugins/documents alongside its code, instead of only living inside dist/workspaces/.",
+    usage: [
+      { syntax: "'project init [dir]",  description: "create the full .oxis/ setup in a directory (current directory if omitted) — workspace.lua, project.lua, and tasks/workflows/scripts/plugins/documents folders. Never overwrites files that already exist." },
+      { syntax: "'project open [dir]",  description: "load a directory's .oxis/workspace.lua (and project.lua, and its tasks/workflows) — same load() 'workspace init/reload use" },
+      { syntax: "'project run <name>",  description: "run a task or workflow by name — tries a workflow first, then a task" },
+      { syntax: "'project task",        description: "list the active project's tasks" },
+      { syntax: "'project workflow",    description: "list the active project's workflows (alias for 'workflow list)" },
+    ],
+    examples: [
+      "'project init \"C:\\dev\\my-app\"   — set up OXIS inside an existing project",
+      "'project open                    — load it (from inside that directory)",
+      "'project run deploy",
+    ],
+    notes: "Deliberately thin — these are wrappers around the exact same load()/task/workflow machinery 'workspace and 'workflow already use, not a second system. A project's tasks/workflows live in .oxis/tasks/ and .oxis/workflows/ (each file just calling oxis.task(...)/oxis.workflow(...), same as anywhere else), in addition to whatever workspace.lua registers directly.",
   },
 };
 
@@ -734,6 +763,57 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
         if(!name){err("usage: 'plugin rollback <name>");return;}
         rollbackPlugin(name).then(r => (r.ok?ok:err)(r.message));
         return; }
+      if(sub==="export"){
+        if(!name){err("usage: 'plugin export <name> [path]");return;}
+        const path = args[2] || `${name}.lua`;
+        exportPluginSource(name).then(source => {
+          if(source === null){ err(`no source available for ${name} (built-in, or not currently loaded)`); return; }
+          return writeFile(path, source).then(() => ok(`${name} exported to ${path}`));
+        }).catch(e => err(`export failed: ${e instanceof Error ? e.message : e}`));
+        return; }
+      if(sub==="publish"){
+        if(!name){err(`usage: 'plugin publish <name> [--price=4.99 --interval=month] [--email=you@example.com] [update]`);return;}
+        const check = checkPublishable(name);
+        if(!check.ok || !check.metadata){
+          err(`${name} isn't ready to publish (${check.issues.length} issue(s)):`);
+          check.issues.forEach(issue => dim(`  · ${issue}`));
+          dim(`fix these, then 'plugin publish ${name} again`);
+          return;
+        }
+        const priceArg = args.find(a=>a.toLowerCase().startsWith("--price="));
+        const intervalArg = args.find(a=>a.toLowerCase().startsWith("--interval="));
+        const emailArg = args.find(a=>a.toLowerCase().startsWith("--email="));
+        const price = priceArg?.split("=")[1];
+        const interval = (intervalArg?.split("=")[1] || "month").toLowerCase();
+
+        findExistingListing(name).then(existing => {
+          if(!price){
+            // Free plugin.
+            const result = prepareFreePublish(check.metadata!, existing);
+            result.message.split("\n").forEach(line => line ? info(line) : ctx.print(""));
+            return;
+          }
+          // Paid plugin.
+          if(!["month","year"].includes(interval)){ err(`--interval must be "month" or "year" (got "${interval}")`); return; }
+          const email = emailArg?.split("=")[1] || getLicensedEmail();
+          if(!email){ err(`a paid listing needs an email for the Stripe Connect account — add --email=you@example.com`); return; }
+          sep(); info(`Publishing "${name}" as a PAID plugin`); sep();
+          dim(`$${price}/${interval} — paid OXIS Market plugins are recurring Stripe subscriptions, not one-time purchases.`);
+          dim(`Revenue split: 75% to you, 25% to OXIS — handled automatically by Stripe Connect, same as OXIS's own paid plugins.`);
+          info(`creating a Stripe Connect Express account for ${email}…`);
+          startConnectOnboarding(email).then(conn => {
+            if(!conn.ok){ err(conn.message); return; }
+            ok(conn.message);
+            if(conn.onboardingUrl){
+              info("opening the onboarding link in your browser…");
+              void openUrl(conn.onboardingUrl);
+            }
+            info("");
+            const summary = preparePaidPublishSummary(check.metadata!, price, interval, conn.accountId || "", existing);
+            summary.split("\n").forEach(line => line ? info(line) : ctx.print(""));
+          }).catch(e => err(`Stripe Connect onboarding failed: ${e instanceof Error ? e.message : e}`));
+        }).catch(e => err(`couldn't check the Market for an existing listing: ${e instanceof Error ? e.message : e}`));
+        return; }
       if(sub==="new"){
         if(!name){err("usage: 'plugin new <name> [--template=basic|dev|devops|system]");return;}
         if(!/^[a-z0-9_-]+$/i.test(name)){ err("plugin name: letters, numbers, - _ only"); return; }
@@ -776,7 +856,7 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
         for(const v of VALID) ctx.print(`  ${granted.includes(v)?"●":"○"}  ${v}`, granted.includes(v)?"accent":"dim");
         sep(); dim(`'plugin permissions ${name} grant <ns>  ·  'plugin permissions ${name} revoke <ns>`);
         return; }
-      err(`unknown: 'plugin ${sub} — try list, enable, disable, reload, new, uninstall, info, docs, validate, test, doctor, rollback, or permissions`); }});
+      err(`unknown: 'plugin ${sub} — try list, enable, disable, reload, new, uninstall, info, docs, validate, test, doctor, rollback, export, publish, or permissions`); }});
 
   // ── plugin marketplace (oxis-market.pages.dev) ─────────
   registry.register({ name:"market",  category:"plugins", description:"Browse and install plugins from oxis-market.pages.dev",
@@ -1002,6 +1082,22 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
       if(sub==="unlink"){
         workspaceManager.unlinkExternal().then(r => (r.ok?ok:err)(r.message));
         return; }
+      if(sub==="export"){
+        const wsName = args[1];
+        if(!wsName){ err(`usage: 'workspace export <name> [path]`); return; }
+        const path = args[2] || `${wsName}.oxisworkspace.json`;
+        exportWorkspace(wsName).then(data => {
+          if(!data){ err(`no such workspace: ${wsName}`); return; }
+          return writeFile(path, JSON.stringify(data, null, 2)).then(() => ok(`workspace "${wsName}" exported to ${path}`));
+        }).catch(e => err(`export failed: ${e instanceof Error ? e.message : e}`));
+        return; }
+      if(sub==="import"){
+        const path = args[1];
+        if(!path){ err(`usage: 'workspace import <path> [new-name]`); return; }
+        readFile(path).then(raw => importWorkspace(JSON.parse(raw), args[2]))
+          .then(r => (r.ok?ok:err)(r.message))
+          .catch(e => err(`import failed: ${e instanceof Error ? e.message : e}`));
+        return; }
       if(sub==="reload"){
         workspaceManager.reload(args[1]).then(r => (r.ok?ok:err)(r.message));
         return; }
@@ -1009,7 +1105,55 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
         const r = workspaceManager.close();
         (r.ok?ok:err)(r.message);
         return; }
-      err(`unknown: 'workspace ${sub} — try init, list, switch, rename, delete, link, unlink, info, reload, or close`); }});
+      err(`unknown: 'workspace ${sub} — try init, list, switch, rename, delete, link, unlink, export, import, info, reload, or close`); }});
+
+  // ── project ───────────────────────────────────────────
+  // 'project init/open/run/task/workflow — the project layer (see
+  // README § Project Layer). Deliberately thin: a "project" is just
+  // an external directory with a full .oxis/ setup in it
+  // (workspace.lua + project.lua + tasks/workflows/scripts/plugins/
+  // documents — see initProject in workspaceManager.ts), so these
+  // commands are wrappers around the SAME load()/task/workflow
+  // machinery 'workspace and 'workflow already use, not a second,
+  // parallel system — exactly what avoids duplicating what already
+  // exists, per how this was actually built.
+  registry.register({ name:"project", category:"workspace", description:"Set up and run an external project's own .oxis/ environment",
+    handler:(args)=>{
+      const sub = args[0]?.toLowerCase();
+      const dir = (sub === "init" || sub === "open") ? (args[1] || cwdTracker.get() || ".") : "";
+      if(!sub || sub==="open"){
+        workspaceManager.load(dir || cwdTracker.get() || ".").then(r => {
+          (r.ok?ok:err)(r.message);
+          if(r.ok) dim("'project task / 'project workflow to see what's available · 'project run <name> to run one");
+        });
+        return; }
+      if(sub==="init"){
+        workspaceManager.initProject(dir).then(r => (r.ok?ok:err)(r.message));
+        return; }
+      if(sub==="run"){
+        const name = args[1];
+        if(!name){ err("usage: 'project run <name>"); return; }
+        if(workflowRunner.get(name)){
+          workflowRunner.run(name, { sendToShell: (data) => _ctxRef.current?.send(data), print: (t,k) => _ctxRef.current?.print(t,k) })
+            .catch(e => err(`workflow ${name} crashed: ${e instanceof Error ? e.message : e}`));
+          return;
+        }
+        if(registry.get(`task:${name}`)){
+          registry.execute(`task:${name}`, [], "");
+          return;
+        }
+        err(`no task or workflow named "${name}" in the active project — 'project task / 'project workflow to see what's available`);
+        return; }
+      if(sub==="task"){
+        const tasks = workspaceState.taskNames();
+        if(!tasks.length){ dim("no tasks defined — add oxis.task(...) to .oxis/workspace.lua or a .oxis/tasks/*.lua file"); return; }
+        sep(); info("Project tasks"); sep();
+        tasks.forEach(t => info(t));
+        sep(); dim("'project run <name>  ·  or 'task <name> directly"); return; }
+      if(sub==="workflow"){
+        registry.execute("workflow", ["list"], "list");
+        return; }
+      err(`unknown: 'project ${sub} — try init, open, run, task, or workflow`); }});
 
   // ── workflow ──────────────────────────────────────────
   // 'workflow list / <name> / info <name> / cancel — see
@@ -1080,7 +1224,22 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
       if(!key){ err("usage: 'config reset <key>"); return; }
       const r = resetSetting(key);
       (r.ok?ok:err)(r.message); return; }
-    err(`unknown: 'config ${sub} — try list, get, set, or reset`);
+    if(sub==="export"){
+      const path = args[1] || "oxis-config.json";
+      writeFile(path, JSON.stringify(exportSettings(), null, 2))
+        .then(() => ok(`settings exported to ${path}`))
+        .catch(e => err(`export failed: ${e instanceof Error ? e.message : e}`));
+      return; }
+    if(sub==="import"){
+      const path = args[1];
+      if(!path){ err("usage: 'config import <path>"); return; }
+      readFile(path).then(raw => {
+        const r = importSettings(JSON.parse(raw));
+        applyAllSettings(); // make the imported values take effect immediately, not just after a restart
+        ok(`imported ${r.count} setting(s) from ${path}`);
+      }).catch(e => err(`import failed: ${e instanceof Error ? e.message : e}`));
+      return; }
+    err(`unknown: 'config ${sub} — try list, get, set, reset, export, or import`);
   };
   registry.register({ name:"config", category:"system", description:"View or change OXIS settings", handler: configHandler });
   registry.register({ name:"settings", category:"system", description:"Alias for 'config", handler: configHandler });
@@ -1127,6 +1286,39 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
       }
       sep(); dim("This is purely local — nothing on this screen is ever transmitted anywhere.");
       dim("'plugin doctor for a focused check of installed plugins specifically."); sep();
+    }});
+
+  // ── backup / restore ──────────────────────────────────────
+  // Format: plain JSON, not an actual .zip (no zip library available
+  // in this environment) — see backup.ts for exactly what's included
+  // (every named workspace's real files, created-documents/,
+  // created-plugins/, settings) and what's deliberately excluded
+  // (Market-installed plugins — re-fetchable with 'market install;
+  // installer build output).
+  registry.register({ name:"backup", category:"system", description:"Back up settings, workspaces, documents, and your own plugins to one file",
+    handler:(_,r)=>{
+      const path = r || "oxis-backup.json";
+      info("gathering everything for backup…");
+      createFullBackup().then(data => writeFile(path, JSON.stringify(data, null, 2)))
+        .then(() => ok(`backup written to ${path}`))
+        .catch(e => err(`backup failed: ${e instanceof Error ? e.message : e}`));
+    }});
+
+  registry.register({ name:"restore", category:"system", description:"Restore a backup made with 'backup — overwrites matching files, asks first",
+    handler:(_,r)=>{
+      if(!r){ err("usage: 'restore <path>"); return; }
+      if(!confirm(`Restore from ${r}? This will overwrite any settings/workspace files/documents/plugins with the same name as what's in the backup. Anything else is left alone.`)) {
+        dim("restore cancelled"); return;
+      }
+      info(`restoring from ${r}…`);
+      readFile(r).then(raw => restoreFullBackup(JSON.parse(raw)))
+        .then(res => {
+          if(!res.ok){ err(res.message); return; }
+          const [first, ...rest] = res.message.split("\n");
+          ok(first);
+          rest.forEach(line => info(line));
+        })
+        .catch(e => err(`restore failed: ${e instanceof Error ? e.message : e}`));
     }});
 
   registry.register({ name:"help",    category:"info", description:"All commands — 'help <command> for details on one, 'help <plugin> for a plugin's commands",
@@ -1206,6 +1398,8 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
       h("'plugin doctor","check every installed plugin at once — errors vs warnings, with suggested fixes");
       h("'plugin rollback <n>","restore the backup from the last 'market update, any time after it");
       h("'plugin docs <n>","a plugin's own documentation, if it declares any");
+      h("'plugin export <n> [path]","export a plugin's .lua source to a file");
+      h("'plugin publish <n> [--price --interval --email] [update]","prepare a Market listing — free or paid; see 'help plugin");
       h("'plugin permissions <n>","see/grant/revoke fs, process, net, system, workspace, editor, terminal");
       h("'help <n>","show one plugin's commands + what they do");
       h("'market list","browse the free OXIS Market"); h("'market search <q>","search the Market");
@@ -1219,10 +1413,18 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
       h("'workspace rename <old> <new>","rename a named workspace"); h("'workspace delete <name>","delete one");
       h("'workspace link \"<path>\"","connect the active workspace to an external project dir");
       h("'workspace unlink","remove that link");
+      h("'workspace export <n> [path]","export one workspace (its real files) to a JSON file");
+      h("'workspace import <path> [name]","import one — creates a NEW workspace, never overwrites");
       h("'workspace info","show the active workspace's state");
       h("'workspace reload","re-run .oxis/workspace.lua");
       h("'workspace close","unload the active workspace");
       h("'task <name>","run a workspace task (see .oxis/workspace.lua)");
+      info(""); h("── project ───────────────────────────","");
+      h("'project init [dir]","set up a full .oxis/ project environment in a directory");
+      h("'project open [dir]","load a directory's .oxis/workspace.lua + project.lua + tasks/workflows");
+      h("'project run <name>","run a task or workflow by name");
+      h("'project task","list the active project's tasks");
+      h("'project workflow","list the active project's workflows");
       info(""); h("── workflow ──────────────────────────","");
       h("'workflow list","list workflows loaded from the active workspace");
       h("'workflow <name>","run one, e.g. 'workflow build");
@@ -1233,8 +1435,12 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
       h("'config get <key>","show one setting");
       h("'config set <key> <value>","change a setting — takes effect immediately");
       h("'config reset <key>","reset a setting to its default");
+      h("'config export [path]","export settings to a JSON file (default: oxis-config.json)");
+      h("'config import <path>","import settings from one — takes effect immediately");
       h("'version","version + platform info");
       h("'diagnostics","local diagnostic info — version, OS, runtime, plugins, workspace, recent errors (never transmitted anywhere)");
+      h("'backup [path]","back up settings, workspaces, documents, and your own plugins to one file");
+      h("'restore <path>","restore a backup — asks for confirmation first, only touches matching files");
       sep(); dim(`Platform: ${isWindows()?"Windows":"Linux"} · Plugin shortcuts: gs, nb, dps, top…`);
       dim("Need more detail on any of these? 'help <command> — e.g. 'help plugin, 'help workspace, 'help config"); sep(); }});
 
@@ -1303,13 +1509,65 @@ class ErrorBoundary extends React.Component<
 // and selection stay visible, so typing/selecting/vim-motions keep
 // working exactly as before — only the paint underneath changes.
 // ══════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════
+// UNSAVED-CHANGE GUTTER — a real line-level diff between the last
+// SAVED content and the current one (not the original file content
+// forever — see Editor's `savedContent`, which becomes the new
+// baseline every time you save, so the gutter always reflects "what's
+// changed since the last save" the same way git's gutter decorations
+// mean "changed since the last commit", not "changed since forever").
+// A real LCS line-diff, not a naive positional compare — inserting or
+// deleting a whole line in the middle of a file doesn't make every
+// line after it look "changed".
+// ══════════════════════════════════════════════════════════════
+function computeChangedLines(oldText: string, newText: string): Set<number> {
+  const oldLines = oldText.split("\n");
+  const newLines = newText.split("\n");
+  const n = oldLines.length, m = newLines.length;
+  const changed = new Set<number>();
+
+  // LCS DP is O(n*m) in line count — fine for typical files, but a
+  // huge one (a few thousand lines) could make that cell count
+  // balloon. Fall back to a cheap positional compare past that point
+  // — less precise about insertions/deletions shifting later lines,
+  // but still real, still useful, and never hangs the tab.
+  if (n * m > 1_000_000) {
+    for (let i = 0; i < m; i++) if (oldLines[i] !== newLines[i]) changed.add(i + 1);
+    return changed;
+  }
+
+  const dp: number[][] = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
+  for (let i = n - 1; i >= 0; i--) {
+    for (let j = m - 1; j >= 0; j--) {
+      dp[i][j] = oldLines[i] === newLines[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+    }
+  }
+  let i = 0, j = 0;
+  while (i < n && j < m) {
+    if (oldLines[i] === newLines[j]) { i++; j++; }
+    else if (dp[i + 1][j] >= dp[i][j + 1]) { i++; } // this old line was removed — nothing to mark in the new file
+    else { changed.add(j + 1); j++; } // this new line is added/modified — 1-indexed to match line numbers
+  }
+  while (j < m) { changed.add(j + 1); j++; } // trailing added lines
+  return changed;
+}
+
 const CodeArea = React.forwardRef<HTMLTextAreaElement, {
   value: string;
   lang: EditorLang;
   className?: string;
   onChange?: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
   onKeyDown?: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
-}>(function CodeArea({ value, lang, className, onChange, onKeyDown }, ref) {
+  /** Line numbers (1-indexed) changed since the last save — see
+   *  computeChangedLines above and Editor's `savedContent`. Optional:
+   *  omitted entirely (not just empty) means "don't know" rather than
+   *  "nothing's changed" — the Plugin Creator's old standalone state
+   *  before it was unified into this Editor had no equivalent
+   *  concept, and callers that genuinely have no baseline to diff
+   *  against should omit this rather than pass an empty Set that
+   *  would misleadingly render as "all saved". */
+  changedLines?: Set<number>;
+}>(function CodeArea({ value, lang, className, onChange, onKeyDown, changedLines }, ref) {
   const preRef = useRef<HTMLPreElement>(null);
   const gutterRef = useRef<HTMLDivElement>(null);
 
@@ -1326,13 +1584,22 @@ const CodeArea = React.forwardRef<HTMLTextAreaElement, {
   // own width is based on the actual line count so a 4-digit file
   // doesn't clip against a gutter sized for 3, and the highlight/input
   // layers below get that same width as a left inset so the numbers
-  // never overlap real text.
+  // never overlap real text. Each line is its own fixed-height row
+  // (not one joined <pre> string) so a changed-line marker can be
+  // attached to the exact row it belongs to.
   const lineCount = useMemo(() => value.split("\n").length, [value]);
   const gutterWidth = useMemo(() => Math.max(2, String(lineCount).length), [lineCount]);
-  const lineNumbers = useMemo(
-    () => Array.from({ length: lineCount }, (_, i) => i + 1).join("\n"),
-    [lineCount],
-  );
+  const gutterLines = useMemo(() => {
+    const rows: React.ReactNode[] = [];
+    for (let i = 1; i <= lineCount; i++) {
+      rows.push(
+        <div key={i} className={`code-area-gutter-line${changedLines?.has(i) ? " code-area-gutter-line--changed" : ""}`}>
+          {i}
+        </div>,
+      );
+    }
+    return rows;
+  }, [lineCount, changedLines]);
 
   const syncScroll = useCallback((e: React.UIEvent<HTMLTextAreaElement>) => {
     const pre = preRef.current, gutter = gutterRef.current;
@@ -1342,10 +1609,10 @@ const CodeArea = React.forwardRef<HTMLTextAreaElement, {
 
   return (
     <div className="code-area">
-      <div ref={gutterRef} className="code-area-gutter" style={{ width: `${gutterWidth + 2}ch` }} aria-hidden="true">
-        <pre>{lineNumbers}</pre>
+      <div ref={gutterRef} className="code-area-gutter" style={{ width: `${gutterWidth + 3}ch` }} aria-hidden="true">
+        {gutterLines}
       </div>
-      <div className="code-area-body" style={{ left: `${gutterWidth + 2}ch` }}>
+      <div className="code-area-body" style={{ left: `${gutterWidth + 3}ch` }}>
         <pre ref={preRef} className="code-area-highlight" aria-hidden="true">
           <code dangerouslySetInnerHTML={{ __html: html }} />
         </pre>
@@ -1884,6 +2151,7 @@ function Editor({ file, onClose, onSave }: {
   onSave:  (path: string, content: string) => void;
 }) {
   const [content, setContent] = useState(file.content);
+  const [savedContent, setSavedContent] = useState(file.content); // the baseline the gutter diffs against — becomes `content` on every save, not the original-forever
   const [dirty,   setDirty]   = useState(false);
   const taRef = useRef<HTMLTextAreaElement>(null);
 
@@ -1892,10 +2160,16 @@ function Editor({ file, onClose, onSave }: {
   // only file.path would miss the load-finished transition, since the
   // editor opens immediately with empty content while the read is
   // still in flight (see openEditor in the root component).
-  useEffect(() => { setContent(file.content); setDirty(false); }, [file.path, file.loading]);
+  useEffect(() => { setContent(file.content); setSavedContent(file.content); setDirty(false); }, [file.path, file.loading]);
   useEffect(() => { if (!file.loading) setTimeout(() => taRef.current?.focus(), 40); }, [file.loading]);
 
-  const save = useCallback(() => { onSave(file.path, content); setDirty(false); }, [file.path, content, onSave]);
+  const save = useCallback(() => {
+    onSave(file.path, content);
+    setSavedContent(content); // new baseline — the gutter now shows changes since THIS save, not the original open
+    setDirty(false);
+  }, [file.path, content, onSave]);
+
+  const changedLines = useMemo(() => computeChangedLines(savedContent, content), [savedContent, content]);
 
   const onEdit = useCallback((next: string) => {
     setContent(prev => { if (next !== prev) setDirty(true); return next; });
@@ -1982,6 +2256,7 @@ function Editor({ file, onClose, onSave }: {
       )}
       <CodeArea ref={taRef} className={`editor-ta editor-ta--${mode}`} value={content}
         lang={detectLang(file.path)}
+        changedLines={changedLines}
         onChange={e => handleChange(e.target.value)}
         onKeyDown={onKeyDown} />
       <div className="editor-footer">
@@ -3566,7 +3841,7 @@ const HomeCmdLine = React.memo(function HomeCmdLine({
         value={value}
         onChange={e => onChange(e.target.value)}
         onKeyDown={onKeyDown}
-        placeholder="Type Here"
+        placeholder="Type Here or Ctrl+I"
         spellCheck={false}
         autoComplete="off"
       />
@@ -3611,12 +3886,44 @@ function Home({ onNew, currentTheme, onTheme, onOpenThemeEditor, onOpenPluginCre
     return () => { u1(); u2(); };
   }, []);
 
-  // Keep focus on the input — re-focus only if focus was lost to something
-  // other than another interactive element (prevents stealing focus from buttons)
+  // Keep focus on the input — retried twice (40ms, then 250ms) since
+  // a single attempt could lose a race with something else mounting
+  // right after view changes (the banner animation, a panel
+  // re-rendering) that steals it back. Skips stealing focus from
+  // another REAL input the user is actively using (e.g. the plugin
+  // search box) rather than unconditionally grabbing it every time.
   useEffect(() => {
-    const t = setTimeout(() => inputRef.current?.focus(), 40);
-    return () => clearTimeout(t);
+    const focusIfIdle = () => {
+      const active = document.activeElement;
+      if (active && active !== document.body && active !== inputRef.current
+          && (active.tagName === "INPUT" || active.tagName === "TEXTAREA")) return;
+      inputRef.current?.focus();
+    };
+    const t1 = setTimeout(focusIfIdle, 40);
+    const t2 = setTimeout(focusIfIdle, 250);
+    return () => { clearTimeout(t1); clearTimeout(t2); };
   }, [view]);
+
+  // Ctrl+I — jumps to the command line from anywhere on Home,
+  // regardless of whether the auto-focus above happened to stick.
+  // Shown right in the input's own placeholder ("Type Here or
+  // Ctrl+I") so it's discoverable without needing to already know it.
+  // Guarded by offsetParent (null when display:none) rather than a
+  // visibility prop — Home is always mounted, just hidden via CSS
+  // when the shell is active (see the root component), so without
+  // this check Ctrl+I would leak into the terminal too, where it's
+  // the literal byte for Tab and would break tab-completion there.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "i") {
+        if (inputRef.current?.offsetParent === null) return; // Home isn't the visible screen right now
+        e.preventDefault();
+        inputRef.current?.focus();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   const refresh = () => setPlugins(pluginManager.all());
   useEffect(() => { if (view === "plugins") refresh(); }, [view]);
@@ -3929,6 +4236,8 @@ function FileTree({ onOpenFile, onClose }: { onOpenFile: (path: string) => void;
   const [expanded,   setExpanded]   = useState<Set<string>>(new Set());
   const [loading,    setLoading]    = useState<Set<string>>(new Set());
   const [error,      setError]      = useState("");
+  const [focusedIdx, setFocusedIdx] = useState(0);
+  const treeRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async (dirPath: string) => {
     setLoading(s => new Set(s).add(dirPath));
@@ -3948,38 +4257,107 @@ function FileTree({ onOpenFile, onClose }: { onOpenFile: (path: string) => void;
   }, []);
 
   useEffect(() => { load("."); }, [load]);
+  // Keyboard-first, same as everything else in OXIS (Command Palette,
+  // find bars, etc.) — Ctrl+B opening the tree should be enough to
+  // drive it entirely from the keyboard from there, no mouse required.
+  useEffect(() => { setTimeout(() => treeRef.current?.focus(), 20); }, []);
 
-  const toggleDir = useCallback((path: string) => {
+  const toggleDir = useCallback((path: string, forceExpand?: boolean) => {
     setExpanded(prev => {
+      const isOpen = prev.has(path);
+      if (forceExpand === true && isOpen) return prev;
+      if (forceExpand === false && !isOpen) return prev;
       const next = new Set(prev);
-      if (next.has(path)) next.delete(path);
+      if (isOpen) next.delete(path);
       else { next.add(path); if (!childrenOf.has(path)) load(path); }
       return next;
     });
   }, [childrenOf, load]);
 
-  const renderNode = (node: FileTreeEntry, depth: number): React.ReactNode => (
-    <div key={node.path}>
-      <div
-        className="filetree-row"
-        style={{ paddingLeft: 8 + depth * 14 }}
-        onClick={() => node.isDir ? toggleDir(node.path) : onOpenFile(node.path)}
-        title={node.path}
-      >
-        <span className="filetree-icon">{node.isDir ? (expanded.has(node.path) ? "▾" : "▸") : "·"}</span>
-        <span className="filetree-name">{node.name}</span>
+  // Flattened list of exactly what's ON SCREEN right now (respecting
+  // which folders are expanded) — this is what arrow-key navigation
+  // actually walks, not the full (possibly not-yet-loaded) tree.
+  type Row = { node: FileTreeEntry; depth: number };
+  const visibleRows = useMemo(() => {
+    const rows: Row[] = [];
+    const walk = (items: FileTreeEntry[], depth: number) => {
+      for (const node of items) {
+        rows.push({ node, depth });
+        if (node.isDir && expanded.has(node.path)) walk(childrenOf.get(node.path) ?? [], depth + 1);
+      }
+    };
+    walk(childrenOf.get(".") ?? [], 0);
+    return rows;
+  }, [childrenOf, expanded]);
+
+  useEffect(() => {
+    setFocusedIdx(i => Math.max(0, Math.min(i, visibleRows.length - 1)));
+  }, [visibleRows.length]);
+
+  const onTreeKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (visibleRows.length === 0 && e.key !== "Escape") return;
+    switch (e.key) {
+      case "ArrowDown": e.preventDefault(); setFocusedIdx(i => Math.min(i + 1, visibleRows.length - 1)); return;
+      case "ArrowUp":   e.preventDefault(); setFocusedIdx(i => Math.max(i - 1, 0)); return;
+      case "Home":      e.preventDefault(); setFocusedIdx(0); return;
+      case "End":       e.preventDefault(); setFocusedIdx(visibleRows.length - 1); return;
+      case "ArrowRight": {
+        e.preventDefault();
+        const row = visibleRows[focusedIdx];
+        if (row?.node.isDir) {
+          if (!expanded.has(row.node.path)) toggleDir(row.node.path, true);
+          else setFocusedIdx(i => Math.min(i + 1, visibleRows.length - 1)); // already open — move into its first child
+        }
+        return;
+      }
+      case "ArrowLeft": {
+        e.preventDefault();
+        const row = visibleRows[focusedIdx];
+        if (row?.node.isDir && expanded.has(row.node.path)) { toggleDir(row.node.path, false); return; }
+        // Not an open folder — jump up to the parent row (the nearest
+        // preceding row with a shallower depth), same as VS Code's tree.
+        for (let i = focusedIdx - 1; i >= 0; i--) {
+          if (visibleRows[i].depth < (row?.depth ?? 0)) { setFocusedIdx(i); break; }
+        }
+        return;
+      }
+      case "Enter": case " ": {
+        e.preventDefault();
+        const row = visibleRows[focusedIdx];
+        if (!row) return;
+        if (row.node.isDir) toggleDir(row.node.path);
+        else onOpenFile(row.node.path);
+        return;
+      }
+      case "Escape": e.preventDefault(); onClose(); return;
+    }
+  }, [visibleRows, focusedIdx, expanded, toggleDir, onOpenFile, onClose]);
+
+  const renderNode = (node: FileTreeEntry, depth: number): React.ReactNode => {
+    const idx = visibleRows.findIndex(r => r.node.path === node.path);
+    return (
+      <div key={node.path}>
+        <div
+          className={`filetree-row${idx === focusedIdx ? " filetree-row--focused" : ""}`}
+          style={{ paddingLeft: 8 + depth * 14 }}
+          onClick={() => { setFocusedIdx(idx); node.isDir ? toggleDir(node.path) : onOpenFile(node.path); }}
+          title={node.path}
+        >
+          <span className="filetree-icon">{node.isDir ? (expanded.has(node.path) ? "▾" : "▸") : "·"}</span>
+          <span className="filetree-name">{node.name}</span>
+        </div>
+        {node.isDir && expanded.has(node.path) && (childrenOf.get(node.path) ?? []).map(c => renderNode(c, depth + 1))}
+        {node.isDir && expanded.has(node.path) && loading.has(node.path) && (
+          <div className="filetree-loading" style={{ paddingLeft: 8 + (depth + 1) * 14 }}>loading…</div>
+        )}
       </div>
-      {node.isDir && expanded.has(node.path) && (childrenOf.get(node.path) ?? []).map(c => renderNode(c, depth + 1))}
-      {node.isDir && expanded.has(node.path) && loading.has(node.path) && (
-        <div className="filetree-loading" style={{ paddingLeft: 8 + (depth + 1) * 14 }}>loading…</div>
-      )}
-    </div>
-  );
+    );
+  };
 
   const rootItems = childrenOf.get(".") ?? [];
 
   return (
-    <div className="filetree">
+    <div className="filetree" ref={treeRef} tabIndex={0} onKeyDown={onTreeKeyDown}>
       <div className="filetree-header">
         <span>FILES</span>
         <span className="filetree-close" onClick={onClose} title="Close (Ctrl+B)">×</span>
@@ -3989,6 +4367,7 @@ function FileTree({ onOpenFile, onClose }: { onOpenFile: (path: string) => void;
         {loading.has(".") && rootItems.length === 0 && <div className="filetree-loading" style={{ paddingLeft: 8 }}>loading…</div>}
         {rootItems.map(n => renderNode(n, 0))}
       </div>
+      <div className="filetree-hint">↑↓ move · → expand · ← collapse · ↵ open · Esc close</div>
     </div>
   );
 }

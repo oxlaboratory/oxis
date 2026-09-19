@@ -7,6 +7,12 @@ change was made, not necessarily when a version was tagged.
 
 ### Added
 
+- **Unsaved-change gutter in the Editor.** A real LCS-based line diff
+  between the content at the last save and what's currently in the
+  editor, shown as a colored marker per changed line. Resets on every
+  save (the new content becomes the baseline), so it always means
+  "changed since the last save" — works the same in Normal/Insert/
+  Visual mode, since it's driven by content, not by mode.
 - **Market updates and rollback** (`'market update`/`'market update all`,
   `'plugin rollback`). Update checks the new version's manifest for
   OXIS-version/OS/dependency compatibility BEFORE touching the
@@ -265,12 +271,14 @@ change was made, not necessarily when a version was tagged.
 
 ### Fixed
 
-- **Home screen's command line sat awkwardly low**, with a large,
-  inconsistent gap between the WORKSPACE/help boxes and the `Shell
-  <command-mode> Type Here` line on tall windows — caused by the
-  `.home` container vertically centering its whole content block as
-  one unit instead of anchoring it near the top. Anchored to the top
-  with consistent padding instead.
+- **Home screen's command line sat too far below the help box above
+  it.** First attempt at this overcorrected — re-anchoring the whole
+  `.home` layout to the top instead of centering it, which just
+  traded one layout problem for another (content tall enough to
+  scroll). Reverted the layout change and fixed the actual gap
+  instead: `.oxis-cmdline`'s margin-top down from 18px to 8px, so the
+  `Shell <command-mode>` line now sits close under the help box like
+  it should, with the overall layout still centered as originally.
 - **`'task watch-mem` (and any other long-running foreground task)
   couldn't be stopped.** Continuous PTY output while a loop is running
   could steal keyboard focus off the terminal's hidden input, after
@@ -278,7 +286,7 @@ change was made, not necessarily when a version was tagged.
   that still reaches the shell as long as focus isn't in some other
   real text field and there's no active text selection (so normal
   copy still works).
-- **Running a second `'`command while a previous one was still
+- **Running a second `'`-command while a previous one was still
   waiting on interactive input (e.g. `'tail` right after
   `'healthcheck`, before answering its prompt) corrupted both.** The
   second command's own launch line was silently consumed as the

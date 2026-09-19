@@ -89,6 +89,21 @@ oxis.task("test",  "npm test",      "Run the test suite")
 -- end, "Say hello — remove me, I'm just an example")
 `;
 
+// A project.lua stub — deliberately does almost nothing on its own.
+// workspace.lua already owns tasks/theme/commands/plugins; this
+// exists as a place for genuinely PROJECT-level config that isn't
+// about the workspace per se (e.g. metadata a workflow step might
+// read via oxis.getOption) without overloading workspace.lua's job.
+// Loaded by 'project open in addition to workspace.lua, not instead
+// of it — see initProject()/openProject() below.
+const PROJECT_TEMPLATE = `-- OXIS project config — loaded by 'project open, alongside .oxis/workspace.lua
+-- (which still owns tasks/theme/commands — see that file). This is
+-- for project-level metadata/setup that isn't really about the
+-- workspace itself. Most projects can leave this empty.
+
+-- oxis.echo("project loaded")
+`;
+
 class WorkspaceManager {
   private apiCtx: APIContext | null = null;
   private disposer: LoadedLuaPlugin | null = null;
@@ -157,6 +172,47 @@ class WorkspaceManager {
     return { ok: loaded.ok, message: `created ${path}${loaded.ok ? " and loaded it" : ` (${loaded.message})`}` };
   }
 
+  /** `'project init [dir]` — the project layer (see README § Project
+   *  Layer): a project is an EXTERNAL directory that carries its own
+   *  full .oxis/ setup (workspace.lua + project.lua + tasks/workflows/
+   *  scripts/plugins/documents), so a project can ship its own OXIS
+   *  environment alongside its code instead of that living only inside
+   *  dist/workspaces/. Reuses initWorkspace()'s own .oxis/workspace.lua
+   *  creation (never overwrites one that's already there) and just
+   *  adds the companion folders + a project.lua stub around it —
+   *  no new load/permission/task machinery, no duplicated system. */
+  async initProject(dir: string): Promise<WorkspaceOpResult> {
+    const unavailable = this.unavailable();
+    if (unavailable) return unavailable;
+    const created: string[] = [];
+    for (const sub of ["tasks", "workflows", "scripts", "plugins", "documents"]) {
+      const subPath = joinPath(dir, `.oxis/${sub}`);
+      const already = await statPath(subPath).catch(() => ({ exists: false, isDir: false, size: 0, modTime: 0 }));
+      if (!already.exists) { await makeDir(subPath); created.push(`.oxis/${sub}/`); }
+    }
+    const projectLuaPath = joinPath(dir, ".oxis/project.lua");
+    const projectLuaExists = await statPath(projectLuaPath).catch(() => ({ exists: false, isDir: false, size: 0, modTime: 0 }));
+    if (!projectLuaExists.exists) {
+      await writeFile(projectLuaPath, PROJECT_TEMPLATE);
+      created.push(".oxis/project.lua");
+    }
+    const wsResult = await this.initWorkspace(dir);
+    // initWorkspace() failing because workspace.lua already exists
+    // isn't a failure for 'project init specifically — the companion
+    // folders above still got created either way, which is the actual
+    // point of this command. A genuine failure (couldn't write files
+    // at all) still needs to surface, though.
+    const workspaceAlreadyExisted = !wsResult.ok && wsResult.message.includes("already exists at");
+    if (!wsResult.ok && !workspaceAlreadyExisted) return wsResult;
+    if (workspaceAlreadyExisted) await this.load(dir); // still load it, same as a fresh init would
+    return {
+      ok: true,
+      message: created.length > 0
+        ? `project set up in ${dir} — created ${created.join(", ")}${workspaceAlreadyExisted ? " (workspace.lua already existed — left as-is)" : ""}`
+        : `${dir} already has a full .oxis/ project setup — nothing new to create`,
+    };
+  }
+
   /** `'workspace info` — human-readable dump of the active workspace. */
   info(): WorkspaceOpResult {
     if (!this.activeDir) return { ok: false, message: "no workspace loaded — try 'workspace init \"name\" or open a directory that has one" };
@@ -221,6 +277,7 @@ class WorkspaceManager {
     }
     this.disposer = result.plugin;
     this.activeDir = dir;
+    await this.loadTasks(dir);
     await this.loadWorkflows(dir);
     // Authoritative "workspace_loaded" with the real absolute
     // directory — separate from whatever oxis.workspace(path) inside
@@ -230,29 +287,73 @@ class WorkspaceManager {
     return { ok: true, message: `workspace loaded from ${path}` };
   }
 
-  /** Loads every workflows/*.lua file in this workspace — each one is
-   *  just Lua source that calls oxis.workflow("name", {...}, "desc")
-   *  (the same oxis.* API everything else uses), executed once to
-   *  register its definition into workflowRunner and then disposed —
-   *  a workflow's definition is plain JS data after that (see
+  /** Loads every workflows/*.lua file in this workspace/project — each
+   *  one is just Lua source that calls oxis.workflow("name", {...},
+   *  "desc") (the same oxis.* API everything else uses), executed once
+   *  to register its definition into workflowRunner and then disposed
+   *  — a workflow's definition is plain JS data after that (see
    *  workflowRunner.ts), so nothing needs the Lua VM to stay alive.
    *  Errors in one workflow file are reported and skipped rather than
    *  aborting the rest — consistent with how a broken plugin doesn't
-   *  take down plugin loading generally. */
+   *  take down plugin loading generally.
+   *
+   *  Checks BOTH `<dir>/workflows/` (the named-workspace convention —
+   *  see NAMED_SUBDIRS) and `<dir>/.oxis/workflows/` (the project
+   *  layer's convention — see initProject) since the same load() path
+   *  serves both a named workspace and a project's .oxis/workspace.lua
+   *  alike; whichever one actually exists for a given directory is
+   *  loaded, and having neither is fine (nothing to load). */
   private async loadWorkflows(dir: string): Promise<void> {
+    await this.loadWorkflowsFrom(`${dir}/workflows`);
+    await this.loadWorkflowsFrom(`${dir}/.oxis/workflows`);
+  }
+
+  /** Same idea as loadWorkflows, for the tasks/ folder — this existed
+   *  structurally (see NAMED_SUBDIRS, and now initProject's .oxis/tasks/)
+   *  but nothing ever actually loaded .lua files from it; task
+   *  registration only ever happened via workspace.lua's own
+   *  oxis.task(...) calls. A tasks/*.lua file works exactly the same
+   *  way a workflows/*.lua file does — it's just Lua source that calls
+   *  oxis.task(name, cmd, desc), loaded once and disposed. */
+  private async loadTasks(dir: string): Promise<void> {
+    await this.loadTasksFrom(`${dir}/tasks`);
+    await this.loadTasksFrom(`${dir}/.oxis/tasks`);
+  }
+
+  private async loadTasksFrom(tasksDir: string): Promise<void> {
     let entries;
-    try { entries = await listDir(`${dir}/workflows`); }
-    catch { return; } // no workflows/ folder (or it's empty) — nothing to load
+    try { entries = await listDir(tasksDir); }
+    catch { return; }
     const files = entries.filter(e => !e.isDir && e.name.endsWith(".lua"));
     for (const file of files) {
       let source: string;
-      try { source = await readFile(`${dir}/workflows/${file.name}`); }
+      try { source = await readFile(`${tasksDir}/${file.name}`); }
+      catch { continue; }
+      const pluginName = WORKSPACE_PLUGIN_NAME; // tasks defined this way ARE workspace tasks — 'workspace close/reload should undo them same as workspace.lua's own oxis.task() calls
+      const bindings = buildLuaAPI({ ...this.apiCtx!, pluginName });
+      const result = loadLuaPlugin(source, bindings);
+      if (!result.ok) {
+        this.apiCtx?.print(`  ✗  ${tasksDir}/${file.name} failed to load: ${result.error}`, "err");
+        continue;
+      }
+      try { result.plugin.dispose(); } catch { /* ignore — registered commands/tasks stay in the registry, only the Lua VM itself is disposable here */ }
+    }
+  }
+
+  private async loadWorkflowsFrom(workflowsDir: string): Promise<void> {
+    let entries;
+    try { entries = await listDir(workflowsDir); }
+    catch { return; } // folder doesn't exist (or is empty) — nothing to load
+    const files = entries.filter(e => !e.isDir && e.name.endsWith(".lua"));
+    for (const file of files) {
+      let source: string;
+      try { source = await readFile(`${workflowsDir}/${file.name}`); }
       catch { continue; }
       const pluginName = `__workflow_file__:${file.name}`;
       const bindings = buildLuaAPI({ ...this.apiCtx!, pluginName });
       const result = loadLuaPlugin(source, bindings);
       if (!result.ok) {
-        this.apiCtx?.print(`  ✗  workflows/${file.name} failed to load: ${result.error}`, "err");
+        this.apiCtx?.print(`  ✗  ${workflowsDir}/${file.name} failed to load: ${result.error}`, "err");
         continue;
       }
       // Only oxis.workflow() calls matter here — if the file also
