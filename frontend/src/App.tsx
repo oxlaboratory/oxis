@@ -1736,7 +1736,14 @@ const CodeArea = React.forwardRef<HTMLTextAreaElement, {
    *  against should omit this rather than pass an empty Set that
    *  would misleadingly render as "all saved". */
   changedLines?: Set<number>;
-}>(function CodeArea({ value, lang, className, onChange, onKeyDown, changedLines }, ref) {
+  /** Passed straight through to the outer wrapper div — used by the
+   *  Editor's resizable HTML-preview split (a computed width while
+   *  resizing) and its fullscreen-preview mode (hides the code pane
+   *  entirely without unmounting/remounting it, so typed content and
+   *  undo history survive toggling fullscreen on and off). */
+  style?: React.CSSProperties;
+  hidden?: boolean;
+}>(function CodeArea({ value, lang, className, onChange, onKeyDown, changedLines, style, hidden }, ref) {
   const preRef = useRef<HTMLPreElement>(null);
   const gutterRef = useRef<HTMLDivElement>(null);
 
@@ -1811,7 +1818,7 @@ const CodeArea = React.forwardRef<HTMLTextAreaElement, {
   }, []);
 
   return (
-    <div className="code-area">
+    <div className="code-area" style={style} hidden={hidden}>
       {isHuge && (
         <div className="code-area-large-file-notice" title={`${value.length.toLocaleString()} characters`}>
           Large file — syntax highlighting disabled to keep typing responsive
@@ -2411,6 +2418,106 @@ function Editor({ file, onClose, onSave }: {
     setContent(prev => { if (next !== prev) setDirty(true); return next; });
   }, []);
 
+  // HTML live preview — a split view (code | rendered iframe) for
+  // .html/.htm files specifically. Off by default even for an HTML
+  // file (a toggle, not automatic) — opening an editor shouldn't
+  // silently start executing whatever script tags are in the file
+  // the user just clicked on.
+  const isHtmlFile = /\.html?$/i.test(file.path);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  // Debounced independently of changedLines' own debounce above (that
+  // one only kicks in past 20,000 characters; a live preview visibly
+  // flashing/reloading on every keystroke would look broken even on a
+  // small file, so this one always debounces, a short 300ms rather
+  // than that one's 200ms since a full iframe reload is a heavier,
+  // more visually disruptive operation than a diff recompute).
+  const [previewContent, setPreviewContent] = useState(content);
+  useEffect(() => {
+    if (!previewOpen) return; // no reason to keep re-rendering an iframe nobody's looking at
+    const t = setTimeout(() => setPreviewContent(content), 300);
+    return () => clearTimeout(t);
+  }, [content, previewOpen]);
+  // Refreshed the instant the preview is actually opened (not waiting
+  // out the debounce for the FIRST render), and again on switching to
+  // a different file while it's already open.
+  useEffect(() => { if (previewOpen) setPreviewContent(content); },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [previewOpen, file.path]);
+
+  // Resizable split — drag the handle between code and preview.
+  // Percent (not pixels) so it stays correct if the window itself is
+  // resized afterward. Clamped to a 20-80 range on each side so
+  // neither pane can be dragged down to nothing.
+  const [previewWidthPct, setPreviewWidthPct] = useState(50);
+  const splitRef = useRef<HTMLDivElement>(null);
+  const draggingRef = useRef(false);
+  // A real, rendered state (not just a ref) so the overlay below
+  // actually mounts — see its own comment for why the overlay is the
+  // real fix here, not a cosmetic addition. The ref is still needed
+  // too: it's read synchronously inside the mousemove handler itself,
+  // where a stale closure over state (even with a dependency array)
+  // could otherwise read a one-tick-old value.
+  const [isResizing, setIsResizing] = useState(false);
+  const startResize = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    draggingRef.current = true;
+    setIsResizing(true);
+    document.body.style.cursor = "col-resize";
+  }, []);
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (!draggingRef.current || !splitRef.current) return;
+      const rect = splitRef.current.getBoundingClientRect();
+      // -6 accounts for the handle's own width — without it the two
+      // panes' percentages plus the handle add up to slightly MORE
+      // than the container's real width, so the split visibly doesn't
+      // quite track the cursor (worse the wider the container is).
+      const usableWidth = rect.width - 6;
+      const pct = ((rect.right - e.clientX) / usableWidth) * 100; // preview is on the right, so measure from the right edge
+      setPreviewWidthPct(Math.min(80, Math.max(20, pct)));
+    };
+    const onUp = () => {
+      if (!draggingRef.current) return;
+      draggingRef.current = false;
+      setIsResizing(false);
+      document.body.style.cursor = "";
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
+  }, []);
+
+  // Fullscreen preview — hides the code pane entirely rather than
+  // just growing the split further (dragging can only ever reach the
+  // 20-80 clamp above; this is a distinct, deliberate "just show me
+  // the page" mode, not the extreme end of resizing). Button in the
+  // toolbar and Ctrl+Shift+Enter both toggle the same state; Escape
+  // backs out of fullscreen first if it's active, same "handle the
+  // more specific overlay first" pattern the rest of the app uses for
+  // Escape (find bar, etc.) — only falls through to the editor's own
+  // Escape-to-normal-mode/close behavior once fullscreen is off.
+  const [previewFullscreen, setPreviewFullscreen] = useState(false);
+  useEffect(() => {
+    if (!previewOpen) setPreviewFullscreen(false); // closing preview entirely also exits fullscreen, so re-opening starts split, not full
+  }, [previewOpen]);
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!previewOpen) return;
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === "Enter") {
+        e.preventDefault();
+        setPreviewFullscreen(f => !f);
+      } else if (e.key === "Escape" && previewFullscreen) {
+        e.preventDefault();
+        e.stopPropagation();
+        setPreviewFullscreen(false);
+      }
+    };
+    // Capture phase so this runs BEFORE useModalEditor's own Escape
+    // handling below (which would otherwise close the whole editor).
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [previewOpen, previewFullscreen]);
+
   const {
     mode, resetModal, onKeyDown, handleChange,
     findOpen, findMode, findQuery, setFindQuery, replaceWith, setReplaceWith,
@@ -2476,6 +2583,20 @@ function Editor({ file, onClose, onSave }: {
         <div className="editor-bar-right">
           <span className={`editor-mode editor-mode--${mode}`}>{mode.toUpperCase()}</span>
           <span className="editor-meta">{content.split("\n").length} lines</span>
+          {isHtmlFile && (
+            <button className={`editor-btn${previewOpen ? " editor-btn--active" : ""}`}
+              onClick={() => setPreviewOpen(o => !o)}
+              title="Live preview — renders in a sandboxed frame, updates a moment after you stop typing">
+              {previewOpen ? "preview ✓" : "preview"}
+            </button>
+          )}
+          {isHtmlFile && previewOpen && (
+            <button className={`editor-btn${previewFullscreen ? " editor-btn--active" : ""}`}
+              onClick={() => setPreviewFullscreen(f => !f)}
+              title="Expand preview to full size (Ctrl+Shift+Enter, Esc to exit)">
+              {previewFullscreen ? "⤢ exit full" : "⤢ full"}
+            </button>
+          )}
           <button className="editor-btn" onClick={save}>save</button>
           <button className="editor-btn editor-btn--close" onClick={() => {
             if (dirty && !confirm("Discard unsaved changes?")) return;
@@ -2490,11 +2611,60 @@ function Editor({ file, onClose, onSave }: {
           findNext={findNext} findPrev={findPrev} closeFind={closeFind}
           replaceCurrent={replaceCurrent} replaceAll={replaceAll} goToLine={goToLine} />
       )}
-      <CodeArea ref={taRef} className={`editor-ta editor-ta--${mode}`} value={content}
-        lang={detectLang(file.path)}
-        changedLines={changedLines}
-        onChange={e => handleChange(e.target.value)}
-        onKeyDown={onKeyDown} />
+      <div ref={splitRef} className={`editor-split${previewOpen ? " editor-split--active" : ""}${previewFullscreen ? " editor-split--fullscreen" : ""}`}>
+        {/* Sits ABOVE the iframe (see .editor-resize-overlay's z-index)
+            for exactly as long as a drag is in progress. Without this,
+            mousemove events fire against the IFRAME's own document
+            the instant the cursor crosses into it mid-drag, not the
+            parent window's listener above — the drag doesn't just
+            look janky there, it stops tracking the cursor entirely
+            until it re-crosses back out of the iframe. This overlay
+            is what actually receives the mouse for the whole drag,
+            so the iframe never gets a chance to steal it. */}
+        {isResizing && <div className="editor-resize-overlay" />}
+        <CodeArea ref={taRef} className={`editor-ta editor-ta--${mode}`} value={content}
+          lang={detectLang(file.path)}
+          changedLines={changedLines}
+          onChange={e => handleChange(e.target.value)}
+          onKeyDown={onKeyDown}
+          style={previewOpen && !previewFullscreen ? { width: `${100 - previewWidthPct}%`, flex: "none" } : undefined}
+          hidden={previewFullscreen} />
+        {previewOpen && !previewFullscreen && (
+          <div className="editor-split-handle" onMouseDown={startResize} title="Drag to resize">
+            <span className="editor-split-handle-grip" />
+          </div>
+        )}
+        {previewOpen && (
+          <div className="editor-preview" style={previewFullscreen ? undefined : { width: `${previewWidthPct}%`, flex: "none" }}>
+            <div className="editor-preview-bar">
+              <span>live preview</span>
+              <span className="editor-preview-note">sandboxed — scripts run, but can't reach OXIS or your files</span>
+              {previewFullscreen && (
+                <button className="editor-preview-exit" onClick={() => setPreviewFullscreen(false)} title="Exit full size (Esc)">
+                  ⤡ exit full (Esc)
+                </button>
+              )}
+            </div>
+            {/* key={file.path} forces a fresh iframe (and a fresh JS
+                context inside it) per file, rather than one persistent
+                iframe silently carrying over state/timers/listeners
+                from whatever was previewed before it. sandbox
+                deliberately omits allow-same-origin: the previewed
+                page's own scripts still run (useful for anything
+                beyond static markup), but can't read this app's DOM,
+                storage, or make credentialed requests back to it —
+                same isolation model tools like CodePen/JSFiddle use
+                for exactly this kind of live preview. */}
+            <iframe
+              key={file.path}
+              className="editor-preview-frame"
+              srcDoc={previewContent}
+              sandbox="allow-scripts"
+              title={`Preview of ${file.path}`}
+            />
+          </div>
+        )}
+      </div>
       <div className="editor-footer">
         {mode === "insert" && <><span>Esc  normal mode</span><span>Ctrl+S  save</span><span>Tab  2 spaces</span></>}
         {mode === "normal" && <><span>i/a/o  insert</span><span>hjkl  move</span><span>v  visual</span><span>dd/dw/x  delete</span><span>Ctrl+Z/Y  undo/redo</span><span>Ctrl+F/H/G  find/replace/go to</span><span>Esc  close</span></>}

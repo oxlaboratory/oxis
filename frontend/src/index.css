@@ -219,6 +219,44 @@ html, body, #root {
 }
 .editor-btn:hover        { color: var(--muted); border-color: var(--border2); background: var(--bg2); }
 .editor-btn--close:hover { color: var(--err); border-color: var(--err); }
+.editor-btn--active      { color: var(--green); border-color: var(--green); background: rgba(61,255,100,.08); }
+
+/* ── HTML LIVE PREVIEW — a split view next to the code, .html/.htm
+   files only (see isHtmlFile in App.tsx's Editor). .editor-split just
+   passes through the code area's own layout unchanged when there's no
+   preview (single child, full width) and becomes a 50/50 row the
+   moment a preview pane joins it. */
+.editor-split { position: relative; flex: 1 1 0; display: flex; min-height: 0; overflow: hidden; }
+/* Intercepts the mouse for the whole drag so the live-preview iframe
+   never gets a chance to steal mousemove events mid-resize — see the
+   isResizing render in App.tsx for the actual bug this fixes. Covers
+   the entire split (not just the iframe) since the drag needs to
+   keep tracking even while the cursor is over the CODE side too. */
+.editor-resize-overlay { position: absolute; inset: 0; z-index: 50; cursor: col-resize; }
+.editor-split--active .code-area { flex: 1 1 0; border-right: none; } /* border now lives on the handle between them instead */
+.editor-split--fullscreen { display: block; } /* single child (the preview) fills the whole area; CodeArea is [hidden] */
+.editor-split--fullscreen .editor-preview { height: 100%; } /* .editor-preview's own flex:1 1 0 assumed a flex PARENT for its height; the parent above is display:block in fullscreen, so height has to be explicit instead */
+.editor-split-handle {
+  width: 6px; flex-shrink: 0; cursor: col-resize; background: var(--border);
+  display: flex; align-items: center; justify-content: center;
+  transition: background .1s;
+}
+.editor-split-handle:hover, .editor-split-handle:active { background: var(--green-dim, var(--purple)); }
+.editor-split-handle-grip { width: 2px; height: 28px; background: var(--dim); border-radius: 1px; pointer-events: none; }
+.editor-preview { display: flex; flex-direction: column; min-height: 0; background: #fff; }
+.editor-preview-bar {
+  height: 24px; flex-shrink: 0; display: flex; align-items: center; gap: 8px;
+  padding: 0 10px; background: var(--bg1); border-bottom: 1px solid var(--border);
+  font-size: 9px; color: var(--purple2); letter-spacing: .05em; text-transform: uppercase;
+}
+.editor-preview-note { color: var(--dim); text-transform: none; letter-spacing: 0; font-style: italic; }
+.editor-preview-exit {
+  margin-left: auto; background: none; border: 1px solid var(--border); color: var(--dim);
+  font-family: var(--font); font-size: 9px; text-transform: none; letter-spacing: 0;
+  padding: 2px 8px; border-radius: var(--r); cursor: pointer; transition: all .1s; white-space: nowrap;
+}
+.editor-preview-exit:hover { color: var(--muted); border-color: var(--border2); background: var(--bg2); }
+.editor-preview-frame { flex: 1 1 0; width: 100%; border: none; background: #fff; }
 
 /* ── FIND BAR — Find / Find & Replace / Go to line (Ctrl+F/H/G),
    shared by the Editor and Plugin Creator. See FindBar in App.tsx. ── */

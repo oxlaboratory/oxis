@@ -2275,6 +2275,49 @@ Tasks run in the active PTY shell — output appears in the terminal exactly lik
 
 OXIS includes a built-in editor so you never need to leave the app to edit files. **This is the only editor** — the file Editor and plugin editing (`'plugin new`) are the exact same component; see [Creating a Plugin](#creating-a-plugin).
 
+**[shipped]** HTML live preview — a `preview` button appears in the
+editor's toolbar for any `.html`/`.htm` file. Toggling it opens a
+split view: your code on the left, a live-rendered `<iframe>` of it
+on the right, refreshing about 300ms after you stop typing (not on
+every keystroke — a full preview reload is a heavier, more visually
+disruptive operation than the syntax highlighter's own debounce, so
+it gets a longer one). Off by default even when editing an HTML
+file — it's a toggle, not automatic, since opening a file shouldn't
+silently start executing whatever script tags are in it.
+
+The preview iframe runs with `sandbox="allow-scripts"` and
+deliberately nothing else — the previewed page's own JavaScript still
+runs (genuinely useful for previewing more than static markup), but
+without `allow-same-origin` it can't read OXIS's own DOM or storage,
+and any request it makes back to "the same origin" resolves to
+nothing meaningful rather than OXIS's own local server — the same
+isolation model tools like CodePen or JSFiddle use for exactly this
+kind of live preview. Form submission and top-level navigation are
+both blocked by the same sandbox restriction (previewing is not the
+same as using the page as a real app); a form-heavy page will still
+render correctly, its submit button just won't navigate anywhere.
+Switching files while the preview is open gets a fresh `<iframe>` per
+file (keyed on the path) rather than one persistent frame silently
+carrying over state, timers, or event listeners from whatever was
+open before it.
+
+**[shipped]** Resizable, and a fullscreen mode — the split isn't
+fixed at 50/50: drag the handle between code and preview to resize
+either pane (clamped to a 20-80% range so neither side can be dragged
+down to nothing). A separate `⤢ full` button next to `preview` (or
+**Ctrl+Shift+Enter**) expands the preview to fill the whole editor,
+hiding the code pane rather than just pushing the split to its
+resize limit — a deliberate, distinct "just show me the page" mode.
+**Esc** exits fullscreen first before falling through to the editor's
+normal Escape behavior (closing find, leaving Insert mode, etc.), so
+it never accidentally closes the whole editor while you're just
+trying to back out of a full-size preview; there's also a plain
+"exit full (Esc)" button inside the preview bar itself for anyone who
+didn't know the shortcut. The code pane is hidden with the HTML
+`hidden` attribute while fullscreen is active, not unmounted, so
+typed content, cursor position, and undo history are exactly where
+you left them when you exit.
+
 **[fixed]** Large-file performance — real, reported freezing/lag when
 opening or typing in big files traced to two synchronous, whole-file
 computations re-running on every keystroke: the syntax highlighter

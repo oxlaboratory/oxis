@@ -7,6 +7,110 @@ change was made, not necessarily when a version was tagged.
 
 ### Added
 
+- **HTML live preview in the built-in Editor** — the last item queued
+  this session. A `preview` toggle on any `.html`/`.htm` file opens a
+  split view (code | rendered `<iframe>`), debounced 300ms after
+  typing stops. Sandboxed with `sandbox="allow-scripts"` only — no
+  `allow-same-origin`, so the previewed page's own JavaScript runs but
+  can't reach OXIS's DOM/storage or make a credentialed request back
+  to it, and no `allow-forms`/top-level navigation either — the same
+  isolation model tools like CodePen/JSFiddle use for live preview.
+  Off by default even on an HTML file (a toggle, not automatic) so
+  opening a file never silently executes its script tags. A fresh
+  `<iframe>` per file (keyed on path) rather than one persistent frame
+  carrying over state between files.
+- **Live preview: resizable split + fullscreen mode.** Drag the
+  handle between code and preview to resize either pane (20-80%
+  clamp). A separate `⤢ full` button and **Ctrl+Shift+Enter** expand
+  the preview to fill the whole editor — a distinct mode, not just
+  the resize handle pushed to its limit — hiding the code pane with
+  the `hidden` attribute (not unmounting it, so content/cursor/undo
+  history survive toggling fullscreen). Esc exits fullscreen before
+  falling through to the editor's own Escape handling, so it can't
+  accidentally close the whole editor; a plain button inside the
+  preview bar does the same for anyone who doesn't know the shortcut.
+- **Market website: real intro/homepage content, an About section, and
+  a SourceForge link — the site was a single, unexplained plugin grid
+  before this.** Someone landing on `oxis-market.pages.dev` cold saw
+  "PLUGIN MARKET" with zero context for what OXIS even is — same
+  confusion problem the README's opening had, fixed the same way
+  here: a real "What is OXIS?" section above the marketplace grid,
+  in plain language, with a GitLab download link and a jump straight
+  to the plugin grid. Added a proper About section at the bottom
+  (project description, license, links to GitLab/SourceForge/
+  CONTRIBUTING.md) and simple in-page nav (Market / About) in the
+  titlebar. **Deliberately did NOT split this into separate pages**
+  (a real `/home`, `/market`, `/about`) even though that's the more
+  conventional site structure — every "browse the Market" link in the
+  OXIS app itself (`'market open`, Ctrl+Shift+M) opens `MARKET_BASE`
+  (the site root) directly, so moving the marketplace grid off `/`
+  would have broken that flow. Everything added lives on the same
+  page instead, reachable by scrolling or the new nav's anchor links.
+- **Sky widget redesign — genuinely randomized, not just repositioned
+  further.** The widget is now wider (90px → 240px) with the sun
+  moved to the right side instead of dead center; clouds (4-6 of
+  them, up from a fixed 2) are generated fresh per mount from a pool
+  of glyph shapes with randomized size, opacity, and drift speed.
+  Caught and fixed a real bug while building this: the drift
+  animation's own opacity keyframes would have overridden each
+  cloud's randomized opacity outright (a running CSS animation wins
+  over an inline style for the same property) — fixed by animating a
+  CSS custom property (`--cloud-opacity`) instead of a hardcoded
+  value, so the randomized opacity actually sticks throughout the
+  animation.
+  **First attempt at spreading/timing them was wrong and got caught
+  by testing, not assumed correct**: independently-random position
+  and delay per cloud, in a small area with only a handful of clouds,
+  clumped together and drifted in near-lockstep far more often than
+  it spread out — small numbers of independent random draws don't
+  reliably avoid each other. Replaced with **stratified** placement —
+  the width is divided into one band per cloud (guaranteeing minimum
+  horizontal spacing, jitter only within each cloud's own band),
+  alternating high/low vertical lanes by index for depth, and drift
+  delay set as a fraction of each cloud's own cycle (`-(i/count) ×
+  duration`, plus small jitter) so clouds are mechanically spread
+  across different points of their drift instead of hoping
+  independent randomness lands that way. Widened again (240px →
+  280px) and moved the sun/moon further right (their own `right`
+  offset pulled to 0) for more visual separation from the clouds.
+  Each cloud is now also randomly assigned to draw in front of OR
+  behind the sun (`z-index: 1` or `3` against the sun's `2`) — a real
+  sky has clouds pass both in front of and behind the sun depending
+  on where they are, not permanently one or the other, which is what
+  a fixed DOM-order stacking would have produced. Night mode's 5
+  hand-placed, fixed-position stars are now generated the same
+  stratified way as the day clouds (5-8 of them, banded across the
+  widget width for guaranteed spacing, staggered twinkle delay) —
+  they'd never been updated to match the widget's growing width
+  through the earlier changes above, and used the same kind of fixed
+  placement the clouds moved away from.
+- **Terminal boot-banner smoke was oversized relative to the shrunk
+  banner text.** Real bug, not a theme/build artifact: shrinking the
+  terminal's own banner to 10px (an earlier fix in this same
+  changelog) never touched the smoke puffs' font-sizes, which were
+  hardcoded in `px` (9-13px) calibrated against the ORIGINAL 13px
+  banner. Fixed by converting the puffs to `em`, calibrated against
+  that same 13px base, so they scale down automatically inside a
+  smaller context instead of staying a fixed absolute size next to
+  now-tiny text. While tracing this, found and fixed the SAME
+  font-size-coupling bug (the third instance of it this session) in
+  `.startup-logo` (the launch splash) — it was tied to `var(--fs)`,
+  the user's configurable terminal font size, meaning a larger
+  fontSize setting would have ballooned the splash too; now fixed at
+  13px. Also cleaned up two doc comments left over from Home's train
+  being removed entirely, which still described a "home screen train"
+  that no longer exists.
+- **Terminal boot-banner made to match the startup splash train
+  EXACTLY, on explicit request — superseding two earlier attempts at
+  this same visual in this same changelog** (shrinking it down, then
+  a per-digit wheel-color contrast fix). Both of those were solving
+  for "looks better," this one is solving for "identical to the
+  splash": same 13px font-size (was 10px), same single uniform color
+  for every row including the wheel row (`var(--purple)` throughout —
+  no more separate `banner`/`banner-wheel` colors, no more per-digit
+  `0` highlighting), same 110px smoke height (was 70px). The
+  now-unused `renderWheelRow`/`.term-wheel` from the previous attempt
+  were removed rather than left behind as dead code.
 - **`'hide workspace` / `'show workspace`** — toggles the WORKSPACE
   panel on Home, persisted across restarts.
 - **Real subscriber counts on paid plugins.** Derived directly from
@@ -31,7 +135,9 @@ change was made, not necessarily when a version was tagged.
   from Home entirely (the launch splash animation and the terminal's
   own printed banner both keep theirs, unchanged in scope); the
   sun/moon/stars widget is now centered instead of pinned to the
-  corner, and the sun icon itself is smaller; removed the border
+  corner, and the sun icon itself is smaller; moved the whole widget
+  down (it was overlapping the titlebar); cloud ASCII is now white
+  instead of the dim muted color; removed the border
   around the GitLab link. The terminal's
   own banner (shown when a shell tab opens) is now visibly smaller
   and its wheel row is a real green instead of grey — and, same bug
@@ -393,6 +499,45 @@ change was made, not necessarily when a version was tagged.
   `window.go.wailsapp.App.AppDir()` — the directory the running
   executable lives in, resolved fresh every call.
 
+### Removed
+
+- **`frontend/src/terminal/tabs.ts` — confirmed dead code, deleted.**
+  Found during a dead-code audit: a self-contained tab-management
+  module (`Tab`, `mkTab`, `addTab`, `removeTab`, `resolveActiveTab`,
+  `MAX_TABS`) with zero imports anywhere in the codebase — verified
+  directly (no `from ".../tabs"` anywhere) rather than assumed.
+  **Correction to what I said about this at the time**: I described
+  the app's "actual tab management" as living inline in `App.tsx`
+  instead — continuing the audit turned up that this isn't quite
+  right either. There is no real multi-tab terminal support anywhere
+  in the app right now: `App.tsx` has a single `view: "home" | "shell"`
+  toggle, the shell "only ever mounts once, then stays alive forever"
+  (an actual comment in the code), and the keybind wiring for
+  `switchTab` is a literal no-op (`() => {}`). `openShell` doesn't
+  create a new tab — it just switches the one existing view from Home
+  to the one existing shell. `tabs.ts` and a whole "TAB BAR" CSS
+  section (below) were both real, apparently-abandoned pieces of an
+  attempt at building this that never got finished or wired up —
+  worth knowing as a genuine gap, not a small cosmetic thing, if
+  multiple simultaneous terminal sessions is something you actually
+  want. `tsc --noEmit` stays clean with `tabs.ts` gone, which is
+  itself confirmation nothing secretly depended on it. **This file
+  needs to be deleted from your actual repo manually** — there's no
+  mechanism here to delete a file from your machine, only to tell you
+  to.
+- **A complete, unused "TAB BAR" CSS section** (`.tabs`, `.tab`,
+  `.tab--on`, `.tab-icon`, `.tab-label`, `.tab-close`, `.tabs-fill`,
+  `.tab-new`) and a separate `.home-tab-hint` rule — both confirmed
+  zero usage anywhere in the frontend, both apparently belonging to
+  the same abandoned multi-tab attempt as `tabs.ts` above. Deleted
+  from `index.css` directly (a CSS-only removal needs no manual step
+  on your end, unlike the `.ts` file above).
+- **A media-query override still targeting `.oxis-train-wrap`**,
+  Home's train-wrapper class, after the base rule for that class was
+  already deleted earlier in this same session when Home's train was
+  removed — a leftover that had been silently targeting an element
+  that no longer exists. Cleaned up alongside the above.
+
 ### Changed
 
 - **Plugins are now edited in the exact same Editor as any other
@@ -458,6 +603,72 @@ change was made, not necessarily when a version was tagged.
 
 ### Fixed
 
+- **Live-preview resize handle would stick/stop tracking the cursor
+  the moment it crossed into the iframe — a classic iframe-vs-drag
+  problem, reported after shipping.** The `mousemove` listener lived
+  on the parent window, but a live-rendered iframe has its own
+  document — the instant the cursor moved over it mid-drag, the
+  iframe's own document received the mouse events instead of the
+  parent's listener, so the drag appeared to stop responding until the
+  cursor crossed back out. Fixed with the standard solution: a
+  transparent overlay (`.editor-resize-overlay`) rendered above
+  everything, including the iframe, for exactly the duration of the
+  drag — it's what actually receives the mouse the whole time, so the
+  iframe never gets a chance to intercept anything. Also fixed a
+  smaller, real math discrepancy found while in there: the resize
+  math treated the code and preview panes as if they summed to
+  exactly 100% of the container's width, without accounting for the
+  6px handle between them — a small, cumulative offset that made the
+  split not quite track the cursor, worse on a wider window.
+- **Workflow steps running a task/raw command had no error handling
+  where the equivalent `command`-type step already did** — found
+  continuing the audit into `workflowRunner.ts`. Not a crash risk
+  (`execStep` is `async`, so a throw there already becomes a
+  rejection, not a raw exception — different from the `runScript` bug
+  above), but an uncaught rejection from this branch would propagate
+  all the way past `runOne`/`runSteps`/`run()`'s own `finally`,
+  meaning the workflow's own "✗ workflow X failed" summary line never
+  prints — only whatever generic message the top-level `.catch()` at
+  the `'workflow <name>` command handler shows instead, for the exact
+  same underlying failure. Added the same try/catch shape the
+  `command`-type branch already had, so both report the same way.
+- **The Market website's new intro section (added last turn) claimed
+  macOS support, contradicting the README's own earlier correction —
+  and checking turned up the SAME stale claim still sitting in the
+  README's own opening line and its "Runs anywhere" bullet, which the
+  earlier macOS correction never actually touched.** Fixed all three
+  places consistently: the Market site's intro now says "Windows and
+  Linux," the README's opening line matches, and the "Runs anywhere"
+  bullet now points to the honest Getting Started caveat instead of
+  restating the same inaccurate platform list. Left the `iTerm2`
+  comparison in both places as-is — that's a plain analogy for what
+  kind of program this is, not a claim about where OXIS itself runs.
+- **A real bug in my own earlier permission-gate work — found by
+  continuing the security audit, not reported by testing.** The
+  `oxis.run()`/`oxis.task()` shell-permission gate added earlier this
+  session called `requireShellPermission()` as the first line of
+  `runScript`, a function NOT declared `async` — meaning a denied
+  permission threw a raw, synchronous JS exception straight out of
+  `runScript()`, rather than becoming a clean promise rejection the
+  way every other permission-gated binding's denial does (`fsRead` and
+  friends are all `async`, where the exact same kind of throw is
+  automatically converted into a rejection by JS's own semantics).
+  That exception would have propagated from inside the native
+  function fengari calls via `lua_pushcfunction` for `oxis.run()` —
+  an uncaught exception crossing that boundary, not something caught
+  cleanly and reported as a normal "Permission denied" message.
+  Fixed by wrapping the permission check in a `try/catch` that
+  returns a rejected promise instead, and added `.catch()` handlers at
+  both call sites that previously discarded the promise entirely
+  (`oxis.run`'s Lua binding, `oxis.task()`'s handler) — neither
+  handled rejection before, so even a `runScript` failure that was
+  ALREADY a rejection (not this specific bug) would have shown up as
+  an unhandled promise rejection rather than a real error message.
+  Also fixed the `OxisBindings.run` type declaration along the way —
+  it said `void` while the actual implementation always returned a
+  promise; that inaccuracy is what made the missing `.catch()` compile
+  cleanly in the first place instead of being caught by the type
+  system.
 - **README never actually said macOS isn't a supported pre-built
   platform.** Checked `.gitlab-ci.yml` and `build-linux.sh` directly:
   CI only builds Linux (`.deb` included), Windows is built locally by
