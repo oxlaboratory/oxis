@@ -37,8 +37,14 @@ cd "$ROOT"
 go mod download
 mkdir -p "$OUT"
 
+# BuildCommit — required for the commit-based auto-updater (see
+# internal/update/update.go's own doc comment for the full design).
+# Falls back to "unknown" if this isn't run inside a git checkout for
+# some reason, rather than failing the whole build over it.
+BUILD_COMMIT="$(git rev-parse HEAD 2>/dev/null || echo unknown)"
+
 GOOS=linux GOARCH=amd64 go build \
-  -ldflags="-s -w" \
+  -ldflags="-s -w -X github.com/oxis/oxis/internal/update.BuildCommit=$BUILD_COMMIT" \
   -o "$OUT/oxis" \
   ./cmd/oxi
 

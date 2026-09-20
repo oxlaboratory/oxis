@@ -80,7 +80,11 @@ export interface NativeRunCommandResult { stdout: string; stderr: string; exitCo
 export interface NativeSystemInfo { os: string; arch: string; numCPU: number; goVersion: string; allocMB: number; numGoroutine: number; }
 export interface NativeProcessInfo { pid: number; name: string; }
 export interface NativeUpdateInfo {
-  available: boolean; current: string; latest: string;
+  /** true when the rolling release's recorded commit differs from
+   *  this binary's own BuildCommit — see internal/update/update.go
+   *  for the full "why commits, not semver tags" design. */
+  available: boolean;
+  currentCommit: string; latestCommit: string;
   releaseUrl: string; downloadUrl: string; notes: string;
 }
 
@@ -256,15 +260,17 @@ export async function openUrl(url: string): Promise<void> {
   window.open(url, "_blank", "noopener,noreferrer");
 }
 
-/** Checks gitlab.com/oxidelab/oxis's latest release against this
- *  build (see CheckForUpdate in internal/wailsapp/app.go). Native
- *  window only — in browser mode there's no running-binary version to
- *  compare against, so this just reports nothing available rather
- *  than throwing (unlike the other native-only calls above): a stray
- *  'update in a browser tab shouldn't look like an error. */
+/** Checks this project's GitHub repo for a newer BUILD (a different,
+ *  more recent commit on the default branch — see internal/update/
+ *  update.go for the full commit-based design) against this binary's
+ *  own build commit. Native window only — in browser mode there's no
+ *  running-binary version to compare against, so this just reports
+ *  nothing available rather than throwing (unlike the other
+ *  native-only calls above): a stray 'update in a browser tab
+ *  shouldn't look like an error. */
 export async function checkForUpdate(): Promise<NativeUpdateInfo> {
   const fn = window.go?.wailsapp?.App?.CheckForUpdate;
-  if (!fn) return { available: false, current: "", latest: "", releaseUrl: "", downloadUrl: "", notes: "" };
+  if (!fn) return { available: false, currentCommit: "", latestCommit: "", releaseUrl: "", downloadUrl: "", notes: "" };
   return fn();
 }
 

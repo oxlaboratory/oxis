@@ -1,0 +1,95 @@
+# ══════════════════════════════════════════════════════════════════
+# GitHub Actions — replaces .gitlab-ci.yml (removed). Builds the Linux
+# binary + .deb on every push to the default branch, then publishes/
+# overwrites a single rolling release ("latest-build") that the
+# commit-based auto-updater (internal/update/update.go) checks
+# against — see that file's own doc comment for the full design.
+#
+#   build → dist/oxis (binary) + dist/deb/oxis_<ver>_amd64.deb
+#         → uploaded as a workflow artifact (every push/PR)
+#         → ALSO published to the "latest-build" release (push to the
+#           default branch only, never on a PR — see the `if:` guard
+#           on that step)
+#
+# Windows builds are done locally (Visual Studio / npm run build) —
+# see README § Getting Started — rather than through CI, matching how
+# the GitLab CI version of this worked; there's still no Windows
+# runner registered here.
+#
+# package.json pins "engines": { "node": ">=24.0.0" }; actions/setup-
+# node's "lts/*" tracks whatever Node release is *current LTS* right
+# now rather than a fixed major, so this keeps working as LTS rolls
+# forward instead of quietly drifting below 24 again — same reasoning
+# the old GitLab CI job's "setup_lts.x" comment had.
+#
+# ██ ONE THING STILL NEEDS FILLING IN ██ — the release-publish step
+# uses `${{ github.repository }}` (this repo's own "owner/repo",
+# resolved automatically by GitHub Actions — no placeholder needed
+# HERE), but internal/update/update.go's ProjectPath constant is a
+# separate, still-unfilled placeholder that the CLIENT uses to know
+# where to check. Set that to match this repo's real path once it
+# exists — see update.go's own doc comment.
+# ══════════════════════════════════════════════════════════════════
+
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write # needed to create/update the "latest-build" release
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "lts/*"
+
+      - name: Install packaging tools
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq dpkg-dev
+
+      - name: Build
+        run: |
+          chmod +x build-linux.sh
+          ./build-linux.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: oxis-linux-${{ github.sha }}
+          path: |
+            dist/oxis
+            dist/deb/oxis_*_amd64.deb
+          retention-days: 30
+
+      # Only on an actual push to the default branch — never on a PR
+      # (a PR's HEAD isn't necessarily going to land, and shouldn't be
+      # what the auto-updater tells every user's OXIS install to fetch).
+      - name: Publish rolling "latest-build" release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest-build
+          name: "Latest build"
+          body: |
+            Automatically built from commit ${{ github.sha }} — not a
+            tagged release, just the most recent successful build of
+            the default branch. This is what OXIS's own commit-based
+            auto-updater checks against (see internal/update/update.go).
+          prerelease: true
+          make_latest: false
+          files: |
+            dist/oxis
+            dist/deb/oxis_*_amd64.deb

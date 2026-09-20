@@ -7,6 +7,39 @@ change was made, not necessarily when a version was tagged.
 
 ### Added
 
+- **`'task commit <message>` — the commit flow, completely redesigned
+  after being reported broken (screenshot showed garbled `Write-Host`
+  text in the terminal).** Root cause: the auto-created "commit" task
+  had `oxis.task()`'s command set to the STRING `"'git-commit-dialog"`
+  — an OXIS-internal command — but `oxis.task()`'s command is always
+  sent to the real shell (PowerShell/bash), which has no idea what a
+  leading-apostrophe OXIS command is. This had never actually worked,
+  since the task was first introduced. Retired the whole dialog-based
+  flow (`CommitDialog` component, `git-commit-dialog` command, the
+  per-workspace `ensureCommitTask()` file-writing, and their CSS) and
+  replaced it with a direct, built-in `'task commit <message>` command
+  that calls `commitAll()` directly — no shell/task indirection left
+  to go wrong — with real progress (`committing in <dir>…`) and a
+  clear `✓`/`✗` result. A commit message is now required as an
+  argument, matching how the old dialog's message field always should
+  have worked but never actually could, given the underlying command
+  never even reached `commitAll()`.
+- **Auto-updater redesigned: checks commits, not release tags.**
+  Previously only checked GitLab's tagged Releases API — a push to
+  main never triggered a notification until someone manually cut a
+  release. Now compares the running binary's own build commit
+  (`internal/update.BuildCommit`, stamped in via `-ldflags -X` —
+  `build-linux.sh` updated) against the commit recorded in a
+  continuously-overwritten "rolling" GitHub release
+  (`latest-build`). **Honestly incomplete**: this is the checking
+  half only — the CI half that actually publishes/updates that
+  rolling release on every push doesn't exist yet, and needs a GitHub
+  Actions workflow once the real repo exists. Also found and fixed,
+  while auditing this: a completely SEPARATE, already-broken update
+  check (a raw `fetch()` straight to GitLab's API with a literal
+  `"YOUR_PROJECT_ID"` placeholder that had never been filled in) that
+  ran silently on every single startup and could never have worked —
+  replaced with the real mechanism.
 - **HTML live preview in the built-in Editor** — the last item queued
   this session. A `preview` toggle on any `.html`/`.htm` file opens a
   split view (code | rendered `<iframe>`), debounced 300ms after

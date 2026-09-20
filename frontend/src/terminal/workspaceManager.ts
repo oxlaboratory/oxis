@@ -805,33 +805,6 @@ class WorkspaceManager {
 
   getActiveNamed(): string | null { return this.activeNamed; }
 
-  /** Writes the "commit" task into the ACTIVE workspace's own tasks/
-   *  folder (workspaces/<name>/tasks/commit.lua for a named workspace,
-   *  or .oxis/tasks/commit.lua for the ad-hoc single-directory flow)
-   *  and loads it immediately — called by 'workspace github/gitlab
-   *  right after a remote is actually configured (see README § Git
-   *  Integration: "no default task... only when github or gitlab
-   *  connected"). A separate file, not an edit to workspace.lua's own
-   *  text, so it can't clobber anything hand-written there. Never
-   *  overwrites a commit.lua that's already there (the user may have
-   *  customized it), and checks the registry — not just the file's
-   *  existence — before treating it as "already set up", so a
-   *  workspace.lua that already registers its OWN task named "commit"
-   *  (however it does so) isn't duplicated either. Returns whether it
-   *  actually created anything new. */
-  async ensureCommitTask(): Promise<boolean> {
-    if (!this.activeDir) return false;
-    if (registry.get("task:commit")) return false; // already exists, from this or any other source
-    const tasksDir = `${this.activeDir}/tasks`;
-    const commitLuaPath = `${tasksDir}/commit.lua`;
-    const already = await statPath(commitLuaPath).catch(() => ({ exists: false, isDir: false, size: 0, modTime: 0 }));
-    if (already.exists) return false; // a commit.lua exists but wasn't loaded as "commit" for some other reason — don't overwrite it blind
-    await makeDir(tasksDir);
-    await writeFile(commitLuaPath, `-- Added automatically by 'workspace github/gitlab once a remote was configured.\n-- A completely normal task — rename, edit, or delete it like any other.\noxis.task("commit", "'git-commit-dialog", "Commit the connected project's changes")\n`);
-    await this.loadTasksFrom(tasksDir);
-    return true;
-  }
-
   /** The active named workspace's connected external directory (see
    *  linkExternal), or null if there's no active named workspace or
    *  it isn't linked to one. Async because the link itself lives in

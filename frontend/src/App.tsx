@@ -58,8 +58,8 @@ import type { LuaJSValue }                 from "./plugins/luaRuntime";
 import * as market                         from "./plugins/market";
 import { updatePlugin, updateAllPlugins, rollbackPlugin } from "./plugins/marketUpdate";
 import { exportSettings, importSettings, exportWorkspace, importWorkspace, exportPluginSource, createFullBackup, restoreFullBackup } from "./plugins/backup";
-import { checkPublishable, findExistingListing, prepareFreePublish, submitPaidPlugin, startConnectOnboarding } from "./plugins/publish";
-import { isGitRepo, getStatus, commitAll, setupRemote, type GitFileChange, type GitProvider } from "./plugins/git";
+import { checkPublishable, findExistingListing, prepareFreePublish, submitPaidPlugin, startConnectOnboarding, requestPluginDeletion } from "./plugins/publish";
+import { commitAll, setupRemote, getRemotes, parseGitRemote, type GitProvider } from "./plugins/git";
 import { readFile, writeFile, listDir, makeDir, statPath, movePath, isNativeApp, openUrl, checkForUpdate } from "./native";
 import Titlebar from "./components/Titlebar";
 
@@ -365,6 +365,7 @@ const COMMAND_DETAILS: Record<string, CommandDetail> = {
       { syntax: "'plugin publish <name>",                               description: "validates it's ready, then opens a real GitLab merge request adding it to the Market — FREE, not live until a human reviews and merges it" },
       { syntax: "'plugin publish <name> --price=4.99 --interval=month", description: "same, as a PAID listing — creates a real Stripe Connect Express account (via the deployed /connect-onboarding endpoint), opens the onboarding link, then opens the merge request the same way" },
       { syntax: "'plugin publish <name> --email=you@example.com",       description: "email for the Stripe Connect account — defaults to whatever 'market license already has on file" },
+      { syntax: "'plugin unpublish <name>",                             description: "opens a GitLab merge request removing the plugin's Market listing — same human-reviewed model, nothing is actually removed until a human merges it" },
     ],
     examples: [
       "'plugin new mytools --template=devops   — start a new devops-flavored plugin",
@@ -583,12 +584,15 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
       if(!r){ events.emit("open_file_tree", {}); return; }
       _ctxRef.current?.openEditor(r); ok(`opening ${r}`); }});
 
-  registry.register({ name:"update", category:"files", description:"Check for a newer OXIS release",
+  registry.register({ name:"update", category:"files", description:"Check for a newer OXIS build (commit-based, not release-tag-based — see internal/update/update.go)",
     handler:()=>{
-      ok("checking gitlab.com/oxidelab/oxis for a newer release...");
+      ok("checking for a newer build...");
       checkForUpdate().then(info => {
-        if (!info.available) { ok(`up to date (${info.current || "dev build"})`); return; }
-        ok(`update available: ${info.current || "current"} → ${info.latest}`);
+        if (!info.available) {
+          ok(`up to date${info.currentCommit ? ` (${info.currentCommit.slice(0, 7)})` : " (dev build — no commit info embedded)"}`);
+          return;
+        }
+        ok(`newer build available: ${info.currentCommit ? info.currentCommit.slice(0, 7) : "current"} → ${info.latestCommit.slice(0, 7)}`);
         if (info.downloadUrl) openUrl(info.downloadUrl);
         else if (info.releaseUrl) openUrl(info.releaseUrl);
       }).catch(() => err("update check failed — check your connection"));
@@ -881,6 +885,19 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
           }).catch(e => err(`Stripe Connect onboarding failed: ${e instanceof Error ? e.message : e}`));
         }).catch(e => err(`couldn't check the Market for an existing listing: ${e instanceof Error ? e.message : e}`));
         return; }
+      if(sub==="unpublish"){
+        if(!name){err(`usage: 'plugin unpublish <name>`);return;}
+        const email = getLicensedEmail();
+        const author = email || name; // best-effort — same "not real authentication" caveat as the backend check itself; see delete-plugin.js
+        info(`opening a deletion merge request for "${name}" on GitLab…`);
+        requestPluginDeletion(name, author).then(result => {
+          result.message.split("\n").forEach(line => line ? (result.ok?ok:err)(line) : ctx.print(""));
+          if(result.mergeRequestUrl){
+            info("opening the merge request in your browser…");
+            void openUrl(result.mergeRequestUrl);
+          }
+        }).catch(e => err(`couldn't reach the Market backend: ${e instanceof Error ? e.message : e}`));
+        return; }
       if(sub==="new"){
         if(!name){err("usage: 'plugin new <name> [--template=basic|dev|devops|system]");return;}
         if(!/^[a-z0-9_-]+$/i.test(name)){ err("plugin name: letters, numbers, - _ only"); return; }
@@ -1094,12 +1111,47 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
       err(`unknown: 'market ${sub}`); }});
 
   // ── task runner ───────────────────────────────────────
-  registry.register({ name:"task",    category:"workspace", description:"Run a workspace task",
+  registry.register({ name:"task",    category:"workspace", description:"Run a workspace task — 'task commit <message> is a direct built-in, see 'help task",
     handler:(args)=>{
       const name=args[0];
       if(!name){info("Usage: 'task <name>"); return;}
+      // "commit" is a universal built-in, not a per-workspace task
+      // file — see runCommitTask below for why (this used to be
+      // written into every workspace as an oxis.task() whose "command"
+      // was the STRING "'git-commit-dialog", which got sent to the
+      // real shell as if it were a shell command — PowerShell/bash has
+      // no idea what a leading-apostrophe OXIS command is, which is
+      // exactly the garbled "Write-Host..." output that was actually
+      // the shell trying and failing to parse it as its own syntax).
+      if(name.toLowerCase()==="commit"){
+        const message = args.slice(1).join(" ").trim();
+        void runCommitTask(message);
+        return;
+      }
       if(!registry.execute(`task:${name}`,args.slice(1),args.slice(1).join(" ")))
         err(`task not found: ${name}`); }});
+
+  /** 'task commit <message> — the ONLY way to commit now (see the
+   *  registration above). Calls commitAll() directly, no shell/task
+   *  indirection to go wrong, with real progress/success/failure
+   *  reporting at every step rather than silent shell output. */
+  async function runCommitTask(message: string): Promise<void> {
+    if(!message){ err(`usage: 'task commit <message> — a commit message is required`); return; }
+    const dir = await workspaceManager.getActiveExternalPath();
+    if(!dir){ err(`no project connected — 'workspace link a directory, or 'workspace github/gitlab to set one up`); return; }
+    info(`committing in ${dir}…`);
+    try {
+      const result = await commitAll(dir, message);
+      if(result.ok){
+        ok(`✓ committed${result.hash ? ` (${result.hash})` : ""}: ${message}`);
+        events.emit("filetree_refresh", {});
+      } else {
+        err(`✗ commit failed: ${result.message}`);
+      }
+    } catch(e) {
+      err(`✗ commit failed: ${e instanceof Error ? e.message : e}`);
+    }
+  }
 
   // ── workspace ─────────────────────────────────────────
   // 'workspace init "name" / list / switch / rename / delete / link /
@@ -1223,10 +1275,7 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
               return;
             }
             (r.ok?ok:err)(r.message);
-            if(r.ok){
-              const added = await workspaceManager.ensureCommitTask();
-              if(added) dim(`added a "commit" task — 'task commit whenever you want to commit changes`);
-            }
+            if(r.ok) dim(`'task commit <message> is ready to use for this project`);
           });
         }).catch(e => err(`couldn't set up ${provider}: ${e instanceof Error ? e.message : e}`));
         return; }
@@ -1413,16 +1462,12 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
   // OXIS to collect anything about you.
 
   // ── git ──────────────────────────────────────────────────
-  // git-commit-dialog is what the "commit" task runs once it exists
-  // (added automatically by 'workspace github/gitlab — see
-  // ensureCommitTask in workspaceManager.ts — never created by
-  // default). A real, dedicated OXIS command, not a raw shell
-  // one-liner, because committing needs an actual UI (status, a
-  // message field) not just "run this string". Renaming/editing the
-  // "commit" task in workspace.lua is expected and fully supported —
-  // this command keeps working under whatever name you call it.
-  registry.register({ name:"git-commit-dialog", category:"workspace", description:"Open the commit dialog for the connected project",
-    handler:()=>{ events.emit("open_commit_dialog", {}); }});
+  // Committing is now 'task commit <message> directly (see the 'task
+  // registration above) — the old dialog-based flow (git-commit-
+  // dialog command + CommitDialog component) was retired: it never
+  // actually worked (see 'task's own doc comment for why), and the
+  // new direct flow doesn't need a separate command to open a UI at
+  // all — 'task commit just does the commit and reports the result.
 
   registry.register({ name:"diagnostics", category:"info", description:"Local diagnostic info — version, OS, runtime, plugins, workspace, recent errors",
     handler:()=>{
@@ -1564,6 +1609,7 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
       h("'plugin docs <n>","a plugin's own documentation, if it declares any");
       h("'plugin export <n> [path]","export a plugin's .lua source to a file");
       h("'plugin publish <n> [--price --interval --email] [update]","open a GitLab merge request to add it to the Market — reviewed/merged by a human, not live automatically; see 'help plugin");
+      h("'plugin unpublish <n>","open a GitLab merge request to remove it from the Market — same human-reviewed model as publishing");
       h("'plugin permissions <n>","see/grant/revoke fs, process, net, system, workspace, editor, terminal");
       h("'help <n>","show one plugin's commands + what they do");
       h("'market list","browse the free OXIS Market"); h("'market search <q>","search the Market");
@@ -2374,6 +2420,75 @@ function FindBar({ findMode, findQuery, setFindQuery, replaceWith, setReplaceWit
   );
 }
 
+/** Joins a base directory with a relative reference and normalizes
+ *  `.`/`..` segments — handles both `/`- and `\`-style paths (Windows
+ *  project directories use the latter). Doesn't touch absolute paths
+ *  (already-rooted references pass straight through unresolved,
+ *  matching how every other path-taking function in this codebase
+ *  treats an absolute path as already complete). */
+function resolveRelativePath(baseDir: string, rel: string): string {
+  const usesBackslash = baseDir.includes("\\") && !baseDir.includes("/");
+  const sep = usesBackslash ? "\\" : "/";
+  const relParts = rel.replace(/\\/g, "/").split("/");
+  const baseParts = baseDir.replace(/\\/g, "/").replace(/\/$/, "").split("/");
+  for (const part of relParts) {
+    if (part === "" || part === ".") continue;
+    if (part === "..") baseParts.pop();
+    else baseParts.push(part);
+  }
+  return baseParts.join(sep);
+}
+
+/** Inlines a preview HTML page's own local stylesheet/script
+ *  references (relative `<link rel="stylesheet" href="...">` and
+ *  `<script src="...">` tags) so the live preview actually looks
+ *  like the real project instead of unstyled, script-less markup —
+ *  a real, reported gap: `srcDoc` gives the iframe no meaningful base
+ *  URL to resolve a relative `css/style.css` against, so those
+ *  requests silently failed and every preview looked broken for any
+ *  project split across more than one file (which is most of them).
+ *  Absolute URLs (http/https/protocol-relative) and already-inline
+ *  data: URIs are left completely alone — only same-project relative
+ *  references are read from disk and substituted in. Best-effort: a
+ *  referenced file that can't be read (typo'd path, genuinely
+ *  missing) is left as a comment explaining what didn't resolve,
+ *  rather than silently dropped or left as a dead link the iframe
+ *  can't do anything useful with anyway. */
+async function inlinePreviewAssets(html: string, filePath: string): Promise<string> {
+  const baseDir = filePath.replace(/[\\/][^\\/]*$/, "");
+  const isRemoteOrInline = (src: string) => /^(https?:)?\/\//.test(src) || src.startsWith("data:");
+
+  async function replaceAll(source: string, re: RegExp, build: (fullMatch: string, src: string) => Promise<string>): Promise<string> {
+    const matches = [...source.matchAll(re)];
+    let out = source;
+    for (const m of matches) {
+      const src = m[1];
+      if (!src || isRemoteOrInline(src)) continue;
+      out = out.replace(m[0], await build(m[0], src));
+    }
+    return out;
+  }
+
+  html = await replaceAll(html, /<link[^>]+rel=["']stylesheet["'][^>]*href=["']([^"']+)["'][^>]*>/gi, async (_full, href) => {
+    const resolved = resolveRelativePath(baseDir, href);
+    try { return `<style>/* inlined for preview: ${href} */\n${await readFile(resolved)}\n</style>`; }
+    catch { return `<!-- preview: couldn't load stylesheet "${href}" (looked for ${resolved}) -->`; }
+  });
+  // Also catches href-before-rel orderings the first pass's fixed
+  // attribute order would miss (e.g. <link href="x.css" rel="stylesheet">).
+  html = await replaceAll(html, /<link[^>]+href=["']([^"']+\.css)["'][^>]*rel=["']stylesheet["'][^>]*>/gi, async (_full, href) => {
+    const resolved = resolveRelativePath(baseDir, href);
+    try { return `<style>/* inlined for preview: ${href} */\n${await readFile(resolved)}\n</style>`; }
+    catch { return `<!-- preview: couldn't load stylesheet "${href}" (looked for ${resolved}) -->`; }
+  });
+  html = await replaceAll(html, /<script[^>]+src=["']([^"']+)["'][^>]*><\/script>/gi, async (_full, src) => {
+    const resolved = resolveRelativePath(baseDir, src);
+    try { return `<script>/* inlined for preview: ${src} */\n${await readFile(resolved)}\n</script>`; }
+    catch { return `<!-- preview: couldn't load script "${src}" (looked for ${resolved}) -->`; }
+  });
+  return html;
+}
+
 function Editor({ file, onClose, onSave }: {
   file:    EditorFile;
   onClose: () => void;
@@ -2432,15 +2547,22 @@ function Editor({ file, onClose, onSave }: {
   // than that one's 200ms since a full iframe reload is a heavier,
   // more visually disruptive operation than a diff recompute).
   const [previewContent, setPreviewContent] = useState(content);
+  const previewRunId = useRef(0); // guards against an in-flight resolve landing after a NEWER one already started (fast typing, or a quick file switch)
+  const buildPreview = useCallback((html: string) => {
+    const runId = ++previewRunId.current;
+    inlinePreviewAssets(html, file.path).then(resolved => {
+      if (previewRunId.current === runId) setPreviewContent(resolved);
+    });
+  }, [file.path]);
   useEffect(() => {
     if (!previewOpen) return; // no reason to keep re-rendering an iframe nobody's looking at
-    const t = setTimeout(() => setPreviewContent(content), 300);
+    const t = setTimeout(() => buildPreview(content), 300);
     return () => clearTimeout(t);
-  }, [content, previewOpen]);
+  }, [content, previewOpen, buildPreview]);
   // Refreshed the instant the preview is actually opened (not waiting
   // out the debounce for the FIRST render), and again on switching to
   // a different file while it's already open.
-  useEffect(() => { if (previewOpen) setPreviewContent(content); },
+  useEffect(() => { if (previewOpen) buildPreview(content); },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [previewOpen, file.path]);
 
@@ -3449,7 +3571,7 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
           setTimeout(() => {
             checkForUpdate().then(info => {
               if (info.available) {
-                addLine(`  ↑  OXIS ${info.latest} is available (you're on ${info.current || "an older build"}) — run 'update to open it`, "info");
+                addLine(`  ↑  a newer OXIS build (${info.latestCommit.slice(0, 7)}) is available${info.currentCommit ? ` (you're on ${info.currentCommit.slice(0, 7)})` : ""} — run 'update to open it`, "info");
               }
             }).catch(() => {}); // silent — a background check should never surface as an error
           }, 2000);
@@ -4662,7 +4784,7 @@ function Home({ onNew, currentTheme, onTheme, onOpenThemeEditor, onOpenPluginCre
           <button className="oxis-gitlab-btn" onClick={() => void openUrl("https://gitlab.com/oxidelab/oxis.git")}
             title="Open the OXIS repository on GitLab">GitLab ↗</button>
         </div>
-        {!workspacePanelHidden && <WorkspacePanel ws={ws} plugins={plugins} activeWorkspace={activeWorkspace} activeWorkspacePath={activeWorkspacePath} onOpenMarket={() => setView("plugins")} />}
+        {!workspacePanelHidden && <WorkspacePanel ws={ws} plugins={plugins} activeWorkspace={activeWorkspace} activeWorkspacePath={activeWorkspacePath} />}
         <div className="oxis-box oxis-help-box">
           <div className="oxis-help-row"><span className="oht">Type</span> <span className="ohc">&apos;help</span><span className="ohr"> if you need some help</span></div>
           <div className="oxis-help-row"><span className="oht">Type</span> <span className="ohc">&apos;edit</span> <span className="oha">&lt;file&gt;</span><span className="ohr"> to open the built-in editor</span></div>
@@ -4680,7 +4802,7 @@ function Home({ onNew, currentTheme, onTheme, onOpenThemeEditor, onOpenPluginCre
 // donation box (see README § Home Screen & Workspace Panel).
 // Read-only: reflects workspaceState/pluginManager, doesn't accept
 // input itself, so it never competes with Command Mode for focus.
-function WorkspacePanel({ ws, plugins, activeWorkspace, activeWorkspacePath, onOpenMarket }: {
+function WorkspacePanel({ ws, plugins, activeWorkspace, activeWorkspacePath }: {
   ws: ReturnType<typeof workspaceState.get>;
   plugins: ReturnType<typeof pluginManager.all>;
   /** The active NAMED workspace ('workspace switch <name>), or null
@@ -4697,10 +4819,31 @@ function WorkspacePanel({ ws, plugins, activeWorkspace, activeWorkspacePath, onO
    *  .oxis/workspace.lua lives (inside dist/workspaces/<name>/), not
    *  the external project it points at. */
   activeWorkspacePath: string | null;
-  onOpenMarket: () => void;
 }) {
   const active = plugins.filter(p => p.enabled);
   const tasks = workspaceState.taskNames();
+  // Real git connection info — GitHub/GitLab + repo — replacing the
+  // old "project" row (just ws.projectName, which duplicated the
+  // "workspace" row above it in the common case and told you nothing
+  // about whether the connected project is actually hooked up to a
+  // remote anywhere). Fetched fresh whenever the connected external
+  // path changes; genuinely queries `git remote -v` rather than
+  // inferring anything from the workspace's own metadata, since a
+  // project can be connected to OXIS without (yet) having a remote,
+  // or could have one OXIS was never told about via
+  // 'workspace github/gitlab.
+  const [gitInfo, setGitInfo] = useState<{ provider: GitProvider; repo: string } | null | undefined>(undefined); // undefined = "haven't checked yet", null = "checked, not connected"
+  useEffect(() => {
+    if (!activeWorkspacePath) { setGitInfo(null); return; }
+    let cancelled = false;
+    setGitInfo(undefined);
+    getRemotes(activeWorkspacePath).then(remotes => {
+      if (cancelled) return;
+      const origin = remotes.find(r => r.name === "origin");
+      setGitInfo(origin ? parseGitRemote(origin.url) : null);
+    }).catch(() => { if (!cancelled) setGitInfo(null); });
+    return () => { cancelled = true; };
+  }, [activeWorkspacePath]);
   return (
     <div className="oxis-box oxis-workspace-box">
       <div className="oxis-box-row oxis-workspace-header">
@@ -4710,7 +4853,14 @@ function WorkspacePanel({ ws, plugins, activeWorkspace, activeWorkspacePath, onO
         </span>
       </div>
       <div className="oxis-box-row"><span className="oxis-wl">workspace</span><span className="oxis-we"> = </span><span className="oxis-wa oxis-wa--name">{activeWorkspace || "default"}</span></div>
-      <div className="oxis-box-row"><span className="oxis-wl">project</span><span className="oxis-we"> = </span><span className="oxis-wa">{ws.projectName || "no project loaded"}</span></div>
+      <div className="oxis-box-row">
+        <span className="oxis-wl">git</span><span className="oxis-we"> = </span>
+        {gitInfo === undefined
+          ? <span className="oxis-wa--disconnected">checking…</span>
+          : gitInfo
+            ? <span className="oxis-wa oxis-wa--connected">{gitInfo.provider === "github" ? "GitHub" : "GitLab"}: {gitInfo.repo}</span>
+            : <span className="oxis-wa--disconnected">not connected — <code>&apos;workspace github &quot;owner/repo&quot;</code> or <code>&apos;workspace gitlab &quot;owner/repo&quot;</code></span>}
+      </div>
       {ws.projectPath && (
         <div className="oxis-box-row"><span className="oxis-wl">path</span><span className="oxis-we"> = </span><span className="oxis-wa">{ws.projectPath}</span></div>
       )}
@@ -4724,11 +4874,11 @@ function WorkspacePanel({ ws, plugins, activeWorkspace, activeWorkspacePath, onO
       {ws.activity.length > 0 && (
         <div className="oxis-box-row"><span className="oxis-wl">recent</span><span className="oxis-we"> = </span><span className="oxis-wa">{ws.activity[0].text}</span></div>
       )}
-      <div className="oxis-box-row oxis-workspace-footer">
-        {ws.status === "none"
-          ? <span className="oxis-workspace-hint">no workspace here — try <code>&apos;workspace init</code></span>
-          : <button className="oxis-workspace-support-link" onClick={onOpenMarket}>browse the OXIS Market →</button>}
-      </div>
+      {ws.status === "none" && (
+        <div className="oxis-box-row oxis-workspace-footer">
+          <span className="oxis-workspace-hint">no workspace here — try <code>&apos;workspace init</code></span>
+        </div>
+      )}
     </div>
   );
 }
@@ -4992,136 +5142,6 @@ function FileTree({ rootDir, rootLabel, onOpenFile, onMoveFile, onClose }: { roo
   );
 }
 
-// ══════════════════════════════════════════════════════════════
-// COMMIT DIALOG — 'task commit's real UI, once that task exists (see
-// ensureCommitTask in workspaceManager.ts — added by 'workspace
-// github/gitlab, never by default). See git.ts for
-// the actual git plumbing (real `git status`/`add`/`commit` via the
-// argv-based runCommand binding, never a shell string). Detects the
-// active workspace's connected project, shows real status, and only
-// commits what git itself reports as changed in THAT project — never
-// something outside it, since git scopes `add -A` to its own repo.
-// ══════════════════════════════════════════════════════════════
-type CommitDialogState =
-  | { phase: "loading" }
-  | { phase: "no-project" }
-  | { phase: "not-a-repo"; dir: string }
-  | { phase: "clean"; dir: string; branch: string }
-  | { phase: "ready"; dir: string; branch: string; files: GitFileChange[] }
-  | { phase: "committing"; dir: string }
-  | { phase: "done"; message: string; hash?: string }
-  | { phase: "error"; message: string };
-
-function CommitDialog({ onClose }: { onClose: () => void }) {
-  const [state, setState] = useState<CommitDialogState>({ phase: "loading" });
-  const [message, setMessage] = useState("");
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  const load = useCallback(async () => {
-    setState({ phase: "loading" });
-    const dir = await workspaceManager.getActiveExternalPath();
-    if (!dir) { setState({ phase: "no-project" }); return; }
-    const status = await getStatus(dir);
-    if (!status.isRepo) { setState({ phase: "not-a-repo", dir }); return; }
-    if (status.clean) { setState({ phase: "clean", dir, branch: status.branch }); return; }
-    setState({ phase: "ready", dir, branch: status.branch, files: status.files });
-  }, []);
-
-  useEffect(() => { load(); }, [load]);
-  useEffect(() => {
-    if (state.phase === "ready") setTimeout(() => textareaRef.current?.focus(), 30);
-  }, [state.phase]);
-
-  const doCommit = useCallback(async () => {
-    if (state.phase !== "ready") return;
-    setState({ phase: "committing", dir: state.dir });
-    const result = await commitAll(state.dir, message);
-    if (!result.ok) { setState({ phase: "error", message: result.message }); return; }
-    setState({ phase: "done", message: result.message, hash: result.hash });
-    events.emit("filetree_refresh", {});
-  }, [state, message]);
-
-  const statusLabel = (code: string) => {
-    const c = code.trim();
-    if (c === "??") return "new";
-    if (c.includes("D")) return "deleted";
-    if (c.includes("M")) return "modified";
-    if (c.includes("A")) return "added";
-    if (c.includes("R")) return "renamed";
-    return c || "changed";
-  };
-
-  return (
-    <div className="cmdp-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="commit-dialog">
-        <div className="commit-dialog-header">
-          <span>Commit</span>
-          <span className="filetree-close" onClick={onClose}>×</span>
-        </div>
-        <div className="commit-dialog-body">
-          {state.phase === "loading" && <div className="commit-dialog-msg">checking the connected project…</div>}
-          {state.phase === "no-project" && (
-            <div className="commit-dialog-msg">
-              No project directory connected to this workspace.<br />
-              <code>&apos;workspace link &quot;&lt;path&gt;&quot;</code> first, then try again.
-            </div>
-          )}
-          {state.phase === "not-a-repo" && (
-            <div className="commit-dialog-msg">
-              <code>{state.dir}</code> isn&apos;t a git repository yet.<br />
-              <code>&apos;workspace github &lt;owner/repo&gt;</code> or <code>&apos;workspace gitlab &lt;owner/repo&gt;</code> will initialize one and set up the remote.
-            </div>
-          )}
-          {state.phase === "clean" && (
-            <div className="commit-dialog-msg">Nothing to commit — <code>{state.branch}</code> is clean.</div>
-          )}
-          {(state.phase === "ready" || state.phase === "committing") && (
-            <>
-              <div className="commit-dialog-branch">branch: <code>{state.dir ? (state as { branch: string }).branch : ""}</code></div>
-              <div className="commit-dialog-files">
-                {(state.phase === "ready" ? state.files : []).map(f => (
-                  <div key={f.path} className="commit-dialog-file">
-                    <span className={`commit-file-status commit-file-status--${statusLabel(f.status)}`}>{statusLabel(f.status)}</span>
-                    <span className="commit-file-path">{f.path}</span>
-                  </div>
-                ))}
-              </div>
-              <textarea
-                ref={textareaRef}
-                className="commit-dialog-input"
-                placeholder="Commit notes…"
-                value={message}
-                disabled={state.phase === "committing"}
-                onChange={e => setMessage(e.target.value)}
-                onKeyDown={e => {
-                  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); doCommit(); }
-                  if (e.key === "Escape") { e.preventDefault(); onClose(); }
-                }}
-              />
-              <div className="commit-dialog-actions">
-                <button className="editor-btn" onClick={onClose} disabled={state.phase === "committing"}>Cancel</button>
-                <button className="editor-btn commit-dialog-commit" onClick={doCommit} disabled={state.phase === "committing" || !message.trim()}>
-                  {state.phase === "committing" ? "Committing…" : "Commit"}
-                </button>
-              </div>
-              <div className="commit-dialog-hint">Ctrl+Enter to commit</div>
-            </>
-          )}
-          {state.phase === "done" && (
-            <div className="commit-dialog-msg commit-dialog-msg--ok">
-              ✓ committed {state.hash ? <code>{state.hash}</code> : ""}<br />
-              <span className="commit-dialog-summary">{state.message.split("\n")[0]}</span>
-            </div>
-          )}
-          {state.phase === "error" && (
-            <div className="commit-dialog-msg commit-dialog-msg--err">✗ {state.message}</div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function CommandPalette({ onRun, onClose }: { onRun: (cmd: string) => void; onClose: () => void }) {
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState(0);
@@ -5207,7 +5227,6 @@ export default function App() {
   const [curTheme,  setCurTheme]  = useState(() => themeManager.getCurrent());
   const [themeEditorName,  setThemeEditorName]  = useState<string | null>(null);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
-  const [commitDialogOpen, setCommitDialogOpen] = useState(false);
   const [activeProject, setActiveProject] = useState(() => workspaceState.get().projectName);
   const [updateMsg,     setUpdateMsg]     = useState("");
   const [showAnim, setShowAnim] = useState(true);
@@ -5230,12 +5249,18 @@ export default function App() {
     const animT = setTimeout(() => setShowAnim(false), 1800);
     const checkUpdate = async () => {
       if (getSetting("updateCheckOnStartup") === false) return; // 'config set updateCheckOnStartup false
+      // This used to be a SEPARATE, already-broken implementation —
+      // a raw fetch() straight to GitLab's API with a literal
+      // "YOUR_PROJECT_ID" placeholder that was never filled in,
+      // silently doing nothing on every single launch (the catch
+      // swallowed the resulting fetch failure). Replaced with the
+      // real, working mechanism — the same commit-based check
+      // 'update itself uses (see internal/update/update.go) — so
+      // this setting actually does something now.
       try {
-        const r = await fetch("https://gitlab.com/api/v4/projects/YOUR_PROJECT_ID/releases?per_page=1", { signal: AbortSignal.timeout(4000) });
-        if (!r.ok) return;
-        const [rel] = await r.json() as Array<{ tag_name: string }>;
-        if (rel && rel.tag_name.replace(/^v/i, "") !== "1.2.1") setUpdateMsg(`v${rel.tag_name} available`);
-      } catch { /* offline or placeholder URL — replace YOUR_PROJECT_ID */ }
+        const info = await checkForUpdate();
+        if (info.available && info.latestCommit) setUpdateMsg(`build ${info.latestCommit.slice(0, 7)} available`);
+      } catch { /* offline, or checkForUpdate itself isn't available (browser mode) — silent is correct here, this is a passive background check, not something the user asked for right now */ }
     };
     checkUpdate();
 
@@ -5268,9 +5293,8 @@ export default function App() {
   // it directly, the same path 'edit uses.
   useEffect(() => {
     const u1 = events.on("open_theme_editor", p => { if (p?.name) setThemeEditorName(String(p.name)); });
-    const u5 = events.on("open_commit_dialog", () => setCommitDialogOpen(true));
     const u2 = events.on("theme_changed",     p => { if (p?.name) setCurTheme(String(p.name)); });
-    return () => { u1(); u2(); u5(); };
+    return () => { u1(); u2(); };
   }, []);
 
   // Persist minimal session state
@@ -5380,9 +5404,6 @@ export default function App() {
             onRun={cmd => { setCommandPaletteOpen(false); runHomeCommand(cmd); }}
             onClose={() => setCommandPaletteOpen(false)}
           />
-        )}
-        {commitDialogOpen && (
-          <CommitDialog onClose={() => setCommitDialogOpen(false)} />
         )}
         {/* Home page — hidden (not unmounted) when shell active */}
         <div style={{ display: isHome ? "flex" : "none", flex: 1, minHeight: 0, overflow: "hidden" }}>

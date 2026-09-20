@@ -113,6 +113,21 @@ export function normalizeRemoteUrl(provider: GitProvider, input: string): string
   return `https://${host}/${cleaned}.git`;
 }
 
+/** The reverse of normalizeRemoteUrl — given whatever's actually
+ *  configured as `origin` (HTTPS or SSH form, github.com or
+ *  gitlab.com), extracts which provider it is and the `owner/repo`
+ *  path. Used by Home's WORKSPACE panel to show real git connection
+ *  status instead of just "connected: <path>" — see WorkspacePanel in
+ *  App.tsx. Returns null for anything that isn't recognizably one of
+ *  the two (a different host entirely, or a malformed URL) rather
+ *  than guessing. */
+export function parseGitRemote(url: string): { provider: GitProvider; repo: string } | null {
+  const m = url.match(/(?:github\.com[:/]|gitlab\.com[:/])([^/]+\/[^/]+?)(?:\.git)?\/?$/i);
+  if (!m) return null;
+  const provider: GitProvider = /github\.com/i.test(url) ? "github" : "gitlab";
+  return { provider, repo: m[1] };
+}
+
 export interface SetupRemoteResult { ok: boolean; message: string; needsConfirmation?: { existingUrl: string } }
 
 /** `'workspace github`/`'workspace gitlab`'s actual work: makes sure

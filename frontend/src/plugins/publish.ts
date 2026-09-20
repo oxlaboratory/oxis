@@ -228,3 +228,35 @@ export async function submitPaidPlugin(metadata: PublishMetadata, price: string,
       + `\nReminder: paid OXIS Market plugins are recurring Stripe subscriptions, not one-time purchases — the 75/25 developer/OXIS split happens automatically once merged (see cloudflare/functions/checkout.js).`,
   };
 }
+
+/** 'plugin unpublish <name> — opens a GitLab merge request removing
+ *  the plugin's Market listing (see cloudflare/functions/
+ *  delete-plugin.js). Same human-review-gated model as publishing:
+ *  nothing is actually removed until a human merges the MR. `author`
+ *  is checked against the CURRENT listing's own author server-side —
+ *  this is a typo/mistake guard, not real authentication, same
+ *  caveat as the rest of this pipeline. */
+export async function requestPluginDeletion(name: string, author: string): Promise<SubmissionResult> {
+  try {
+    const res = await fetch(`${MARKET_BASE}/delete-plugin`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, author }),
+      signal: AbortSignal.timeout(15000),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      return { ok: false, message: `couldn't open a deletion merge request: ${(body as { error?: string }).error || res.statusText}` };
+    }
+    const { mergeRequestUrl } = body as { mergeRequestUrl?: string };
+    return {
+      ok: true,
+      mergeRequestUrl,
+      message: mergeRequestUrl
+        ? `deletion merge request opened: ${mergeRequestUrl}\nThe plugin stays listed until a human reviews and merges it.`
+        : `submitted, but the Market backend didn't return a merge request link — check gitlab.com/oxidelab/oxis's merge requests directly.`,
+    };
+  } catch (e) {
+    return { ok: false, message: `couldn't reach the Market backend: ${e instanceof Error ? e.message : String(e)}` };
+  }
+}

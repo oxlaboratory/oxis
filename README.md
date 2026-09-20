@@ -734,6 +734,30 @@ built on) does support macOS as a target, so building it yourself
 should work, it just isn't a maintained, tested, or officially
 distributed path the way Windows and Linux are.
 
+### Before installing a new build — clean up stale data
+
+**If you download and run OXIS as a portable `dist/` folder** (extract
+a zip, run `oxis.exe` directly) rather than through the real MSI
+installer, workspace/plugin data living alongside the exe can silently
+persist across "new" downloads if a new zip lands in or on top of an
+old folder without clearing it first — this is a real, reported cause
+of confusion (an old task or workspace showing up in what looked like
+a fresh install). `scripts/clean-install.ps1` removes that stale data
+safely — it only ever touches OXIS's own known files (never a project
+you've connected via `'workspace link`), always shows what it found
+and asks before deleting anything (unless run with `-Force`):
+
+```powershell
+.\scripts\clean-install.ps1 -DistPath "C:\path\to\old\dist"
+```
+
+Run it with no `-DistPath` to just clean up a previous MSI
+installation and its registry keys before running a newly downloaded
+`.msi` — the MSI's own `MajorUpgrade` element normally handles this
+automatically when both the old and new install go through the MSI
+properly (see `dist/oxis-product.wxs`); this script is specifically
+for the case where that path wasn't used.
+
 ### Prerequisites
 
 - Go 1.22+
@@ -865,31 +889,29 @@ there — see [Plugin System](#plugin-system).
 
 ## Continuous Integration
 
-**[shipped]** `.gitlab-ci.yml` builds the Linux binary + `.deb` on
-every push, in one `build` stage:
+**[migrated to GitHub Actions]** — `.gitlab-ci.yml` has been removed;
+`.github/workflows/build.yml` replaces it, building the Linux binary
++ `.deb` on every push:
 
-| Job              | Runs on              | Produces                                                    |
-|-------------------|----------------------|--------------------------------------------------------------|
-| `build:linux`     | any available runner | `dist/oxis` (binary), `dist/deb/oxis_<version>_amd64.deb`  |
+| Job            | Runs on              | Produces                                                    |
+|----------------|-----------------------|--------------------------------------------------------------|
+| `build-linux`  | `ubuntu-latest`       | `dist/oxis` (binary), `dist/deb/oxis_*_amd64.deb`, uploaded as a workflow artifact (30-day retention) |
 
-The job uploads its output as pipeline artifacts (30-day expiry) —
-open the pipeline in GitLab's UI and download them from the job's
-**Browse** / **Download** buttons, no separate release step required.
-No `tags:` are set, so it runs on whatever runner is available first —
-GitLab.com's shared runners pick it up automatically with nothing to
-register (it uses the `golang:1.22-bookworm` Docker image and installs
-Node.js itself).
+**New, and not something the old GitLab CI job did**: on a push to
+the default branch specifically (never on a pull request), the
+workflow also publishes the built binary/`.deb` to a single,
+continuously-overwritten release called `latest-build` — this is what
+the redesigned, commit-based [Auto-Update](#auto-update) mechanism
+actually checks against. See that section for the full design and
+what's still missing on the client side (`internal/update.ProjectPath`
+is a placeholder until the real GitHub repo path is known).
 
-**Windows builds are local, not CI.** Build `dist/oxis.exe` (and the
-installer, via `npm run build:msi` — see [Installer & bundled
-source](#installer--bundled-source)) with Visual Studio / `npm run
-build` on your own Windows machine instead of through a pipeline job.
-This avoids needing to register and maintain a dedicated Windows
-GitLab Runner just to produce a build you can already make locally.
-If a CI-driven Windows build becomes worth it later, a `build:windows`
-job (WiX-based `.msi`, needs a real Windows runner registered with a
-matching tag) is straightforward to add back — see this file's git
-history for the previous version.
+**Windows builds are still local, not CI** — same reasoning as
+before: build `dist/oxis.exe` (and the installer, via `npm run
+build:msi` — see [Installer & bundled source](#installer--bundled-source))
+with Visual Studio / `npm run build` on your own Windows machine,
+rather than maintaining a dedicated Windows GitHub Actions runner for
+a build you can already make locally.
 
 ---
 
@@ -2599,54 +2621,72 @@ same `SETTINGS` registry in `App.tsx` without a new subsystem.
 
 ## Auto-Update
 
-**[shipped]** — OXIS checks `gitlab.com/oxidelab/oxis`'s latest
-**Release** (not just the latest commit/push — an actual tagged
-GitLab Release) against the version baked into the running binary,
-and lets you know if something newer is out. It never replaces the
-running `.exe` itself — Windows won't let a process overwrite its own
-binary while it's executing, and there's no separate updater process
-— it just hands you the link.
+**[shipped, redesigned]** — OXIS checks for a newer **build**, not a
+newer tagged release: the running binary's own commit SHA (baked in
+at compile time) against the commit a continuously-updated "rolling"
+GitHub release was built from. It never replaces the running `.exe`
+itself — Windows won't let a process overwrite its own binary while
+it's executing, and there's no separate updater process — it just
+hands you the link.
+
+**This is a genuine design change from an earlier version of this
+same feature** (see CHANGELOG) that only checked tagged GitLab
+Releases — meaning a new push to main never triggered a notification
+until someone manually cut a release. Checking commits instead means
+every push that CI successfully builds can trigger one, once CI is
+actually wired up to publish that rolling release (see "What CI still
+needs to do" below — **this half doesn't exist yet**).
 
 ### How it fires
 
 - **On startup** — once per run, ~2s after the shell connects (so a
-  slow or offline GitLab never delays the shell becoming usable).
+  slow or offline network never delays the shell becoming usable).
   Silent if you're up to date; a single terminal line if not:
   ```
-  ↑  OXIS 1.3.0 is available (you're on 1.2.1) — run 'update to open it
+  ↑  a newer OXIS build (a1b2c3d) is available (you're on 9f8e7d6) — run 'update to open it
   ```
-- **On demand** — `'update` checks immediately and, if a newer
-  release exists, opens its first `.exe`/`.msi` asset (falling back to
+- **On demand** — `'update` checks immediately and, if a newer build
+  exists, opens its first `.exe`/`.msi`/`.deb` asset (falling back to
   the release page itself) in your default browser via the same
   `OpenURL` native call the Market's checkout flow uses.
 
-### How the version is determined
+### How the commit is determined
 
-`scripts/build-go.js`'s `VERSION` constant gets stamped into the
-binary at compile time via `-ldflags -X .../wailsapp.Version=...` — a
-`go run`/unlinked build falls back to `"0.0.0-dev"`, which never
-reports as newer than a real release. Bump `VERSION` in
-`build-go.js` (and `cmd/oxi/versioninfo.json`, so the `.exe`'s own
-file-properties version matches) when you cut a release.
+`internal/update.BuildCommit` (a Go var, not a const — the linker can
+only override a var with `-ldflags -X`) gets stamped into the binary
+at compile time with `-X .../internal/update.BuildCommit=$(git
+rev-parse HEAD)` — `build-linux.sh` already does this. **A build that
+skips this ldflag has an empty `BuildCommit`, and `Check()`
+deliberately always reports "no update available" in that case** —
+never a false positive from comparing against an empty string, and
+never comparing at all until the build pipeline actually sets it. Any
+other build script (a future GitHub Actions workflow, or your own
+local Windows build steps) needs the same ldflag or this silently
+does nothing for builds made that way.
 
-### What actually triggers a notification
+### What CI still needs to do — **not built yet**
 
-**Pushing to a branch does nothing here.** The check hits GitLab's
-`/releases/permalink/latest` API, which only returns something once
-you've cut a real Release off a tag (Repository → Tags → a tag, then
-Releases → New release, or `glab release create`) — not on every
-`git push`. Draft/upcoming releases aren't returned by that endpoint
-either.
+Checking a commit SHA against a release's recorded commit only works
+once something is actually publishing that release. The design this
+expects: on every push to the default branch, CI (1) builds with the
+`BuildCommit` ldflag above, then (2) publishes or overwrites a single,
+fixed-name release (`latest-build` — see `RollingReleaseTag` in
+`update.go`) whose body/description contains the plain 40-character
+commit SHA it was built from (a regex in `update.go` looks for exactly
+that), with the built binary attached as an asset. **This is real,
+separate CI work that hasn't been written** — a GitHub Actions
+workflow doing this needs to be added once the actual GitHub repo
+exists (see [Continuous Integration](#continuous-integration)).
 
 ### Files
 
 | File                                | Role                                                        |
 |--------------------------------------|--------------------------------------------------------------|
-| `internal/update/update.go`          | `Check(currentVersion)` — hits the GitLab API, compares semver, never returns an error (a failed/offline check just comes back `Available: false`) |
-| `internal/wailsapp/app.go`           | `Version` var (ldflags target) + `CheckForUpdate()` bound method |
+| `internal/update/update.go`          | `Check()` — hits the GitHub API for the rolling release, compares commit SHAs, never returns an error (a failed/offline check just comes back `Available: false`) |
+| `internal/wailsapp/app.go`           | `CheckForUpdate()` bound method |
 | `frontend/src/native.ts`             | `checkForUpdate()` — typed wrapper around the bound method |
 | `frontend/src/App.tsx`               | `'update` command + the once-per-run startup check          |
-| `scripts/build-go.js`                | Stamps `VERSION` into the binary via ldflags                 |
+| `build-linux.sh`                     | Injects `BuildCommit` via `-ldflags -X` |
 
 ---
 

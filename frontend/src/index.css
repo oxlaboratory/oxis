@@ -518,57 +518,6 @@ html, body, #root {
 .cmdp-item-desc { color: var(--muted); font-size: 11px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cmdp-item-cat  { color: var(--dim); font-size: 9px; letter-spacing: .05em; text-transform: uppercase; flex-shrink: 0; }
 
-/* ── COMMIT DIALOG — the default 'task commit's real UI. See
-   CommitDialog in App.tsx and git.ts for the actual git plumbing.
-   Shares .cmdp-backdrop with the Command Palette (same overlay/
-   centering behavior), styled independently past that point. ── */
-.commit-dialog {
-  width: min(560px, 92vw); max-height: 70vh;
-  background: var(--bg1); border: 1px solid var(--border2); border-radius: 6px;
-  box-shadow: 0 20px 60px rgba(0,0,0,.5);
-  display: flex; flex-direction: column; overflow: hidden;
-}
-.commit-dialog-header {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 10px 14px; border-bottom: 1px solid var(--border);
-  font-size: 12px; font-weight: 700; color: var(--purple3);
-}
-.commit-dialog-body { padding: 14px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
-.commit-dialog-msg { font-size: 12px; color: var(--muted); line-height: 1.6; }
-.commit-dialog-msg code { color: var(--purple3); background: var(--bg3); padding: 1px 5px; border-radius: 3px; }
-.commit-dialog-msg--ok  { color: var(--green, #7cd992); }
-.commit-dialog-msg--err { color: var(--err); }
-.commit-dialog-summary { color: var(--dim); font-size: 11px; }
-.commit-dialog-branch { font-size: 11px; color: var(--dim); }
-.commit-dialog-branch code { color: var(--purple2); }
-.commit-dialog-files {
-  max-height: 160px; overflow-y: auto; border: 1px solid var(--border);
-  border-radius: 4px; padding: 4px 0;
-}
-.commit-dialog-file { display: flex; align-items: center; gap: 8px; padding: 3px 10px; font-size: 11px; }
-.commit-file-status {
-  font-size: 9px; text-transform: uppercase; letter-spacing: .04em;
-  padding: 1px 6px; border-radius: 3px; flex-shrink: 0; min-width: 44px; text-align: center;
-}
-.commit-file-status--new      { background: rgba(124,217,146,.15); color: var(--green, #7cd992); }
-.commit-file-status--modified { background: rgba(203,166,247,.15); color: var(--purple3); }
-.commit-file-status--deleted  { background: rgba(230,111,127,.15); color: var(--err); }
-.commit-file-status--added    { background: rgba(124,217,146,.15); color: var(--green, #7cd992); }
-.commit-file-status--renamed  { background: rgba(240,198,120,.15); color: #f0c678; }
-.commit-file-path { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.commit-dialog-input {
-  width: 100%; min-height: 70px; resize: vertical; box-sizing: border-box;
-  background: var(--bg3); border: 1px solid var(--border); border-radius: 4px;
-  color: var(--text); font-family: var(--font); font-size: 12px; padding: 8px 10px;
-  outline: none;
-}
-.commit-dialog-input:focus { border-color: var(--purple3); }
-.commit-dialog-input:disabled { opacity: .6; }
-.commit-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
-.commit-dialog-commit { color: var(--purple3); border-color: var(--purple3); }
-.commit-dialog-commit:disabled { opacity: .4; cursor: default; }
-.commit-dialog-hint { font-size: 9px; color: var(--comment); text-align: right; }
-
 
 .theme-editor {
   width: min(540px, 94vw); height: min(700px, 90vh);
@@ -789,12 +738,6 @@ html, body, #root {
 .oxis-workspace-footer { justify-content: flex-end; margin-top: 4px; }
 .oxis-workspace-hint { font-size: var(--home-fs); font-style: italic; color: var(--dim); }
 .oxis-workspace-hint code { color: var(--purple2); }
-.oxis-workspace-support-link {
-  background: none; border: none; cursor: pointer; padding: 0;
-  font-size: var(--home-fs); font-style: italic; color: var(--dim);
-  transition: color .15s ease;
-}
-.oxis-workspace-support-link:hover { color: var(--purple2); }
 
 .oxis-help-box { margin-top: 0; }
 .oxis-help-row { display: flex; align-items: baseline; gap: 4px; font-size: var(--home-fs); font-style: italic; }
@@ -878,9 +821,9 @@ html, body, #root {
 
 .sky-moon {
   position: absolute; top: 2px; right: 0px;
-  font-size: 11px; color: #c8d2ff; font-family: var(--font);
+  font-size: 11px; color: #ffffff; font-family: var(--font);
   white-space: pre; line-height: 1.2;
-  text-shadow: 0 0 5px rgba(200,210,255,.28);
+  text-shadow: 0 0 5px rgba(255,255,255,.28);
   animation: moon-glow 5s ease-in-out infinite;
   z-index: 2;
 }
