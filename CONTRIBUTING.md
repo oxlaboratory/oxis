@@ -42,7 +42,7 @@ Small fixes, documentation improvements, and straightforward bug fixes can gener
 Clone your copy of OXIS:
 
 ```bash
-git clone https://gitlab.com/rdrewer2009/OXIS.git
+git clone https://github.com/REPLACE_WITH_YOUR_GITHUB_OWNER/REPLACE_WITH_YOUR_REPO_NAME.git
 cd OXIS
 ```
 
