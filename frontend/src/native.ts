@@ -44,6 +44,8 @@ declare global {
           StatPath?: (path: string) => Promise<NativeStatResult>;
           MakeDir?: (path: string) => Promise<void>;
           DeletePath?: (path: string) => Promise<void>;
+          MovePath?: (src: string, dst: string) => Promise<void>;
+          RunCommand?: (dir: string, name: string, args: string[]) => Promise<NativeRunCommandResult>;
           SystemInfo?: () => Promise<NativeSystemInfo>;
           ListProcesses?: () => Promise<NativeProcessInfo[]>;
           KillProcess?: (pid: number) => Promise<void>;
@@ -74,6 +76,7 @@ export class NativeUnavailableError extends Error {
 // ── Core System API types (mirror internal/wailsapp/app.go's Go structs) ──
 export interface NativeFileEntry { name: string; isDir: boolean; size: number; modTime: number; }
 export interface NativeStatResult { exists: boolean; isDir: boolean; size: number; modTime: number; }
+export interface NativeRunCommandResult { stdout: string; stderr: string; exitCode: number; }
 export interface NativeSystemInfo { os: string; arch: string; numCPU: number; goVersion: string; allocMB: number; numGoroutine: number; }
 export interface NativeProcessInfo { pid: number; name: string; }
 export interface NativeUpdateInfo {
@@ -199,6 +202,28 @@ export async function deletePath(path: string): Promise<void> {
   const fn = window.go?.wailsapp?.App?.DeletePath;
   if (!fn) throw new NativeUnavailableError();
   return fn(path);
+}
+
+/** Moves/renames a file or directory — a real, atomic os.Rename on
+ *  the Go side. Refuses if the destination already exists (see
+ *  MovePath in app.go) rather than silently overwriting. Path safety
+ *  (staying inside a connected project) is the CALLER's job — see
+ *  safeJoinWithinDir in App.tsx — this is a thin wrapper. */
+export async function movePath(src: string, dst: string): Promise<void> {
+  const fn = window.go?.wailsapp?.App?.MovePath;
+  if (!fn) throw new NativeUnavailableError();
+  return fn(src, dst);
+}
+
+/** Runs a real external command (git, most commonly) and captures its
+ *  output structurally — see RunCommand in internal/wailsapp/app.go
+ *  for the full contract (argv-based, never shell-interpreted; 30s
+ *  timeout; a non-zero exit is a normal result here, not a thrown
+ *  error — only a genuine failure to start the command throws). */
+export async function runCommand(dir: string, name: string, args: string[]): Promise<NativeRunCommandResult> {
+  const fn = window.go?.wailsapp?.App?.RunCommand;
+  if (!fn) throw new NativeUnavailableError();
+  return fn(dir, name, args);
 }
 
 export async function systemInfo(): Promise<NativeSystemInfo> {

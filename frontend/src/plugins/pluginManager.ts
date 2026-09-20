@@ -142,6 +142,46 @@ class PluginManager {
   /** Must be called once at startup before loading plugins */
   init(ctx: APIContext): void {
     this.apiCtx = ctx;
+    // User-created plugins are workspace-scoped (see pluginsDir() —
+    // "created-plugins/" with no workspace active, or the active
+    // named workspace's own "plugins/" folder) — but until this,
+    // nothing ever re-scanned that folder after startup. Switching
+    // workspaces left the PREVIOUS workspace's user plugins still
+    // registered/enabled (stale — their files might not even exist
+    // under the new workspace) and never loaded the NEW workspace's
+    // own. Re-sync on every workspace_loaded/unloaded: clear out
+    // whatever "user"-origin plugins are currently registered, then
+    // re-scan whichever plugins/ directory is active now. Market-
+    // installed plugins are untouched — those were never workspace-
+    // scoped to begin with.
+    events.on("workspace_loaded",   () => this.resyncUserPlugins());
+    events.on("workspace_unloaded", () => this.resyncUserPlugins());
+  }
+
+  // Guards against overlapping calls — a workspace auto-detected right
+  // at startup could fire "workspace_loaded" around the same moment
+  // loader.ts makes its own initial loadUserPlugins() call; without
+  // this, both could interleave (unload-while-loading) since JS only
+  // yields at await points, not mid-statement, but there's no reason
+  // to rely on that being harmless when a simple guard avoids it.
+  private userPluginResyncInFlight = false;
+  private resyncUserPlugins(): void {
+    if (this.userPluginResyncInFlight) return;
+    this.userPluginResyncInFlight = true;
+    this.unloadAllUserPlugins();
+    this.loadUserPlugins().finally(() => { this.userPluginResyncInFlight = false; });
+  }
+
+  /** Unloads and de-registers every "user"-origin plugin — see init()'s
+   *  workspace_loaded/unloaded listeners. Market-installed plugins are
+   *  never touched by this. */
+  unloadAllUserPlugins(): void {
+    for (const p of [...this.plugins.values()]) {
+      if (p.origin === "user") {
+        this.unload(p.name);
+        this.plugins.delete(p.name);
+      }
+    }
   }
 
   register(meta: PluginMeta): void {

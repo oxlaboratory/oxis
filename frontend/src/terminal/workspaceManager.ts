@@ -22,6 +22,7 @@ import { readFile, writeFile, statPath, listDir, makeDir, deletePath, isNativeAp
 import { loadLuaPlugin, type LoadedLuaPlugin } from "../plugins/luaRuntime";
 import { buildLuaAPI, type APIContext } from "../plugins/pluginAPI";
 import { workflowRunner } from "../plugins/workflowRunner";
+import { OXIS_VERSION } from "../plugins/manifest";
 import { registry } from "./commandRegistry";
 import { events } from "./events";
 
@@ -29,10 +30,70 @@ const WORKSPACE_PLUGIN_NAME = "__workspace__";
 const WORKSPACE_REL_PATH = ".oxis/workspace.lua";
 const NAMED_SUBDIRS = ["documents", "plugins", "scripts", "tasks", "workflows", ".oxis"] as const;
 const REGISTRY_PATH = "workspaces/registry.json";
+
+// Bumped whenever a new OXIS version changes what a workspace's own
+// folder is expected to contain (a new entry added to NAMED_SUBDIRS,
+// for instance — tasks/ and workflows/ didn't always exist). See
+// migrateWorkspaces() below — this is the "auto-updater for
+// workspaces" that runs once whenever OXIS itself has been updated
+// since the last launch, bringing every EXISTING workspace's on-disk
+// layout in line with what the running version expects, without
+// touching anything the user actually created or customized.
+const CURRENT_WORKSPACE_SCHEMA = 1;
+const LAST_SEEN_VERSION_KEY = "oxis-last-seen-version";
+
 // A workspace name becomes a real folder name under workspaces/, so
 // keep it to something safe on every OS's filesystem and that can't
 // escape that folder via ".." or a path separator.
 const NAME_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
+
+const CONNECTOR_FILENAME = ".oxis-connector.json";
+const GITIGNORE_RULE = `${CONNECTOR_FILENAME}`;
+const GITIGNORE_MARKER = "# OXIS workspace connector — do not commit"; // written just above the rule so it's identifiable/removable on unlink, and so a human reading .gitignore knows why the line is there
+
+/** Writes (creating if absent) `<dir>/.gitignore` with the one rule
+ *  needed to keep the OXIS connector file (below) out of the user's
+ *  actual repository — see item 8: never overwrites or reorders
+ *  anything already in the file, never duplicates the rule if it's
+ *  already there (checked as a real line match, not just a substring,
+ *  so a rule that happens to CONTAIN this text for unrelated reasons
+ *  doesn't get treated as already covering this). Best-effort: a
+ *  read-only or otherwise inaccessible directory logs and returns
+ *  rather than throwing, since failing to link the workspace itself
+ *  over a .gitignore write failure would be a worse outcome. */
+async function ensureGitignoreRule(dir: string): Promise<void> {
+  const path = `${dir}/.gitignore`;
+  let existing = "";
+  try { existing = await readFile(path); } catch { /* doesn't exist yet — created fresh below */ }
+  const lines = existing.split(/\r?\n/);
+  if (lines.some(l => l.trim() === GITIGNORE_RULE)) return; // already present — never duplicate
+  const needsLeadingBlank = existing.length > 0 && !existing.endsWith("\n");
+  const addition = `${needsLeadingBlank ? "\n" : ""}${existing.length > 0 ? "\n" : ""}${GITIGNORE_MARKER}\n${GITIGNORE_RULE}\n`;
+  try { await writeFile(path, existing + addition); }
+  catch { /* read-only/inaccessible directory — the link itself still succeeds, just without this protection; 'workspace info can't easily surface this from here, so it's a silent best-effort by design rather than failing the whole link */ }
+}
+
+/** Writes the connector file itself — a small, non-sensitive marker
+ *  (just the OXIS workspace name and when it was linked) that lives
+ *  IN the external project directory, representing "this directory is
+ *  linked to this OXIS workspace." The real source of truth for the
+ *  link is still workspaces/registry.json (see linkExternal) — this
+ *  is a secondary, human-discoverable marker, not sensitive OXIS
+ *  internal data, so there's nothing here that would matter if it
+ *  leaked; it's gitignored purely so a project's own repo doesn't
+ *  carry OXIS-specific clutter that means nothing to anyone else who
+ *  clones it. */
+async function writeConnectorFile(dir: string, workspaceName: string): Promise<void> {
+  const path = `${dir}/${CONNECTOR_FILENAME}`;
+  const body = JSON.stringify({ oxisWorkspace: workspaceName, linkedAt: new Date().toISOString() }, null, 2);
+  try { await writeFile(path, body); } catch { /* best-effort, same reasoning as ensureGitignoreRule */ }
+}
+
+async function removeConnectorFile(dir: string): Promise<void> {
+  try { await deletePath(`${dir}/${CONNECTOR_FILENAME}`); }
+  catch { /* directory may be moved/deleted/inaccessible by now — nothing to clean up, and the internal unlink below still proceeds regardless (see item 7: "handled safely when the connected directory is moved, deleted, or becomes inaccessible") */ }
+}
+
 
 function validateWorkspaceName(name: string): string | null {
   if (!NAME_RE.test(name)) {
@@ -53,6 +114,12 @@ export interface NamedWorkspaceEntry {
    *  is linked to — see linkExternal(). Absolute path, set by the
    *  user, never written to by anything here. */
   externalPath?: string;
+  /** Which OXIS version's workspace layout this entry was last
+   *  migrated to — see migrateWorkspaces()/CURRENT_WORKSPACE_SCHEMA
+   *  below. Absent on any workspace created before this existed
+   *  (treated as needing a migration check, same as any older
+   *  version would be). */
+  schemaVersion?: number;
 }
 
 export interface WorkspaceOpResult {
@@ -78,9 +145,18 @@ oxis.workspace(".")   -- marks this directory as the active workspace
 
 -- oxis.theme("midnight")             -- force a theme whenever this project opens
 
-oxis.task("dev",   "npm run dev",   "Start the dev server")
-oxis.task("build", "npm run build", "Production build")
-oxis.task("test",  "npm test",      "Run the test suite")
+-- Starts with NO tasks at all — a fresh workspace shouldn't assume
+-- anything about what this project needs. Add your own for what THIS
+-- project actually does, e.g.:
+-- oxis.task("dev",   "npm run dev",   "Start the dev server")
+-- oxis.task("build", "npm run build", "Production build")
+-- oxis.task("test",  "npm test",      "Run the test suite")
+--
+-- The one exception: 'workspace github/gitlab automatically adds a
+-- "commit" task (a real commit dialog — see README § Git Integration)
+-- the moment you actually connect a remote — never before that, and
+-- never here in this template, since a workspace with no git
+-- connection yet has nothing for a commit task to do.
 
 -- oxis.plugin.enable("git")          -- auto-enable a plugin for this workspace
 
@@ -145,12 +221,20 @@ class WorkspaceManager {
 
   /** Detect + load in one step; used at startup and whenever the
    *  active shell's cwd changes (see ptyClient.ts's cwd tracking). A
-   *  no-op (not an error) when there's simply no workspace here. */
+   *  no-op (not an error) when there's simply no workspace here.
+   *
+   *  Deliberately does NOT auto-detect while a NAMED workspace is
+   *  active — a named workspace is an explicit choice ('workspace
+   *  switch), and incidentally `cd`-ing somewhere in the shell that
+   *  happens to have its own .oxis/workspace.lua shouldn't silently
+   *  yank the user out of it. 'workspace switch default first if you
+   *  actually want the ad-hoc, cwd-based flow to take over. */
   async detectAndLoad(dir: string): Promise<WorkspaceOpResult | null> {
+    if (this.activeNamed) return null;
     const found = await this.detect(dir);
     if (!found) return null;
     if (this.activeDir === dir) return null; // already loaded
-    return this.load(dir);
+    return this.load(dir, null);
   }
 
   /** `'workspace init` — create `.oxis/workspace.lua` with a starter template. */
@@ -168,7 +252,7 @@ class WorkspaceManager {
     } catch (e) {
       return { ok: false, message: `couldn't create ${path}: ${e}` };
     }
-    const loaded = await this.load(dir);
+    const loaded = await this.load(dir, null); // ad-hoc directory — never a named workspace
     return { ok: loaded.ok, message: `created ${path}${loaded.ok ? " and loaded it" : ` (${loaded.message})`}` };
   }
 
@@ -204,7 +288,7 @@ class WorkspaceManager {
     // at all) still needs to surface, though.
     const workspaceAlreadyExisted = !wsResult.ok && wsResult.message.includes("already exists at");
     if (!wsResult.ok && !workspaceAlreadyExisted) return wsResult;
-    if (workspaceAlreadyExisted) await this.load(dir); // still load it, same as a fresh init would
+    if (workspaceAlreadyExisted) await this.load(dir, null); // still load it, same as a fresh init would — ad-hoc, never named
     return {
       ok: true,
       message: created.length > 0
@@ -228,7 +312,12 @@ class WorkspaceManager {
   async reload(dir?: string): Promise<WorkspaceOpResult> {
     const target = dir ?? this.activeDir;
     if (!target) return { ok: false, message: "no workspace loaded to reload — pass a directory, or 'workspace init one" };
-    return this.load(target);
+    // Preserve whatever named workspace (if any) is currently active —
+    // a reload re-runs the SAME workspace, named or not, it never
+    // changes which one that is. Captured before load() runs, since
+    // load() is what actually sets/clears activeNamed now.
+    const currentNamed = this.activeNamed;
+    return this.load(target, currentNamed);
   }
 
   /** `'workspace close` — unload, undoing everything workspace.lua registered. */
@@ -244,8 +333,22 @@ class WorkspaceManager {
     return { ok: true, message: "workspace closed" };
   }
 
-  /** Core load path shared by init/reload/detectAndLoad. */
-  async load(dir: string): Promise<WorkspaceOpResult> {
+  /** Core load path shared by init/reload/detectAndLoad/switchNamed.
+   *  `namedWorkspace` is the SINGLE place `activeNamed` gets set —
+   *  every caller must say explicitly whether this load is a named
+   *  workspace (pass its name) or an ad-hoc directory (pass null).
+   *  This used to be left to callers to manage as an afterthought
+   *  (only switchNamed updated it, after the fact) — which meant
+   *  activeNamed could go stale the moment ANY other path called
+   *  load(): switch to a named workspace, then have the shell cd into
+   *  an unrelated directory with its own .oxis/workspace.lua
+   *  (detectAndLoad), and the system would still think the OLD named
+   *  workspace was active — wrong workspace shown everywhere
+   *  (Home's panel, the file tree's root, 'workspace newfile/github/
+   *  gitlab all operating against the wrong registry entry). Now
+   *  load() itself is the only place this can be set, so it can't
+   *  drift out of sync with what's actually loaded. */
+  async load(dir: string, namedWorkspace: string | null = null): Promise<WorkspaceOpResult> {
     const unavailable = this.unavailable();
     if (unavailable) return unavailable;
     const path = joinPath(dir, WORKSPACE_REL_PATH);
@@ -272,11 +375,14 @@ class WorkspaceManager {
     const bindings = buildLuaAPI({ ...this.apiCtx!, pluginName: WORKSPACE_PLUGIN_NAME });
     const result = loadLuaPlugin(source, bindings);
     if (!result.ok) {
+      this.activeDir = null;
+      this.activeNamed = null;
       events.emit("workspace_unloaded", {});
       return { ok: false, message: `${path} failed to load: ${result.error}` };
     }
     this.disposer = result.plugin;
     this.activeDir = dir;
+    this.activeNamed = namedWorkspace;
     await this.loadTasks(dir);
     await this.loadWorkflows(dir);
     // Authoritative "workspace_loaded" with the real absolute
@@ -434,9 +540,64 @@ class WorkspaceManager {
     } catch (e) {
       return { ok: false, message: `couldn't create ${dir}: ${e}` };
     }
-    entries.push({ name, createdAt: new Date().toISOString() });
+    entries.push({ name, createdAt: new Date().toISOString(), schemaVersion: CURRENT_WORKSPACE_SCHEMA });
     await this.writeRegistry(entries);
     return { ok: true, message: `workspace "${name}" created (${dir}/) — 'workspace switch ${name} to activate it` };
+  }
+
+  /** The actual "auto-updater for workspaces" — call once at startup
+   *  (see App.tsx's init effect). Compares the running OXIS_VERSION
+   *  against whatever was last seen (localStorage) and, ONLY if it's
+   *  different (a real update happened, or this is the very first
+   *  launch), runs migrateWorkspaces() across every named workspace.
+   *  Cheap and safe to call on every launch regardless — the version
+   *  check just avoids doing the (idempotent, but not free) folder
+   *  scan on every single startup when nothing's actually changed. */
+  async runAutoUpdateIfNeeded(): Promise<void> {
+    if (!isNativeApp()) return;
+    let lastSeen: string | null = null;
+    try { lastSeen = localStorage.getItem(LAST_SEEN_VERSION_KEY); } catch { /* storage unavailable — just run the migration; it's idempotent */ }
+    if (lastSeen === OXIS_VERSION) return;
+    const result = await this.migrateWorkspaces();
+    if (result.migrated.length > 0) {
+      this.apiCtx?.print(`  ⚙  updated ${result.migrated.length} workspace(s) for OXIS ${OXIS_VERSION}: ${result.migrated.join(", ")}`, "dim");
+    }
+    try { localStorage.setItem(LAST_SEEN_VERSION_KEY, OXIS_VERSION); } catch { /* not fatal — just means this runs again next launch too */ }
+  }
+
+  /** Brings every named workspace's on-disk folder layout up to
+   *  whatever the running OXIS version expects — currently just
+   *  "every folder in NAMED_SUBDIRS actually exists" (a workspace
+   *  created before tasks/workflows were added to that list would be
+   *  missing them; `.oxis/` similarly for anything from before the
+   *  project layer). Purely additive: creates missing folders, never
+   *  touches, overwrites, or deletes anything that's already there —
+   *  a workspace's `workspace.lua`, its documents, its own tasks are
+   *  never rewritten by this. Safe and cheap to run repeatedly
+   *  (checked via schemaVersion first, so an up-to-date workspace
+   *  does no filesystem work at all beyond the registry read). */
+  async migrateWorkspaces(): Promise<{ migrated: string[] }> {
+    if (!isNativeApp()) return { migrated: [] };
+    const entries = await this.readRegistry();
+    const migrated: string[] = [];
+    let changed = false;
+    for (const entry of entries) {
+      if ((entry.schemaVersion ?? 0) >= CURRENT_WORKSPACE_SCHEMA) continue;
+      const dir = `workspaces/${entry.name}`;
+      let addedAnything = false;
+      for (const sub of NAMED_SUBDIRS) {
+        const subPath = `${dir}/${sub}`;
+        const already = await statPath(subPath).catch(() => ({ exists: false, isDir: false, size: 0, modTime: 0 }));
+        if (!already.exists) {
+          try { await makeDir(subPath); addedAnything = true; } catch { /* best-effort — a failure here shouldn't block the rest of the migration or the app starting up */ }
+        }
+      }
+      entry.schemaVersion = CURRENT_WORKSPACE_SCHEMA;
+      changed = true;
+      if (addedAnything) migrated.push(entry.name);
+    }
+    if (changed) await this.writeRegistry(entries);
+    return { migrated };
   }
 
   /** `'workspace list` */
@@ -456,9 +617,8 @@ class WorkspaceManager {
     if (!entries.some(e => e.name === name)) {
       return { ok: false, message: `no workspace named "${name}" — see 'workspace list` };
     }
-    const result = await this.load(`workspaces/${name}`);
+    const result = await this.load(`workspaces/${name}`, name);
     if (!result.ok) return result;
-    this.activeNamed = name;
     return { ok: true, message: `switched to workspace "${name}"` };
   }
 
@@ -504,31 +664,86 @@ class WorkspaceManager {
    *  the workspace's registry entry for your own scripts/tasks/
    *  workflows to reference (e.g. a task that `cd`s there before
    *  running a build), while OXIS keeps managing the workspace's own
-   *  documents/plugins/scripts/tasks/workflows folders around it. */
+   *  documents/plugins/scripts/tasks/workflows folders around it.
+   *
+   *  Also writes a small connector marker file into that directory
+   *  and makes sure its .gitignore excludes it (see writeConnectorFile/
+   *  ensureGitignoreRule above) — real, working side effects, not
+   *  just an internal pointer nothing else reflects. */
   async linkExternal(path: string): Promise<WorkspaceOpResult> {
     if (!this.activeNamed) {
       return { ok: false, message: "no workspace active — 'workspace switch <name> first (or 'workspace init \"name\" then switch)" };
     }
+    const stat = await statPath(path).catch(() => ({ exists: false, isDir: false, size: 0, modTime: 0 }));
+    if (!stat.exists) return { ok: false, message: `no such directory: ${path}` };
+    if (!stat.isDir) return { ok: false, message: `${path} is a file, not a directory` };
     const entries = await this.readRegistry();
     const entry = entries.find(e => e.name === this.activeNamed);
     if (!entry) return { ok: false, message: `active workspace "${this.activeNamed}" is missing its registry entry` };
     entry.externalPath = path;
     await this.writeRegistry(entries);
-    return { ok: true, message: `workspace "${this.activeNamed}" linked to ${path}` };
+    await writeConnectorFile(path, this.activeNamed);
+    await ensureGitignoreRule(path);
+    events.emit("workspace_linked", { path });
+    return { ok: true, message: `workspace "${this.activeNamed}" linked to ${path} (added a .gitignore rule for the connector file, if one wasn't already there)` };
   }
 
-  /** `'workspace unlink` — remove the active workspace's external path. */
+  /** `'workspace unlink` — remove the active workspace's external path.
+   *  Cleans up the connector file too, but never lets that block the
+   *  actual unlink — the directory may already be moved, deleted, or
+   *  otherwise inaccessible by the time you unlink (see item 7), and
+   *  the registry entry should still be cleared regardless. */
   async unlinkExternal(): Promise<WorkspaceOpResult> {
     if (!this.activeNamed) return { ok: false, message: "no workspace active" };
     const entries = await this.readRegistry();
     const entry = entries.find(e => e.name === this.activeNamed);
     if (!entry) return { ok: false, message: `active workspace "${this.activeNamed}" is missing its registry entry` };
+    const oldPath = entry.externalPath;
     delete entry.externalPath;
     await this.writeRegistry(entries);
+    if (oldPath) await removeConnectorFile(oldPath);
+    events.emit("workspace_unlinked", {});
     return { ok: true, message: `workspace "${this.activeNamed}" unlinked` };
   }
 
   getActiveNamed(): string | null { return this.activeNamed; }
+
+  /** Writes the "commit" task into the ACTIVE workspace's own tasks/
+   *  folder (workspaces/<name>/tasks/commit.lua for a named workspace,
+   *  or .oxis/tasks/commit.lua for the ad-hoc single-directory flow)
+   *  and loads it immediately — called by 'workspace github/gitlab
+   *  right after a remote is actually configured (see README § Git
+   *  Integration: "no default task... only when github or gitlab
+   *  connected"). A separate file, not an edit to workspace.lua's own
+   *  text, so it can't clobber anything hand-written there. Never
+   *  overwrites a commit.lua that's already there (the user may have
+   *  customized it), and checks the registry — not just the file's
+   *  existence — before treating it as "already set up", so a
+   *  workspace.lua that already registers its OWN task named "commit"
+   *  (however it does so) isn't duplicated either. Returns whether it
+   *  actually created anything new. */
+  async ensureCommitTask(): Promise<boolean> {
+    if (!this.activeDir) return false;
+    if (registry.get("task:commit")) return false; // already exists, from this or any other source
+    const tasksDir = `${this.activeDir}/tasks`;
+    const commitLuaPath = `${tasksDir}/commit.lua`;
+    const already = await statPath(commitLuaPath).catch(() => ({ exists: false, isDir: false, size: 0, modTime: 0 }));
+    if (already.exists) return false; // a commit.lua exists but wasn't loaded as "commit" for some other reason — don't overwrite it blind
+    await makeDir(tasksDir);
+    await writeFile(commitLuaPath, `-- Added automatically by 'workspace github/gitlab once a remote was configured.\n-- A completely normal task — rename, edit, or delete it like any other.\noxis.task("commit", "'git-commit-dialog", "Commit the connected project's changes")\n`);
+    await this.loadTasksFrom(tasksDir);
+    return true;
+  }
+
+  /** The active named workspace's connected external directory (see
+   *  linkExternal), or null if there's no active named workspace or
+   *  it isn't linked to one. Async because the link itself lives in
+   *  the on-disk registry, not cached in memory. */
+  async getActiveExternalPath(): Promise<string | null> {
+    if (!this.activeNamed) return null;
+    const entries = await this.readRegistry();
+    return entries.find(e => e.name === this.activeNamed)?.externalPath ?? null;
+  }
 
   /** Where 'new should write documents right now. */
   documentsDir(): string {

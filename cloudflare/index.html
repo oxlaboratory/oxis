@@ -421,6 +421,23 @@ const CATEGORIES = [
   "DEVOPS", "MONITORING", "GAMES"
 ]; // keep this in sync with any "cat" values you use below
 
+function escapeHtml(s){
+  // Every plugin field below is either user/developer-submitted
+  // (Market Publishing's GitLab-MR flow — see README § Third-Party
+  // Developer Marketplace) or, for the built-in catalog, hand-edited
+  // by whoever maintains this file — either way, none of it should be
+  // trusted as safe HTML. Used everywhere a plugin field is
+  // interpolated into a template string that ends up in .innerHTML,
+  // in both text-content and attribute-value positions (hence
+  // escaping quotes too, not just < / >).
+  return String(s ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 const PLUGINS = [
 
   // ---- free plugins, one per category — real, working .lua files ----
@@ -517,13 +534,21 @@ const demoOpen = new Set(); // plugin names with their demo video expanded
 
 function demoVideoHTML(p){
   if(!p.demoVideo){
-    return `<div class="demo-empty">no demo video yet — set demoVideo on "${p.name}" in the PLUGINS array</div>`;
+    return `<div class="demo-empty">no demo video yet — set demoVideo on "${escapeHtml(p.name)}" in the PLUGINS array</div>`;
   }
   const yt = p.demoVideo.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([\w-]+)/);
   if(yt){
-    return `<div class="demo-video"><iframe src="https://www.youtube.com/embed/${yt[1]}" allowfullscreen loading="lazy"></iframe></div>`;
+    // yt[1] is already effectively sanitized by the regex itself
+    // (\w and - only — can't contain a quote or angle bracket), but
+    // escapeHtml costs nothing extra and keeps this consistent with
+    // everywhere else a plugin field reaches HTML.
+    return `<div class="demo-video"><iframe src="https://www.youtube.com/embed/${escapeHtml(yt[1])}" allowfullscreen loading="lazy"></iframe></div>`;
   }
-  return `<div class="demo-video"><video src="${p.demoVideo}" controls preload="metadata"></video></div>`;
+  // Unlike the YouTube branch above, a non-YouTube demoVideo URL is
+  // NOT regex-constrained — interpolating it unescaped into a src="..."
+  // attribute let it break out of the attribute entirely (e.g.
+  // `"><script>...`). Real vulnerability, fixed here.
+  return `<div class="demo-video"><video src="${escapeHtml(p.demoVideo)}" controls preload="metadata"></video></div>`;
 }
 
 function prefersReducedMotion(){
@@ -629,47 +654,50 @@ async function downloadPlugin(p){
 
 function cardHTML(p){
   const isIn = acquired.has(p.name);
+  const name = escapeHtml(p.name), ver = escapeHtml(p.ver), desc = escapeHtml(p.desc),
+        creator = escapeHtml(p.creator), cat = escapeHtml(p.cat), size = escapeHtml(p.size),
+        priceDisplay = escapeHtml(p.priceDisplay);
 
   const badge = p.premium
     ? (p.comingSoon ? `<div class="badge badge-paid">soon</div>` : `<div class="badge badge-paid">$ premium</div>`)
-    : `<div class="badge ${isIn ? 'badge-in' : ''}">${isIn ? '★ built-in' : p.cat}</div>`;
+    : `<div class="badge ${isIn ? 'badge-in' : ''}">${isIn ? '★ built-in' : cat}</div>`;
 
   let footer;
 
   if(!p.premium){
     footer = `
       <div class="card-actions">
-        <button class="btn ${isIn ? 'installed' : ''}" data-action="install" data-name="${p.name}">
+        <button class="btn ${isIn ? 'installed' : ''}" data-action="install" data-name="${name}">
           ${isIn ? '✓ installed' : '↓ plugin>install'}
         </button>
       </div>
     `;
   } else if(p.comingSoon || !p.stripePriceId){
     footer = `
-      <div class="price">${p.priceDisplay || ''} <small>/month</small></div>
+      <div class="price">${priceDisplay || ''} <small>/month</small></div>
       <button class="btn" disabled style="opacity:.5; cursor:not-allowed;">coming soon</button>
     `;
   } else {
     footer = `
-      <div class="price">${p.priceDisplay || formatPrice(0, displayCurrency)} <small>/month</small></div>
-      <button class="btn" data-action="subscribe" data-name="${p.name}">subscribe via Stripe</button>
+      <div class="price">${priceDisplay || formatPrice(0, displayCurrency)} <small>/month</small></div>
+      <button class="btn" data-action="subscribe" data-name="${name}">subscribe via Stripe</button>
     `;
   }
 
   const isDemoOpen = demoOpen.has(p.name);
   const demoSection = isDemoOpen
-    ? `<button class="demo-toggle" data-action="toggle-demo" data-name="${p.name}">▲ hide demo</button>${demoVideoHTML(p)}`
-    : `<button class="demo-toggle" data-action="toggle-demo" data-name="${p.name}">▶ watch demo</button>`;
+    ? `<button class="demo-toggle" data-action="toggle-demo" data-name="${name}">▲ hide demo</button>${demoVideoHTML(p)}`
+    : `<button class="demo-toggle" data-action="toggle-demo" data-name="${name}">▶ watch demo</button>`;
 
   return `
-    <div class="card ${p.premium ? 'paid' : ''} ${isIn ? 'purchased' : ''}" data-name="${p.name}">
+    <div class="card ${p.premium ? 'paid' : ''} ${isIn ? 'purchased' : ''}" data-name="${name}">
       <div class="card-top">
-        <div class="card-name">${p.name}<small>v${p.ver}</small></div>
+        <div class="card-name">${name}<small>v${ver}</small></div>
         ${badge}
       </div>
-      <div class="card-desc">${p.desc}</div>
-      <div class="card-tags">${p.tags.map(t=>`<span class="tag">#${t}</span>`).join('')}</div>
-      <div class="card-meta"><span>by <b>${p.creator}</b></span>${!p.premium ? `<span><b>${p.size}</b></span>` : ''}</div>
+      <div class="card-desc">${desc}</div>
+      <div class="card-tags">${p.tags.map(t=>`<span class="tag">#${escapeHtml(t)}</span>`).join('')}</div>
+      <div class="card-meta"><span>by <b>${creator}</b></span>${!p.premium ? `<span><b>${size}</b></span>` : ''}</div>
       ${demoSection}
       ${footer}
     </div>

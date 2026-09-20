@@ -24,9 +24,22 @@ pages_build_output_dir = "."
 # binding = "OXIS_PREMIUM_SOURCE"
 # id = "REPLACE_WITH_REAL_NAMESPACE_ID"
 
+# ── GitLab merge-request automation (fully-automatic 'plugin publish
+# minus auto-merge — a human still reviews/merges on GitLab) ────────
+# See functions/submit-plugin.js. Needs a GITLAB_TOKEN secret (below,
+# same pattern as the Stripe secrets), `api` scope, Developer role
+# (not Maintainer/Owner — this never needs to merge anything) on
+# gitlab.com/oxidelab/oxis. A Project Access Token is the better
+# choice when available, but GitLab.com restricts those to
+# Premium/Ultimate — on Free, use a Personal Access Token instead.
+# Either way, it only ever creates branches/commits/MRs through this
+# function — it never needs (and shouldn't be granted) permission to
+# merge anything itself.
+
 # ── Secrets (NOT set here — see .dev.vars.example) ─────────────────
-# STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, STRIPE_PUBLISHABLE_KEY are
-# configured as encrypted environment variables in the Cloudflare
-# Pages dashboard (Settings -> Environment variables -> Production /
-# Preview), or in a local, gitignored `.dev.vars` for `wrangler pages
-# dev`. Never in this file, which is committed.
+# STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, STRIPE_PUBLISHABLE_KEY, and
+# now GITLAB_TOKEN (see above) are configured as encrypted environment
+# variables in the Cloudflare Pages dashboard (Settings -> Environment
+# variables -> Production / Preview), or in a local, gitignored
+# `.dev.vars` for `wrangler pages dev`. Never in this file, which is
+# committed.

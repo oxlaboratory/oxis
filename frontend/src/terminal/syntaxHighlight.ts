@@ -89,7 +89,7 @@ const BLOCK_COMMENT: Record<EditorLang, [string, string] | null> = {
   lua: null, py: null, sh: null, yaml: null, json: null, md: null, plain: null,
 };
 
-function escapeHtml(s: string): string {
+export function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 

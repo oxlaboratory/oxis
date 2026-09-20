@@ -49,7 +49,7 @@ import {
   deleteChar, deleteLine, deleteWord, openLineBelow, openLineAbove,
   deleteSelection, selectedText,
 } from "./terminal/editorModes";
-import { highlight, detectLang } from "./terminal/syntaxHighlight";
+import { highlight, detectLang, escapeHtml } from "./terminal/syntaxHighlight";
 import type { EditorLang }       from "./terminal/syntaxHighlight";
 import { pluginManager }                   from "./plugins/pluginManager";
 import { UNDOCUMENTED_SENTINEL }           from "./plugins/pluginAPI";
@@ -58,8 +58,9 @@ import type { LuaJSValue }                 from "./plugins/luaRuntime";
 import * as market                         from "./plugins/market";
 import { updatePlugin, updateAllPlugins, rollbackPlugin } from "./plugins/marketUpdate";
 import { exportSettings, importSettings, exportWorkspace, importWorkspace, exportPluginSource, createFullBackup, restoreFullBackup } from "./plugins/backup";
-import { checkPublishable, findExistingListing, prepareFreePublish, preparePaidPublishSummary, startConnectOnboarding } from "./plugins/publish";
-import { readFile, writeFile, listDir, isNativeApp, openUrl, checkForUpdate } from "./native";
+import { checkPublishable, findExistingListing, prepareFreePublish, submitPaidPlugin, startConnectOnboarding } from "./plugins/publish";
+import { isGitRepo, getStatus, commitAll, setupRemote, type GitFileChange, type GitProvider } from "./plugins/git";
+import { readFile, writeFile, listDir, makeDir, statPath, movePath, isNativeApp, openUrl, checkForUpdate } from "./native";
 import Titlebar from "./components/Titlebar";
 
 // ══════════════════════════════════════════════════════════════
@@ -101,6 +102,34 @@ function splitCmdArgs(body: string): string[] {
 // plugins are edited in the exact same Editor as any other file, not
 // a second editor with its own save button, so the Editor itself has
 // to know when "save" also means "reload this plugin".
+// Resolves relPath against baseDir purely as string logic (no filesystem
+// access — safe to check before ever touching disk) and refuses
+// anything that would escape baseDir via ".." segments, an absolute
+// path pretending to be relative, or a stray leading slash — see
+// 'workspace newfile/newdir, the one place OXIS writes into a path the
+// USER chose (their connected external project directory) rather than
+// one it manages itself, so this is the one place that actually needs
+// this check.
+function safeJoinWithinDir(baseDir: string, relPath: string): string | null {
+  if (/^[A-Za-z]:[\\/]/.test(relPath) || relPath.startsWith("/") || relPath.startsWith("\\")) return null;
+  const normalizedBase = baseDir.replace(/\\/g, "/").replace(/\/+$/, "");
+  const baseParts = normalizedBase.split("/").filter(Boolean);
+  const combinedParts = `${normalizedBase}/${relPath.replace(/\\/g, "/")}`.split("/");
+  const resolved: string[] = [];
+  for (const part of combinedParts) {
+    if (part === "" || part === ".") continue;
+    if (part === "..") {
+      if (resolved.length <= baseParts.length - 1) return null; // would climb above baseDir itself
+      resolved.pop();
+    } else {
+      resolved.push(part);
+    }
+  }
+  for (let i = 0; i < baseParts.length; i++) if (resolved[i] !== baseParts[i]) return null;
+  if (resolved.length <= baseParts.length) return null; // resolved to baseDir itself or above — not a valid file/dir name
+  return resolved.join("/");
+}
+
 function findPluginForPath(path: string): string | null {
   for (const p of pluginManager.all()) {
     if (p.builtin || !p.lua) continue;
@@ -291,6 +320,11 @@ const COMMAND_DETAILS: Record<string, CommandDetail> = {
       { syntax: "'workspace delete <name>",           description: "delete a named workspace and everything inside it" },
       { syntax: "'workspace link \"<path>\"",           description: "connect the ACTIVE named workspace to an existing project directory elsewhere on disk, without moving it" },
       { syntax: "'workspace unlink",                  description: "remove that link" },
+      { syntax: "'workspace newfile <relative-path>", description: "create a file inside the CONNECTED external directory (needs 'workspace link first) and open it in the Editor — nested paths create parent folders automatically; refuses anything that would escape the connected directory" },
+      { syntax: "'workspace newdir <relative-path>",  description: "same, for a directory" },
+      { syntax: "'workspace move <file> <directory>", description: "move a file to a directory, both relative to the connected project — same thing dragging a file onto a folder in the file tree does" },
+      { syntax: "'workspace github <owner/repo or URL> [--force]", description: "configure the connected project's git remote for GitHub — initializes a repo if needed, refuses to silently overwrite a DIFFERENT existing origin (add --force to replace it). Also adds a \"commit\" task the first time this succeeds — see 'help project" },
+      { syntax: "'workspace gitlab <owner/repo or URL> [--force]", description: "same, for GitLab" },
       { syntax: "'workspace export <name> [path]",    description: "export one workspace's real files to a JSON file (default: <name>.oxisworkspace.json)" },
       { syntax: "'workspace import <path> [name]",    description: "import one — creates a NEW workspace, never silently overwrites an existing one" },
       { syntax: "'workspace info",                    description: "show the active workspace's state — name, tasks, link if any" },
@@ -301,9 +335,10 @@ const COMMAND_DETAILS: Record<string, CommandDetail> = {
       "'workspace init \"my-app\"          — create a workspace called my-app",
       "'workspace switch my-app          — make it the active one",
       "'workspace link \"C:\\Projects\\my-app\"  — point it at a real project directory",
+      "'workspace github my-name/my-app  — configure the GitHub remote",
       "'workspace switch default         — step back out of it",
     ],
-    notes: "Switching workspaces clears the previously-active one's tasks/commands/workflows first — one workspace's stuff never leaks into another's.",
+    notes: "Switching workspaces clears the previously-active one's tasks/commands/workflows first — one workspace's stuff never leaks into another's. Path arguments in this command family mean THREE different things, worth being precise about: 'workspace init \"name\" takes just a NAME (becomes workspaces/<name>/ — not a path you choose); 'workspace link \"<path>\" takes a real absolute path anywhere on disk (the external project you're connecting to); 'workspace newfile/newdir <relative-path> are relative to THAT connected path specifically, not the app directory 'edit's relative paths use.",
   },
   plugin: {
     summary: "Create, manage, and inspect plugins — both your own (Plugin Creator/'plugin new) and ones installed from the Market.",
@@ -327,8 +362,8 @@ const COMMAND_DETAILS: Record<string, CommandDetail> = {
       { syntax: "'plugin permissions <name> revoke <ns>",                description: "revoke one" },
       { syntax: "'plugin rollback <name>",                               description: "restore the backup taken by the last 'market update — works any time after an update, not just right after a failed one" },
       { syntax: "'plugin export <name> [path]",                         description: "export a plugin's .lua source to a file — for sharing it, or backing it up outside OXIS" },
-      { syntax: "'plugin publish <name>",                               description: "prepare a FREE Market listing — validates it's ready, prepares the metadata index.json needs, and tells you where to send it (no self-service submission endpoint exists yet)" },
-      { syntax: "'plugin publish <name> --price=4.99 --interval=month", description: "prepare a PAID listing — additionally creates a real Stripe Connect Express account (via the deployed /connect-onboarding endpoint) and opens the real onboarding link" },
+      { syntax: "'plugin publish <name>",                               description: "validates it's ready, then opens a real GitLab merge request adding it to the Market — FREE, not live until a human reviews and merges it" },
+      { syntax: "'plugin publish <name> --price=4.99 --interval=month", description: "same, as a PAID listing — creates a real Stripe Connect Express account (via the deployed /connect-onboarding endpoint), opens the onboarding link, then opens the merge request the same way" },
       { syntax: "'plugin publish <name> --email=you@example.com",       description: "email for the Stripe Connect account — defaults to whatever 'market license already has on file" },
     ],
     examples: [
@@ -338,7 +373,7 @@ const COMMAND_DETAILS: Record<string, CommandDetail> = {
       "'plugin publish mytools                  — prepare a free Market listing",
       "'plugin publish mytools --price=4.99 --interval=month --email=you@example.com",
     ],
-    notes: "Publishing genuinely validates and prepares real data (and, for paid plugins, genuinely kicks off Stripe Connect onboarding against the deployed Market backend) but does NOT itself add anything to the Market — there's no self-service \"submit my plugin\" endpoint yet (the backend handles payments/licensing, not listing edits). Running 'plugin publish again on an already-listed plugin is automatically treated as an update (shows the version change) rather than a new listing, detected by checking the Market for an existing entry — no separate command needed for that.",
+    notes: "Publishing automates the tedious part, not the review — it validates the plugin first, and for paid plugins genuinely creates a Stripe Connect account, then opens a real GitLab merge request (branch + commit + MR, via the Market's /submit-plugin endpoint) adding the plugin's .lua file and index.json entry. Nothing is live until a human reviews and merges that MR on GitLab — this just gets it opened without the developer doing the fork/clone/branch/push/MR steps by hand. Running 'plugin publish again on an already-listed plugin opens an UPDATE merge request (replacing its index.json entry) rather than a new one, detected by checking the Market for an existing entry — no separate command needed for that.",
   },
   market: {
     summary: "Browse and install plugins from the free OXIS Market.",
@@ -382,13 +417,17 @@ const COMMAND_DETAILS: Record<string, CommandDetail> = {
   edit: {
     summary: "Open a file in the built-in Editor — Normal/Insert/Visual modes, undo/redo, find & replace, multiple tabs, a file tree (Ctrl+B).",
     usage: [
-      { syntax: "'edit <file>",           description: "relative paths resolve against the app's own directory (created-documents/, created-plugins/, workspaces/, plugins/ all live there — see README § dist/ layout)" },
-      { syntax: "'edit \"<absolute path>\"", description: "quote it if it contains spaces — opens that exact file regardless of where it lives" },
+      { syntax: "'edit <relative-path>",   description: "resolves against the APP's OWN directory (next to oxis.exe) — NOT your project folder, and NOT your current workspace's own subfolder unless you spell that out. See the path notes below — this is the #1 source of \"couldn't open\" errors." },
+      { syntax: "'edit \"<absolute path>\"", description: "C:\\... on Windows, /... on Linux/macOS — opens that exact file regardless of where it lives. Quote it if it contains spaces." },
+      { syntax: "'edit .oxis/workspace.lua", description: "the active workspace's OWN config file, if you're editing the workspace you're currently in — relative to the app dir the same as any other relative path (see notes)" },
+      { syntax: "'edit",                    description: "no argument — just opens the file tree (Ctrl+B does the same once the editor's already open) so you can browse to a file without already knowing its exact path" },
     ],
     examples: [
-      "'edit created-documents/notes.md",
-      "'edit \"C:\\Users\\Admin\\Downloads\\LICENSE\"",
+      "'edit created-documents/notes.md            — a document in the shared default folder",
+      "'edit workspaces/my-app/.oxis/workspace.lua  — a NAMED workspace's own config",
+      "'edit \"C:\\Users\\Admin\\Downloads\\LICENSE\"    — an absolute path anywhere on disk",
     ],
+    notes: "Path rules, precisely: a path starting with a drive letter (C:\\...) or a leading / is absolute and opens exactly that file. Anything else is relative to the APP'S OWN directory (see README § dist/ layout for what lives there — created-documents/, created-plugins/, workspaces/, plugins/), never your shell's current directory and never automatically \"the active workspace's folder.\" This trips people up in one specific way: typing 'edit /workspace.lua expecting \"my current workspace's workspace.lua\" does NOT work — a leading / is an ABSOLUTE path (the filesystem root), not \"the workspace root,\" so OXIS looks for a literal workspace.lua sitting at the very top of your C: drive (or /) and correctly fails to find it there. What you actually want is either 'workspace info (to see the active workspace's real path) or the relative form 'edit workspaces/<name>/.oxis/workspace.lua — no leading slash.",
   },
   task: {
     summary: "Run a task defined by the active workspace's .oxis/workspace.lua (oxis.task(...)).",
@@ -523,8 +562,10 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
         `du -sh "${r}"`
       )); }});
 
-  registry.register({ name:"edit",   category:"files", description:"Open in built-in editor",
-    handler:(_,r)=>{ if(!r){err("usage: 'edit <file>");return;} _ctxRef.current?.openEditor(r); ok(`opening ${r}`); }});
+  registry.register({ name:"edit",   category:"files", description:"Open in built-in editor (no argument: just opens the file tree)",
+    handler:(_,r)=>{
+      if(!r){ events.emit("open_file_tree", {}); return; }
+      _ctxRef.current?.openEditor(r); ok(`opening ${r}`); }});
 
   registry.register({ name:"update", category:"files", description:"Check for a newer OXIS release",
     handler:()=>{
@@ -788,10 +829,15 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
 
         findExistingListing(name).then(existing => {
           if(!price){
-            // Free plugin.
-            const result = prepareFreePublish(check.metadata!, existing);
-            result.message.split("\n").forEach(line => line ? info(line) : ctx.print(""));
-            return;
+            // Free plugin — opens a real GitLab MR for review, doesn't auto-merge.
+            info(`opening a merge request for "${name}" on GitLab…`);
+            return prepareFreePublish(check.metadata!, existing).then(result => {
+              result.message.split("\n").forEach(line => line ? (result.ok?ok:err)(line) : ctx.print(""));
+              if(result.mergeRequestUrl){
+                info("opening the merge request in your browser…");
+                void openUrl(result.mergeRequestUrl);
+              }
+            });
           }
           // Paid plugin.
           if(!["month","year"].includes(interval)){ err(`--interval must be "month" or "year" (got "${interval}")`); return; }
@@ -801,16 +847,21 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
           dim(`$${price}/${interval} — paid OXIS Market plugins are recurring Stripe subscriptions, not one-time purchases.`);
           dim(`Revenue split: 75% to you, 25% to OXIS — handled automatically by Stripe Connect, same as OXIS's own paid plugins.`);
           info(`creating a Stripe Connect Express account for ${email}…`);
-          startConnectOnboarding(email).then(conn => {
+          return startConnectOnboarding(email).then(conn => {
             if(!conn.ok){ err(conn.message); return; }
             ok(conn.message);
             if(conn.onboardingUrl){
-              info("opening the onboarding link in your browser…");
+              info("opening the Stripe onboarding link in your browser…");
               void openUrl(conn.onboardingUrl);
             }
-            info("");
-            const summary = preparePaidPublishSummary(check.metadata!, price, interval, conn.accountId || "", existing);
-            summary.split("\n").forEach(line => line ? info(line) : ctx.print(""));
+            info(`opening a merge request for "${name}" on GitLab…`);
+            return submitPaidPlugin(check.metadata!, price, interval, conn.accountId || "", existing).then(result => {
+              result.message.split("\n").forEach(line => line ? (result.ok?ok:err)(line) : ctx.print(""));
+              if(result.mergeRequestUrl){
+                info("opening the merge request in your browser…");
+                void openUrl(result.mergeRequestUrl);
+              }
+            });
           }).catch(e => err(`Stripe Connect onboarding failed: ${e instanceof Error ? e.message : e}`));
         }).catch(e => err(`couldn't check the Market for an existing listing: ${e instanceof Error ? e.message : e}`));
         return; }
@@ -1082,6 +1133,77 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
       if(sub==="unlink"){
         workspaceManager.unlinkExternal().then(r => (r.ok?ok:err)(r.message));
         return; }
+      if(sub==="newfile"){
+        const rel = args[1];
+        if(!rel){ err(`usage: 'workspace newfile <relative-path>`); return; }
+        workspaceManager.getActiveExternalPath().then(extPath => {
+          if(!extPath){ err(`no connected project directory — 'workspace link "<path>" first`); return; }
+          const safePath = safeJoinWithinDir(extPath, rel);
+          if(!safePath){ err(`invalid path: "${rel}" — must stay inside the connected directory (no absolute paths or ".." that escapes it)`); return; }
+          return statPath(safePath).then(stat => {
+            if(stat.exists){ err(`already exists: ${safePath}`); return; }
+            return writeFile(safePath, "").then(() => {
+              ok(`created ${safePath}`);
+              events.emit("filetree_refresh", {});
+              _ctxRef.current?.openEditor(safePath);
+            });
+          });
+        }).catch(e => err(`couldn't create the file: ${e instanceof Error ? e.message : e}`));
+        return; }
+      if(sub==="newdir"){
+        const rel = args[1];
+        if(!rel){ err(`usage: 'workspace newdir <relative-path>`); return; }
+        workspaceManager.getActiveExternalPath().then(extPath => {
+          if(!extPath){ err(`no connected project directory — 'workspace link "<path>" first`); return; }
+          const safePath = safeJoinWithinDir(extPath, rel);
+          if(!safePath){ err(`invalid path: "${rel}" — must stay inside the connected directory (no absolute paths or ".." that escapes it)`); return; }
+          return statPath(safePath).then(stat => {
+            if(stat.exists){ err(`already exists: ${safePath}`); return; }
+            return makeDir(safePath).then(() => { ok(`created ${safePath}/`); events.emit("filetree_refresh", {}); });
+          });
+        }).catch(e => err(`couldn't create the directory: ${e instanceof Error ? e.message : e}`));
+        return; }
+      if(sub==="move"){
+        const srcRel = args[1], dstRel = args[2];
+        if(!srcRel || !dstRel){ err(`usage: 'workspace move <file> <directory>`); return; }
+        workspaceManager.getActiveExternalPath().then(async extPath => {
+          if(!extPath){ err(`no connected project directory — 'workspace link "<path>" first`); return; }
+          const srcPath = safeJoinWithinDir(extPath, srcRel);
+          const dstDirPath = safeJoinWithinDir(extPath, dstRel);
+          if(!srcPath || !dstDirPath){ err(`invalid path — both must stay inside the connected directory`); return; }
+          const srcStat = await statPath(srcPath);
+          if(!srcStat.exists){ err(`not found: ${srcPath}`); return; }
+          const dstDirStat = await statPath(dstDirPath);
+          if(!dstDirStat.exists || !dstDirStat.isDir){ err(`not a directory: ${dstDirPath}`); return; }
+          const baseName = srcPath.split(/[\\/]/).pop();
+          const finalDst = `${dstDirPath}/${baseName}`;
+          return movePath(srcPath, finalDst).then(() => {
+            ok(`moved ${srcRel} → ${dstRel}/${baseName}`);
+            events.emit("filetree_refresh", {});
+          });
+        }).catch(e => err(`move failed: ${e instanceof Error ? e.message : e}`));
+        return; }
+      if(sub==="github" || sub==="gitlab"){
+        const provider: GitProvider = sub;
+        const repoInput = args[1];
+        const force = args.includes("--force");
+        if(!repoInput){ err(`usage: 'workspace ${provider} <owner/repo or full URL> [--force]`); return; }
+        workspaceManager.getActiveExternalPath().then(extPath => {
+          if(!extPath){ err(`no connected project directory — 'workspace link "<path>" first`); return; }
+          return setupRemote(extPath, provider, repoInput, force).then(async r => {
+            if(r.needsConfirmation){
+              err(r.message);
+              dim(`run 'workspace ${provider} ${repoInput} --force to replace it`);
+              return;
+            }
+            (r.ok?ok:err)(r.message);
+            if(r.ok){
+              const added = await workspaceManager.ensureCommitTask();
+              if(added) dim(`added a "commit" task — 'task commit whenever you want to commit changes`);
+            }
+          });
+        }).catch(e => err(`couldn't set up ${provider}: ${e instanceof Error ? e.message : e}`));
+        return; }
       if(sub==="export"){
         const wsName = args[1];
         if(!wsName){ err(`usage: 'workspace export <name> [path]`); return; }
@@ -1105,7 +1227,7 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
         const r = workspaceManager.close();
         (r.ok?ok:err)(r.message);
         return; }
-      err(`unknown: 'workspace ${sub} — try init, list, switch, rename, delete, link, unlink, export, import, info, reload, or close`); }});
+      err(`unknown: 'workspace ${sub} — try init, list, switch, rename, delete, link, unlink, newfile, newdir, move, github, gitlab, export, import, info, reload, or close`); }});
 
   // ── project ───────────────────────────────────────────
   // 'project init/open/run/task/workflow — the project layer (see
@@ -1259,9 +1381,23 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
     handler:()=> registry.execute("version",[],"") });
 
   // ── diagnostics ────────────────────────────────────────
+  // ── diagnostics ────────────────────────────────────────
   // Purely local — see diagnostics.ts. Nothing here is ever sent
   // anywhere; this exists so YOU can see what's going on, not for
   // OXIS to collect anything about you.
+
+  // ── git ──────────────────────────────────────────────────
+  // git-commit-dialog is what the "commit" task runs once it exists
+  // (added automatically by 'workspace github/gitlab — see
+  // ensureCommitTask in workspaceManager.ts — never created by
+  // default). A real, dedicated OXIS command, not a raw shell
+  // one-liner, because committing needs an actual UI (status, a
+  // message field) not just "run this string". Renaming/editing the
+  // "commit" task in workspace.lua is expected and fully supported —
+  // this command keeps working under whatever name you call it.
+  registry.register({ name:"git-commit-dialog", category:"workspace", description:"Open the commit dialog for the connected project",
+    handler:()=>{ events.emit("open_commit_dialog", {}); }});
+
   registry.register({ name:"diagnostics", category:"info", description:"Local diagnostic info — version, OS, runtime, plugins, workspace, recent errors",
     handler:()=>{
       sep(); info("Diagnostics"); sep();
@@ -1399,7 +1535,7 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
       h("'plugin rollback <n>","restore the backup from the last 'market update, any time after it");
       h("'plugin docs <n>","a plugin's own documentation, if it declares any");
       h("'plugin export <n> [path]","export a plugin's .lua source to a file");
-      h("'plugin publish <n> [--price --interval --email] [update]","prepare a Market listing — free or paid; see 'help plugin");
+      h("'plugin publish <n> [--price --interval --email] [update]","open a GitLab merge request to add it to the Market — reviewed/merged by a human, not live automatically; see 'help plugin");
       h("'plugin permissions <n>","see/grant/revoke fs, process, net, system, workspace, editor, terminal");
       h("'help <n>","show one plugin's commands + what they do");
       h("'market list","browse the free OXIS Market"); h("'market search <q>","search the Market");
@@ -1413,6 +1549,11 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
       h("'workspace rename <old> <new>","rename a named workspace"); h("'workspace delete <name>","delete one");
       h("'workspace link \"<path>\"","connect the active workspace to an external project dir");
       h("'workspace unlink","remove that link");
+      h("'workspace newfile <relative-path>","create a file inside the connected external directory, opens it in the Editor");
+      h("'workspace newdir <relative-path>","create a directory inside the connected external directory");
+      h("'workspace move <file> <directory>","move a file to a directory in the connected project — or just drag it in the file tree");
+      h("'workspace github <owner/repo>","configure the connected project's GitHub remote (real git, --force to overwrite)");
+      h("'workspace gitlab <owner/repo>","same, for GitLab");
       h("'workspace export <n> [path]","export one workspace (its real files) to a JSON file");
       h("'workspace import <path> [name]","import one — creates a NEW workspace, never overwrites");
       h("'workspace info","show the active workspace's state");
@@ -1571,13 +1712,44 @@ const CodeArea = React.forwardRef<HTMLTextAreaElement, {
   const preRef = useRef<HTMLPreElement>(null);
   const gutterRef = useRef<HTMLDivElement>(null);
 
+  // Large-file handling: the highlighter is a single regex pass over
+  // the WHOLE file (see syntaxHighlight.ts) — O(n) in file size, not
+  // pathological, but re-running that synchronously on every single
+  // keystroke is exactly what caused real, reported freezing/lag on
+  // big files, since it blocks the render regardless of how fast the
+  // regex itself is. Two real, layered fixes, not one:
+  //  1. Below HARD_CUTOFF_CHARS, highlighting still runs, but against
+  //     a DEBOUNCED copy of the content rather than every keystroke
+  //     directly — the actual <textarea> below is never debounced (it
+  //     always reflects `value` immediately), so typing itself is
+  //     never delayed; only the color overlay can lag a beat behind
+  //     on a big file. Small files get no perceptible debounce at all
+  //     (see the length check inside the effect).
+  //  2. Above HARD_CUTOFF_CHARS, highlighting is skipped entirely —
+  //     even a debounced full-file pass on a truly huge file would
+  //     still cause a noticeable hitch each time it fires. This is an
+  //     explicit, visible trade-off (a small notice, not a silent
+  //     failure) for files large enough that it matters, not a
+  //     reduction in normal-file functionality.
+  const HARD_CUTOFF_CHARS = 500_000;
+  const DEBOUNCE_THRESHOLD_CHARS = 20_000;
+  const isHuge = value.length > HARD_CUTOFF_CHARS;
+
+  const [debouncedValue, setDebouncedValue] = useState(value);
+  useEffect(() => {
+    if (value.length < DEBOUNCE_THRESHOLD_CHARS) { setDebouncedValue(value); return; }
+    const t = setTimeout(() => setDebouncedValue(value), 150);
+    return () => clearTimeout(t);
+  }, [value]);
+
   const html = useMemo(() => {
-    const h = highlight(value, lang);
+    if (isHuge) return escapeHtml(debouncedValue); // plain, escaped text — no tokenizing at all
+    const h = highlight(debouncedValue, lang);
     // Match a trailing newline so the highlight layer's height/scroll
     // extent lines up with the textarea's (otherwise the last empty
     // line makes them drift out of sync by one row).
-    return value.endsWith("\n") ? h + "\n" : h;
-  }, [value, lang]);
+    return debouncedValue.endsWith("\n") ? h + "\n" : h;
+  }, [debouncedValue, lang, isHuge]);
 
   // Line numbers — a third layer, scrolled in sync with the other two
   // exactly like the highlight <pre> already is (see syncScroll). Its
@@ -1586,7 +1758,10 @@ const CodeArea = React.forwardRef<HTMLTextAreaElement, {
   // layers below get that same width as a left inset so the numbers
   // never overlap real text. Each line is its own fixed-height row
   // (not one joined <pre> string) so a changed-line marker can be
-  // attached to the exact row it belongs to.
+  // attached to the exact row it belongs to. Uses the real `value`
+  // (not debouncedValue) — line count is cheap (one split), and having
+  // the gutter's own row count lag behind what's actually on screen
+  // would look broken in a way a slightly-stale highlight color doesn't.
   const lineCount = useMemo(() => value.split("\n").length, [value]);
   const gutterWidth = useMemo(() => Math.max(2, String(lineCount).length), [lineCount]);
   const gutterLines = useMemo(() => {
@@ -1609,6 +1784,11 @@ const CodeArea = React.forwardRef<HTMLTextAreaElement, {
 
   return (
     <div className="code-area">
+      {isHuge && (
+        <div className="code-area-large-file-notice" title={`${value.length.toLocaleString()} characters`}>
+          Large file — syntax highlighting disabled to keep typing responsive
+        </div>
+      )}
       <div ref={gutterRef} className="code-area-gutter" style={{ width: `${gutterWidth + 3}ch` }} aria-hidden="true">
         {gutterLines}
       </div>
@@ -1669,12 +1849,23 @@ function useModalEditor(opts: {
   type Snapshot = { content: string; pos: number };
   const undoStack = useRef<Snapshot[]>([]);
   const redoStack = useRef<Snapshot[]>([]);
-  // Consecutive keystrokes from ONE Insert-mode session (i/a/o/etc.
-  // until Escape) collapse into a single undo step, same as real
-  // editors/vim — otherwise Ctrl+Z after typing a sentence would undo
+  // Consecutive keystrokes collapse into a single undo step, same as
+  // real editors — otherwise Ctrl+Z after typing a sentence would undo
   // one character at a time. `grouping` tracks "the next edit belongs
   // to the same step as the last one" rather than starting a new one.
+  //
+  // Critically, a group also breaks after a pause (see GROUP_TIMEOUT_MS
+  // below) — without that, one continuous Insert-mode session, however
+  // long (a user typing an entire file without ever pressing Escape,
+  // which is completely normal for anyone not used to modal editing),
+  // would collapse into ONE undo step, so a single Ctrl+Z would wipe
+  // the whole thing back to empty. That's a real bug, not a style
+  // choice — real editors (and vim itself) only group typing that
+  // actually happens in one continuous burst, not "however long the
+  // mode happens to stay active."
   const grouping = useRef(false);
+  const lastEditAt = useRef(0);
+  const GROUP_TIMEOUT_MS = 700;
 
   const curPos = useCallback(() => taRef.current?.selectionStart ?? 0, [taRef]);
 
@@ -1682,7 +1873,10 @@ function useModalEditor(opts: {
   // calling onEdit directly, so nothing can mutate text without also
   // recording how to undo it.
   const commit = useCallback((next: string, grouped: boolean) => {
-    if (!(grouped && grouping.current)) {
+    const now = Date.now();
+    const withinGroupWindow = now - lastEditAt.current < GROUP_TIMEOUT_MS;
+    lastEditAt.current = now;
+    if (!(grouped && grouping.current && withinGroupWindow)) {
       undoStack.current.push({ content, pos: curPos() });
       if (undoStack.current.length > 500) undoStack.current.shift();
       redoStack.current = [];
@@ -2169,7 +2363,21 @@ function Editor({ file, onClose, onSave }: {
     setDirty(false);
   }, [file.path, content, onSave]);
 
-  const changedLines = useMemo(() => computeChangedLines(savedContent, content), [savedContent, content]);
+  // Same reasoning as CodeArea's highlight debounce (see App.tsx) —
+  // computeChangedLines is a real O(n·m) LCS diff (capped, with a
+  // fallback, but still real work), and recomputing it synchronously
+  // on every keystroke is unnecessary on a large file when the
+  // textarea itself never needs the result to stay responsive.
+  const [debouncedContent, setDebouncedContent] = useState(content);
+  useEffect(() => {
+    if (content.length < 20_000) { setDebouncedContent(content); return; }
+    const t = setTimeout(() => setDebouncedContent(content), 200);
+    return () => clearTimeout(t);
+  }, [content]);
+  const changedLines = useMemo(
+    () => content.length > 500_000 ? new Set<number>() : computeChangedLines(savedContent, debouncedContent),
+    [savedContent, debouncedContent, content.length],
+  );
 
   const onEdit = useCallback((next: string) => {
     setContent(prev => { if (next !== prev) setDirty(true); return next; });
@@ -2626,6 +2834,33 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
   const [editorFiles,   setEditorFiles]   = useState<EditorFile[]>([]);
   const [activeEditorPath, setActiveEditorPath] = useState<string | null>(null);
   const [fileTreeOpen, setFileTreeOpen] = useState(false);
+  // 'edit with no arguments (see registerBuiltinCommands) — opens the
+  // tree even with zero files open, so the keyboard-only path into
+  // the editor doesn't require already knowing a file's exact path.
+  useEffect(() => events.on("open_file_tree", () => setFileTreeOpen(true)), []);
+  // The file tree's root — the connected external project directory
+  // if the active workspace has one (item 2: "the editor's file tree
+  // should switch from showing an OXIS-managed workspace structure to
+  // showing the actual connected project"), or "." (the app's own
+  // directory — the normal OXIS-managed view) otherwise. Refreshed on
+  // the same events Home's connected-path display uses, so switching
+  // workspaces or linking/unlinking updates the tree immediately
+  // rather than needing it closed and reopened.
+  const [fileTreeRoot, setFileTreeRoot] = useState<{ dir: string; label: string }>({ dir: ".", label: "FILES" });
+  useEffect(() => {
+    const update = async () => {
+      const name = workspaceManager.getActiveNamed();
+      const extPath = await workspaceManager.getActiveExternalPath();
+      if (extPath) setFileTreeRoot({ dir: extPath, label: name || "PROJECT" });
+      else setFileTreeRoot({ dir: ".", label: "FILES" });
+    };
+    update();
+    const u1 = events.on("workspace_loaded", update);
+    const u2 = events.on("workspace_unloaded", update);
+    const u3 = events.on("workspace_linked", update);
+    const u4 = events.on("workspace_unlinked", update);
+    return () => { u1(); u2(); u3(); u4(); };
+  }, []);
 
   // ── refs ──────────────────────────────────────────────────
   const outRef        = useRef<HTMLDivElement>(null);
@@ -3500,7 +3735,7 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
     return i;
   }, [lines]);
 
-  if (editorFiles.length > 0) {
+  if (editorFiles.length > 0 || fileTreeOpen) {
     const activeFile = editorFiles.find(f => f.path === activeEditorPath) ?? editorFiles[0];
     return (
       <div className="app-pane app-pane--editor">
@@ -3508,7 +3743,28 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
           <button className="filetree-toggle" onClick={() => setFileTreeOpen(o => !o)} title="Toggle file tree (Ctrl+B)">☰</button>
         </div>
         {fileTreeOpen && (
-          <FileTree onOpenFile={path => ctxRef.current?.openEditor(path)} onClose={() => setFileTreeOpen(false)} />
+          <FileTree
+            rootDir={fileTreeRoot.dir}
+            rootLabel={fileTreeRoot.label}
+            onOpenFile={path => ctxRef.current?.openEditor(path)}
+            onMoveFile={(srcPath, destDirPath) => {
+              // Unlike 'workspace move (which parses raw user-typed
+              // text and genuinely needs safeJoinWithinDir), srcPath/
+              // destDirPath here are real, already-resolved paths the
+              // tree itself produced from an actual directory listing
+              // — there's no user-controlled string to validate.
+              const baseName = srcPath.split(/[\\/]/).pop();
+              const finalDst = `${destDirPath}/${baseName}`;
+              statPath(finalDst).then(stat => {
+                if (stat.exists) { addLine(`  ✗  already exists: ${finalDst}`, "err"); return; }
+                return movePath(srcPath, finalDst).then(() => {
+                  addLine(`  ✓  moved ${srcPath.split(/[\\/]/).pop()} → ${destDirPath}`, "ok");
+                  events.emit("filetree_refresh", {});
+                });
+              }).catch(e => addLine(`  ✗  move failed: ${e instanceof Error ? e.message : e}`, "err"));
+            }}
+            onClose={() => setFileTreeOpen(false)}
+          />
         )}
         <div className="editor-column">
         {editorFiles.length > 1 && (
@@ -3528,18 +3784,28 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
             <button className="editor-tabs-saveall" onClick={saveAllEditorTabs} title="Save all dirty tabs">Save All</button>
           </div>
         )}
-        <ErrorBoundary onClose={() => requestCloseEditorTab(activeFile.path)}>
-          <Editor
-            key={activeFile.path}
-            file={activeFile}
-            onClose={() => requestCloseEditorTab(activeFile.path)}
-            onSave={(p, c) => {
-              editorSave(p, c).then(saved => {
-                if (saved) setEditorFiles(files => files.map(f => f.path === p ? { ...f, content: c, dirty: false } : f));
-              });
-            }}
-          />
-        </ErrorBoundary>
+        {activeFile ? (
+          <ErrorBoundary onClose={() => requestCloseEditorTab(activeFile.path)}>
+            <Editor
+              key={activeFile.path}
+              file={activeFile}
+              onClose={() => requestCloseEditorTab(activeFile.path)}
+              onSave={(p, c) => {
+                editorSave(p, c).then(saved => {
+                  if (saved) setEditorFiles(files => files.map(f => f.path === p ? { ...f, content: c, dirty: false } : f));
+                });
+              }}
+            />
+          </ErrorBoundary>
+        ) : (
+          // 'edit with no arguments — just opens the tree so the
+          // keyboard-only path into the editor doesn't require already
+          // knowing a file's exact path first.
+          <div className="editor-empty-state">
+            <div className="editor-empty-state-msg">No file open</div>
+            <div className="editor-empty-state-hint">Pick one from the file tree, or <code>&apos;edit &lt;file&gt;</code></div>
+          </div>
+        )}
         </div>
       </div>
     );
@@ -3859,6 +4125,7 @@ function Home({ onNew, currentTheme, onTheme, onOpenThemeEditor, onOpenPluginCre
   const [psearch, setPsearch] = useState("");
   const [ws, setWs] = useState(() => workspaceState.get());
   const [activeWorkspace, setActiveWorkspace] = useState<string | null>(() => workspaceManager.getActiveNamed());
+  const [activeWorkspacePath, setActiveWorkspacePath] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Home is always mounted (see root App — it's hidden, not unmounted,
@@ -3880,10 +4147,27 @@ function Home({ onNew, currentTheme, onTheme, onOpenThemeEditor, onOpenPluginCre
   // authoritative named-workspace state directly instead, so the
   // "workspace" row below is always right regardless of that.
   useEffect(() => {
-    const update = () => setActiveWorkspace(workspaceManager.getActiveNamed());
+    const update = () => {
+      const name = workspaceManager.getActiveNamed();
+      setActiveWorkspace(name);
+      if (!name) { setActiveWorkspacePath(null); return; }
+      // The external link (see 'workspace link) is per-entry in the
+      // named-workspace registry, not something workspace_loaded's
+      // payload carries — look it up explicitly so the Home card can
+      // show it (see item 5: "Connected: <path>" on the card).
+      workspaceManager.listNamed().then(list => {
+        setActiveWorkspacePath(list.find(w => w.name === name)?.externalPath ?? null);
+      });
+    };
+    update();
     const u1 = events.on("workspace_loaded", update);
     const u2 = events.on("workspace_unloaded", update);
-    return () => { u1(); u2(); };
+    // 'workspace link/unlink don't fire either of the above (linking
+    // doesn't reload the workspace) — listen for those specifically
+    // too, or the card would only refresh on the NEXT switch/reload.
+    const u3 = events.on("workspace_linked", update);
+    const u4 = events.on("workspace_unlinked", update);
+    return () => { u1(); u2(); u3(); u4(); };
   }, []);
 
   // Keep focus on the input — retried twice (40ms, then 250ms) since
@@ -4112,7 +4396,7 @@ function Home({ onNew, currentTheme, onTheme, onOpenThemeEditor, onOpenPluginCre
           <button className="oxis-gitlab-btn" onClick={() => void openUrl("https://gitlab.com/oxidelab/oxis.git")}
             title="Open the OXIS repository on GitLab">GitLab ↗</button>
         </div>
-        <WorkspacePanel ws={ws} plugins={plugins} activeWorkspace={activeWorkspace} onOpenMarket={() => setView("plugins")} />
+        <WorkspacePanel ws={ws} plugins={plugins} activeWorkspace={activeWorkspace} activeWorkspacePath={activeWorkspacePath} onOpenMarket={() => setView("plugins")} />
         <div className="oxis-box oxis-help-box">
           <div className="oxis-help-row"><span className="oht">Type</span> <span className="ohc">&apos;help</span><span className="ohr"> if you need some help</span></div>
           <div className="oxis-help-row"><span className="oht">Type</span> <span className="ohc">&apos;edit</span> <span className="oha">&lt;file&gt;</span><span className="ohr"> to open the built-in editor</span></div>
@@ -4130,7 +4414,7 @@ function Home({ onNew, currentTheme, onTheme, onOpenThemeEditor, onOpenPluginCre
 // donation box (see README § Home Screen & Workspace Panel).
 // Read-only: reflects workspaceState/pluginManager, doesn't accept
 // input itself, so it never competes with Command Mode for focus.
-function WorkspacePanel({ ws, plugins, activeWorkspace, onOpenMarket }: {
+function WorkspacePanel({ ws, plugins, activeWorkspace, activeWorkspacePath, onOpenMarket }: {
   ws: ReturnType<typeof workspaceState.get>;
   plugins: ReturnType<typeof pluginManager.all>;
   /** The active NAMED workspace ('workspace switch <name>), or null
@@ -4140,6 +4424,13 @@ function WorkspacePanel({ ws, plugins, activeWorkspace, onOpenMarket }: {
    *  all) — shown as its own row so it's never ambiguous which one
    *  is active, especially once more than one named workspace exists. */
   activeWorkspace: string | null;
+  /** The EXTERNAL project directory the active named workspace is
+   *  linked to via 'workspace link (see workspaceManager.ts's
+   *  externalPath) — null if it isn't linked to one. Distinct from
+   *  ws.projectPath, which is where THIS workspace's own
+   *  .oxis/workspace.lua lives (inside dist/workspaces/<name>/), not
+   *  the external project it points at. */
+  activeWorkspacePath: string | null;
   onOpenMarket: () => void;
 }) {
   const active = plugins.filter(p => p.enabled);
@@ -4156,6 +4447,11 @@ function WorkspacePanel({ ws, plugins, activeWorkspace, onOpenMarket }: {
       <div className="oxis-box-row"><span className="oxis-wl">project</span><span className="oxis-we"> = </span><span className="oxis-wa">{ws.projectName || "no project loaded"}</span></div>
       {ws.projectPath && (
         <div className="oxis-box-row"><span className="oxis-wl">path</span><span className="oxis-we"> = </span><span className="oxis-wa">{ws.projectPath}</span></div>
+      )}
+      {activeWorkspace && (
+        activeWorkspacePath
+          ? <div className="oxis-box-row"><span className="oxis-wl">connected</span><span className="oxis-we"> = </span><span className="oxis-wa oxis-wa--connected" title={activeWorkspacePath}>{activeWorkspacePath}</span></div>
+          : <div className="oxis-box-row"><span className="oxis-wl">connected</span><span className="oxis-we"> = </span><span className="oxis-wa--disconnected">no project directory connected — <code>&apos;workspace link &quot;&lt;path&gt;&quot;</code></span></div>
       )}
       <div className="oxis-box-row"><span className="oxis-wl">plugins</span><span className="oxis-we"> = </span><span className="oxis-wa">{active.length} active{active.length ? `  (${active.slice(0, 4).map(p => p.name).join(", ")}${active.length > 4 ? "…" : ""})` : ""}</span></div>
       <div className="oxis-box-row"><span className="oxis-wl">tasks</span><span className="oxis-we"> = </span><span className="oxis-wa">{tasks.length ? tasks.join(", ") : "none defined"}</span></div>
@@ -4231,7 +4527,9 @@ function StatusBar({ mode, count, idx, ready, theme, project, updateMsg }: {
 // ══════════════════════════════════════════════════════════════
 interface FileTreeEntry { name: string; path: string; isDir: boolean }
 
-function FileTree({ onOpenFile, onClose }: { onOpenFile: (path: string) => void; onClose: () => void }) {
+function FileTree({ rootDir, rootLabel, onOpenFile, onMoveFile, onClose }: { rootDir: string; rootLabel?: string; onOpenFile: (path: string) => void; onMoveFile: (srcPath: string, destDirPath: string) => void; onClose: () => void }) {
+  const [dragOverPath, setDragOverPath] = useState<string | null>(null);
+  const draggedPathRef = useRef<string | null>(null);
   const [childrenOf, setChildrenOf] = useState<Map<string, FileTreeEntry[]>>(new Map());
   const [expanded,   setExpanded]   = useState<Set<string>>(new Set());
   const [loading,    setLoading]    = useState<Set<string>>(new Set());
@@ -4244,9 +4542,9 @@ function FileTree({ onOpenFile, onClose }: { onOpenFile: (path: string) => void;
     try {
       const entries = await listDir(dirPath);
       const items: FileTreeEntry[] = entries
-        .filter(e => !e.name.startsWith(".")) // hide dotfiles/.git/.oxis clutter
+        .filter(e => !e.name.startsWith(".")) // hide dotfiles/.git/.oxis-connector.json clutter
         .sort((a, b) => (a.isDir === b.isDir ? a.name.localeCompare(b.name) : a.isDir ? -1 : 1))
-        .map(e => ({ name: e.name, path: dirPath === "." ? e.name : `${dirPath}/${e.name}`, isDir: e.isDir }));
+        .map(e => ({ name: e.name, path: `${dirPath}/${e.name}`, isDir: e.isDir }));
       setChildrenOf(m => new Map(m).set(dirPath, items));
       setError("");
     } catch (e) {
@@ -4256,11 +4554,34 @@ function FileTree({ onOpenFile, onClose }: { onOpenFile: (path: string) => void;
     }
   }, []);
 
-  useEffect(() => { load("."); }, [load]);
+  const reloadExpanded = useCallback(() => {
+    load(rootDir);
+    for (const dir of expanded) load(dir);
+  }, [load, rootDir, expanded]);
+
+  // Reload from scratch whenever the root itself changes (connecting/
+  // disconnecting an external project switches this — see item 2:
+  // "when the workspace is disconnected, restore the normal OXIS
+  // workspace file-tree behavior"), not just on first mount.
+  useEffect(() => {
+    setChildrenOf(new Map());
+    setExpanded(new Set());
+    setError("");
+    load(rootDir);
+  }, [rootDir, load]);
+
   // Keyboard-first, same as everything else in OXIS (Command Palette,
   // find bars, etc.) — Ctrl+B opening the tree should be enough to
   // drive it entirely from the keyboard from there, no mouse required.
   useEffect(() => { setTimeout(() => treeRef.current?.focus(), 20); }, []);
+
+  // Auto-refresh after OXIS's own operations that change the
+  // filesystem (newfile/newdir/git commit) — see item 2's "refresh
+  // when files/directories are created, deleted, or changed". This
+  // isn't a filesystem watcher (no such API here) — it's every place
+  // OXIS itself writes into the connected project telling the tree to
+  // re-check what it's already showing.
+  useEffect(() => events.on("filetree_refresh", reloadExpanded), [reloadExpanded]);
 
   const toggleDir = useCallback((path: string, forceExpand?: boolean) => {
     setExpanded(prev => {
@@ -4286,9 +4607,9 @@ function FileTree({ onOpenFile, onClose }: { onOpenFile: (path: string) => void;
         if (node.isDir && expanded.has(node.path)) walk(childrenOf.get(node.path) ?? [], depth + 1);
       }
     };
-    walk(childrenOf.get(".") ?? [], 0);
+    walk(childrenOf.get(rootDir) ?? [], 0);
     return rows;
-  }, [childrenOf, expanded]);
+  }, [childrenOf, expanded, rootDir]);
 
   useEffect(() => {
     setFocusedIdx(i => Math.max(0, Math.min(i, visibleRows.length - 1)));
@@ -4338,10 +4659,26 @@ function FileTree({ onOpenFile, onClose }: { onOpenFile: (path: string) => void;
     return (
       <div key={node.path}>
         <div
-          className={`filetree-row${idx === focusedIdx ? " filetree-row--focused" : ""}`}
+          className={`filetree-row${idx === focusedIdx ? " filetree-row--focused" : ""}${dragOverPath === node.path ? " filetree-row--dragover" : ""}`}
           style={{ paddingLeft: 8 + depth * 14 }}
           onClick={() => { setFocusedIdx(idx); node.isDir ? toggleDir(node.path) : onOpenFile(node.path); }}
           title={node.path}
+          draggable
+          onDragStart={e => { draggedPathRef.current = node.path; e.dataTransfer.effectAllowed = "move"; }}
+          onDragOver={e => {
+            if (!node.isDir || draggedPathRef.current === null) return;
+            e.preventDefault(); // required for onDrop to fire at all
+            setDragOverPath(node.path);
+          }}
+          onDragLeave={() => { if (dragOverPath === node.path) setDragOverPath(null); }}
+          onDrop={e => {
+            e.preventDefault();
+            setDragOverPath(null);
+            const src = draggedPathRef.current;
+            draggedPathRef.current = null;
+            if (!src || !node.isDir || src === node.path) return;
+            onMoveFile(src, node.path);
+          }}
         >
           <span className="filetree-icon">{node.isDir ? (expanded.has(node.path) ? "▾" : "▸") : "·"}</span>
           <span className="filetree-name">{node.name}</span>
@@ -4354,20 +4691,167 @@ function FileTree({ onOpenFile, onClose }: { onOpenFile: (path: string) => void;
     );
   };
 
-  const rootItems = childrenOf.get(".") ?? [];
+  const rootItems = childrenOf.get(rootDir) ?? [];
 
   return (
     <div className="filetree" ref={treeRef} tabIndex={0} onKeyDown={onTreeKeyDown}>
       <div className="filetree-header">
-        <span>FILES</span>
+        <span className="filetree-header-label" title={rootDir}>{rootLabel || "FILES"}</span>
+        <span className="filetree-refresh" onClick={reloadExpanded} title="Refresh">⟳</span>
         <span className="filetree-close" onClick={onClose} title="Close (Ctrl+B)">×</span>
       </div>
       {error && <div className="filetree-error">{error}</div>}
-      <div className="filetree-body">
-        {loading.has(".") && rootItems.length === 0 && <div className="filetree-loading" style={{ paddingLeft: 8 }}>loading…</div>}
+      <div
+        className={`filetree-body${dragOverPath === rootDir ? " filetree-row--dragover" : ""}`}
+        onDragOver={e => {
+          if (draggedPathRef.current === null) return;
+          e.preventDefault();
+          setDragOverPath(rootDir);
+        }}
+        onDragLeave={() => { if (dragOverPath === rootDir) setDragOverPath(null); }}
+        onDrop={e => {
+          e.preventDefault();
+          setDragOverPath(null);
+          const src = draggedPathRef.current;
+          draggedPathRef.current = null;
+          if (!src || src === rootDir) return;
+          onMoveFile(src, rootDir);
+        }}
+      >
+        {loading.has(rootDir) && rootItems.length === 0 && <div className="filetree-loading" style={{ paddingLeft: 8 }}>loading…</div>}
         {rootItems.map(n => renderNode(n, 0))}
       </div>
-      <div className="filetree-hint">↑↓ move · → expand · ← collapse · ↵ open · Esc close</div>
+      <div className="filetree-hint">↑↓ move · → expand · ← collapse · ↵ open · drag to move · Esc close</div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════
+// COMMIT DIALOG — 'task commit's real UI, once that task exists (see
+// ensureCommitTask in workspaceManager.ts — added by 'workspace
+// github/gitlab, never by default). See git.ts for
+// the actual git plumbing (real `git status`/`add`/`commit` via the
+// argv-based runCommand binding, never a shell string). Detects the
+// active workspace's connected project, shows real status, and only
+// commits what git itself reports as changed in THAT project — never
+// something outside it, since git scopes `add -A` to its own repo.
+// ══════════════════════════════════════════════════════════════
+type CommitDialogState =
+  | { phase: "loading" }
+  | { phase: "no-project" }
+  | { phase: "not-a-repo"; dir: string }
+  | { phase: "clean"; dir: string; branch: string }
+  | { phase: "ready"; dir: string; branch: string; files: GitFileChange[] }
+  | { phase: "committing"; dir: string }
+  | { phase: "done"; message: string; hash?: string }
+  | { phase: "error"; message: string };
+
+function CommitDialog({ onClose }: { onClose: () => void }) {
+  const [state, setState] = useState<CommitDialogState>({ phase: "loading" });
+  const [message, setMessage] = useState("");
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const load = useCallback(async () => {
+    setState({ phase: "loading" });
+    const dir = await workspaceManager.getActiveExternalPath();
+    if (!dir) { setState({ phase: "no-project" }); return; }
+    const status = await getStatus(dir);
+    if (!status.isRepo) { setState({ phase: "not-a-repo", dir }); return; }
+    if (status.clean) { setState({ phase: "clean", dir, branch: status.branch }); return; }
+    setState({ phase: "ready", dir, branch: status.branch, files: status.files });
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    if (state.phase === "ready") setTimeout(() => textareaRef.current?.focus(), 30);
+  }, [state.phase]);
+
+  const doCommit = useCallback(async () => {
+    if (state.phase !== "ready") return;
+    setState({ phase: "committing", dir: state.dir });
+    const result = await commitAll(state.dir, message);
+    if (!result.ok) { setState({ phase: "error", message: result.message }); return; }
+    setState({ phase: "done", message: result.message, hash: result.hash });
+    events.emit("filetree_refresh", {});
+  }, [state, message]);
+
+  const statusLabel = (code: string) => {
+    const c = code.trim();
+    if (c === "??") return "new";
+    if (c.includes("D")) return "deleted";
+    if (c.includes("M")) return "modified";
+    if (c.includes("A")) return "added";
+    if (c.includes("R")) return "renamed";
+    return c || "changed";
+  };
+
+  return (
+    <div className="cmdp-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="commit-dialog">
+        <div className="commit-dialog-header">
+          <span>Commit</span>
+          <span className="filetree-close" onClick={onClose}>×</span>
+        </div>
+        <div className="commit-dialog-body">
+          {state.phase === "loading" && <div className="commit-dialog-msg">checking the connected project…</div>}
+          {state.phase === "no-project" && (
+            <div className="commit-dialog-msg">
+              No project directory connected to this workspace.<br />
+              <code>&apos;workspace link &quot;&lt;path&gt;&quot;</code> first, then try again.
+            </div>
+          )}
+          {state.phase === "not-a-repo" && (
+            <div className="commit-dialog-msg">
+              <code>{state.dir}</code> isn&apos;t a git repository yet.<br />
+              <code>&apos;workspace github &lt;owner/repo&gt;</code> or <code>&apos;workspace gitlab &lt;owner/repo&gt;</code> will initialize one and set up the remote.
+            </div>
+          )}
+          {state.phase === "clean" && (
+            <div className="commit-dialog-msg">Nothing to commit — <code>{state.branch}</code> is clean.</div>
+          )}
+          {(state.phase === "ready" || state.phase === "committing") && (
+            <>
+              <div className="commit-dialog-branch">branch: <code>{state.dir ? (state as { branch: string }).branch : ""}</code></div>
+              <div className="commit-dialog-files">
+                {(state.phase === "ready" ? state.files : []).map(f => (
+                  <div key={f.path} className="commit-dialog-file">
+                    <span className={`commit-file-status commit-file-status--${statusLabel(f.status)}`}>{statusLabel(f.status)}</span>
+                    <span className="commit-file-path">{f.path}</span>
+                  </div>
+                ))}
+              </div>
+              <textarea
+                ref={textareaRef}
+                className="commit-dialog-input"
+                placeholder="Commit notes…"
+                value={message}
+                disabled={state.phase === "committing"}
+                onChange={e => setMessage(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); doCommit(); }
+                  if (e.key === "Escape") { e.preventDefault(); onClose(); }
+                }}
+              />
+              <div className="commit-dialog-actions">
+                <button className="editor-btn" onClick={onClose} disabled={state.phase === "committing"}>Cancel</button>
+                <button className="editor-btn commit-dialog-commit" onClick={doCommit} disabled={state.phase === "committing" || !message.trim()}>
+                  {state.phase === "committing" ? "Committing…" : "Commit"}
+                </button>
+              </div>
+              <div className="commit-dialog-hint">Ctrl+Enter to commit</div>
+            </>
+          )}
+          {state.phase === "done" && (
+            <div className="commit-dialog-msg commit-dialog-msg--ok">
+              ✓ committed {state.hash ? <code>{state.hash}</code> : ""}<br />
+              <span className="commit-dialog-summary">{state.message.split("\n")[0]}</span>
+            </div>
+          )}
+          {state.phase === "error" && (
+            <div className="commit-dialog-msg commit-dialog-msg--err">✗ {state.message}</div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -4457,6 +4941,7 @@ export default function App() {
   const [curTheme,  setCurTheme]  = useState(() => themeManager.getCurrent());
   const [themeEditorName,  setThemeEditorName]  = useState<string | null>(null);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [commitDialogOpen, setCommitDialogOpen] = useState(false);
   const [activeProject, setActiveProject] = useState(() => workspaceState.get().projectName);
   const [updateMsg,     setUpdateMsg]     = useState("");
   const [showAnim, setShowAnim] = useState(true);
@@ -4474,6 +4959,7 @@ export default function App() {
     themeManager.apply(curTheme);
     applyAllSettings(); // font size, cursor style/blink — persisted from last session, same as changing them live
     installGlobalErrorCapture(); // 'diagnostics — captures uncaught JS exceptions too, not just recordError() call sites
+    void workspaceManager.runAutoUpdateIfNeeded(); // brings existing workspaces' folder layout up to date whenever OXIS itself has been updated since the last launch — see README § Workspace Auto-Update
     sessionManager.clear();
     const animT = setTimeout(() => setShowAnim(false), 1800);
     const checkUpdate = async () => {
@@ -4516,8 +5002,9 @@ export default function App() {
   // it directly, the same path 'edit uses.
   useEffect(() => {
     const u1 = events.on("open_theme_editor", p => { if (p?.name) setThemeEditorName(String(p.name)); });
+    const u5 = events.on("open_commit_dialog", () => setCommitDialogOpen(true));
     const u2 = events.on("theme_changed",     p => { if (p?.name) setCurTheme(String(p.name)); });
-    return () => { u1(); u2(); };
+    return () => { u1(); u2(); u5(); };
   }, []);
 
   // Persist minimal session state
@@ -4627,6 +5114,9 @@ export default function App() {
             onRun={cmd => { setCommandPaletteOpen(false); runHomeCommand(cmd); }}
             onClose={() => setCommandPaletteOpen(false)}
           />
+        )}
+        {commitDialogOpen && (
+          <CommitDialog onClose={() => setCommitDialogOpen(false)} />
         )}
         {/* Home page — hidden (not unmounted) when shell active */}
         <div style={{ display: isHome ? "flex" : "none", flex: 1, minHeight: 0, overflow: "hidden" }}>

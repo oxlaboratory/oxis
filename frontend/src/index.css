@@ -27,6 +27,17 @@
   --fs: 13px;
   --lh: 20px;
   --r: 3px;
+  /* Fixed, deliberately NOT tied to --fs/--lh (see 'config set
+     fontSize) — the Home screen's ASCII banner has a specific
+     character-grid shape it needs to render correctly, and its info
+     boxes are read-once dashboard text, neither of which should
+     balloon just because someone bumped their TERMINAL/EDITOR font
+     size for readability while coding. Before this was split out,
+     a larger fontSize setting could genuinely push Home's content
+     tall enough to need scrolling — this is what actually fixes that,
+     not just the spacing trims below. */
+  --home-fs: 12px;
+  --home-lh: 1.3;
 }
 
 html, body, #root {
@@ -249,6 +260,18 @@ html, body, #root {
    onto the <pre> (and the line-number gutter) on every scroll event. ── */
 .code-area { position: relative; flex: 1 1 0; min-height: 0; overflow: hidden; }
 
+/* Large-file notice — see CodeArea's isHuge in App.tsx. Floats over
+   the top of the code area rather than pushing content down, so it
+   doesn't require restructuring the gutter/body's absolute-position
+   layout underneath just to make room for one banner. */
+.code-area-large-file-notice {
+  position: absolute; top: 6px; left: 50%; transform: translateX(-50%);
+  z-index: 5; background: var(--bg2); border: 1px solid var(--warn, #ff9e64);
+  color: var(--warn, #ff9e64); font-size: 10px; padding: 3px 10px;
+  border-radius: 4px; pointer-events: none; opacity: .9;
+  white-space: nowrap;
+}
+
 /* Line-number gutter — its own layer at a dynamic width (see
    gutterWidth in CodeArea), scrolled vertically in lockstep with the
    textarea via JS (it has no horizontal scrollbar of its own, and its
@@ -362,6 +385,17 @@ html, body, #root {
 .app-pane--editor { display: flex; flex-direction: row; }
 .editor-column { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; }
 
+/* Shown when the editor pane is open (file tree visible, via 'edit
+   with no arguments or Ctrl+B) but no file is actually open yet. */
+.editor-empty-state {
+  flex: 1 1 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 8px; color: var(--dim);
+}
+.editor-empty-state-msg { font-size: 14px; font-weight: 700; }
+.editor-empty-state-hint { font-size: 11px; }
+.editor-empty-state-hint code { color: var(--purple3); }
+
+
 /* A persistent narrow rail holding just the toggle — a normal flex
    child (not absolutely positioned over the editor-bar), so there's
    nothing to collide with whether the tree is open or closed. */
@@ -389,6 +423,9 @@ html, body, #root {
 }
 .filetree-close { cursor: pointer; font-size: 13px; }
 .filetree-close:hover { color: var(--err); }
+.filetree-header-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+.filetree-refresh { cursor: pointer; font-size: 12px; margin-left: 6px; margin-right: 2px; flex-shrink: 0; }
+.filetree-refresh:hover { color: var(--purple3); }
 .filetree-error { padding: 8px; font-size: 10px; color: var(--err); word-break: break-word; }
 .filetree-body { flex: 1 1 0; overflow-y: auto; padding: 4px 0; }
 .filetree-row {
@@ -397,6 +434,8 @@ html, body, #root {
 }
 .filetree-row:hover { background: var(--bg3); color: var(--text); }
 .filetree-row--focused { background: var(--bg3); color: var(--text); box-shadow: inset 2px 0 0 var(--purple3); }
+.filetree-row--dragover { background: rgba(203,166,247,.18); outline: 1px dashed var(--purple3); outline-offset: -1px; }
+.filetree-body.filetree-row--dragover { outline: 1px dashed var(--purple3); outline-offset: -2px; }
 .filetree:focus { outline: none; } /* the focused ROW is the visible indicator, not a browser focus ring on the whole panel */
 .filetree-icon { color: var(--dim); font-size: 9px; width: 10px; flex-shrink: 0; text-align: center; }
 .filetree-name { overflow: hidden; text-overflow: ellipsis; }
@@ -448,6 +487,58 @@ html, body, #root {
 .cmdp-item-name { color: var(--purple3); font-size: 12px; font-weight: 700; flex-shrink: 0; }
 .cmdp-item-desc { color: var(--muted); font-size: 11px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cmdp-item-cat  { color: var(--dim); font-size: 9px; letter-spacing: .05em; text-transform: uppercase; flex-shrink: 0; }
+
+/* ── COMMIT DIALOG — the default 'task commit's real UI. See
+   CommitDialog in App.tsx and git.ts for the actual git plumbing.
+   Shares .cmdp-backdrop with the Command Palette (same overlay/
+   centering behavior), styled independently past that point. ── */
+.commit-dialog {
+  width: min(560px, 92vw); max-height: 70vh;
+  background: var(--bg1); border: 1px solid var(--border2); border-radius: 6px;
+  box-shadow: 0 20px 60px rgba(0,0,0,.5);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.commit-dialog-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 14px; border-bottom: 1px solid var(--border);
+  font-size: 12px; font-weight: 700; color: var(--purple3);
+}
+.commit-dialog-body { padding: 14px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+.commit-dialog-msg { font-size: 12px; color: var(--muted); line-height: 1.6; }
+.commit-dialog-msg code { color: var(--purple3); background: var(--bg3); padding: 1px 5px; border-radius: 3px; }
+.commit-dialog-msg--ok  { color: var(--green, #7cd992); }
+.commit-dialog-msg--err { color: var(--err); }
+.commit-dialog-summary { color: var(--dim); font-size: 11px; }
+.commit-dialog-branch { font-size: 11px; color: var(--dim); }
+.commit-dialog-branch code { color: var(--purple2); }
+.commit-dialog-files {
+  max-height: 160px; overflow-y: auto; border: 1px solid var(--border);
+  border-radius: 4px; padding: 4px 0;
+}
+.commit-dialog-file { display: flex; align-items: center; gap: 8px; padding: 3px 10px; font-size: 11px; }
+.commit-file-status {
+  font-size: 9px; text-transform: uppercase; letter-spacing: .04em;
+  padding: 1px 6px; border-radius: 3px; flex-shrink: 0; min-width: 44px; text-align: center;
+}
+.commit-file-status--new      { background: rgba(124,217,146,.15); color: var(--green, #7cd992); }
+.commit-file-status--modified { background: rgba(203,166,247,.15); color: var(--purple3); }
+.commit-file-status--deleted  { background: rgba(230,111,127,.15); color: var(--err); }
+.commit-file-status--added    { background: rgba(124,217,146,.15); color: var(--green, #7cd992); }
+.commit-file-status--renamed  { background: rgba(240,198,120,.15); color: #f0c678; }
+.commit-file-path { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.commit-dialog-input {
+  width: 100%; min-height: 70px; resize: vertical; box-sizing: border-box;
+  background: var(--bg3); border: 1px solid var(--border); border-radius: 4px;
+  color: var(--text); font-family: var(--font); font-size: 12px; padding: 8px 10px;
+  outline: none;
+}
+.commit-dialog-input:focus { border-color: var(--purple3); }
+.commit-dialog-input:disabled { opacity: .6; }
+.commit-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.commit-dialog-commit { color: var(--purple3); border-color: var(--purple3); }
+.commit-dialog-commit:disabled { opacity: .4; cursor: default; }
+.commit-dialog-hint { font-size: 9px; color: var(--comment); text-align: right; }
+
 
 .theme-editor {
   width: min(540px, 94vw); height: min(700px, 90vh);
@@ -517,7 +608,7 @@ html, body, #root {
 /* ── HOME ────────────────────────────────────────────────── */
 .home {
   flex: 1; display: flex; align-items: center; justify-content: center;
-  overflow-y: auto; background: var(--bg); padding: 14px 24px;
+  overflow-y: auto; background: var(--bg); padding: 8px 20px;
   position: relative;
 }
 
@@ -531,7 +622,7 @@ html, body, #root {
 .oxis-train-wrap {
   position: relative;
   display: inline-flex; flex-direction: column; align-items: flex-start;
-  margin-bottom: 6px;
+  margin: 0 auto 4px;
 }
 
 /* Chimney anchor — wraps the literal "[]" glyph in the train art
@@ -588,11 +679,11 @@ html, body, #root {
 
 /* Train ASCII */
 .oxis-ascii     { display: flex; flex-direction: column; }
-.oxis-ascii-row { font-family: var(--font); font-size: var(--fs); line-height: 1.35; white-space: pre; font-weight: 700; }
+.oxis-ascii-row { font-family: var(--font); font-size: var(--home-fs); line-height: var(--home-lh); white-space: pre; font-weight: 700; }
 
 /* Wheels row — each "0" rotates to simulate spinning */
 .oxis-ascii-wheels {
-  font-family: var(--font); font-size: var(--fs); line-height: 1.35;
+  font-family: var(--font); font-size: var(--home-fs); line-height: var(--home-lh);
   white-space: pre; font-weight: 700; color: var(--dim);
   display: block;
 }
@@ -621,9 +712,9 @@ html, body, #root {
 
   width: 100%;
   max-width: 540px;
-  margin-top: 4px;
+  margin-top: 2px;
 
-  font-size: var(--fs);
+  font-size: var(--home-fs);
   color: var(--text);
   font-weight: 500;
   letter-spacing: 0.08em;
@@ -644,8 +735,8 @@ html, body, #root {
 }
 
 .oxis-ver-row {
-  display: flex; align-items: baseline; gap: 8px; margin-top: 2px;
-  font-size: var(--fs); font-style: italic; color: var(--muted);
+  display: flex; align-items: baseline; gap: 8px; margin-top: 1px;
+  font-size: var(--home-fs); font-style: italic; color: var(--muted);
 }
 
 .oxis-gitlab-btn {
@@ -661,35 +752,38 @@ html, body, #root {
    scrolling on a typical ~800px-tall window. */
 .oxis-box {
   border: 1px solid var(--border2);
-  border-radius: 2px; padding: 7px 14px;
-  width: 100%; max-width: 620px; margin-bottom: 8px;
-  display: flex; flex-direction: column; gap: 3px;
+  border-radius: 2px; padding: 6px 12px;
+  width: 100%; max-width: 620px; margin-bottom: 6px;
+  display: flex; flex-direction: column; gap: 2px;
 }
-.oxis-box-row { display: flex; align-items: baseline; font-size: var(--fs); white-space: nowrap; }
+.oxis-box-row { display: flex; align-items: baseline; font-size: var(--home-fs); white-space: nowrap; }
 .oxis-wl { color: var(--purple3); font-weight: 700; font-style: italic; min-width: 80px; }
 .oxis-we { color: var(--dim); padding: 0 4px; }
 .oxis-wa { color: var(--purple2); font-weight: 700; font-style: italic; letter-spacing: .01em; }
 .oxis-wa--name { color: var(--purple); } /* the active workspace's own name — slightly brighter, first thing to scan for */
+.oxis-wa--connected { color: var(--green, #7cd992); font-weight: 700; font-style: italic; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 420px; }
+.oxis-wa--disconnected { color: var(--dim); font-style: italic; font-size: 12px; }
+.oxis-wa--disconnected code { color: var(--purple3); font-style: normal; }
 
 /* Workspace panel — Home screen (see README § Home Screen & Workspace Panel) */
-.oxis-workspace-box { margin-top: 10px; }
+.oxis-workspace-box { margin-top: 6px; }
 .oxis-workspace-box .oxis-box-row { white-space: normal; word-break: break-all; }
 .oxis-workspace-header { justify-content: space-between; margin-bottom: 2px; }
-.oxis-workspace-status { font-size: var(--fs); font-style: italic; color: var(--dim); }
+.oxis-workspace-status { font-size: var(--home-fs); font-style: italic; color: var(--dim); }
 .oxis-workspace-status--ready   { color: var(--purple3); }
 .oxis-workspace-status--loading { color: var(--muted); }
 .oxis-workspace-footer { justify-content: flex-end; margin-top: 4px; }
-.oxis-workspace-hint { font-size: var(--fs); font-style: italic; color: var(--dim); }
+.oxis-workspace-hint { font-size: var(--home-fs); font-style: italic; color: var(--dim); }
 .oxis-workspace-hint code { color: var(--purple2); }
 .oxis-workspace-support-link {
   background: none; border: none; cursor: pointer; padding: 0;
-  font-size: var(--fs); font-style: italic; color: var(--dim);
+  font-size: var(--home-fs); font-style: italic; color: var(--dim);
   transition: color .15s ease;
 }
 .oxis-workspace-support-link:hover { color: var(--purple2); }
 
 .oxis-help-box { margin-top: 0; }
-.oxis-help-row { display: flex; align-items: baseline; gap: 4px; font-size: var(--fs); font-style: italic; }
+.oxis-help-row { display: flex; align-items: baseline; gap: 4px; font-size: var(--home-fs); font-style: italic; }
 .oht { color: var(--dim);    font-style: italic; }
 .ohc { color: var(--purple3); font-weight: 700; font-style: italic; }
 .oha { color: var(--purple);  font-weight: 700; font-style: italic; }
@@ -708,6 +802,23 @@ html, body, #root {
   font-style: italic; caret-color: var(--purple);
 }
 .oxis-cmdline-input::placeholder { color: var(--dim); font-style: italic; }
+
+/* Extra compacting on genuinely short windows — the font-size fix
+   above (decoupling from --fs) handles the main cause of overflow,
+   this is a direct safety net for small windows regardless of that. */
+@media (max-height: 700px) {
+  .home { padding: 4px 20px; }
+  .oxis-train-wrap { margin-bottom: 2px; transform: scale(.85); transform-origin: top center; }
+  .oxis-sub-row { margin-top: 0; }
+  .oxis-box { padding: 4px 12px; margin-bottom: 4px; gap: 1px; }
+  .oxis-workspace-box { margin-top: 4px; }
+  .oxis-cmdline { margin-top: 4px; }
+}
+@media (max-height: 560px) {
+  .oxis-train-wrap { transform: scale(.6); margin-bottom: -12px; } /* the wrap's own box shrinks with it, so margin needs a manual nudge to avoid a large empty gap the scale leaves behind */
+  .oxis-sub-row { font-size: 10px; gap: 1rem; }
+  .oxis-ver-row { font-size: 10px; }
+}
 
 /* Shell-open hint bar */
 .home-tab-hint {

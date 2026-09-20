@@ -33,10 +33,12 @@ current codebase today, **[in progress]** — partially built, **[planned]**
 - [Command Registry](#command-registry)
 - [Event System](#event-system)
 - [Keybind System](#keybind-system)
+- [Git Integration](#git-integration)
 - [PTY Architecture](#pty-architecture)
 - [Task Runner](#task-runner)
 - [Built-in Editor](#built-in-editor)
 - [Diagnostics & Plugin Doctor](#diagnostics--plugin-doctor)
+- [Backup, Restore & Export](#backup-restore--export)
 - [Settings](#settings)
 - [Auto-Update](#auto-update)
 - [Session Management](#session-management)
@@ -268,6 +270,34 @@ bound if 1420 doesn't respond.
 
 **[shipped]** — the ASCII banner, help box, command line, and the
 Workspace panel itself all ship today.
+
+**[fixed]** Home's layout could genuinely overflow into scrolling —
+root cause found, not just spacing trimmed. The ASCII banner, the
+WORKSPACE panel's rows, and the help box were all sized with
+`var(--fs)`, the same variable `'config set fontSize` controls for
+the terminal and editor. Turning that up for readability while
+coding (a completely reasonable thing to do) would inflate Home's
+banner and text too, with no logical connection between "I want
+bigger terminal text" and "I want the dashboard to be bigger" — on a
+smaller window this alone could push Home tall enough to need
+scrolling. Split into a separate, fixed `--home-fs`/`--home-lh` pair
+that `'config set fontSize` doesn't touch at all (the command line
+itself stays tied to `--fs`, deliberately — typing there is more like
+the terminal than like reading a dashboard). Also trimmed padding/
+margins throughout, and added `@media (max-height: ...)` rules for
+genuinely short windows that scale the banner down and compact
+further, rather than hiding anything outright.
+
+**[shipped]** The command line auto-focuses on Home — retried twice
+(40ms, then 250ms) rather than once, since a single attempt could
+lose a race with something else mounting right after (the banner
+animation, a panel re-render) that steals focus back. **Ctrl+I** is a
+reliable manual fallback from anywhere on Home, shown right in the
+input's own placeholder ("Type Here or Ctrl+I") so it's discoverable
+without already knowing it — guarded so it only acts while Home is
+actually the visible screen (Home stays mounted-but-hidden behind the
+terminal, and Ctrl+I is literally the Tab byte at the terminal level —
+without that guard this would have broken tab-completion there).
 
 The Home screen is OXIS's landing view (`view === "home"`, see
 [Input Modes](#input-modes)) and is meant to feel like the central
@@ -568,6 +598,20 @@ its build configuration at that one subdirectory.
 | Root directory | `cloudflare` |
 | Functions directory | auto-detected (`cloudflare/functions/`) |
 
+### Checking your own setup: `GET /health`
+
+**[shipped]** `oxis-market.pages.dev/health` — a self-diagnostic that
+reports which secrets and KV namespace bindings are actually present
+(never their values, just whether each one exists), so a missing
+binding shows up in one request instead of only being discovered when
+a real Stripe webhook or `'plugin publish` submission silently fails.
+Returns `200` with `{ ok: true, ... }` when everything expected is
+bound, `503` with a `missing` list and a `whatBreaks` map (which
+endpoints depend on each missing piece) otherwise. It only checks
+*presence* — a secret that's bound but wrong (an expired GitLab token,
+a live-mode Stripe key where you meant test-mode) still needs a real
+end-to-end test to catch, not just this.
+
 Connect the Pages project directly to the `gitlab.com/oxidelab/oxis`
 repository (Cloudflare Pages supports GitLab as a Git provider the
 same way it supports GitHub) and set **Root directory** to
@@ -683,6 +727,43 @@ themselves:
   addition. The uninstall section deletes all three shortcuts and the
   Start Menu folder alongside everything else — nothing is left
   behind.
+
+### Windows Defender / antivirus false positives
+
+**Known issue, honestly scoped**: `oxis.exe` isn't code-signed, and
+Windows Defender/SmartScreen (and some other antivirus engines)
+sometimes flag unsigned, freshly-built Go binaries as suspicious —
+this is a reputation/heuristic false positive, not an actual finding,
+but it's a real thing people hit with this kind of app and deserves a
+straight answer instead of a link to a support article.
+
+What's already in place to minimize it, and was checked/fixed as part
+of this:
+- A real Windows version resource is embedded in every build
+  (`cmd/oxi/versioninfo.json` — company name, product name,
+  description, version — via `goversioninfo`, see `build-go.js` step
+  4), which was pointing at a stale, nonexistent icon filename
+  (`oxishell.ico` instead of the real `oxis.ico`) until this was
+  caught and fixed; the actual build wasn't affected (`build-go.js`
+  passes `-icon=oxis.ico` explicitly, which takes precedence), but the
+  metadata itself is correct now.
+- Build flags (`-s -w -H windowsgui`) are the completely standard set
+  for a Go GUI app (strip debug symbols, suppress the console window)
+  — not something unusual added on top that would raise suspicion
+  further.
+
+**What would actually fix it, and hasn't been done**: code-signing the
+binary with a real certificate from a Certificate Authority. That's
+what actually builds reputation with Windows Defender/SmartScreen over
+time — nothing else here substitutes for it, and doing it requires
+purchasing a signing certificate and adding a signing step to the
+release process, neither of which exists yet.
+
+In the meantime, if Defender flags a build you've compiled yourself:
+[submit it to Microsoft for analysis](https://www.microsoft.com/en-us/wdsi/filesubmission)
+(usually resolves within a day or two once enough submissions build up
+reputation), or add a local Defender exclusion for `dist\oxis.exe`
+while you're developing against it.
 
 ### User Config Directory
 
@@ -1418,6 +1499,31 @@ Usage after loading the workspace:
 'task test
 ```
 
+### Workspace Auto-Update
+
+**[shipped]** Whenever OXIS itself has been updated since the last
+launch (detected by comparing the running version against what was
+last seen, stored locally), every named workspace's on-disk folder
+layout is automatically brought up to date — the actual "auto-updater
+for workspaces": if a workspace was created under an older OXIS
+version that didn't yet have (say) `tasks/`/`workflows/` folders, or
+the `.oxis/` project-layer folder, this fills those in. Purely
+additive — it only ever creates folders that are missing; nothing
+that already exists (a workspace's `workspace.lua`, its documents, any
+tasks you've written) is ever touched, overwritten, or deleted.
+Tracked per-workspace via a `schemaVersion` field in
+`workspaces/registry.json`, so an already-up-to-date workspace costs
+nothing beyond the registry read — the check, not the migration
+itself, is what runs on every launch. A newly created workspace starts
+already at the current version, so it's never migrated at all.
+
+**Honest limitation**: the "N workspace(s) updated" notice is
+best-effort and may not always be visible — it's printed through the
+same channel terminal command output uses, which isn't guaranteed to
+be initialized yet if OXIS opens straight to Home without the shell
+ever having been used this session. The migration itself always runs
+correctly regardless of whether the notice shows.
+
 ### Named Workspaces
 
 **[shipped]** On top of the single-project `.oxis/workspace.lua` file
@@ -1434,8 +1540,30 @@ touching the filesystem yourself:
 'workspace delete "my-app"
 'workspace link "C:\Users\you\Projects\my-app"    connect it to an existing project directory
 'workspace unlink                remove that link
-'workspace info                  show the active workspace (name, tasks, link if any)
+'workspace newfile <relative-path>   create a file inside the CONNECTED directory
+'workspace newdir <relative-path>    create a directory inside it
+'workspace info                  show the active workspace (name, tasks, connected path if any)
 ```
+
+**[fixed]** Which named workspace is active could get silently
+out of sync with what's actually loaded — `cd`-ing in the shell into
+an unrelated directory that happened to have its own
+`.oxis/workspace.lua` would load it while OXIS kept reporting the
+previous named workspace as still active. Fixed at the source (see
+CHANGELOG for the full root-cause writeup), and auto-detection on
+`cd` now deliberately stays off while a named workspace is active —
+`'workspace switch default` first if you want that ad-hoc, cwd-based
+behavior back.
+
+**[fixed]** User-created plugins (Plugin Creator / `'plugin new`) now
+actually follow workspace switches — each named workspace's own
+`plugins/` folder is re-scanned every time you switch into it, and
+the previous workspace's user plugins are cleared out first. Before
+this, a plugin created under one workspace would stay registered and
+enabled after switching to a different one, and the new workspace's
+own plugins were never loaded at all — `loadUserPlugins()` only ever
+ran once, at startup. Market-installed plugins were never affected
+(they aren't workspace-scoped).
 
 Each named workspace is a real folder, `workspaces/<name>/`, next to
 `dist/oxis.exe` (see [dist/ layout](#dist-layout)):
@@ -1447,26 +1575,54 @@ workspaces/
     ├── documents/            ← where 'new writes while this workspace is active
     ├── plugins/               ← where the Plugin Creator writes while this workspace is active
     ├── scripts/               ← your own script files — open/edit with 'edit
-    ├── tasks/                 ← your own task definitions — open/edit with 'edit
-    └── workflows/             ← your own workflow files — open/edit with 'edit
+    ├── tasks/                 ← .lua files, each calling oxis.task(...) — see below
+    └── workflows/             ← .lua files, each calling oxis.workflow(...) — see § Workflows
 ```
 
-`scripts/`, `tasks/`, and `workflows/` are plain storage folders, not
-a separate execution engine — OXIS doesn't have a standalone "workflow
-runner"; automation still goes through `'task` and `oxis.command`/
-`oxis.task` inside that workspace's `.oxis/workspace.lua`, same as the
-single-project flow. What's new is a tidy, separate place *per
-project* to keep the source for that, instead of one shared pile.
+**[shipped]** `tasks/` and `workflows/` are real, loaded folders, not
+just storage — any `.lua` file dropped in either one is loaded
+whenever the workspace is switched to (each just calls
+`oxis.task(...)`/`oxis.workflow(...)`, the same as anywhere else),
+alongside whatever `.oxis/workspace.lua` itself registers directly.
+`scripts/` is still plain storage — open/edit with `'edit`, run
+however your tasks/workflows choose to invoke them.
 
-**External project directories.** `'workspace link "<path>"` connects
-the *active* workspace to an existing project directory anywhere on
-disk, without moving or copying it into `dist/`. OXIS doesn't do
-anything with that path automatically — it's recorded on the
-workspace so your own tasks, scripts, and workflows can reference it
-(e.g. a task that `cd`s there before running a build), while OXIS
-keeps managing that workspace's own documents/plugins/scripts/tasks/
-workflows folders around it. `'workspace info` shows the link if one
-is set; `'workspace unlink` removes it.
+**External project directories, with a real connector.**
+`'workspace link "<path>"` connects the *active* workspace to an
+existing project directory anywhere on disk, without moving or
+copying it into `dist/`. This does three real things, not just an
+internal pointer:
+
+1. Records the link on the workspace's registry entry
+   (`workspaces/registry.json`) — the authoritative source of truth,
+   survives restarts.
+2. Writes a small `.oxis-connector.json` marker *into* the connected
+   directory itself (just the OXIS workspace name and when it was
+   linked — nothing sensitive) — a human-discoverable record that a
+   directory is linked to something, from the project's own side.
+3. Adds a `.oxis-connector.json` rule to that directory's
+   `.gitignore` — creating the file if it doesn't exist, appending
+   only the missing rule if it does (every existing rule is left
+   exactly as it was, and the rule is never duplicated on a second
+   link) — so the connector marker never ends up committed to the
+   project's actual repository.
+
+`'workspace unlink` removes the registry entry and cleans up the
+connector file — but never lets a missing/moved/inaccessible
+directory block the unlink itself; the internal link is cleared
+either way. `'workspace info`, and the Home screen's WORKSPACE panel,
+both show the connected path clearly (`connected = C:\...`), or say
+plainly that nothing's connected if it isn't.
+
+Once connected, `'workspace newfile`/`'workspace newdir` create real
+files/directories *inside that connected directory* — relative to the
+connected path, not the app's own directory (`'edit`'s relative paths
+resolve differently — see `'help edit`). Every path is checked before
+touching disk: an absolute path or a `..` that would escape the
+connected directory is refused outright, so these commands can't be
+used to write somewhere OXIS wasn't actually pointed at. `'workspace
+newfile` opens the new file in the Editor immediately; `'workspace
+newdir` just confirms the directory was created.
 
 With no workspace active — the default, and what every existing
 install already has — `'new` and the Plugin Creator keep using the
@@ -1474,6 +1630,14 @@ shared top-level `created-documents/` and `created-plugins/` folders
 exactly as before (see [dist/ layout](#dist-layout)). Switching to a
 named workspace is opt-in, and switching back to `default` goes right
 back to that shared context.
+
+**[fixed]** A new workspace's `.oxis/workspace.lua` now starts with
+its example tasks commented out, not three live `npm run dev`/`build`/
+`test` tasks registered automatically. Assuming every new workspace is
+an npm project was wrong regardless of how common that case is —
+tasks should reflect what the specific project actually needs, added
+deliberately. Existing workspace files already on disk are untouched
+by this — only the template used for *newly created* ones changed.
 
 ### Workflows
 
@@ -1547,6 +1711,46 @@ documents/plugins/tasks.
 (no nested/composed workflows yet), and workflow *logs* are printed to
 the terminal in real time but not separately saved anywhere for later
 review (`'workflow info` shows the definition, not a run history).
+
+### Project Layer
+
+**[shipped]** A "project" is an existing directory anywhere on disk
+that carries its own full OXIS setup, so a project can ship its own
+tasks/workflows/scripts/plugins/documents alongside its actual code —
+not just inside `dist/workspaces/`:
+
+```
+my-project/
+└── .oxis/
+    ├── workspace.lua   ← same format as any .oxis/workspace.lua — tasks, theme, commands
+    ├── project.lua     ← project-level config that isn't really about the workspace itself (usually empty)
+    ├── tasks/          ← each file just calls oxis.task(...), same as workflows/ files call oxis.workflow(...)
+    ├── workflows/
+    ├── scripts/
+    ├── plugins/
+    └── documents/
+```
+
+```
+'project init [dir]      set up the full .oxis/ structure (current directory if omitted)
+'project open [dir]      load it — workspace.lua, project.lua, tasks/, workflows/
+'project run <name>      run a task or workflow by name (tries a workflow first, then a task)
+'project task            list the active project's tasks
+'project workflow        list the active project's workflows
+```
+
+**Deliberately thin, on purpose**: these are wrappers around the exact
+same `load()`/task/workflow machinery `'workspace` and `'workflow`
+already use — not a second, parallel system. `'project init` never
+overwrites a `workspace.lua`/`project.lua` that's already there,
+only fills in whatever's actually missing. `.oxis/tasks/*.lua` and
+`.oxis/workflows/*.lua` work exactly like a named workspace's
+`tasks/`/`workflows/` folders (in fact, loading a directory now checks
+both conventions) — while fixing that in, a real pre-existing gap got
+closed too: named workspaces' own `tasks/` folder was created but
+nothing had ever actually loaded `.lua` files from it (only
+`workflows/` was wired up) — task files in either convention are
+loaded now.
 
 ### Workspace Persistence
 
@@ -1793,6 +1997,90 @@ keybinds.register({
 
 ---
 
+## Git Integration
+
+**[shipped, needs a real build/test pass]** Real git integration —
+`'workspace github`/`'workspace gitlab` for remote setup, and a
+default `commit` task with an actual commit dialog — built on a new
+Go binding, `RunCommand` (`internal/wailsapp/app.go`), that runs a
+real external command and captures its output structurally:
+
+```go
+func (a *App) RunCommand(dir string, name string, args []string) (RunCommandResult, error)
+```
+
+Argv-based (a real `name` + `[]string` of args), never a
+shell-interpreted string — a commit message or repo name can't break
+out into a second command the way string-concatenated shell input
+could. 30s timeout. A non-zero exit (e.g. `git commit` with nothing
+staged) is a normal, structured result to inspect, not a thrown
+error — only a genuine failure to start the command at all throws.
+Exposed to the frontend as `runCommand()` (`native.ts`), and
+`frontend/src/plugins/git.ts` builds the actual git operations on top
+of it: `isGitRepo`, `getStatus` (real `git status --porcelain`,
+parsed), `commitAll` (`git add -A` + `git commit -m`), `getRemotes`,
+`setupRemote`.
+
+**Honest caveat**: this Go binding could not be compiled or run in
+the environment it was built in (no Go toolchain available there) —
+only checked for balanced braces/parens as a syntax sanity check.
+**Run a real `go build` and exercise every git command below before
+relying on this.**
+
+### `'workspace github` / `'workspace gitlab`
+
+```
+'workspace github <owner/repo or full URL> [--force]
+'workspace gitlab  <owner/repo or full URL> [--force]
+```
+
+Configures the connected project's `origin` remote for the given
+provider — initializing a real git repository first if one doesn't
+exist yet (a fresh project connected to OXIS is a completely normal
+starting point). Refuses to silently replace a DIFFERENT existing
+`origin` — reports what it would overwrite and requires `--force` to
+actually do it. A full URL (or an `git@host:...` SSH form) passes
+through unchanged instead of being reinterpreted, so this works for
+SSH remotes too, not just HTTPS. This configures the remote only — it
+does not push, pull, or handle authentication; that needs real
+credentials (an SSH key or credential helper) already set up on the
+machine, which is out of scope here.
+
+### The `commit` task
+
+**[shipped]** New workspaces start with **no tasks at all** — nothing
+is auto-generated by default, including `commit`. The moment
+`'workspace github`/`'workspace gitlab` actually succeeds at
+configuring a remote, a `commit` task is added automatically (a real
+file, `tasks/commit.lua`, in the active workspace's own directory —
+not a rewrite of `workspace.lua`'s text, so it can't clobber anything
+hand-written there). The reasoning: a `commit` task has nothing to do
+in a workspace with no git connection yet, so it doesn't exist until
+one is actually made.
+
+It runs `'git-commit-dialog`, a real dedicated command (not a raw
+shell one-liner, since committing needs an actual UI) that:
+
+1. Finds the active workspace's connected external project.
+2. Runs real `git status`, parses it into structured file changes.
+3. Shows those changes and a message field.
+4. On Commit: real `git add -A` + `git commit -m "<message>"` in that
+   project, reports the resulting commit hash.
+5. Handles "not a project connected", "not a git repo yet", "nothing
+   to commit", and git errors as distinct, clearly-worded states
+   rather than one generic failure message.
+
+**Nothing about this task is special or protected** once it exists —
+it's a completely ordinary task file (`tasks/commit.lua`), openable
+with `'edit` like any other file: rename it, change what it runs,
+delete it, duplicate it, add more tasks alongside it. The one thing
+preserved regardless of how it's edited: `git add -A` (real git, not
+OXIS) only ever stages files inside the repository it's run in — a
+task can't be edited into reaching outside the connected project's
+boundary, because that
+boundary is enforced by git itself, not by anything OXIS could
+accidentally weaken through a task edit.
+
 ## PTY Architecture
 
 The PTY layer (`pty/ptyClient.ts`) is a pure WebSocket bridge with no UI, no React, and no business logic. On the Go side, `internal/pty/pty.go` holds logic shared by both platform backends — message types and `stripCtrl`, which strips ANSI/VT escape sequences (SGR colors, OSC title-set, bracketed-paste toggles, etc.) before anything reaches the frontend, since OXIS renders its own theme-driven output and doesn't want raw terminal escapes leaking through. `pty_windows.go` (ConPTY) and `pty_unix.go` (creack/pty, used by `build-linux.sh`) both call into it, so output is identical on every platform.
@@ -1891,6 +2179,26 @@ Tasks run in the active PTY shell — output appears in the terminal exactly lik
 
 OXIS includes a built-in editor so you never need to leave the app to edit files. **This is the only editor** — the file Editor and plugin editing (`'plugin new`) are the exact same component; see [Creating a Plugin](#creating-a-plugin).
 
+**[fixed]** Large-file performance — real, reported freezing/lag when
+opening or typing in big files traced to two synchronous, whole-file
+computations re-running on every keystroke: the syntax highlighter
+(a single regex pass — O(n) in file size, not pathological, but still
+real work on a big file) and the unsaved-change gutter's line diff (a
+real LCS algorithm). Both now run against a **debounced** copy of the
+content instead of the raw value on every keystroke — the actual
+`<textarea>` you type into is never debounced and never blocked, only
+the color overlay and the change-gutter can lag a beat (150-200ms)
+behind on a large file; small files see no perceptible debounce at
+all. Above 500,000 characters, syntax highlighting is turned off
+entirely (plain, escaped text instead, with a visible notice — not a
+silent quality drop) and the change-gutter shows nothing rather than
+attempting a diff that would itself be slow to compute. **Known
+remaining gap**: line numbers still render one DOM row per line
+regardless of file size (no virtualization) — a genuinely enormous
+file (hundreds of thousands of lines) would still pay that cost; this
+wasn't attempted given the risk of a larger, untested rendering
+rewrite without a way to verify it end-to-end here.
+
 **[shipped]** Line numbers — a synced-scroll gutter, sized to the
 file's actual line count (a 4-digit file gets a wider gutter than a
 3-digit one, so numbers never clip).
@@ -1916,16 +2224,54 @@ a dot shows which tabs are dirty. **Save All** in the tab bar saves
 every dirty tab at once.
 
 **[shipped]** File tree — Ctrl+B (or the ☰ rail button, always
-visible along the editor's left edge) toggles a real file browser,
-lazily listing folders via the same native `listDir` call everything
-else uses (a folder's contents load the first time you expand it, not
-upfront). Starts at the app's own directory — the same root
+visible along the editor's left edge), or `'edit` with no arguments
+(opens the editor pane straight to the tree, even with nothing open
+yet — the keyboard-only path in doesn't need you to already know a
+file's exact path). A real file browser, lazily listing folders via
+the same native `listDir` call everything else uses (a folder's
+contents load the first time you expand it, not upfront).
+
+**[shipped]** Root switches automatically with the connected project.
+With no external directory connected (or no named workspace active),
+the tree starts at the app's own directory — the same root
 `created-documents/`, `created-plugins/`, `workspaces/`, and
-`plugins/` resolve against (see [dist/ layout](#dist-layout)) — so
-it's a real way to browse to and open any of those, or any other
-file, without needing to already know its exact path for `'edit`.
-Click a folder to expand/collapse it, click a file to open it in a
-tab (the same `openEditor()` call `'edit` and `'plugin new` use).
+`plugins/` resolve against (see [dist/ layout](#dist-layout)). Once
+the active workspace is connected to an external project
+(`'workspace link`), the tree switches to that project's real
+filesystem instead — its actual `src/`, `package.json`, etc., not
+OXIS's own managed structure — labeled with the workspace's name so
+it's clear which you're looking at. Switches back the moment the
+workspace disconnects or you switch to one with no connection.
+Clicking a folder to expand it, or a file to open it, still goes
+through the same `openEditor()` `'edit` uses either way. A manual
+refresh button (⟳) in the header reloads whatever's currently
+expanded — there's no filesystem watcher, so this (and the automatic
+refresh after OXIS's own `'workspace newfile`/`newdir`/`task commit`)
+is how the tree picks up changes made outside OXIS.
+
+**[shipped]** Moving files — drag a file onto a folder in the tree to
+move it there, or `'workspace move <file> <directory>` to do the same
+from the command line (both relative to whatever the tree's current
+root is — the connected project if there is one). Backed by a real,
+atomic move (`os.Rename` — works across files and directories alike)
+via a new Go binding, `MovePath`, which refuses outright if the
+destination already exists rather than silently overwriting it.
+`'workspace move` validates both paths stay inside the connected
+directory before touching anything (the same `safeJoinWithinDir`
+guard `'workspace newfile`/`newdir` use); drag-and-drop doesn't need
+that same check — the paths involved come from the tree's own real
+directory listing, not typed text, so there's no user-controlled
+string to validate in the first place.
+
+**[shipped]** Fully keyboard-navigable, no mouse required at any
+point: opening it (Ctrl+B) focuses it immediately, then **↑/↓** move
+between visible rows, **→** expands a folder (or moves into it if
+already open), **←** collapses it (or jumps to the parent row if it's
+a file or already collapsed — the same convention VS Code's file tree
+uses), **Enter**/**Space** opens a file or toggles a folder, **Home**/
+**End** jump to the first/last visible row, and **Esc** closes the
+tree. The current row is shown with a left accent bar, not just a
+background tint, so it's visible even at a glance.
 
 ### Opening the Editor
 
@@ -1969,6 +2315,16 @@ stripped, not split on the whitespace inside them.)
 | Esc      | Close (prompts if dirty) |
 | Tab      | Insert 2 spaces       |
 
+**[fixed]** Undo grouping — consecutive keystrokes group into one
+undo step, but the group now also breaks after a 700ms pause between
+keystrokes, not just when you leave Insert mode. Before this fix, one
+continuous Insert-mode session — however long, including a user
+typing an entire file without ever pressing Escape, which is normal
+usage for anyone not used to modal editing — collapsed into a single
+undo step, so one Ctrl+Z could wipe the whole thing back to empty.
+Saving does not touch undo history either way (verified — it only
+updates the unsaved-change gutter's baseline, never the undo stack).
+
 **[shipped]** Find / Find & Replace / Go to line — Ctrl+F opens a find
 bar (Enter/Shift+Enter step through matches, wrapping around); Ctrl+H
 adds a replace field (Replace does the current match and advances;
@@ -1997,6 +2353,36 @@ used by the [Plugin Creator](#creating-a-plugin) below, so Lua plugin
 source gets highlighting too.
 
 ---
+
+## Backup, Restore & Export
+
+**[shipped]** `'backup [path]` / `'restore <path>` — everything real,
+user-created data in one file: settings, every named workspace's
+actual files, `created-documents/`, `created-plugins/`. Deliberately
+excludes Market-installed plugins (re-fetchable with `'market
+install`, not something to snapshot) and installer build output
+(`dist/wix|nsis|deb/` — not user data). `'restore` asks for
+confirmation first, and only ever adds/overwrites files the backup
+actually contains — an unrelated workspace or document created since
+the backup was taken is left alone, never deleted.
+
+**[shipped]** Narrower exports for one thing at a time:
+
+```
+'config export [path]           settings only (default: oxis-config.json)
+'config import <path>
+'workspace export <name> [path]  one workspace's real files
+'workspace import <path> [name]  creates a NEW workspace, never overwrites
+'plugin export <name> [path]     just one plugin's .lua source
+```
+
+**Format note**: everything here is plain JSON, not an actual `.zip`
+— there's no zip library available in this environment (Wails' JS
+runtime, or the browser-mode fallback), and faking a `.zip` extension
+on something that isn't one would be worse than being upfront about
+it. A flat map of relative-path → file-contents in readable JSON is
+just as portable for what this is actually for, and easier to inspect
+or hand-edit if you ever need to.
 
 ## Diagnostics & Plugin Doctor
 
@@ -2403,16 +2789,20 @@ access.
 
 ## Third-Party Developer Marketplace
 
-**[in progress]** — the Stripe Connect account creation and
-verification-status endpoints are real, working code today; what's
-still `[planned]` is a publishing UI for a developer to list their
-own plugin against their own Connect account (right now that's a
-manual `index.json` edit).
+**[shipped]** Publishing automates the tedious mechanical part — not
+the review. `'plugin publish` validates a plugin and opens a real
+GitLab merge request against `gitlab.com/oxidelab/oxis` adding it,
+handling the branch/commit/push/open-MR steps a developer would
+otherwise do by hand. **A human still reviews and merges it on
+GitLab** before it's actually live — this deliberately keeps the same
+review gate the manual process always had, it just removes the
+tedious part leading up to it. Stripe Connect account creation and
+verification-status are real, working code too (see Onboarding below).
 
 The long-term goal is for other developers to publish and sell their
 own subscription plugins through the OXIS Market. Third-party listings
 are tracked the same way OXIS's own premium plugins are — by whether
-`index.json` carries a `stripeConnectAccountId` (see the 75/25
+an entry carries a `stripeConnectAccountId` (see the 75/25
 revenue split below) — nothing else in the pipeline treats them
 differently.
 
@@ -2435,9 +2825,78 @@ account verification is complete." In Stripe **test mode**, Express
 test accounts typically report both as true almost immediately
 (Stripe fakes KYC in test mode), which is what makes it possible to
 test the entire 75/25 payout flow end-to-end before anything goes
-live.
+live. The merge request for a paid plugin can be opened (and
+reviewed) before the Connect account finishes verification — Stripe
+simply won't release any payouts to an unverified account regardless,
+and the listing isn't live until the MR is actually merged anyway.
 
-### Publishing (still manual, not yet a real dashboard)
+### Market Publishing — GitLab Merge Request, Automatically Opened
+
+**[shipped]** `'plugin publish <name>`:
+
+```
+'plugin publish <name>                                      free plugin
+'plugin publish <name> --price=4.99 --interval=month         paid plugin
+'plugin publish <name> --email=you@example.com               (defaults to 'market license's email)
+```
+
+It validates the plugin is actually ready (a real manifest — version/
+description/author/category/min_oxis_version/os all need to be
+genuinely filled in, not just "works for me" — plus everything
+`'plugin validate` already checks), then:
+
+- **Free**: sends the plugin's metadata and its actual `.lua` source
+  to `POST /submit-plugin` (`cloudflare/functions/submit-plugin.js`),
+  which uses the GitLab API to create a branch, commit the plugin's
+  `.lua` file and an updated `index.json` in one commit, and open a
+  real merge request — then opens that MR in your browser. **Nothing
+  is live until it's reviewed and merged on GitLab.**
+- **Paid**: explains the subscription model and 75/25 split, calls
+  `/connect-onboarding` to create a real Stripe Connect Express
+  account and opens the onboarding link, then opens the merge request
+  the same way, with the price and Connect account ID included in the
+  MR's `index.json` entry for the reviewer to see.
+- **Either way, running it again on an already-listed plugin** is
+  detected automatically (checking the Market for an existing entry)
+  and opens an UPDATE merge request that replaces the existing
+  `index.json` entry, rather than a fresh one.
+
+**What the merge request does NOT include**: a card for
+`cloudflare/index.html` (the Market website's own display list).
+Programmatically editing a JS array embedded inside an HTML file via
+string manipulation is fragile — a malformed edit there is a worse
+failure mode than just asking the reviewer to add it by hand, which
+the MR's description does explicitly.
+
+**What's still worth being clear-eyed about**: this automates getting
+a plugin's actual code in front of a reviewer, but the review itself
+is exactly as rigorous (or not) as whoever merges it makes it — see
+[Submitting a Free Plugin](#the-curated-catalog--still-available-as-an-alternative)
+below for what a real review should check (the code itself, that
+permissions requested match what's actually used, that the metadata
+is accurate). OXIS's own permission system remains a second layer
+regardless: even a plugin that's merged still has to declare what it
+touches and the user still gets prompted before it can use any of
+that.
+
+**Under the hood** (see `cloudflare/functions/submit-plugin.js`):
+requires a `GITLAB_TOKEN` secret (Cloudflare Pages → Settings →
+Environment variables, same pattern as `STRIPE_SECRET_KEY`), `api`
+scope, Developer role (not Maintainer/Owner — this never needs to
+merge anything) — enough to create a branch/commit/MR but **not**
+enough to merge one; merging stays a human decision made in GitLab's
+own UI. Which *kind* of token depends on your GitLab.com plan: a
+**Project Access Token** (the project's own Settings → Access Tokens)
+is the better choice when it's available — scoped to just this one
+project, not tied to any individual's account — but GitLab.com
+restricts those to **Premium or Ultimate**; on the **Free** tier,
+project access tokens aren't creatable at all, so use a **Personal
+Access Token** instead (your profile → Preferences → Access Tokens),
+scoped down to `api` only. **Honestly flagged**: this backend code
+could not be deployed or exercised end-to-end in the environment it
+was written in (no GitLab/Cloudflare account access) — the GitLab API
+calls follow its documented REST API exactly, but try one real
+submission before relying on it.
 
 A published plugin (free or premium) carries:
 
@@ -2445,7 +2904,8 @@ A published plugin (free or premium) carries:
 Name · Description · Icon · Screenshots · Version · Author
 Category · Documentation · Changelog · Permissions
 Compatibility · Subscription price (premium only)
-stripeConnectAccountId (premium, third-party only — see index.json)
+
+stripeConnectAccountId (premium, third-party only)
 ```
 
 Every plugin is published as either:
@@ -2453,11 +2913,13 @@ Every plugin is published as either:
 - **Free** — works exactly like today's community `'market` plugins
 - **Premium subscription** — no one-time-paid tier exists
 
-### Submitting a Free Plugin — the actual process today
+### The Curated Catalog — still available as an alternative
 
-**[shipped]** — there's no publishing dashboard yet (see below), but
-the underlying pipeline is real and already how every plugin in the
-current catalog got there:
+**[shipped]** Every plugin that shipped with OXIS before self-service
+publishing existed went through this manual fork-and-PR process, and
+it still works exactly as before for anyone who'd rather have their
+plugin reviewed and included in the hand-maintained catalog instead
+of (or as well as) self-publishing:
 
 1. **Fork this repository** (or clone it if you already have write
    access) and create a branch.

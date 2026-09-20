@@ -4,6 +4,7 @@
 package wailsapp
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/oxis/oxis/internal/server"
 	"github.com/oxis/oxis/internal/update"
@@ -376,6 +378,25 @@ func (a *App) StatPath(path string) (StatResult, error) {
 
 // MakeDir / DeletePath back oxis.fs.mkdir / oxis.fs.remove.
 func (a *App) MakeDir(path string) error { return os.MkdirAll(resolvePath(path), 0o755) }
+
+// MovePath backs 'workspace move and file-tree drag-and-drop — a real,
+// atomic os.Rename (works for files and directories alike, same-
+// filesystem). Path safety (staying inside a connected project, no
+// traversal) is the CALLER's job (see safeJoinWithinDir in App.tsx) —
+// this is a thin, honest wrapper, not a second place that safety
+// logic would need to be kept in sync.
+func (a *App) MovePath(src string, dst string) error {
+	resolvedSrc := resolvePath(src)
+	resolvedDst := resolvePath(dst)
+	if _, err := os.Stat(resolvedSrc); err != nil {
+		return fmt.Errorf("source doesn't exist: %s", resolvedSrc)
+	}
+	if _, err := os.Stat(resolvedDst); err == nil {
+		return fmt.Errorf("destination already exists: %s", resolvedDst)
+	}
+	return os.Rename(resolvedSrc, resolvedDst)
+}
+
 func (a *App) DeletePath(path string) error {
 	full := resolvePath(path)
 	// Refuse to delete a drive root / the working directory itself —
@@ -384,6 +405,62 @@ func (a *App) DeletePath(path string) error {
 		return fmt.Errorf("refusing to delete root path: %s", full)
 	}
 	return os.RemoveAll(full)
+}
+
+// RunCommand runs a real external command (git, most commonly) and
+// captures its output structurally, instead of piping it through the
+// visible PTY shell — needed for anything that has to actually READ
+// and act on a command's result (git status, git commit) rather than
+// just showing text to the user. Argv-based (name + a real []string
+// of args), never a shell-interpreted string, so nothing in `args`
+// (a commit message, say) can break out into a second command the
+// way string-concatenated shell input could — this is deliberately
+// safer than the PTY path for exactly that reason.
+//
+// dir resolves the same way every other path in this file does (see
+// resolvePath) — relative to the app's own directory unless absolute,
+// so callers pass the real, resolved project path they already have
+// (e.g. a workspace's connected external directory), not something
+// this re-derives on its own.
+//
+// A 30s timeout applies to every call — this is meant for git
+// status/add/commit/remote, all fast local operations; anything that
+// legitimately takes longer (a slow network fetch/push) isn't what
+// this binding is for.
+type RunCommandResult struct {
+	Stdout   string `json:"stdout"`
+	Stderr   string `json:"stderr"`
+	ExitCode int    `json:"exitCode"`
+}
+
+func (a *App) RunCommand(dir string, name string, args []string) (RunCommandResult, error) {
+	resolvedDir := resolvePath(dir)
+	if info, err := os.Stat(resolvedDir); err != nil || !info.IsDir() {
+		return RunCommandResult{}, fmt.Errorf("not a directory: %s", resolvedDir)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Dir = resolvedDir
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return RunCommandResult{}, fmt.Errorf("%s timed out after 30s", name)
+		}
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			// A non-zero exit is a normal, structured result for the
+			// caller to inspect (e.g. `git commit` with nothing staged
+			// exits 1) — not a Go-level error.
+			return RunCommandResult{Stdout: stdout.String(), Stderr: stderr.String(), ExitCode: exitErr.ExitCode()}, nil
+		}
+		// The command genuinely couldn't be started at all (binary not
+		// found, permissions) — THIS is a real error.
+		return RunCommandResult{}, fmt.Errorf("couldn't run %s: %w", name, err)
+	}
+	return RunCommandResult{Stdout: stdout.String(), Stderr: stderr.String(), ExitCode: 0}, nil
 }
 
 // SystemInfo backs oxis.system.info() — the pieces sysmon.lua/

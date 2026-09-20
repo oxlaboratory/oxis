@@ -48,7 +48,12 @@ async function fetchJSON<T>(url: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-/** Fetch (and cache for this session) the marketplace index. */
+/** Fetch (and cache for this session) the marketplace index. Just the
+ *  one curated index.json — 'plugin publish opens a real GitLab merge
+ *  request (see cloudflare/functions/submit-plugin.js) rather than
+ *  writing anywhere separate, so once a submission is reviewed and
+ *  merged, it shows up in this exact same file like everything else;
+ *  there's no second, self-published index to also fetch and merge. */
 export async function fetchIndex(force = false): Promise<MarketEntry[]> {
   if (cachedIndex && !force) return cachedIndex;
   const entries = await fetchJSON<MarketEntry[]>(`${MARKET_BASE}/index.json`);

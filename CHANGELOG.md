@@ -7,6 +7,163 @@ change was made, not necessarily when a version was tagged.
 
 ### Added
 
+- **`GET /health` on the Market backend** — self-diagnostic reporting
+  which secrets/KV namespace bindings are actually configured
+  (presence only, never values), with a `whatBreaks` map showing which
+  endpoints depend on each missing piece. Built after discovering the
+  `OXIS_LICENSES`/`OXIS_PREMIUM_SOURCE` KV namespaces had never
+  actually been bound — `webhook.js` was already handling that
+  correctly (logs loudly, never silently swallows it), but there was
+  no way to catch the gap without waiting for a real Stripe webhook
+  or plugin submission to fail first.
+- **`'plugin publish` now opens a real GitLab merge request** against
+  `gitlab.com/oxidelab/oxis` (`cloudflare/functions/submit-plugin.js`,
+  using the GitLab API) — automates the tedious mechanical part
+  (branch/commit/push/open-MR) but deliberately does NOT auto-merge:
+  a human still reviews and merges it on GitLab before anything is
+  live. (This replaces an earlier version of this same feature within
+  this same round of work that went further — a fully-automatic,
+  zero-review KV-based publish with no human step at all. Corrected
+  before it shipped, at the user's explicit direction, to keep the
+  review gate.) The MR includes the plugin's `.lua` file and its
+  `index.json` entry in one commit; it does NOT touch `index.html`'s
+  website card (fragile to edit programmatically — the MR description
+  asks the reviewer to add it by hand). Requires a `GITLAB_TOKEN`
+  secret (Cloudflare Pages env vars, same pattern as
+  `STRIPE_SECRET_KEY`) scoped to create branches/commits/MRs but
+  deliberately not to merge them. **Honestly flagged**: this backend
+  code could not be exercised end-to-end here (no GitLab/Cloudflare
+  account access) — try one real submission before relying on it.
+  The old manual fork-and-PR path still works unchanged as an
+  alternative for anyone who'd rather do it by hand.
+- **Workspace auto-updater.** Whenever OXIS itself has been updated
+  since the last launch, every named workspace's on-disk folder
+  layout is brought up to date automatically (missing `tasks/`,
+  `workflows/`, `.oxis/` etc. filled in — purely additive, nothing
+  existing is ever touched). Tracked via a new `schemaVersion` field
+  per workspace in `registry.json`; an up-to-date workspace costs
+  nothing beyond the version check. Honest limitation noted in the
+  README: the "N workspace(s) updated" notice is best-effort and may
+  not always display depending on startup timing, though the actual
+  migration always runs correctly regardless.
+- **Refined: `commit` task is no longer created by default at all —
+  only once GitHub/GitLab is actually connected.** Previous rounds
+  went empty → always-one-task-commit; this is the actual final
+  behavior: new workspaces start with zero tasks, and `'workspace
+  github`/`'workspace gitlab` add a real `commit` task (a new file,
+  `tasks/commit.lua`, not a rewrite of `workspace.lua`'s text) the
+  moment a remote is actually configured, since a commit task has
+  nothing to do before that. Checks the command registry (not just
+  file existence) before adding it, so it's never duplicated.
+- **File moving** — drag a file onto a folder in the file tree, or
+  `'workspace move <file> <directory>` from the command line. New Go
+  binding `MovePath` (real, atomic `os.Rename`, refuses if the
+  destination already exists). `'workspace move` validates both paths
+  stay inside the connected directory first (same guard `newfile`/
+  `newdir` use); drag-and-drop paths come from the tree's own real
+  directory listing rather than typed text, so that check doesn't
+  apply the same way there. Same untested-Go-binding caveat as
+  `RunCommand` above — needs a real build before relying on it.
+- **Real git integration** — `'workspace github`/`'workspace gitlab`
+  (configures the connected project's `origin` remote, initializing a
+  repo if needed, refusing to silently overwrite a different existing
+  remote without `--force`), and a default `commit` task with an
+  actual dialog UI (real `git status`, a message field, real
+  `git add -A` + `git commit -m`). Built on a new Go binding,
+  `RunCommand` (argv-based, never shell-interpreted, 30s timeout —
+  see `internal/wailsapp/app.go`) exposed as `runCommand()`
+  (`native.ts`), with the actual git operations in the new
+  `frontend/src/plugins/git.ts`. **Could not be compiled or run in
+  this environment (no Go toolchain available)** — only checked for
+  balanced braces/parens. Needs a real `go build` and a full exercise
+  of every git command before relying on it.
+- **Default workspace task changed to exactly one: `commit`** (was
+  briefly zero tasks after the previous round's fix, which itself
+  replaced three incorrect hardcoded npm tasks before that). Runs the
+  new commit dialog. Nothing else is auto-generated. The task is
+  completely ordinary and user-editable — nothing hardcodes or
+  protects it beyond being the default content of a newly created
+  `.oxis/workspace.lua`.
+- **External project file tree switching.** With a workspace connected
+  to an external directory (`'workspace link`), the file tree now
+  shows that project's real filesystem instead of OXIS's own managed
+  structure — labeled with the workspace's name, switching back
+  automatically on disconnect. A manual refresh button (⟳), plus
+  automatic refresh after OXIS's own file-creating operations
+  (`newfile`/`newdir`/`task commit`) — there's no filesystem watcher,
+  so this is how external changes get picked up.
+- **`'edit` with no arguments now actually opens the file tree** —
+  fixed a gap in the previous round's own work: the render logic and
+  help text were updated to support this, but the command handler
+  itself still errored with "usage: 'edit <file>" until this round.
+- **Real workspace connector + `.gitignore` protection.** `'workspace
+  link` now writes an actual `.oxis-connector.json` marker into the
+  connected external directory (not just an internal registry
+  pointer) and ensures that directory's `.gitignore` excludes it —
+  creates the file if missing, appends only the missing rule if it
+  already exists, never duplicates or touches any existing rule.
+  `'workspace unlink` cleans up the marker but never lets a moved/
+  deleted/inaccessible directory block the actual unlink.
+- **`'workspace newfile`/`newdir`** — create files/directories inside
+  a connected external workspace directory, with a real path-
+  traversal guard (rejects absolute paths and any `..` that would
+  escape the connected directory) checked before anything touches
+  disk. `newfile` opens the result in the Editor immediately.
+- **Home screen shows the connected project path** — a clear
+  `connected = C:\...` row on the WORKSPACE panel when the active
+  named workspace is linked, or an explicit "no project directory
+  connected" message with the fix when it isn't.
+- **`'plugin publish <name>`** — real validation + Market-listing
+  prep, for both free and paid plugins, plus automatic update
+  detection. Validates the plugin's manifest is actually complete
+  enough to list (version/description/author/category/
+  min_oxis_version/os, on top of everything `'plugin validate` already
+  checks), then: for a **free** plugin, prepares the exact
+  `index.json` entry and prints it ready to paste into a PR; for a
+  **paid** plugin, explains the subscription model + 75/25 split and
+  makes a genuine network call to the already-deployed
+  `/connect-onboarding` endpoint to create a real Stripe Connect
+  Express account, opening the real onboarding link Stripe returns.
+  Running it again on an already-listed plugin (checked against the
+  live Market index) is automatically shown as an update — old
+  version → new version — rather than a new listing. Honestly scoped:
+  this does NOT submit anything to the Market itself — no self-service
+  endpoint exists for that (`/connect-onboarding`/`/checkout` handle
+  payments, not listing edits) — it ends by handing over the prepared
+  metadata and pointing at the same fork-and-PR process the README's
+  § Third-Party Developer Marketplace already documents. Actual
+  self-service submission is planned for v1.2.2.
+- **Home command-line focus hardened + Ctrl+I hotkey.** Auto-focus
+  now retries twice instead of once (a single attempt could lose a
+  race with something mounting right after and stealing it back).
+  Ctrl+I reliably (re-)focuses it from anywhere on Home, shown right
+  in the placeholder text ("Type Here or Ctrl+I"). Guarded to only
+  act while Home is actually visible — Home stays mounted-but-hidden
+  behind the terminal, and Ctrl+I is literally the Tab byte at the
+  terminal level, so an unguarded global handler would have broken
+  tab-completion there.
+- **Project Layer** (`'project init/open/run/task/workflow`). A
+  project is an existing directory anywhere on disk carrying its own
+  full `.oxis/` setup (`workspace.lua`, `project.lua`,
+  `tasks/workflows/scripts/plugins/documents`) — deliberately thin
+  wrappers around the same `load()`/task/workflow machinery
+  `'workspace`/`'workflow` already use, not a second system. Fixed a
+  real pre-existing gap while wiring this up: named workspaces'
+  `tasks/` folder existed structurally but nothing ever actually
+  loaded `.lua` files from it (only `workflows/` was) — both
+  conventions (`<dir>/tasks/` and `<dir>/.oxis/tasks/`) are loaded now.
+- **Backup/restore and export/import** (`'backup`/`'restore`,
+  `'config export`/`import`, `'workspace export`/`import`,
+  `'plugin export`). JSON-based (no zip library available in this
+  environment — documented honestly rather than faking a `.zip`
+  extension). `'backup` covers settings + every named workspace's
+  real files + `created-documents/` + `created-plugins/`, explicitly
+  excluding Market-installed plugins and installer build output.
+  `'restore` requires confirmation and only ever adds/overwrites
+  files the backup contains — never deletes or touches anything else.
+- **File tree is now fully keyboard-navigable** — ↑/↓/←/→/Enter/
+  Space/Home/End, no mouse required at any point, matching VS Code's
+  tree conventions (← collapses or jumps to the parent row).
 - **Unsaved-change gutter in the Editor.** A real LCS-based line diff
   between the content at the last save and what's currently in the
   editor, shown as a colored marker per changed line. Resets on every
@@ -271,6 +428,98 @@ change was made, not necessarily when a version was tagged.
 
 ### Fixed
 
+- **User-created plugins never actually followed workspace switches —
+  found during a broader audit of the workspace-switching bug above.**
+  `loadUserPlugins()` (which scans the active workspace's `plugins/`
+  folder — `pluginsDir()` — into the registry) was only ever called
+  once at startup (`loader.ts`), never again on `'workspace switch`.
+  Concretely: create a plugin while workspace A is active, switch to
+  workspace B, and A's plugin would stay registered and enabled (its
+  file might not even exist under B), while B's own `plugins/` folder
+  was never scanned at all. Fixed with a new
+  `pluginManager.unloadAllUserPlugins()`, wired to fire (with an
+  in-flight guard against overlapping calls) on every
+  `workspace_loaded`/`workspace_unloaded` event: the previous
+  workspace's user plugins are cleared out and the newly-active one's
+  are freshly scanned, every time. Market-installed plugins are
+  untouched by this — those were never workspace-scoped to begin
+  with, and a check of `marketUpdate.ts` confirmed the update/
+  rollback path doesn't touch `workspaceManager` at all.
+- **Named workspace switching could silently break — real, actively-
+  triggered bug, not theoretical.** `load()` (the core path every
+  workspace operation shares) never touched `activeNamed` itself —
+  only `switchNamed` set it, as an afterthought, after calling
+  `load()`. Every OTHER caller — `'workspace reload`, `'workspace
+  init` in an ad-hoc directory, and (the actively dangerous one)
+  `detectAndLoad`, which fires automatically on every shell `cd` —
+  left `activeNamed` stale, still pointing at whatever named
+  workspace was active before. Concretely: switch to a named
+  workspace, then `cd` anywhere in the shell that happens to have its
+  own `.oxis/workspace.lua`, and OXIS would silently load THAT
+  instead while still reporting the old named workspace as active —
+  wrong workspace shown on Home's panel, wrong root in the file tree,
+  `'workspace newfile`/`github`/`gitlab` all operating against the
+  wrong registry entry. Fixed by making `load()` the single place
+  `activeNamed` is ever set (every caller now says explicitly: this
+  name, or null for an ad-hoc directory) — it can no longer drift out
+  of sync with what's actually loaded. Also stopped `detectAndLoad`
+  from firing at all while a named workspace is active — a named
+  workspace is a deliberate choice and shouldn't be silently
+  overridden by incidentally `cd`-ing into an unrelated directory
+  that happens to have its own workspace file (`'workspace switch
+  default` first if you actually want the ad-hoc flow to take over).
+  Reviewed every other workspace-lifecycle method (`renameNamed`,
+  `removeNamed`, `close`) against this same fix for consistency —
+  found them already correct.
+- **Large-file editor freezing/lag.** Root cause: the syntax
+  highlighter and the unsaved-change gutter's line diff both re-ran
+  synchronously against the FULL file content on every single
+  keystroke. Both now run against a debounced copy (150-200ms) of the
+  content instead — the real `<textarea>` is never debounced, only
+  the color overlay/change-gutter can lag a beat on a large file;
+  small files see no perceptible change. Above 500,000 characters,
+  syntax highlighting turns off entirely (plain text, with a visible
+  notice) rather than attempting an expensive pass on a huge file.
+  Known remaining gap, documented rather than silently left: line
+  numbers still render one DOM row per line with no virtualization.
+- **Home screen could overflow into scrolling on smaller windows —
+  real root cause found**, not just spacing trimmed. The ASCII banner
+  and the WORKSPACE/help box text were sized with `var(--fs)`, the
+  same variable `'config set fontSize` controls for the terminal and
+  editor — turning that up for coding readability would inflate
+  Home's dashboard too, no logical connection between the two. Split
+  into a dedicated `--home-fs`/`--home-lh` pair the font-size setting
+  doesn't touch. Also compacted padding/margins throughout and added
+  height-based media queries for genuinely short windows that scale
+  the banner down rather than hiding content outright.
+- **Ctrl+Z could wipe an entire document in one press.** Root cause:
+  undo grouping collapsed one whole continuous Insert-mode session,
+  however long, into a single undo step — normal usage (typing for a
+  while without hitting Escape) meant one Ctrl+Z could erase
+  everything typed since the session started. Fixed with time-based
+  grouping (a group also breaks after a 700ms pause), the standard
+  technique real editors use, so undo steps stay reasonably sized
+  regardless of how long a typing session runs.
+- **New workspaces started with three live, npm-specific tasks**
+  (`dev`/`build`/`test`) registered automatically, assuming every new
+  workspace is an npm project. Now commented out as examples —
+  workspaces start empty, tasks get added deliberately for what the
+  project actually needs. Existing workspace.lua files are unaffected
+  (only the template for new ones changed).
+- **`workspaces/<name>/tasks/` and `workflows/` folders were
+  documented as "plain storage, not a real execution engine"** —
+  contradicted by the actual, real workflow engine and tasks/
+  workflows folder loading built earlier this session. Corrected.
+- **Stale icon filename in the Windows version resource**
+  (`cmd/oxi/versioninfo.json` referenced `oxishell.ico`, which doesn't
+  exist — the real file is `oxis.ico`). The actual build wasn't
+  affected (`build-go.js` passes `-icon=oxis.ico` explicitly, which
+  takes precedence over the JSON), but the metadata itself was wrong.
+  Also added an honest README section on Windows Defender/antivirus
+  false positives — what's already done to minimize them (proper
+  version metadata, standard build flags) and what would actually fix
+  it (code signing, not implemented — requires a purchased certificate
+  and a release-process change that don't exist yet).
 - **Home screen's command line sat too far below the help box above
   it.** First attempt at this overcorrected — re-anchoring the whole
   `.home` layout to the top instead of centering it, which just
