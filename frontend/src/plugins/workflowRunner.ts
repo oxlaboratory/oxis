@@ -326,9 +326,22 @@ class WorkflowRunner {
     }
     if (cmd === undefined) return false;
 
-    const result = await scriptRunTracker.runAndAwait(ctx.sendToShell, withEnvPrefix(cmd, env));
-    if (result.cancelled) this.cancelled = true;
-    return !result.cancelled && !result.timedOut;
+    // Same defensive shape as the step.command branch above — this
+    // branch didn't have one, for no real reason (execStep is async,
+    // so a throw here already becomes a rejection rather than a raw
+    // exception, but an UNCAUGHT rejection propagating all the way up
+    // through runOne/runSteps/run means the workflow's own "✗ workflow
+    // X failed" summary line never prints — only whatever the
+    // TOP-LEVEL caller's .catch() shows instead, a worse message for
+    // the same underlying failure).
+    try {
+      const result = await scriptRunTracker.runAndAwait(ctx.sendToShell, withEnvPrefix(cmd, env));
+      if (result.cancelled) this.cancelled = true;
+      return !result.cancelled && !result.timedOut;
+    } catch (e) {
+      ctx.print(`  ✗  ${stepLabel(step)}: ${e instanceof Error ? e.message : e}`, "err");
+      return false;
+    }
   }
 }
 

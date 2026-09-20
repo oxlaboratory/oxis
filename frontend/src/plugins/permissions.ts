@@ -15,7 +15,7 @@
  * all, regardless of what its Lua source tries to call.
  */
 
-export type PermissionNamespace = "fs" | "process" | "net" | "system" | "workspace" | "editor" | "terminal";
+export type PermissionNamespace = "fs" | "process" | "net" | "system" | "workspace" | "editor" | "terminal" | "shell";
 
 const STORAGE_KEY = "oxis-plugin-permissions-v1";
 // Denials aren't persisted (a user might change their mind), but are
@@ -120,6 +120,7 @@ export function requestPermission(plugin: string, ns: PermissionNamespace): bool
     workspace: "switch/load OXIS workspaces",
     editor: "open files in the built-in editor",
     terminal: "open new terminal tabs",
+    shell: "run arbitrary shell commands",
   };
   const ok = typeof confirm === "function"
     ? confirm(`Plugin "${plugin}" wants to ${label[ns]}.\n\nAllow this permission? You can change it later with 'plugin permissions ${plugin}.`)
@@ -153,4 +154,46 @@ export class PluginPermissionError extends Error {
  *  structured kind pluginManager.ts's error formatter recognizes. */
 export function requirePermission(plugin: string, ns: PermissionNamespace): void {
   if (!requestPermission(plugin, ns)) throw new PluginPermissionError(plugin, ns);
+}
+
+/**
+ * A SEPARATE, deliberately more lenient gate for oxis.run() (shell
+ * execution) specifically — see requireShellPermission below for why
+ * this can't just be requirePermission(plugin, "shell").
+ *
+ * requestPermission()'s declared-permissions check HARD-DENIES a
+ * namespace the moment a plugin has ANY manifest that doesn't list
+ * it — correct for fs/process/net/system, where a plugin author
+ * explicitly opted into that stricter model by writing a manifest at
+ * all. But "shell" didn't exist as a concept when every already-
+ * published plugin's manifest was written (oxis.run() had no gate at
+ * all until this) — applying the same hard-deny rule to it would
+ * instantly and silently break every existing plugin that calls
+ * oxis.run(), which per pluginAPI.ts's own doc comment is "nearly
+ * every builtin/market plugin". That's a worse outcome than the gap
+ * being closed. Instead: EVERY plugin (manifested or not, whatever
+ * it does or doesn't declare) gets the same fair one-time prompt —
+ * never a silent, automatic denial based on an old manifest that
+ * predates this permission existing.
+ */
+export function requestShellPermission(plugin: string): boolean {
+  if (isGranted(plugin, "shell")) return true;
+  const key = `${plugin}::shell`;
+  if (deniedThisSession.has(key)) { lastDenialReason.set(key, "declined"); return false; }
+  const ok = typeof confirm === "function"
+    ? confirm(`Plugin "${plugin}" wants to run shell commands.\n\nAllow this permission? You can change it later with 'plugin permissions ${plugin}.`)
+    : false;
+  if (ok) grant(plugin, "shell");
+  else { deniedThisSession.add(key); lastDenialReason.set(key, "declined"); }
+  return ok;
+}
+
+/** Throws PluginPermissionError if shell access isn't granted to
+ *  `plugin`. `isTrusted` (builtin plugins, and OXIS's own workspace/
+ *  task/workflow loading — see pluginAPI.ts's APIContext) skips this
+ *  entirely: those aren't third-party code a user needs to be asked
+ *  about, any more than OXIS's own core TypeScript would be. */
+export function requireShellPermission(plugin: string, isTrusted: boolean): void {
+  if (isTrusted) return;
+  if (!requestShellPermission(plugin)) throw new PluginPermissionError(plugin, "shell");
 }

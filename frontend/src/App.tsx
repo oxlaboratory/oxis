@@ -484,6 +484,22 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
       const dest = looksAbsolute(r) ? r : `${workspaceManager.documentsDir()}/${r}`;
       writeFile(dest, "").then(() => ok(`created: ${dest}`)).catch(e => err(`couldn't create ${dest}: ${e}`)); }});
 
+  registry.register({ name:"hide", category:"ui", description:"Hide part of the Home screen — currently: 'hide workspace",
+    handler:(args)=>{
+      const target = args[0]?.toLowerCase();
+      if(target !== "workspace"){ err("usage: 'hide workspace"); return; }
+      writePersistedOption("ui.hideWorkspacePanel", true);
+      events.emit("ui_workspace_panel_visibility_changed", { hidden: true });
+      ok("workspace panel hidden on Home — 'show workspace to bring it back"); }});
+
+  registry.register({ name:"show", category:"ui", description:"Show part of the Home screen previously hidden with 'hide — currently: 'show workspace",
+    handler:(args)=>{
+      const target = args[0]?.toLowerCase();
+      if(target !== "workspace"){ err("usage: 'show workspace"); return; }
+      writePersistedOption("ui.hideWorkspacePanel", false);
+      events.emit("ui_workspace_panel_visibility_changed", { hidden: false });
+      ok("workspace panel shown on Home"); }});
+
   registry.register({ name:"touch",  category:"files", description:"Create a document (in created-documents/, or the active workspace)",
     handler:(_,r)=>{ if(!r){err("usage: 'touch <file>");return;}
       const dest = looksAbsolute(r) ? r : `${workspaceManager.documentsDir()}/${r}`;
@@ -947,11 +963,21 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
       if (sub === "info") {
         const name = args[1];
         if (!name) { err("usage: 'market info <n>"); return; }
-        market.findEntry(name).then(entry => {
+        market.findEntry(name).then(async entry => {
           if (!entry) { err(`not found in marketplace: ${name}`); return; }
           sep(); ctx.print(`  ${entry.name}`, "accent");
           dim(entry.desc);
           dim(`category: ${entry.category}${entry.version ? `  ·  v${entry.version}` : ""}${entry.author ? `  ·  by ${entry.author}` : ""}`);
+          if (entry.premium) {
+            dim(`${entry.priceDisplay || "premium"} — ${entry.comingSoon ? "coming soon, not purchasable yet" : "subscription"}`);
+            if (!entry.comingSoon) {
+              const count = await market.fetchSubscriberCount(entry.name);
+              if (count !== null) dim(`${count} active subscriber${count === 1 ? "" : "s"}`);
+              // count === null (network hiccup, KV not bound yet on
+              // the Market backend) — say nothing rather than
+              // guessing at a number that might be wrong.
+            }
+          }
           sep(); dim(`'market install ${entry.name}`);
         }).catch(e => err(`marketplace unreachable: ${e instanceof Error ? e.message : e}`));
         return;
@@ -1519,6 +1545,8 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
       h("'find [pat]","search files"); h("'grep <pat> <f>","search contents");
       h("'history","recent commands"); h("'histclear","clear history"); h("'ports","open ports");
       h("'user","current user"); h("'path","PATH entries"); h("'open <f>","open with default app");
+      info(""); h("── home screen ──────────────────────","");
+      h("'hide workspace","hide the WORKSPACE panel on Home"); h("'show workspace","show it again");
       info(""); h("── themes ────────────────────────────","");
       h("'theme","list themes"); h("'theme <name>","switch theme");
       h("'theme new <n>","visual theme editor"); h("'theme delete <n>","delete custom theme");
@@ -2759,8 +2787,8 @@ function ChimneySmoke({ height }: { height: number }) {
 /** Renders one row of train ASCII art, splicing in ChimneySmoke at the
  *  "[]" if this row has one. `smokeHeight` controls how tall a plume
  *  ("how high the smoke can rise") fits the context — the shell boot
- *  banner's smaller art uses a shorter one (90) than the home screen
- *  and startup splash (110), which now share the same larger art size. */
+ *  banner's smaller art uses a shorter one (70) than the startup
+ *  splash (110); Home no longer has a train of its own at all. */
 // Clickable URLs and file paths in terminal output — a URL opens in
 // the real system browser (openUrl, native.ts); a path opens in the
 // built-in Editor (the same openEditor() 'edit uses). Deliberately
@@ -2885,9 +2913,9 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
   }, []);
 
   // "The train is moving" — cycle the boot banner's wheel glyphs
-  // while the shell tab is visible, so the startup train reads as
-  // rolling rather than parked (the home screen train stays static —
-  // see .oxis-ascii-wheels in index.css).
+  // while the shell tab is visible, so the boot banner reads as
+  // rolling rather than parked. Home no longer has a train of its
+  // own at all (removed).
   useEffect(() => {
     if (!isActive) return;
     let frame = 0;
@@ -2960,6 +2988,23 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
     });
     scrollToBottom();
   }, [scrollToBottom]);
+
+  // Real-time workspace auto-reload notifications — see
+  // startAutoReload() in workspaceManager.ts. Only the ACTIVE
+  // terminal tab prints these (isActive), so switching workspaces in
+  // one tab doesn't spam a message into every other open tab too.
+  useEffect(() => {
+    if (!isActive) return;
+    const u1 = events.on("workspace_auto_reloaded", (p) => {
+      const path = (p as { path?: string } | undefined)?.path ?? "?";
+      addLine(`  ⟳ workspace auto-reloaded (a file changed on disk) — ${path}`, "dim");
+    });
+    const u2 = events.on("workspace_auto_reload_failed", (p) => {
+      const { path, message } = (p as { path?: string; message?: string } | undefined) ?? {};
+      addLine(`  ⚠ workspace auto-reload failed: ${message ?? "unknown error"} — ${path ?? "?"}`, "warn");
+    });
+    return () => { u1(); u2(); };
+  }, [isActive, addLine]);
 
   const clear = useCallback(() => {
     // Keep the boot banner (the train ascii) -- only the scrollback below
@@ -3836,7 +3881,7 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
             {bannerPart.map(line => (
               <div key={line.id} className="term-line term-line--banner"
                 style={{ color: line.kind ? LINE_COLORS[line.kind] : undefined }}>
-                {renderTrainRow(line.text, 90)}
+                {renderTrainRow(line.text, 110)}
               </div>
             ))}
           </div>
@@ -4018,10 +4063,10 @@ const MOON_FULL = ["  _  ", " ( ) ", "  -  "];
 
 // ── Startup splash — the train, rolling in ──────────────────
 // Shown once on launch (see `.startup-anim` fade in index.css). Uses
-// the same train art as the home screen / shell boot banner, but
+// the same train art as the terminal's own shell-boot banner, but
 // spins the wheels for the ~1.8s the splash is visible so it reads
-// as the train arriving — the home screen shows the identical art
-// parked (no spin) once you land there.
+// as the train arriving. Home no longer has a train of its own at
+// all (removed — see the Home function's return).
 function StartupSplash({ onClick }: { onClick: () => void }) {
   const [frame, setFrame] = useState(0);
   useEffect(() => {
@@ -4056,6 +4101,90 @@ function StartupSplash({ onClick }: { onClick: () => void }) {
   );
 }
 
+// Cloud glyph variants (day) — picked from randomly per cloud, not
+// hand-assigned one-per-slot, so the mix looks different across
+// mounts instead of always being the same 2 or 4 shapes in the same
+// order.
+const CLOUD_GLYPHS = [
+  " .--.  \n(____) ",
+  " .-.\n(_-_)",
+  "  .--.   \n (____)  ",
+  " .-.\n(___)",
+  ".---.\n(___)",
+  " .--.\n(____)",
+];
+
+function rand(min: number, max: number): number { return min + Math.random() * (max - min); }
+
+interface CloudLayout { glyph: string; top: number; left: number; fontSize: number; opacity: number; duration: number; delay: number; zIndex: number }
+
+/** Stratified, not pure-uniform, random layout — pure `rand()` for
+ *  every cloud independently is exactly what produced the actual bug
+ *  reported (clouds landing on top of each other and drifting in
+ *  near-lockstep): with only a handful of clouds in a small area,
+ *  independent uniform randomness clumps by chance far more often
+ *  than it spreads out. Instead: divide the available width into
+ *  `count` equal bands and place one cloud per band (with jitter
+ *  inside its own band) — this GUARANTEES minimum horizontal spacing
+ *  rather than hoping for it. Same idea for timing: divide the drift
+ *  cycle into `count` equal phase offsets so clouds are mechanically
+ *  spread across different points of their drift instead of
+ *  independently-random delays coincidentally landing close together. */
+function layoutClouds(count: number, widthPx: number): CloudLayout[] {
+  const band = widthPx / count;
+  const out: CloudLayout[] = [];
+  for (let i = 0; i < count; i++) {
+    const duration = rand(16, 30);
+    out.push({
+      glyph: CLOUD_GLYPHS[Math.floor(Math.random() * CLOUD_GLYPHS.length)],
+      left: i * band + rand(band * 0.1, band * 0.9),
+      // Alternating high/low lane (by index parity) plus jitter, so
+      // even two adjacent clouds visibly differ in height rather than
+      // both sitting in the same narrow vertical strip.
+      top: (i % 2 === 0 ? rand(0, 10) : rand(20, 34)) ,
+      fontSize: rand(7, 10),
+      opacity: rand(0.35, 0.75),
+      duration,
+      // Evenly spread starting phase across the cycle (a negative
+      // delay starts the animation already partway through), plus
+      // enough jitter that it doesn't look mechanically evenly
+      // spaced either.
+      delay: -((i / count) * duration) + rand(-1.5, 1.5),
+      // Randomly in front of (3) or behind (1) the sun (z-index 2) —
+      // a real sky has clouds pass both in front of and behind the
+      // sun depending on where they are, not permanently one or the
+      // other.
+      zIndex: Math.random() < 0.5 ? 1 : 3,
+    });
+  }
+  return out;
+}
+
+const STAR_GLYPHS = ["*", "."];
+
+interface StarLayout { glyph: string; top: number; left: number; fontSize: number; delay: number }
+
+/** Same stratified-spacing idea as layoutClouds — bands guarantee
+ *  minimum spacing instead of hoping independent randomness spreads
+ *  out on its own (see layoutClouds's doc comment for why that
+ *  matters; it was a real, reported bug there before this fix). */
+function layoutStars(count: number, widthPx: number): StarLayout[] {
+  const band = widthPx / count;
+  const out: StarLayout[] = [];
+  for (let i = 0; i < count; i++) {
+    out.push({
+      glyph: STAR_GLYPHS[Math.floor(Math.random() * STAR_GLYPHS.length)],
+      left: i * band + rand(band * 0.1, band * 0.9),
+      top: (i % 2 === 0 ? rand(0, 16) : rand(24, 40)),
+      fontSize: rand(7, 9),
+      delay: rand(0, 2.4), // one full star-twinkle cycle's worth of jitter — no shared phase
+    });
+  }
+  return out;
+}
+
+const SKY_WIDGET_WIDTH = 280;
+
 function SkyWidget() {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
@@ -4066,12 +4195,28 @@ function SkyWidget() {
   const isDay = hour >= 6 && hour < 18;
   const moonPhase = getMoonPhase(now);
 
+  // Randomized once per mount (empty deps), not on every 30s clock
+  // tick — a cloud silently teleporting to a new random spot every
+  // half-minute would look broken, not natural. Uses nearly the FULL
+  // widget width (not just a half reserved for the sun) — a cloud
+  // passing near the sun during its drift is a brief, decorative
+  // moment, not a real collision; leaving half the space empty was
+  // itself part of why the remaining clouds looked cramped together.
+  const clouds = useMemo(() => layoutClouds(Math.floor(rand(4, 6)), SKY_WIDGET_WIDTH - 20), []);
+  // Same reasoning/count-range as clouds — see layoutStars above.
+  const stars = useMemo(() => layoutStars(Math.floor(rand(5, 8)), SKY_WIDGET_WIDTH - 20), []);
+
   if (isDay) {
     return (
       <div className="sky-widget sky-widget--day">
         <pre className="sky-ascii sky-sun">{"  \\ | /\n -- O --\n  / | \\"}</pre>
-        <pre className="sky-ascii sky-cloud sky-cloud--1">{" .--.  \n(____) "}</pre>
-        <pre className="sky-ascii sky-cloud sky-cloud--2">{" .-.\n(_-_)"}</pre>
+        {clouds.map((c, i) => (
+          <pre key={i} className="sky-ascii sky-cloud" style={{
+            top: `${c.top}px`, left: `${c.left}px`, fontSize: `${c.fontSize}px`,
+            animationDuration: `${c.duration}s`, animationDelay: `${c.delay}s`, zIndex: c.zIndex,
+            ["--cloud-opacity" as string]: c.opacity,
+          } as React.CSSProperties}>{c.glyph}</pre>
+        ))}
       </div>
     );
   }
@@ -4079,11 +4224,12 @@ function SkyWidget() {
   return (
     <div className="sky-widget sky-widget--night">
       <pre className="sky-ascii sky-moon">{moonGlyph}</pre>
-      <span className="sky-star sky-star--1">*</span>
-      <span className="sky-star sky-star--2">.</span>
-      <span className="sky-star sky-star--3">*</span>
-      <span className="sky-star sky-star--4">.</span>
-      <span className="sky-star sky-star--5">*</span>
+      {stars.map((s, i) => (
+        <span key={i} className="sky-star" style={{
+          top: `${s.top}px`, left: `${s.left}px`, fontSize: `${s.fontSize}px`,
+          animationDuration: "2.4s", animationDelay: `${s.delay}s`,
+        }}>{s.glyph}</span>
+      ))}
     </div>
   );
 }
@@ -4126,6 +4272,15 @@ function Home({ onNew, currentTheme, onTheme, onOpenThemeEditor, onOpenPluginCre
   const [ws, setWs] = useState(() => workspaceState.get());
   const [activeWorkspace, setActiveWorkspace] = useState<string | null>(() => workspaceManager.getActiveNamed());
   const [activeWorkspacePath, setActiveWorkspacePath] = useState<string | null>(null);
+  // 'hide workspace / 'show workspace — see the command handlers
+  // (search this file for "hideHandler"/"showHandler"). Persisted via
+  // the same option store 'config/oxis.getOption use, under its own
+  // key rather than a formal SETTINGS entry, since this is a small,
+  // dedicated toggle rather than a general setting.
+  const [workspacePanelHidden, setWorkspacePanelHidden] = useState(() => !!readPersistedOption("ui.hideWorkspacePanel"));
+  useEffect(() => events.on("ui_workspace_panel_visibility_changed", (p) => {
+    setWorkspacePanelHidden(!!(p as { hidden?: boolean } | undefined)?.hidden);
+  }), []);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Home is always mounted (see root App — it's hidden, not unmounted,
@@ -4326,66 +4481,7 @@ function Home({ onNew, currentTheme, onTheme, onOpenThemeEditor, onOpenPluginCre
     <div className="home" onMouseDown={e => { if (e.target === e.currentTarget) inputRef.current?.focus(); }}>
       <SkyWidget />
       <div className="oxis-home">
-        <div className="oxis-train-wrap">
-          <div className="oxis-ascii">
-
-  <div className="oxis-ascii-row" style={{ color: "var(--purple3)" }}>
-{String.raw`   _     __  __    ___     ___                              `}
-  </div>
-                      
-  <div className="oxis-ascii-row" style={{ color: "var(--purple3)" }}>
-{String.raw`  /_\    \ \/ /   |_ _|   / __|                               `}
-  </div>
-
-  <div className="oxis-ascii-row" style={{ color: "var(--purple3)" }}>
-{String.raw` |(_)|    >  <     | |    \__ \     ____            `}
-  </div>
-
-  <div className="oxis-ascii-row" style={{ color: "var(--purple)" }}>
-    {renderTrainRow(String.raw`,\___/, ,/_/\_\, ,|___|, ,|___/,____|[]|___||_______.   `, 110)}
-  </div>
-
-  <div className="oxis-ascii-row" style={{ color: "var(--purple2)" }}>
-{String.raw`|#####|_|######|_|#####|_|#####|_____|__|###|_______|}`}
-  </div>
-
-  <div className="oxis-ascii-row oxis-ascii-wheels" style={{ color: "var(--dim)" }}>
-    {"`-"}
-    <span className="wheel">0</span>{"-"}
-    <span className="wheel">0</span>
-    {"-'*"}
-
-    {"`-"}
-    <span className="wheel">0</span>{"-"}
-    <span className="wheel">0</span>
-    {"-'*"}
-
-    {"`-"}
-    <span className="wheel">0</span>{"-"}
-    <span className="wheel">0</span>
-    {"-'*"}
-
-    {"`-"}
-    <span className="wheel">0</span>{"-"}
-    <span className="wheel">0</span>
-    {"-"}
-    <span className="wheel">0</span>
-    {"+++"}
-    <span className="wheel">0</span>{"-"}
-    <span className="wheel">0</span>
-    {"'"}
-    {"`-"}
-    <span className="wheel">0</span>{"-"}
-    <span className="wheel">0</span>
-    {"-'*"}
-    {"`-"}
-    <span className="wheel">0</span>{"-"}
-    <span className="wheel">0</span>
-    {"-'"}
-  </div>
-
-</div>
-        </div>   <div className="oxis-sub-row">
+        <div className="oxis-sub-row">
   <span><strong className="oxis-letter">O</strong>pen</span>
   <span><strong className="oxis-letter">X</strong>enial</span>
   <span><strong className="oxis-letter">I</strong>ntelligent</span>
@@ -4396,7 +4492,7 @@ function Home({ onNew, currentTheme, onTheme, onOpenThemeEditor, onOpenPluginCre
           <button className="oxis-gitlab-btn" onClick={() => void openUrl("https://gitlab.com/oxidelab/oxis.git")}
             title="Open the OXIS repository on GitLab">GitLab ↗</button>
         </div>
-        <WorkspacePanel ws={ws} plugins={plugins} activeWorkspace={activeWorkspace} activeWorkspacePath={activeWorkspacePath} onOpenMarket={() => setView("plugins")} />
+        {!workspacePanelHidden && <WorkspacePanel ws={ws} plugins={plugins} activeWorkspace={activeWorkspace} activeWorkspacePath={activeWorkspacePath} onOpenMarket={() => setView("plugins")} />}
         <div className="oxis-box oxis-help-box">
           <div className="oxis-help-row"><span className="oht">Type</span> <span className="ohc">&apos;help</span><span className="ohr"> if you need some help</span></div>
           <div className="oxis-help-row"><span className="oht">Type</span> <span className="ohc">&apos;edit</span> <span className="oha">&lt;file&gt;</span><span className="ohr"> to open the built-in editor</span></div>

@@ -320,7 +320,12 @@ class PluginManager {
 
     // Lua plugins — real Lua VM, see luaRuntime.ts.
     if (p.lua && this.apiCtx) {
-      const bindings = buildLuaAPI({ ...this.apiCtx, pluginName: name });
+      // isTrusted: built-in plugins are shipped BY OXIS itself, same
+      // trust level as OXIS's own core TypeScript — they skip the
+      // oxis.run()/oxis.task() shell-permission prompt (see
+      // requireShellPermission in permissions.ts). Every market/user
+      // plugin (p.builtin === false) goes through the real prompt.
+      const bindings = buildLuaAPI({ ...this.apiCtx, pluginName: name, isTrusted: p.builtin });
       const result = loadLuaPlugin(p.lua, bindings);
       if (!result.ok) {
         console.warn(`[oxis:plugin] ${name} load error: ${result.error}`);

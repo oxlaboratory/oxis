@@ -66,6 +66,24 @@ export async function findEntry(name: string): Promise<MarketEntry | undefined> 
   return idx.find(e => e.name.toLowerCase() === name.toLowerCase());
 }
 
+/** Active subscriber count for a premium plugin — derived server-side
+ *  from real license/webhook data (see cloudflare/functions/
+ *  subscriber-counts.js and lib/licenses.js's countActiveSubscribers),
+ *  not tracked separately here. Returns null (not 0) on any failure
+ *  — network hiccup, KV not bound yet, etc. — so callers can tell
+ *  "genuinely zero subscribers" apart from "couldn't find out" and
+ *  word the message accordingly rather than showing a possibly-wrong
+ *  zero. */
+export async function fetchSubscriberCount(name: string): Promise<number | null> {
+  try {
+    const counts = await fetchJSON<Record<string, number>>(`${MARKET_BASE}/subscriber-counts?plugin=${encodeURIComponent(name)}`);
+    const n = counts[name];
+    return typeof n === "number" ? n : null;
+  } catch {
+    return null;
+  }
+}
+
 export function searchIndex(entries: MarketEntry[], query: string): MarketEntry[] {
   const q = query.toLowerCase();
   if (!q) return entries;

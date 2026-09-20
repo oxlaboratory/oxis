@@ -7,6 +7,36 @@ change was made, not necessarily when a version was tagged.
 
 ### Added
 
+- **`'hide workspace` / `'show workspace`** — toggles the WORKSPACE
+  panel on Home, persisted across restarts.
+- **Real subscriber counts on paid plugins.** Derived directly from
+  existing license/webhook data (`license:{plugin}:{email}` records
+  `webhook.js` already keeps current) — no separate counter to drift
+  out of sync. New `lib/licenses.js` functions
+  (`countActiveSubscribers`, `listPluginsWithLicenses`) and a new
+  `GET /subscriber-counts` endpoint; the Market website shows a "N
+  subscribers" line on purchasable premium cards, and `'market info
+  <plugin>` in the OXIS app shows the same. Fails soft (no count
+  shown, not an error) if the backend's `OXIS_LICENSES` binding isn't
+  set up.
+- **Workspace auto-reload** — polls `workspace.lua` plus the `tasks/`
+  and `workflows/` folders every 3 seconds and automatically reloads
+  the active workspace the moment any of them change on disk, with a
+  visible `⟳ workspace auto-reloaded` line in the terminal. Honestly
+  a poll, not a real push-based file-system watcher — that would need
+  a new Go dependency (fsnotify or similar) I have no way to compile
+  or test here, same caveat as this session's other new Go bindings.
+  A change can take up to 3 seconds to be noticed, not instant.
+- **Home screen redesign**: removed the static "parked" train ASCII
+  from Home entirely (the launch splash animation and the terminal's
+  own printed banner both keep theirs, unchanged in scope); the
+  sun/moon/stars widget is now centered instead of pinned to the
+  corner, and the sun icon itself is smaller; removed the border
+  around the GitLab link. The terminal's
+  own banner (shown when a shell tab opens) is now visibly smaller
+  and its wheel row is a real green instead of grey — and, same bug
+  class as Home's earlier fix, its font size is now decoupled from
+  the `fontSize` setting rather than ballooning with it.
 - **`GET /health` on the Market backend** — self-diagnostic reporting
   which secrets/KV namespace bindings are actually configured
   (presence only, never values), with a `whatBreaks` map showing which
@@ -428,6 +458,59 @@ change was made, not necessarily when a version was tagged.
 
 ### Fixed
 
+- **README never actually said macOS isn't a supported pre-built
+  platform.** Checked `.gitlab-ci.yml` and `build-linux.sh` directly:
+  CI only builds Linux (`.deb` included), Windows is built locally by
+  the maintainer and distributed via GitLab Releases, and there is no
+  macOS build job or script anywhere in this project. Getting
+  Started now says so plainly — a Mac user needs to clone and build
+  from source themselves; Wails does support macOS as a target, it
+  just isn't a maintained or officially distributed path here.
+- **`oxis.run()` and `oxis.task()` had NO permission gate at all —
+  found continuing the security review.** Every other Core System API
+  (`oxis.fs`/`oxis.process`/`oxis.net`/`oxis.system`) requires a
+  granted permission before it does anything (see `permissions.ts`);
+  `oxis.run()` — arbitrary shell execution, the single most-used
+  capability in the entire plugin system — had none, and `oxis.task()`
+  compounded it with a second, separate bypass (its handler called
+  `ctx.sendToShell` directly, skipping `runScript` — and therefore
+  skipping the new gate — entirely). A plugin denied every other
+  permission, or one that explicitly declared needing none at all,
+  could still run anything via either of these with zero check.
+  Fixed with a NEW, deliberately independent gate
+  (`requestShellPermission`/`requireShellPermission`) rather than
+  reusing the existing `"process"` namespace: reusing it would have
+  hard-denied every already-published plugin whose manifest doesn't
+  list `"process"` (since "shell" as a concept didn't exist when
+  those manifests were written) — instead, every plugin gets a fair
+  one-time prompt regardless of its manifest, never a silent
+  automatic denial based on a manifest that predates this permission.
+  Built-in plugins and OXIS's own workspace/task/workflow loading
+  (the user's own local files, not third-party code) are exempt via a
+  new `isTrusted` flag threaded through all four `buildLuaAPI()` call
+  sites — **this part was left unfinished in an earlier response in
+  this same conversation** (the flag existed but nothing actually set
+  it, which would have made every built-in plugin hit the new prompt)
+  and is now actually complete; verified with a full sweep for any
+  other call site.
+- **Real stored-XSS vulnerability on the Market website**
+  (`cloudflare/index.html`), found during a security review prompted
+  by the new GitLab-MR publishing flow. Every plugin field (`name`,
+  `desc`, `creator`, `cat`, `tags`, `ver`, `size`, `priceDisplay`) was
+  interpolated raw into template strings assigned to `.innerHTML`,
+  completely unescaped — a plugin entry containing HTML/script content
+  in any of these fields would execute for every visitor who viewed
+  its card. A second instance in `demoVideoHTML`: a non-YouTube
+  `demoVideo` URL was interpolated raw into a `src="..."` attribute,
+  letting it break out of the attribute entirely. Pre-existing, not
+  introduced by the GitLab-MR work — but that work makes it more
+  reachable (a reviewer's checklist emphasizes checking Lua source and
+  permissions, not scrutinizing JSON string fields for HTML) and a
+  self-published plugin could carry a crafted description all the way
+  to a human copy-pasting it into `index.html`'s card array. Fixed
+  with a real `escapeHtml()` applied everywhere a plugin field reaches
+  HTML — at the render layer, not just "reviewers should catch it" —
+  so even a naively-added malicious entry is neutralized on display.
 - **User-created plugins never actually followed workspace switches —
   found during a broader audit of the workspace-switching bug above.**
   `loadUserPlugins()` (which scans the active workspace's `plugins/`

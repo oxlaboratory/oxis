@@ -62,7 +62,7 @@ export const LINE_COLORS: Record<string, string> = {
   cmd:    "var(--purple3)",
   shell:  "var(--text)",
   banner: "var(--purple)",
-  "banner-wheel": "var(--dim)",
+  "banner-wheel": "var(--purple)",
   search: "var(--purple2)",
 };
 

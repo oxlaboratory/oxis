@@ -79,6 +79,11 @@
     white-space:nowrap;
   }
   .tb-gitlab:hover{ color:var(--green); border-color:var(--green-dim); background:var(--green-bg); }
+  .tb-links{ display:flex; align-items:center; gap:8px; }
+  .tb-nav{ display:flex; align-items:center; gap:14px; margin-left:6px; }
+  .tb-nav a{ color:var(--grey); font-size:11px; letter-spacing:1px; text-decoration:none; transition:.12s; }
+  .tb-nav a:hover{ color:var(--green); }
+  @media(max-width:640px){ .tb-nav{ display:none; } }
 
   /* ---------- hero ---------- */
   .hero{
@@ -108,6 +113,67 @@
     margin-top:10px;
     max-width:560px;
     line-height:1.65;
+  }
+
+  /* ---------- intro (what is OXIS) ---------- */
+  .intro{
+    padding:40px 34px 36px;
+    border-bottom:1px solid var(--line);
+    background:var(--panel-2);
+  }
+  .intro-kicker{ color:var(--green); font-size:11px; letter-spacing:3px; margin-bottom:10px; }
+  .intro-title{
+    font-size:clamp(20px, 4vw, 28px);
+    color:var(--white); font-weight:700; line-height:1.35;
+    max-width:760px;
+  }
+  .intro-body{
+    color:var(--grey); font-size:13px; line-height:1.75;
+    max-width:680px; margin-top:16px;
+  }
+  .intro-body strong{ color:var(--white); font-weight:600; }
+  .intro-list{
+    display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));
+    gap:14px; margin-top:24px; max-width:900px;
+  }
+  .intro-item{
+    border:1px solid var(--line); background:var(--panel);
+    padding:14px 16px; font-size:12px; color:var(--grey); line-height:1.6;
+  }
+  .intro-item b{ color:var(--white); display:block; margin-bottom:4px; font-size:12.5px; }
+  .intro-cta{ display:flex; gap:12px; margin-top:26px; flex-wrap:wrap; }
+  .intro-btn{
+    display:inline-block; text-decoration:none; font-size:12px; letter-spacing:.5px;
+    padding:10px 18px; border:1px solid var(--line); color:var(--white);
+    transition:.12s;
+  }
+  .intro-btn:hover{ border-color:var(--green-dim); background:var(--green-bg); color:var(--green); }
+  .intro-btn.primary{ background:var(--green); color:#04140a; border-color:var(--green); font-weight:700; }
+  .intro-btn.primary:hover{ background:var(--green-dim); border-color:var(--green-dim); color:#04140a; }
+
+  /* ---------- about ---------- */
+  .about{
+    padding:44px 34px 50px;
+    border-top:1px solid var(--line);
+    background:var(--panel-2);
+  }
+  .about-title{ color:var(--white); font-size:16px; font-weight:700; letter-spacing:1px; margin-bottom:16px; }
+  .about-grid{
+    display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr));
+    gap:24px;
+  }
+  .about-col p{ color:var(--grey); font-size:12.5px; line-height:1.75; margin-bottom:10px; max-width:420px; }
+  .about-col a{ color:var(--green); text-decoration:none; }
+  .about-col a:hover{ text-decoration:underline; }
+  .about-links{ display:flex; flex-direction:column; gap:8px; margin-top:6px; }
+  .about-links a{
+    display:flex; align-items:center; gap:8px;
+    color:var(--grey); font-size:12.5px; text-decoration:none; transition:.12s;
+  }
+  .about-links a:hover{ color:var(--green); }
+  .about-foot{
+    margin-top:32px; padding-top:20px; border-top:1px solid var(--line);
+    color:var(--grey-dim); font-size:11px; letter-spacing:.5px;
   }
 
   /* ---------- command bar ---------- */
@@ -266,6 +332,7 @@
 
   .price{ color:var(--white); font-size:14.5px; font-weight:700; }
   .price small{ color:var(--grey-dim); font-size:10px; font-weight:500; margin-left:4px; }
+  .sub-count{ color:var(--grey-dim); font-size:10.5px; margin-top:2px; }
 
   .card.paid .btn{
     border-color:var(--amber-dim);
@@ -333,10 +400,37 @@
       <div class="tb-name">OXIS</div>
       <span class="tb-sep">/</span>
       <span class="tb-route">plugin.market</span>
+      <nav class="tb-nav" aria-label="Site sections">
+        <a href="#market">Market</a>
+        <a href="#about">About</a>
+      </nav>
     </div>
-    <a class="tb-gitlab" href="https://gitlab.com/oxidelab/oxis.git" target="_blank" rel="noopener noreferrer">GitLab ↗</a>
+    <div class="tb-links">
+      <a class="tb-gitlab" href="https://gitlab.com/oxidelab/oxis.git" target="_blank" rel="noopener noreferrer">GitLab ↗</a>
+      <a class="tb-gitlab" href="https://sourceforge.net/projects/oxis/" target="_blank" rel="noopener noreferrer">SourceForge ↗</a>
+    </div>
   </div>
 
+  <div class="intro">
+    <div class="intro-kicker">WHAT IS OXIS</div>
+    <div class="intro-title">A terminal app for Windows and Linux — built to be customized.</div>
+    <div class="intro-body">
+      OXIS is the same kind of program as Command Prompt, PowerShell, or iTerm2, except everything about it — its commands, its themes, its keyboard shortcuts, and its plugins — is scriptable using <strong>Lua</strong>, a small, easy-to-learn language. It works as a normal terminal right out of the box: every command you already know still works, unchanged.
+    </div>
+    <div class="intro-list">
+      <div class="intro-item"><b>Real terminal, real shell</b>Your actual PowerShell or bash, running exactly as it always has.</div>
+      <div class="intro-item"><b>Its own commands, too</b>Type <code>'</code> and OXIS's own commands take over — <code>'edit</code>, <code>'market</code>, <code>'theme</code>, and dozens more.</div>
+      <div class="intro-item"><b>Built-in code editor</b>Real syntax highlighting and multi-line editing, no separate app to switch to.</div>
+      <div class="intro-item"><b>Plugins, in Lua</b>Browse and install other people's plugins below, or write your own.</div>
+    </div>
+    <div class="intro-cta">
+      <a class="intro-btn primary" href="https://gitlab.com/oxidelab/oxis.git" target="_blank" rel="noopener noreferrer">Get OXIS on GitLab ↗</a>
+      <a class="intro-btn" href="#market">Browse the Market ↓</a>
+      <a class="intro-btn" href="#about">About this project</a>
+    </div>
+  </div>
+
+  <a id="market"></a>
   <div class="hero">
     <div class="hero-top">
       <div class="hero-title">PLUGIN <span>MARKET</span></div>
@@ -360,6 +454,27 @@
 
   <div class="grid" id="grid"></div>
   <div class="empty" id="emptyState"></div>
+
+  <a id="about"></a>
+  <div class="about">
+    <div class="about-title">ABOUT OXIS</div>
+    <div class="about-grid">
+      <div class="about-col">
+        <p>OXIS ("Open Xenial Intelligent Shell") is built around one idea: the terminal, editor, themes, commands, keymaps, plugins, and workspaces should all be one connected, scriptable system rather than separate tools bolted together.</p>
+        <p>This Market is where the community shares what they've built — every free plugin here is a plain, readable Lua script, and the whole project (core app included) is licensed under the <a href="https://gitlab.com/oxidelab/oxis/-/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">Apache License 2.0</a>.</p>
+        <p>Building a plugin, fixing a bug, or just curious how it works? The full source, including this Market site itself, lives in the same repository below.</p>
+      </div>
+      <div class="about-col">
+        <div class="about-links">
+          <a href="https://gitlab.com/oxidelab/oxis.git" target="_blank" rel="noopener noreferrer">→ GitLab — source, issues, merge requests</a>
+          <a href="https://sourceforge.net/projects/oxis/" target="_blank" rel="noopener noreferrer">→ SourceForge — mirror &amp; releases</a>
+          <a href="https://gitlab.com/oxidelab/oxis/-/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">→ LICENSE — Apache 2.0, full text</a>
+          <a href="https://gitlab.com/oxidelab/oxis/-/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener noreferrer">→ CONTRIBUTING.md — how to submit a plugin</a>
+        </div>
+      </div>
+    </div>
+    <div class="about-foot">OXIS · Apache License 2.0 · this site is a static Cloudflare Pages deployment of the same repository</div>
+  </div>
 
 </div>
 
@@ -561,6 +676,10 @@ const emptyState = document.getElementById('emptyState');
 const regionSelect = document.getElementById('region-select');
 let activeCat = "ALL";
 let query = "";
+// Populated async by loadSubscriberCounts() below — { pluginName: count }.
+// Derived server-side from real license/webhook data (see
+// functions/subscriber-counts.js), not tracked separately here.
+let subscriberCounts = {};
 
 function renderRegionSelect(){
   regionSelect.innerHTML = COUNTRIES.map(c =>
@@ -678,8 +797,13 @@ function cardHTML(p){
       <button class="btn" disabled style="opacity:.5; cursor:not-allowed;">coming soon</button>
     `;
   } else {
+    const subCount = subscriberCounts[p.name];
+    const subLine = (typeof subCount === 'number' && subCount > 0)
+      ? `<div class="sub-count">${subCount} subscriber${subCount === 1 ? '' : 's'}</div>`
+      : '';
     footer = `
       <div class="price">${priceDisplay || formatPrice(0, displayCurrency)} <small>/month</small></div>
+      ${subLine}
       <button class="btn" data-action="subscribe" data-name="${name}">subscribe via Stripe</button>
     `;
   }
@@ -784,9 +908,23 @@ document.getElementById('search').addEventListener('input', (e)=>{
   renderGrid();
 });
 
+async function loadSubscriberCounts(){
+  try{
+    const res = await fetch('/subscriber-counts', { cache: 'no-store' });
+    if(!res.ok) return;
+    subscriberCounts = await res.json();
+    renderGrid(); // re-render now that counts are in — cards render fine without them first, this just fills the number in a beat later
+  }catch(err){
+    // network hiccup, or the backend's OXIS_LICENSES binding isn't
+    // set up yet — subscriber counts just don't show, nothing else
+    // on the page depends on this succeeding
+  }
+}
+
 renderFilters();
 renderRegionSelect();
 renderGrid();
+loadSubscriberCounts();
 </script>
 
 </body>

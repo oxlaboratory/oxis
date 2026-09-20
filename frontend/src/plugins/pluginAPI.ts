@@ -47,7 +47,7 @@ import {
   systemInfo as nativeSystemInfo, listProcesses, killProcess, isNativeApp,
   writeTempScript,
 } from "../native";
-import { requirePermission } from "./permissions";
+import { requirePermission, requireShellPermission } from "./permissions";
 import { scriptRunTracker } from "../terminal/scriptRunTracker";
 import { workflowRunner } from "./workflowRunner";
 import { setTaskCommand } from "./taskCommands";
@@ -71,6 +71,14 @@ export interface APIContext {
   setOption: (key: string, value: LuaJSValue) => void;
   /** Plugin name (set per-plugin) */
   pluginName: string;
+  /** Skips the shell-execution permission gate below (see
+   *  requireShellPermission in permissions.ts) — set for built-in
+   *  plugins (pluginManager.ts's load()) and for OXIS's own
+   *  workspace/task/workflow loading (workspaceManager.ts), neither
+   *  of which is third-party code a user needs to be asked about.
+   *  Every OTHER caller of buildLuaAPI (market/user plugins) leaves
+   *  this false/undefined and goes through the real one-time prompt. */
+  isTrusted?: boolean;
 }
 
 /**
@@ -112,6 +120,26 @@ export interface APIContext {
  * to run there either way; a plain write is no worse than before.
  */
 export function runScript(ctx: APIContext, cmd: string): Promise<{ ok: boolean }> {
+  // requireShellPermission can throw synchronously (PluginPermissionError)
+  // — caught and converted into a rejected promise here rather than
+  // letting it escape as a raw synchronous exception. Every OTHER
+  // permission-gated binding (fsRead, etc.) is declared `async`, so
+  // the exact same kind of throw from requirePermission() is
+  // automatically turned into a promise rejection by JS's own async-
+  // function semantics; this function isn't `async` (it has multiple
+  // early returns of already-existing promises further down, and
+  // converting the whole thing risked changing that control flow), so
+  // the same protection has to be added explicitly instead. Without
+  // this, a denied oxis.run() call would throw synchronously from
+  // inside the native function fengari calls via lua_pushcfunction —
+  // an uncaught JS exception crossing that boundary, not a clean,
+  // catchable rejection the "run" Lua binding can handle the same way
+  // asyncCb already handles every other binding's rejections.
+  try {
+    requireShellPermission(ctx.pluginName, !!ctx.isTrusted);
+  } catch (e) {
+    return Promise.reject(e);
+  }
   const native = isNativeApp() && isWindows();
   const send = (line: string) => ctx.sendToShell(line);
 
@@ -182,7 +210,21 @@ export function buildLuaAPI(ctx: APIContext): OxisBindings {
         description: hasDesc ? description!.trim() : UNDOCUMENTED_SENTINEL,
         category: "task",
         fromPlugin: ctx.pluginName,
-        handler: () => ctx.sendToShell(cmd + "\r"),
+        // Routed through runScript() (same as oxis.run()), not a
+        // direct ctx.sendToShell(cmd + "\r") — a task's command is
+        // just as much "this plugin running an arbitrary shell
+        // command" as oxis.run() is, captured at registration time
+        // and executed later, and was a complete bypass of the
+        // permission gate above until this: a task's command never
+        // went through runScript at all, so it was defined once with
+        // no check and then ran forever with no check, regardless of
+        // what oxis.run() itself required.
+        // .catch() isn't decorative — requireShellPermission() inside
+        // runScript can reject this (see runScript's own doc comment
+        // on why that's a rejection now, not a synchronous throw);
+        // without a handler here, a denied task would surface as an
+        // unhandled promise rejection instead of a clean message.
+        handler: () => { void runScript(ctx, cmd).catch((e) => ctx.print(`  ✗  ${name}: ${e instanceof Error ? e.message : e}`, "err")); },
       });
     },
 

@@ -41,6 +41,7 @@ const REGISTRY_PATH = "workspaces/registry.json";
 // touching anything the user actually created or customized.
 const CURRENT_WORKSPACE_SCHEMA = 1;
 const LAST_SEEN_VERSION_KEY = "oxis-last-seen-version";
+const AUTO_RELOAD_POLL_MS = 3000;
 
 // A workspace name becomes a real folder name under workspaces/, so
 // keep it to something safe on every OS's filesystem and that can't
@@ -191,6 +192,18 @@ class WorkspaceManager {
   // isn't part of the workspaces/ registry at all.
   private activeNamed: string | null = null;
 
+  // ── Auto-reload polling — see startAutoReload()/stopAutoReload() ──
+  // Not a real native file-system watcher (that would need a new Go
+  // dependency like fsnotify, new Wails event plumbing, and — same as
+  // every other new Go binding this project has added — I have no
+  // way to compile or exercise that here to trust it). This is a
+  // plain interval poll against the same statPath()/listDir() calls
+  // already used and working everywhere else, checked against a
+  // remembered signature — real, but push-based it is not: a change
+  // can take up to AUTO_RELOAD_POLL_MS to be noticed, not instant.
+  private autoReloadTimer: ReturnType<typeof setInterval> | null = null;
+  private lastSignature: string | null = null;
+
   /** Must be called once at startup, same as pluginManager.init(). */
   init(ctx: APIContext): void {
     this.apiCtx = ctx;
@@ -323,6 +336,7 @@ class WorkspaceManager {
   /** `'workspace close` — unload, undoing everything workspace.lua registered. */
   close(): WorkspaceOpResult {
     if (!this.disposer) return { ok: false, message: "no workspace is currently loaded" };
+    this.stopAutoReload();
     registry.unregisterByPlugin(WORKSPACE_PLUGIN_NAME);
     try { this.disposer.dispose(); } catch { /* VM already gone */ }
     this.disposer = null;
@@ -331,6 +345,76 @@ class WorkspaceManager {
     workflowRunner.clear(); // workflows are workspace-scoped — see loadWorkflows() below
     events.emit("workspace_unloaded", {});
     return { ok: true, message: "workspace closed" };
+  }
+
+  /** A cheap, comparable string standing in for "the state of this
+   *  workspace's own editable files right now" — workspace.lua's own
+   *  mtime, plus the tasks/ and workflows/ folders' listings (name +
+   *  mtime per entry, so an added/removed/edited file inside either
+   *  changes the signature even though workspace.lua itself didn't).
+   *  Not a hash of file CONTENT (would mean reading every file on
+   *  every poll tick, real I/O cost for no real benefit — mtime
+   *  already changes the instant a save happens). Returns null on any
+   *  read failure (workspace directory gone, etc.) rather than
+   *  throwing — the poll loop treats null as "can't tell, skip this
+   *  tick" rather than a reload trigger. */
+  private async computeSignature(dir: string): Promise<string | null> {
+    try {
+      const parts: string[] = [];
+      const workspaceLuaStat = await statPath(`${dir}/${WORKSPACE_REL_PATH}`).catch(() => null);
+      parts.push(workspaceLuaStat ? String(workspaceLuaStat.modTime) : "missing");
+      for (const sub of ["tasks", "workflows"] as const) {
+        const entries = await listDir(`${dir}/${sub}`).catch(() => [] as { name: string; modTime?: number }[]);
+        parts.push(`${sub}:` + entries.map(e => `${e.name}@${e.modTime ?? 0}`).sort().join(","));
+      }
+      return parts.join("|");
+    } catch {
+      return null;
+    }
+  }
+
+  /** Polls computeSignature() every AUTO_RELOAD_POLL_MS and calls
+   *  reload() the moment it changes — see the class-field comment
+   *  above for why this is polling, not a real push-based watcher.
+   *  Started by load() on every successful load (of either kind —
+   *  named or ad-hoc; there's no reason this should only work for
+   *  one), stopped by stopAutoReload() (called from close(), and from
+   *  load() itself before starting a new one, so switching workspaces
+   *  never leaves an old interval polling a directory that's no
+   *  longer active). Errors from a single tick are swallowed (logged,
+   *  not thrown) — a background poller raising an unhandled rejection
+   *  every few seconds would be worse than just skipping that tick
+   *  and trying again next time. */
+  private startAutoReload(dir: string, namedWorkspace: string | null): void {
+    this.stopAutoReload();
+    // Seed the baseline from the load that just happened, rather than
+    // null — otherwise the very first tick would always see a
+    // "change" (null -> real signature) and trigger an immediate,
+    // pointless reload of the workspace that was just freshly loaded.
+    void this.computeSignature(dir).then(sig => { this.lastSignature = sig; });
+    this.autoReloadTimer = setInterval(async () => {
+      try {
+        const sig = await this.computeSignature(dir);
+        if (sig === null) return; // couldn't read — skip this tick, don't treat as a change
+        if (this.lastSignature !== null && sig !== this.lastSignature && this.activeDir === dir) {
+          this.lastSignature = sig;
+          const result = await this.load(dir, namedWorkspace);
+          events.emit(result.ok ? "workspace_auto_reloaded" : "workspace_auto_reload_failed", { path: dir, message: result.message });
+        } else {
+          this.lastSignature = sig;
+        }
+      } catch (e) {
+        // Never let one bad tick kill the interval — surfacing this
+        // as a real error every 3s would be far worse than silently
+        // skipping until the next tick.
+        console.warn("[oxis:workspace] auto-reload poll failed:", e);
+      }
+    }, AUTO_RELOAD_POLL_MS);
+  }
+
+  private stopAutoReload(): void {
+    if (this.autoReloadTimer !== null) { clearInterval(this.autoReloadTimer); this.autoReloadTimer = null; }
+    this.lastSignature = null;
   }
 
   /** Core load path shared by init/reload/detectAndLoad/switchNamed.
@@ -372,7 +456,11 @@ class WorkspaceManager {
     workflowRunner.clear();
 
     events.emit("workspace_loading", { path: dir });
-    const bindings = buildLuaAPI({ ...this.apiCtx!, pluginName: WORKSPACE_PLUGIN_NAME });
+    // isTrusted: workspace.lua is the user's OWN local config file,
+    // not third-party plugin code — same reasoning as built-in
+    // plugins (see pluginManager.ts's load()) for why this skips the
+    // oxis.run()/oxis.task() shell-permission prompt.
+    const bindings = buildLuaAPI({ ...this.apiCtx!, pluginName: WORKSPACE_PLUGIN_NAME, isTrusted: true });
     const result = loadLuaPlugin(source, bindings);
     if (!result.ok) {
       this.activeDir = null;
@@ -390,6 +478,15 @@ class WorkspaceManager {
     // the .lua file itself passed (usually just "."), which
     // workspaceState.ts explicitly does NOT use for display.
     events.emit("workspace_loaded", { path: dir });
+    // Real-time auto-reload — see startAutoReload()'s own doc comment
+    // for what this actually is (polling, not a push-based watcher).
+    // Restarting it here (even when THIS load() call was itself
+    // triggered by the poller noticing a change) re-baselines the
+    // signature to what was just loaded, which is exactly what should
+    // happen after a reload — otherwise the next tick would compare
+    // against the PRE-reload signature and could re-trigger
+    // immediately for no reason.
+    this.startAutoReload(dir, namedWorkspace);
     return { ok: true, message: `workspace loaded from ${path}` };
   }
 
@@ -436,7 +533,7 @@ class WorkspaceManager {
       try { source = await readFile(`${tasksDir}/${file.name}`); }
       catch { continue; }
       const pluginName = WORKSPACE_PLUGIN_NAME; // tasks defined this way ARE workspace tasks — 'workspace close/reload should undo them same as workspace.lua's own oxis.task() calls
-      const bindings = buildLuaAPI({ ...this.apiCtx!, pluginName });
+      const bindings = buildLuaAPI({ ...this.apiCtx!, pluginName, isTrusted: true }); // the user's own local tasks/ folder, not third-party code — see workspace.lua's own load() above
       const result = loadLuaPlugin(source, bindings);
       if (!result.ok) {
         this.apiCtx?.print(`  ✗  ${tasksDir}/${file.name} failed to load: ${result.error}`, "err");
@@ -456,7 +553,7 @@ class WorkspaceManager {
       try { source = await readFile(`${workflowsDir}/${file.name}`); }
       catch { continue; }
       const pluginName = `__workflow_file__:${file.name}`;
-      const bindings = buildLuaAPI({ ...this.apiCtx!, pluginName });
+      const bindings = buildLuaAPI({ ...this.apiCtx!, pluginName, isTrusted: true }); // the user's own local workflows/ folder, not third-party code
       const result = loadLuaPlugin(source, bindings);
       if (!result.ok) {
         this.apiCtx?.print(`  ✗  ${workflowsDir}/${file.name} failed to load: ${result.error}`, "err");

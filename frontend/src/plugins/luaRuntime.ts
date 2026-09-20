@@ -53,7 +53,13 @@ export interface OxisBindings {
   command(name: string, invoke: (args: string[], rest: string) => void, desc: string | undefined): void;
   task(name: string, cmd: string, desc: string | undefined): void;
   echo(text: string): void;
-  run(cmd: string): void;
+  // Typed as returning a promise (not void) because it genuinely does
+  // — buildLuaAPI's real implementation (runScript) always has, this
+  // just wasn't reflected here before. Lua itself never sees this
+  // promise (oxis.run has no callback argument, fire-and-forget by
+  // design), but luaRuntime.ts's own binding needs to .catch() it —
+  // see its doc comment for why that's not optional.
+  run(cmd: string): Promise<{ ok: boolean }>;
   theme(name: string): void;
   cwd(): string;
   getOption(key: string): LuaJSValue;
@@ -247,7 +253,19 @@ function buildOxisTable(L: LuaState, b: OxisBindings, closedRef: { closed: boole
   });
 
   setfn("echo", (L) => { b.echo(lua.lua_tojsstring(L, 1)); return 0; });
-  setfn("run",  (L) => { b.run(lua.lua_tojsstring(L, 1)); return 0; });
+  // oxis.run() is fire-and-forget from Lua's side — no callback
+  // argument, unlike fs/process/net/system — so there's no Lua-visible
+  // way to report a failure back. The .catch() here isn't decorative:
+  // without it, a permission denial (or any other rejection) becomes
+  // an "unhandled promise rejection" at best; b.run() itself now
+  // guarantees it never throws synchronously (see runScript's own doc
+  // comment), so this closes the loop on both sides of that boundary.
+  setfn("run",  (L) => {
+    b.run(lua.lua_tojsstring(L, 1)).catch((e) => {
+      console.warn("[oxis:lua] oxis.run() failed:", e instanceof Error ? e.message : e);
+    });
+    return 0;
+  });
   setfn("theme", (L) => { b.theme(lua.lua_tojsstring(L, 1)); return 0; });
   setfn("cwd", (L) => { pushLuaValue(L, b.cwd()); return 1; });
   setfn("newTerminal", () => { b.newTerminal(); return 0; });

@@ -53,20 +53,6 @@ html, body, #root {
 .app-body  { flex: 1 1 0; display: flex; min-height: 0; overflow: hidden; position: relative; }
 .app-pane  { flex: 1 1 0; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
 
-/* ── TAB BAR ─────────────────────────────────────────────── */
-.tabs      { display: flex; align-items: stretch; height: 28px; background: var(--bg1); border-bottom: 1px solid var(--border); flex-shrink: 0; }
-.tab       { display: flex; align-items: center; gap: 5px; padding: 0 10px; border-right: 1px solid var(--border); cursor: pointer; color: var(--dim); min-width: 60px; max-width: 140px; font-size: 10px; transition: color .1s, background .1s; }
-.tab:hover { color: var(--muted); background: var(--bg2); }
-.tab--on   { color: var(--purple3); background: var(--bg); border-bottom: 2px solid var(--purple); }
-.tab-icon  { font-size: 9px; flex-shrink: 0; color: var(--purple2); }
-.tab-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tab-close { font-size: 12px; color: var(--comment); width: 14px; height: 14px; display: flex; align-items: center; justify-content: center; opacity: 0; transition: opacity .1s; border-radius: 2px; }
-.tab:hover .tab-close { opacity: 1; }
-.tab-close:hover { color: var(--muted); }
-.tabs-fill { flex: 1; }
-.tab-new   { height: 100%; padding: 0 10px; font-size: 9px; font-weight: 700; letter-spacing: .08em; color: var(--dim); border-left: 1px solid var(--border); transition: color .1s, background .1s; }
-.tab-new:hover { color: var(--purple); background: rgba(139,92,246,.06); }
-
 /* ── STATUS BAR ──────────────────────────────────────────── */
 .statusline { height: 20px; display: flex; align-items: center; background: var(--purple2); flex-shrink: 0; color: var(--bg); }
 .sl-mode    { padding: 0 14px; font-weight: 700; background: var(--bg1); color: var(--purple3); height: 100%; display: flex; align-items: center; letter-spacing: .12em; font-size: 10px; }
@@ -115,6 +101,12 @@ html, body, #root {
   text-align: center;
   white-space: pre;
   letter-spacing: .03em;
+  /* Matches .startup-logo (the launch splash) EXACTLY, on request —
+     same font-size, same line-height. Previously smaller/dimmer on a
+     different request earlier in this session; that request was
+     superseded by this one. */
+  font-size: 13px;
+  line-height: 1.35;
 }
 
 /* Input row */
@@ -619,12 +611,6 @@ html, body, #root {
 }
 
 /* ── Train + smoke wrapper ──────────────────────────────── */
-.oxis-train-wrap {
-  position: relative;
-  display: inline-flex; flex-direction: column; align-items: flex-start;
-  margin: 0 auto 4px;
-}
-
 /* Chimney anchor — wraps the literal "[]" glyph in the train art
    (see renderTrainRow in App.tsx). Positioned smoke stacks nest
    *inside* this span (as its child, not a sibling elsewhere in the
@@ -644,10 +630,18 @@ html, body, #root {
    rises upward from there (see `.puff` / @keyframes puff-rise
    below) — so smoke visibly originates at the chimney and climbs,
    rather than floating in a fixed box positioned near it. `height`
-   is passed per call site (110px on the home screen's larger art,
-   90px for the smaller boot-banner/startup-splash art) via inline
-   style, since it's the one thing that does still vary intentionally
-   by context. */
+   is passed per call site (110px for the startup splash's larger
+   art, 70px for the terminal's smaller boot banner — Home no longer
+   has a train at all) via inline style, since it's the one thing
+   that does still vary intentionally by context. Each puff's
+   font-size below is in `em`, not a fixed px value, for exactly the
+   same reason: calibrated against a 13px base (the startup splash's
+   own font-size) so it scales down automatically inside a smaller
+   context like the terminal's 10px banner rather than looking
+   oversized relative to shrunk-down banner text — a real, reported
+   bug this fixes (fixed px puffs stayed the same absolute size when
+   the surrounding banner text got smaller, so the smoke started
+   looking disproportionately large next to it). */
 .oxis-smoke-stack {
   position: absolute;
   left: 50%; bottom: 100%;
@@ -658,17 +652,17 @@ html, body, #root {
 .puff {
   position: absolute;
   left: 0; bottom: 0;
-  font-family: var(--font); font-size: 11px; color: var(--dim);
+  font-family: var(--font); font-size: 0.846em; color: var(--dim);
   opacity: 0;
   animation: puff-rise 2.8s ease-in infinite;
   letter-spacing: 0;
 }
-.puff-1 { animation-delay: 0s;    left: 0px;  font-size: 9px;  color: var(--comment); }
-.puff-2 { animation-delay: .46s;  left: 6px;  font-size: 11px; color: var(--dim); }
-.puff-3 { animation-delay: .92s;  left: 2px;  font-size: 12px; color: var(--dim); }
-.puff-4 { animation-delay: 1.38s; left: 10px; font-size: 13px; color: var(--muted); }
-.puff-5 { animation-delay: 1.84s; left: 4px;  font-size: 11px; color: var(--comment); }
-.puff-6 { animation-delay: 2.3s;  left: 14px; font-size: 12px; color: var(--purple3); }
+.puff-1 { animation-delay: 0s;    left: 0px;  font-size: 0.692em; color: var(--comment); }
+.puff-2 { animation-delay: .46s;  left: 6px;  font-size: 0.846em; color: var(--dim); }
+.puff-3 { animation-delay: .92s;  left: 2px;  font-size: 0.923em; color: var(--dim); }
+.puff-4 { animation-delay: 1.38s; left: 10px; font-size: 1em;     color: var(--muted); }
+.puff-5 { animation-delay: 1.84s; left: 4px;  font-size: 0.846em; color: var(--comment); }
+.puff-6 { animation-delay: 2.3s;  left: 14px; font-size: 0.923em; color: var(--purple3); }
 
 @keyframes puff-rise {
   0%   { transform: translate(0, 0)  scale(.5); opacity: 0; }
@@ -677,24 +671,6 @@ html, body, #root {
   100% { transform: translate(22px, -52px) scale(1.4); opacity: 0; }
 }
 
-/* Train ASCII */
-.oxis-ascii     { display: flex; flex-direction: column; }
-.oxis-ascii-row { font-family: var(--font); font-size: var(--home-fs); line-height: var(--home-lh); white-space: pre; font-weight: 700; }
-
-/* Wheels row — each "0" rotates to simulate spinning */
-.oxis-ascii-wheels {
-  font-family: var(--font); font-size: var(--home-fs); line-height: var(--home-lh);
-  white-space: pre; font-weight: 700; color: var(--dim);
-  display: block;
-}
-/* Home screen train is PARKED — wheels are static (no spin/pulse).
-   The moving version lives in the startup splash + shell boot banner
-   (see StartupSplash / trainWheelFrame in App.tsx), which use the
-   same art but animate the wheel row on a timer instead of CSS,
-   since that art is plain text rather than individual spans. */
-.wheel {
-  display: inline-block; color: var(--purple2);
-}
 
 /* Boot-banner / startup-splash wrappers still need width:fit-content
    so the centered ASCII block doesn't stretch to its parent's full
@@ -740,12 +716,12 @@ html, body, #root {
 }
 
 .oxis-gitlab-btn {
-  background: transparent; border: 1px solid var(--border2); border-radius: 3px;
+  background: transparent; border: none;
   color: var(--dim); font-family: var(--font); font-size: 10px; font-style: normal;
-  padding: 2px 7px; cursor: pointer; line-height: 1.4; opacity: .55;
-  transition: opacity .15s, color .15s, border-color .15s;
+  padding: 2px 4px; cursor: pointer; line-height: 1.4; opacity: .55;
+  transition: opacity .15s, color .15s;
 }
-.oxis-gitlab-btn:hover { opacity: 1; color: var(--muted); border-color: var(--border2); background: transparent; }
+.oxis-gitlab-btn:hover { opacity: 1; color: var(--muted); background: transparent; text-decoration: underline; }
 
 /* Bordered box — sizes kept compact so the Home screen's WORKSPACE
    panel + help box + Shell command line all fit in one view without
@@ -808,33 +784,21 @@ html, body, #root {
    this is a direct safety net for small windows regardless of that. */
 @media (max-height: 700px) {
   .home { padding: 4px 20px; }
-  .oxis-train-wrap { margin-bottom: 2px; transform: scale(.85); transform-origin: top center; }
   .oxis-sub-row { margin-top: 0; }
   .oxis-box { padding: 4px 12px; margin-bottom: 4px; gap: 1px; }
   .oxis-workspace-box { margin-top: 4px; }
   .oxis-cmdline { margin-top: 4px; }
 }
 @media (max-height: 560px) {
-  .oxis-train-wrap { transform: scale(.6); margin-bottom: -12px; } /* the wrap's own box shrinks with it, so margin needs a manual nudge to avoid a large empty gap the scale leaves behind */
   .oxis-sub-row { font-size: 10px; gap: 1rem; }
   .oxis-ver-row { font-size: 10px; }
 }
 
-/* Shell-open hint bar */
-.home-tab-hint {
-  height: 22px; display: flex; align-items: center;
-  padding: 0 14px; background: var(--bg1);
-  border-bottom: 1px solid var(--border);
-  font-size: 10px; color: var(--purple); cursor: pointer;
-  flex-shrink: 0; transition: background .1s;
-}
-.home-tab-hint:hover { background: var(--bg2); }
-
 /* ── Sky widget — top-right corner of home, sun/moon by time ──── */
 .sky-widget {
   position: absolute;
-  top: 20px; right: 32px;
-  width: 90px; height: 70px;
+  top: 26px; left: 50%; transform: translateX(-50%);
+  width: 280px; height: 50px;
   pointer-events: none;
 }
 
@@ -844,36 +808,43 @@ html, body, #root {
   background: none; border: none; margin: 0; padding: 0;
 }
 .sky-sun {
-  position: absolute; top: 6px; right: 8px;
-  font-size: 11px; color: #ffd24a;
-  text-shadow: 0 0 6px rgba(255,210,74,.35);
+  position: absolute; top: 2px; right: 0px;
+  font-size: 9px; color: #ffd24a;
+  text-shadow: 0 0 5px rgba(255,210,74,.35);
   animation: sun-pulse 4s ease-in-out infinite;
   line-height: 1.2;
+  z-index: 2;
 }
 @keyframes sun-pulse {
   0%, 100% { opacity: .9; }
   50%      { opacity: 1;  text-shadow: 0 0 11px rgba(255,210,74,.55); }
 }
 
+/* Each cloud's position/size/opacity/timing is set inline per-cloud
+   (see SkyWidget in App.tsx's randomized `clouds` array) — this class
+   only supplies what's shared: the font, the drift animation, and the
+   base "not visible" state the animation itself fades in and out of.
+   Deliberately spread across the LEFT side of the widget, leaving the
+   sun's right side clear rather than risking a cloud drifting through
+   it. */
 .sky-cloud {
-  position: absolute; font-size: 10px; color: var(--muted); font-family: var(--font);
-  white-space: pre; opacity: .75; animation: cloud-drift 16s linear infinite;
+  position: absolute; color: #ffffff; font-family: var(--font);
+  white-space: pre; animation-name: cloud-drift; animation-timing-function: linear; animation-iteration-count: infinite;
 }
-.sky-cloud--1 { top: 46px; right: 42px; animation-duration: 18s; }
-.sky-cloud--2 { top: 60px; right: 6px;  animation-duration: 24s; animation-delay: -9s; font-size: 9px; opacity: .5; }
 @keyframes cloud-drift {
   0%   { transform: translateX(24px); opacity: 0; }
-  12%  { opacity: .75; }
-  88%  { opacity: .75; }
+  12%  { opacity: var(--cloud-opacity, .75); }
+  88%  { opacity: var(--cloud-opacity, .75); }
   100% { transform: translateX(-48px); opacity: 0; }
 }
 
 .sky-moon {
-  position: absolute; top: 4px; right: 6px;
+  position: absolute; top: 2px; right: 0px;
   font-size: 11px; color: #c8d2ff; font-family: var(--font);
   white-space: pre; line-height: 1.2;
   text-shadow: 0 0 5px rgba(200,210,255,.28);
   animation: moon-glow 5s ease-in-out infinite;
+  z-index: 2;
 }
 @keyframes moon-glow {
   0%, 100% { opacity: .8; } 50% { opacity: 1; }
@@ -881,13 +852,8 @@ html, body, #root {
 
 .sky-star {
   position: absolute; color: var(--purple3); font-family: var(--font);
-  animation: star-twinkle 2.4s ease-in-out infinite; font-size: 9px;
+  animation-name: star-twinkle; animation-timing-function: ease-in-out; animation-iteration-count: infinite;
 }
-.sky-star--1 { top: 10px; right: 64px; animation-delay: 0s;   }
-.sky-star--2 { top: 32px; right: 78px; font-size: 7px; animation-delay: .6s; }
-.sky-star--3 { top: 18px; right: 40px; font-size: 8px; animation-delay: 1.2s;}
-.sky-star--4 { top: 44px; right: 58px; font-size: 7px; animation-delay: 1.8s;}
-.sky-star--5 { top: 56px; right: 28px; font-size: 8px; animation-delay: 0.9s;}
 @keyframes star-twinkle {
   0%, 100% { opacity: .2;  }
   50%      { opacity: .95; }
@@ -910,10 +876,14 @@ html, body, #root {
 }
 .startup-logo {
   position: relative; width: fit-content;
-  /* Same size as the home screen's train (.oxis-ascii-row) — was a
-     smaller 10px/1.3 of its own, now matches so the train doesn't
-     visibly grow when the splash hands off to the home screen. */
-  font-family: var(--font); font-size: var(--fs); line-height: 1.35;
+  /* Fixed 13px — NOT var(--fs). Same bug class as Home's --home-fs
+     and the terminal banner's own fix: this is a brief launch splash,
+     unrelated to the user's terminal-reading font size preference,
+     and coupling it to --fs meant a larger fontSize setting would
+     balloon the splash too. 13px matches --fs's own default, so
+     nothing changes for anyone who hasn't touched that setting; the
+     smoke puffs below are calibrated in em against this exact value. */
+  font-family: var(--font); font-size: 13px; line-height: 1.35;
   color: var(--purple); font-weight: 700; white-space: pre; text-align: center;
   text-shadow: 0 0 18px rgba(61,255,100,.2);
   animation: startup-glow 16s ease forwards;

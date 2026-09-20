@@ -1,8 +1,52 @@
 # OXIS
 
-**Open Xenial Intelligent Shell** — a Lua-configurable, terminal built on Go + React/TypeScript.
+**OXIS is a terminal app for Windows and Linux** — the same
+kind of program as Command Prompt, PowerShell, or iTerm2, except it's
+built to be customized. It works as a normal terminal right out of
+the box (every command you already know still works, unchanged), and
+on top of that it adds its own commands, a built-in code editor, a
+plugin system, and a marketplace to install other people's plugins —
+all of it scriptable using [Lua](https://www.lua.org/), a small,
+easy-to-learn language. ("OXIS" stands for **O**pen **X**enial
+**I**ntelligent **S**hell — the name you'll see spelled out inside
+the app itself.)
 
 > Terminals were the beginning.
+
+## What can it actually do?
+
+- **It's a real terminal first.** Open OXIS and you get your actual
+  PowerShell or bash shell running exactly as it always has —
+  nothing about your existing commands, scripts, or muscle memory
+  changes.
+- **It also has its own commands.** Type an apostrophe (`'`) and
+  OXIS's own commands take over: `'edit` opens a file in the built-in
+  editor, `'market` browses installable plugins, `'theme` changes how
+  everything looks, and there are dozens more — type `'help` any
+  time to see them.
+- **A built-in code editor** — `'edit myfile.txt` opens it right
+  there in the same window, with real syntax highlighting and proper
+  multi-line editing, no separate app to switch to.
+- **Plugins, written in Lua.** Anyone can write a small script that
+  adds a new command, a keyboard shortcut, or an automatic behavior.
+  Browse and install other people's plugins for free from the
+  built-in Market (`'market list`), or write your own (`'plugin new`).
+- **Workspaces** save a project's own setup — its commands, tasks,
+  and plugins — so opening that project's folder again automatically
+  sets everything back up the way you left it.
+- **Runs as a real desktop app** on Windows and Linux (pre-built
+  binaries for both — see [Getting Started](#getting-started) for the
+  honest caveat on macOS), or as a plain web page in a browser with
+  reduced functionality (no filesystem access) if that's all you have.
+
+New here and just want to try it? [Getting Started](#getting-started)
+has the actual install/build steps. Everything past that point in
+this document is a deep technical reference — how the terminal, the
+plugin system, the Lua API, and everything else actually works —
+aimed at people writing plugins or contributing to OXIS itself, not
+required reading just to use it day to day.
+
+---
 
 Status tags used throughout this document: **[shipped]** — in the
 current codebase today, **[in progress]** — partially built, **[planned]**
@@ -13,6 +57,7 @@ current codebase today, **[in progress]** — partially built, **[planned]**
 
 ## Table of Contents
 
+- [What can it actually do?](#what-can-it-actually-do)
 - [Overview](#overview)
 - [Available Now — v1.2.1](#available-now--v121)
 - [Coming Soon — v1.2.2](#coming-soon--v122)
@@ -57,7 +102,13 @@ current codebase today, **[in progress]** — partially built, **[planned]**
 
 ## Overview
 
-OXIS is built around a single philosophy: the terminal, editor, themes, commands, keymaps, plugins, and workspaces should all be scriptable through Lua.
+The plain-language version of this is above, in [What can it actually
+do?](#what-can-it-actually-do). This section is the same idea stated
+as an engineering philosophy, for anyone who wants that framing: OXIS
+treats the terminal, editor, themes, commands, keymaps, plugins, and
+workspaces as one connected system, and makes all of it scriptable
+through Lua rather than locking any of it behind native-code-only
+configuration.
 
 ```
 OxiShell Core
@@ -270,6 +321,12 @@ bound if 1420 doesn't respond.
 
 **[shipped]** — the ASCII banner, help box, command line, and the
 Workspace panel itself all ship today.
+
+**[shipped]** `'hide workspace` hides the WORKSPACE panel on Home;
+`'show workspace` brings it back. Persisted (survives a restart) via
+the same option store `'config`/`oxis.getOption` use, under its own
+key rather than a formal setting — a small, dedicated toggle rather
+than something that needed its own `'config set` entry.
 
 **[fixed]** Home's layout could genuinely overflow into scrolling —
 root cause found, not just spacing trimmed. The ASCII banner, the
@@ -665,6 +722,18 @@ wrangler kv key put --binding=OXIS_PREMIUM_SOURCE "ai-devops" --path=cloudflare/
 
 ## Getting Started
 
+**Pre-built binaries are only provided for Windows and Linux** — see
+[Install & Run](#install--run) for Windows (built locally, distributed
+via GitLab Releases) and [Continuous Integration](#continuous-integration)
+for Linux (built automatically by GitLab CI on every push, `.deb`
+included). **There is currently no macOS build** — no CI job, no
+build script, nothing pre-packaged. A Mac user who wants to run OXIS
+needs to clone this repository and build it themselves from source,
+same steps as below; [Wails](https://wails.io) (the framework OXIS is
+built on) does support macOS as a target, so building it yourself
+should work, it just isn't a maintained, tested, or officially
+distributed path the way Windows and Linux are.
+
 ### Prerequisites
 
 - Go 1.22+
@@ -1003,23 +1072,34 @@ without loading the plugin at all.
 ### Plugin Permissions
 
 **[shipped]** Every Core System API call (`oxis.fs.*`, `oxis.process.*`,
-`oxis.net.*`, `oxis.system.*`, plus `oxis.workspace()` and
-`oxis.newTerminal()`) is gated behind a per-plugin, per-namespace
-permission — a plugin can't reach any of these until that namespace
-has been granted for it specifically. There are seven namespaces:
-`fs`, `process`, `net`, `system`, `workspace`, `editor` (reserved —
-nothing currently in the Lua API needs it, since there's no
-editor-opening call exposed to plugins yet), and `terminal`.
+`oxis.net.*`, `oxis.system.*`, plus `oxis.workspace()`,
+`oxis.newTerminal()`, `oxis.run()`, and `oxis.task()`) is gated behind
+a per-plugin, per-namespace permission — a plugin can't reach any of
+these until that namespace has been granted for it specifically.
+There are eight namespaces: `fs`, `process`, `net`, `system`,
+`workspace`, `editor` (reserved — nothing currently in the Lua API
+needs it, since there's no editor-opening call exposed to plugins
+yet), `terminal`, and `shell`.
+
+`shell` (gating `oxis.run()`/`oxis.task()` — arbitrary command
+execution, the single most-used capability in the whole plugin
+system) is deliberately NOT subject to the same manifest-based
+hard-deny the other seven namespaces use (see "A plugin with a
+manifest" below) — every plugin, whatever its manifest does or
+doesn't declare, gets the same fair one-time prompt instead. Reusing
+the stricter rule would have hard-broken every already-published
+plugin whose manifest doesn't list a namespace that didn't exist when
+that manifest was written, which is worse than the gap it would have
+closed. Built-in plugins and OXIS's own workspace/task/workflow
+loading (the user's own local files, not third-party code) skip this
+prompt entirely, same as they always have.
 
 **Legacy plugins** (no manifest — see Plugin Manifests above) work
 exactly as they always have: the first time one of these calls
 actually runs, OXIS asks with a one-time confirmation ("Plugin X wants
 to read/write files on your computer. Allow?"), and the answer is
 remembered (`'plugin permissions <name>` to see/change it later). This
-is real, persisted (`localStorage`), and already how `oxis.run()`-based
-plugins like `cloudflare/plugins/ui.lua` (which calls
-`oxis.newTerminal()`) behave — nothing already shipped loses access it
-used to have.
+is real, persisted (`localStorage`).
 
 **A plugin with a manifest** gets stricter: whatever it declares in
 `permissions:` (even an empty list, if it declares a manifest but no
@@ -1154,18 +1234,18 @@ means layering on:
 | Enable/disable/reload/list        | [shipped]      | `'plugin enable/disable/reload/list` |
 | Local plugin creation             | [shipped]      | `'plugin new` |
 | Community plugin install          | [shipped]      | `'market install`, see [Plugin Marketplace](#plugin-marketplace) |
-| Plugin metadata (author, version, category, description) | [in progress] | present in market `index.json`; not yet required for local plugins |
+| Plugin metadata (author, version, category, description) | [shipped] | real manifests (`--[[@manifest ...]]`) — see [Plugin Manifests](#plugin-manifests) |
 | Plugin templates                  | [planned]      | `'plugin new <name> --template=devops` scaffolds a starter file per category |
-| Plugin dependencies                | [planned]      | a plugin can declare other plugins it needs; OXIS enables/installs them first |
-| Plugin versioning & updates        | [planned]      | semver in metadata; `'market update <name>` / `'market update all` |
-| Plugin permissions                 | [planned]      | manifest declares which `oxis.*` namespaces a plugin may call — see [Core System APIs](#core-system-apis) |
-| Plugin sandboxing                  | [planned]      | each plugin's Lua VM instance runs with only the capabilities its permissions grant |
+| Plugin dependencies                | [shipped]      | a plugin declares others it needs in its manifest; version compatibility and dependency-cycle checking are real (`checkCompatibility` in `pluginManager.ts`) |
+| Plugin versioning & updates        | [shipped]      | semver in the manifest; `'market update <name>` / `'market update all` are real, with compatibility checks, a backup before replacing, and auto-rollback on failure |
+| Plugin permissions                 | [shipped]      | manifest declares which `oxis.*` namespaces a plugin may call — see [Core System APIs](#core-system-apis) and [Plugin Permissions](#plugin-permissions) |
+| Plugin sandboxing                  | [planned]      | every plugin currently shares ONE Lua VM process — real, per-plugin isolation (each running with only the capabilities its permissions grant) doesn't exist yet |
 | Plugin search                      | [in progress]  | `'market search <query>` exists; local `'plugin search` does not yet |
-| Plugin documentation               | [planned]      | `'plugin docs <name>` renders a plugin's bundled README/help text |
-| Plugin compatibility info          | [planned]      | minimum OXIS version + OS support declared in metadata, checked before install |
+| Plugin documentation               | [shipped]      | `'plugin docs <name>` renders a plugin's manifest description |
+| Plugin compatibility info          | [shipped]      | minimum OXIS version + OS support declared in the manifest, checked before load (`manifest.ts`'s `satisfiesMin`/`satisfiesRange`) |
 | Plugin categories                  | [shipped]      | already used for built-ins and market listings |
 | Free / community / premium plugins | [planned]      | see [OXIS Market](#oxis-market--subscriptions--premium-plugins) |
-| Plugin marketplace integration     | [in progress]  | today: static Cloudflare Pages index; planned: full Market backend |
+| Plugin marketplace integration     | [shipped]      | a curated static `index.json`, PLUS a real self-service backend (`'plugin publish` opens an actual GitLab merge request — see [Third-Party Developer Marketplace](#third-party-developer-marketplace)), a `/health` self-diagnostic, and real subscriber counts on paid listings |
 
 Plugins can already reach commands, the terminal (`oxis.run`,
 `oxis.echo`), themes, events, and tasks. To make "build a serious
@@ -1179,29 +1259,19 @@ API](#lua-api) reference below.
 
 ## Core System APIs
 
-**[planned]** — the surfaces below don't exist as `oxis.*` calls yet;
-this section specifies what they need to cover so plugin authors can
-build real developer tools rather than one-off scripts. Everything
-here sits behind [plugin permissions](#the-plugin-ecosystem--building-toward-a-real-platform) —
-a plugin has to declare what it needs before it can use it.
+**Correction**: this section used to describe filesystem access,
+process management, permissions, networking, and device/system APIs
+as `[planned]` — that was stale. All five are `[shipped]` today; see
+[Plugin Permissions](#plugin-permissions) for the real, working
+version (`oxis.fs.*`, `oxis.process.*`, `oxis.net.*`, `oxis.system.*`,
+plus `oxis.run()`/`oxis.task()`, all permission-gated). What's left
+below is what's genuinely still unbuilt on top of that:
 
 | System                     | Covers |
 |----------------------------|--------|
-| **Filesystem abstraction** | Read/write/watch files and directories through `oxis.fs.*` instead of shelling out — cross-platform paths, glob matching, file-change events plugins can `oxis.autocmd` on |
-| **Process management**     | `oxis.process.*` — spawn, list, signal, and monitor processes beyond the single active PTY shell (what `process_manager.lua` currently does via raw shell commands would move onto this) |
-| **Permissions**            | Per-plugin manifest listing which namespaces (`fs`, `process`, `network`, `device`, other-plugin access) a plugin may call; OXIS prompts once on install/enable, same shape as mobile app permissions |
-| **Networking APIs**        | `oxis.net.*` — HTTP requests, and eventually raw sockets, gated by permission and (for premium/marketplace plugins) rate-limited so one plugin can't degrade OXIS itself |
-| **Device/system APIs**     | `oxis.system.*` — CPU/memory/battery/OS info, notifications, clipboard — the pieces `sysmon.lua`/`system_health.lua` reach today via shell calls, exposed as a first-class API instead |
-| **Plugin sandboxing**      | Each plugin's fengari VM instance is isolated; cross-plugin calls go through `oxis.plugins.call(name, ...)` rather than shared globals, so a misbehaving plugin can't corrupt another's state |
-| **Package/plugin manager** | The install/update/dependency-resolution layer behind `'market` and (once shipped) the Market — resolves a plugin's declared dependencies before enabling it |
-| **Workspace/session management** | `oxis.workspace.*` beyond the existing `oxis.workspace(path)` signal — querying active tasks, workspace-scoped plugin state, and per-workspace session persistence (see [Session Management](#session-management)) |
-
-This is the layer that turns "Lua plugins can run shell commands"
-into "Lua plugins can be real developer tools" — filesystem and
-process access without shelling out, permissions so that's safe to
-grant, and networking/device access so a plugin like [AI
-DevTool](#ai-devops-flagship-plugin) doesn't need special-cased
-access that ordinary third-party plugins can't also get.
+| **Plugin sandboxing**      | Every plugin currently shares ONE fengari VM process — there's no per-plugin isolation yet, so this is a real, open gap, not just a nice-to-have. The plan: each plugin gets its own VM instance, with cross-plugin calls going through `oxis.plugins.call(name, ...)` rather than shared globals, so a misbehaving plugin can't corrupt another's state |
+| **Full package-manager-style dependency resolution** | Basic version compatibility checking against a plugin's declared dependencies already exists (see [Plugin Manifests](#plugin-manifests) — `checkCompatibility`, cycle detection included) — what's NOT built is a full resolution/lock-file layer that could, say, fetch a missing declared dependency automatically from the Market rather than just erroring that it's absent |
+| **Workspace/session management APIs for plugins** | `oxis.workspace(path)` exists as a one-way signal a workspace file sends; a plugin querying the active workspace's own state (its tasks, other workspace-scoped data) back from Lua doesn't exist yet |
 
 ---
 
@@ -1524,6 +1594,19 @@ be initialized yet if OXIS opens straight to Home without the shell
 ever having been used this session. The migration itself always runs
 correctly regardless of whether the notice shows.
 
+### Auto-Reload
+
+**[shipped]** The active workspace watches its own `workspace.lua`
+plus its `tasks/` and `workflows/` folders and reloads automatically
+the moment any of them change on disk — edit `workspace.lua` in any
+external editor, save, and OXIS picks it up within a few seconds, no
+manual `'workspace reload` needed. A visible `⟳ workspace
+auto-reloaded` line prints in the terminal when this fires. This is a
+poll (every 3 seconds), not a real push-based file-system watcher —
+an instant, native watcher would need a new Go dependency this
+project doesn't have yet, so a change can take a few seconds to be
+noticed rather than being instant.
+
 ### Named Workspaces
 
 **[shipped]** On top of the single-project `.oxis/workspace.lua` file
@@ -1834,10 +1917,10 @@ OXIS uses an event bus in `terminal/events.ts`. All subsystems communicate throu
 
 | Event               | Fired when                          |
 |---------------------|-------------------------------------|
-| terminal_open       | A terminal tab becomes active       |
-| terminal_close      | A terminal tab is closed            |
-| tab_created         | A new tab is created                |
-| tab_closed          | A tab is closed                     |
+| terminal_open       | **Not actually emitted anywhere in the current code** — listed here but never fired |
+| terminal_close      | **Not actually emitted anywhere in the current code** — listed here but never fired |
+| tab_created         | **Not actually emitted anywhere in the current code** — this and `tab_closed` were only ever emitted by `terminal/tabs.ts`, a dead, unimported module removed as part of a dead-code audit (see CHANGELOG) |
+| tab_closed          | Same as `tab_created` above — dead alongside `tabs.ts` |
 | theme_changed       | The active theme changes            |
 | plugin_loaded       | A plugin finishes loading           |
 | plugin_unloaded     | A plugin is unloaded                |
@@ -1893,9 +1976,9 @@ Keybinds live in `terminal/keybinds.ts`. Core binds are registered at startup; L
 
 | Key      | Action              |
 |----------|---------------------|
-| Ctrl+T   | New terminal tab    |
-| Ctrl+W   | Close current tab   |
-| Ctrl+1–9 | Switch to tab N     |
+| Ctrl+T   | Open the shell (there is currently only ever one — see the correction below, not a new additional tab) |
+| Ctrl+W   | Go back to Home from the shell |
+| Ctrl+1–9 | **Not implemented** — wired to a literal no-op in the current code (`switchTab: () => {}`) |
 | Ctrl+L   | Clear terminal      |
 | Ctrl+C   | Interrupt (SIGINT)  |
 | Ctrl+= / Ctrl+- | Terminal zoom in/out |
@@ -1903,6 +1986,19 @@ Keybinds live in `terminal/keybinds.ts`. Core binds are registered at startup; L
 | Ctrl+F   | Find in on-screen output (scrollback) |
 | Ctrl+R   | Search command HISTORY (different from Ctrl+F — see below) |
 | ↑ / ↓   | Command history     |
+
+**Correction, found during a dead-code audit**: there is currently no
+real multi-tab terminal support anywhere in the app — a single
+`view: "home" | "shell"` state, one shell that (per an actual comment
+in the code) "only ever mounts once, then stays alive forever."
+`oxis.newTerminal()` and Ctrl+T just switch to that one shell rather
+than opening an additional one. `frontend/src/terminal/tabs.ts` and a
+whole unused "TAB BAR" CSS section were leftover, apparently-abandoned
+pieces of an attempt at building this properly, deleted as dead code
+(see CHANGELOG). If multiple simultaneous terminal sessions is
+something you actually want, that's a real, unbuilt feature, not a
+small gap — worth treating as its own project rather than assuming
+the scaffolding above means it's mostly there already.
 
 **[shipped]** Output search (Ctrl+F) — searches the actual on-screen
 scrollback (`lines`), not command history (that's Ctrl+R's
@@ -3153,7 +3249,7 @@ Share the `.lua` file. Users drop it in their `.oxis/plugins/` directory.
 | `oxis.option(key, value?)`    | Get/set runtime option                   |
 | `oxis.autocmd(event, fn)`     | Register event handler                   |
 | `oxis.keymap(mode, key, fn)`  | Register keymap                          |
-| `oxis.newTerminal()`          | Open new terminal tab                    |
+| `oxis.newTerminal()`          | Switch to the shell view (there's currently only ever one — see the correction under [Keybind System](#keybind-system)) |
 | `oxis.task(name, cmd)`        | Define a task                            |
 | `oxis.plugin.enable(name)`    | Enable a plugin                          |
 | `oxis.plugin.disable(name)`   | Disable a plugin                         |
@@ -3399,14 +3495,19 @@ of that work is already underway.
 
 ## License
 
-The **core OXIS application is proprietary**, not MIT-licensed — see
-[Open Source & Licensing Model](#open-source--licensing-model) for
-exactly what is and isn't open. The Lua SDK, plugin templates,
-example plugins, and documentation are intended to be released under
-a permissive open-source license (exact license TBD — likely MIT or
-Apache-2.0) once split out from the core application; until that
-split happens, treat everything in this repository as proprietary
-and all rights reserved.
+OXIS is licensed under the **Apache License 2.0** — see the
+[`LICENSE`](./LICENSE) file in the repository root for the full text.
+
+*(Correction: an earlier version of this section said the core
+application was proprietary with licensing "TBD" for everything else
+— that directly contradicted the actual `LICENSE` file already
+sitting in this repo's root, which has always been the complete,
+real Apache 2.0 text. If the [Open Source & Licensing
+Model](#open-source--licensing-model) section elsewhere in this
+document still describes a proprietary-core/open-SDK split, that
+section is now out of date relative to this one and worth reconciling
+or removing — it was written against a different licensing plan than
+what's actually in this repo today.)*
 
 ---
 
