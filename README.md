@@ -13,7 +13,7 @@
 
 <p align="center">
   <a href="https://www.youtube.com/watch?v=eiCB0-0p7p4">
-    <img src="https://img.youtube.com/vi/eiCB0-0p7p4/hqdefault.jpg" alt="Watch OXIS in action" width="640">
+    <img src="https://img.youtube.com/vi/eiCB0-0p7p4/maxresdefault.jpg" alt="Watch OXIS in action" width="720">
   </a>
 </p>
 
