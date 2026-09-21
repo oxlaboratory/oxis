@@ -7,6 +7,20 @@ change was made, not necessarily when a version was tagged.
 
 ### Added
 
+- **README's two ASCII box diagrams (Architecture, Business Model)
+  replaced with real Mermaid diagrams** — reported as rendering
+  broken/misaligned on GitHub, which is a known, common problem with
+  hand-drawn box-drawing-character diagrams in markdown: they depend
+  on pixel-perfect monospace alignment across many lines, which
+  doesn't hold up reliably in every renderer. GitHub natively renders
+  ` ```mermaid ` code fences as actual vector diagrams instead of
+  text, so this isn't a font/alignment problem anymore, on GitHub or
+  anywhere else that renders Mermaid. Left the simpler tree-style
+  diagrams (`├──`/`└──`, used throughout Directory Structure and a
+  few others) and the Home screen's WORKSPACE panel mockup alone —
+  the former render reliably everywhere and aren't what was reported
+  broken, and the latter is intentionally styled to look like the
+  app's own terminal UI, which a vector diagram wouldn't convey.
 - **Real YouTube video wired into the README's video section** —
   `eiCB0-0p7p4`. Switched the thumbnail from `maxresdefault.jpg` to
   `hqdefault.jpg`, which is guaranteed to exist for every YouTube

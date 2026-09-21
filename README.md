@@ -272,33 +272,18 @@ for exactly what's real vs. what's gated.
 
 OXIS runs as a single native desktop window, built with [Wails v2](https://wails.io) — a Go backend driving a Chromium/WebKit webview, with no browser tab, no Electron, and no separate server process to manage day-to-day.
 
-```
-┌────────────────────────────────────────────────────────┐
-│   OXIS  (native window — frameless, custom titlebar)     │
-│                                                            │
-│  ┌──────────────────────────────────────────────────┐   │
-│  │  React + TypeScript (Vite)                         │   │
-│  │                                                     │   │
-│  │  Titlebar (traffic lights, drag) · tabs · home     │   │
-│  │  terminal · editor · status                        │   │
-│  │                                                     │   │
-│  │  terminal/   plugins/   themes/   pty/              │   │
-│  └───────────────────────┬──────────────────────────────┘   │
-│                          │ Wails' own AssetServer —          │
-│                          │ direct in-process request          │
-│                          │ interception, no TCP socket        │
-└──────────────────────────┼──────────────────────────────────┘
-                           │
-                           │  (separately, for the PTY only)
-                           ▼
-┌──────────────────────────────────────────────────────────┐
-│  internal/server.Listen()  — a real TCP listener on        │
-│  127.0.0.1, started alongside the native window             │
-│                                                              │
-│  /ws  → PTY (PowerShell/bash)     everything else → the      │
-│  same frontend build, so a plain browser pointed at          │
-│  http://127.0.0.1:1420 gets the full app too                 │
-└──────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    subgraph WIN["OXIS — native window (frameless, custom titlebar)<br><i>served via Wails' own AssetServer — direct in-process request interception, no TCP socket involved</i>"]
+        UI["React + TypeScript (Vite)<br><br>Titlebar (traffic lights, drag) · tabs · home<br>terminal · editor · status<br><br>terminal/ · plugins/ · themes/ · pty/"]
+    end
+
+    subgraph SRV["internal/server.Listen() — a real TCP listener on 127.0.0.1, started alongside the native window"]
+        WS["/ws → PTY (PowerShell/bash)"]
+        REST["everything else → the same frontend build,<br>so a plain browser pointed at<br>http://127.0.0.1:1420 gets the full app too"]
+    end
+
+    WIN -->|"separately, for the PTY only"| SRV
 ```
 
 `internal/wailsapp` owns the window: it embeds the built frontend
@@ -3270,25 +3255,14 @@ that makes a third-party plugin worth paying for in the first place.
 
 ### Business Model
 
-```
-                 OXIS
-                  │
-        ┌─────────┴─────────┐
-        │                   │
-     Free Core          OXIS Market
-        │                   │
-   Lua Ecosystem       Free Plugins
-                            │
-                      Premium Plugins
-                            │
-                       Subscriptions (Stripe)
-                            │
-               ┌────────────┴────────────┐
-               │                         │
-          OXIS Plugins          Third-Party Plugins
-               │                         │
-          OXIS Revenue         Stripe Connect: 75% Developer
-                                            25% OXIS
+```mermaid
+flowchart TB
+    OXIS["OXIS"] --> Free["Free Core<br>(Lua Ecosystem)"]
+    OXIS --> Market["OXIS Market"]
+    Market --> FreePlugins["Free Plugins"]
+    Market --> Premium["Premium Plugins<br>(Subscriptions via Stripe)"]
+    Premium --> OwnPlugins["OXIS's own plugins<br>→ OXIS Revenue"]
+    Premium --> ThirdParty["Third-party plugins<br>→ Stripe Connect: 75% Developer / 25% OXIS"]
 ```
 
 The core OXIS experience — the terminal, editor, themes, commands,
