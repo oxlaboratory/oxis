@@ -1,5 +1,22 @@
 # OXIS
 
+<p align="center">
+  <a href="https://github.com/oxlaboratory/oxis"><img src="https://img.shields.io/badge/OXIS-Open%20Source-8B5CF6?style=for-the-badge" alt="OXIS"></a>
+  <a href="https://github.com/oxlaboratory/oxis"><img src="https://img.shields.io/github/stars/oxlaboratory/oxis?style=for-the-badge&logo=github" alt="GitHub stars"></a>
+  <a href="https://github.com/oxlaboratory/oxis"><img src="https://img.shields.io/github/license/oxlaboratory/oxis?style=for-the-badge" alt="License"></a>
+  <br>
+  <a href="https://github.com/oxlaboratory/oxis/releases"><img src="https://img.shields.io/github/downloads/oxlaboratory/oxis/total?style=for-the-badge&label=total%20downloads&color=3dff64" alt="Total downloads"></a>
+  <a href="https://github.com/oxlaboratory/oxis/releases/latest"><img src="https://img.shields.io/github/downloads/oxlaboratory/oxis/latest/total?style=for-the-badge&label=latest%20release&color=3dff64" alt="Latest release downloads"></a>
+</p>
+
+### 🎬 See it in action
+
+<p align="center">
+  <a href="https://www.youtube.com/watch?v=eiCB0-0p7p4">
+    <img src="https://img.youtube.com/vi/eiCB0-0p7p4/hqdefault.jpg" alt="Watch OXIS in action" width="640">
+  </a>
+</p>
+
 **OXIS is a terminal app for Windows and Linux** — the same
 kind of program as Command Prompt, PowerShell, or iTerm2, except it's
 built to be customized. It works as a normal terminal right out of
@@ -39,6 +56,63 @@ the app itself.)
   honest caveat on macOS), or as a plain web page in a browser with
   reduced functionality (no filesystem access) if that's all you have.
 
+## Why a customizable, extensible terminal at all?
+
+These aren't just design choices made in isolation — each one is
+something the wider industry has already tested at scale, in
+different but related tools:
+
+- **Terminal customization is one of the most consistently cited
+  productivity levers developers reach for.** Community tier-list
+  comparisons of terminal emulators (Kitty, Ghostty, Warp, and
+  others) repeatedly point to the same conclusion: the degree of
+  customization and integration a terminal allows has a direct,
+  visible effect on daily workflow, not just aesthetics — see
+  [DEV Community's terminal tools
+  comparison](https://dev.to/rohitg00/most-trusted-terminal-tools-for-developers-g1m)
+  and [Stackify's rundown of terminal
+  productivity tooling](https://stackify.com/top-command-line-tools/).
+  OXIS's own approach — one app that's a real terminal AND a
+  scriptable command layer AND an editor — is a response to that same
+  observation: developers already reach for a pile of separate tools
+  to get this, so building it in from the start is the more direct
+  path there.
+
+- **Lua specifically — not a general "any scripting language would
+  do" choice — has a two-decade track record as an *embedded*
+  extension language for exactly this kind of use case.** It's what
+  World of Warcraft's addon system, Roblox, and Adobe Lightroom's
+  plugin system all settled on, for the same reasons OXIS did: a tiny
+  interpreter footprint, a simple enough syntax that non-specialists
+  can write real plugins, and a design that was built from day one to
+  be *embedded inside* a host application rather than run
+  standalone — see [an overview of Lua's real-world
+  adoption](https://8gwifi.org/tutorials/lua/intro.jsp) and
+  [TV Tropes' breakdown of why game engines specifically pick
+  Lua](https://www.tvtropes.org/pmwiki/pmwiki.php/MediaNotes/Lua).
+  This isn't a niche or unproven choice; it's the same choice a lot
+  of software with the exact same "let users script the host app"
+  problem has already converged on independently.
+
+- **A plugin marketplace is a proven way to make a tool grow past
+  what its own maintainers could build alone — VS Code is the
+  clearest example at scale.** It now has 100,000+ extensions and
+  roughly 50 million monthly active developers, according to figures
+  Microsoft has published — see [a 2026 roundup of VS Code adoption
+  statistics](https://www.getpanto.ai/blog/vscode-statistics). That
+  scale is exactly why OXIS's own Market publishing flow deliberately
+  keeps a human-review gate rather than making it fully automatic
+  (see [Third-Party Developer
+  Marketplace](#third-party-developer-marketplace)) — real research
+  into the VS Code marketplace has documented genuine cases of
+  malicious extensions reaching real organizations before being
+  caught, precisely because scale and zero review don't mix safely —
+  see [an actual writeup of malicious extensions found in the VS Code
+  marketplace](https://www.koi.security/blog/2-6-exposing-malicious-extensions-shocking-statistics-from-the-vs-code-marketplace).
+  A plugin ecosystem is worth having; that same research is also a
+  concrete reason it's worth having *with* a review step, not
+  despite one.
+
 New here and just want to try it? [Getting Started](#getting-started)
 has the actual install/build steps. Everything past that point in
 this document is a deep technical reference — how the terminal, the
@@ -58,6 +132,7 @@ current codebase today, **[in progress]** — partially built, **[planned]**
 ## Table of Contents
 
 - [What can it actually do?](#what-can-it-actually-do)
+- [Why a customizable, extensible terminal at all?](#why-a-customizable-extensible-terminal-at-all)
 - [Overview](#overview)
 - [Available Now — v1.2.1](#available-now--v121)
 - [Coming Soon — v1.2.2](#coming-soon--v122)
@@ -147,8 +222,8 @@ today, not a roadmap item:
   into a project that has one — see [Workspace System](#workspace-system)
 - **Editor** — built-in, with real modal Normal/Insert/Visual editing
   (not just a plain textarea) — see [Built-in Editor](#built-in-editor)
-- **Auto-update check** — compares the running build against
-  `gitlab.com/oxidelab/oxis`'s latest published Release and surfaces a
+- **Auto-update check** — compares the running build's own commit
+  against a continuously-updated GitHub release and surfaces a
   one-line notice + `'update` to open the download — see
   [Auto-Update](#auto-update)
 - **Themes** — JSON-defined, hot-reloadable, Lua-controllable
@@ -486,7 +561,7 @@ oxis/
 │   ├── wailsapp/
 │   │   └── app.go              Native Wails v2 window + bound window-control/file/plugin/update methods
 │   ├── update/
-│   │   └── update.go           GitLab Releases check (gitlab.com/oxidelab/oxis) — see Auto-Update
+│   │   └── update.go           GitHub commit-based build check — see Auto-Update
 │   ├── server/
 │   │   └── server.go           /ws (PTY) + frontend, on a real 127.0.0.1 port — see Browser Mode
 │   └── pty/
@@ -640,10 +715,10 @@ A few things worth calling out:
 ## Cloudflare Deployment
 
 **[shipped]** — the OXIS Market website and its entire Stripe backend
-live in `cloudflare/`, inside this same repository
-(`gitlab.com/oxidelab/oxis`) — there is no second repository to keep
-in sync. Cloudflare Pages deploys straight from this repo by pointing
-its build configuration at that one subdirectory.
+live in `cloudflare/`, inside this same repository — there is no
+second repository to keep in sync. Cloudflare Pages deploys straight
+from this repo by pointing its build configuration at that one
+subdirectory.
 
 ### Cloudflare Pages project settings
 
@@ -665,15 +740,15 @@ a real Stripe webhook or `'plugin publish` submission silently fails.
 Returns `200` with `{ ok: true, ... }` when everything expected is
 bound, `503` with a `missing` list and a `whatBreaks` map (which
 endpoints depend on each missing piece) otherwise. It only checks
-*presence* — a secret that's bound but wrong (an expired GitLab token,
+*presence* — a secret that's bound but wrong (an expired GitHub token,
 a live-mode Stripe key where you meant test-mode) still needs a real
 end-to-end test to catch, not just this.
 
-Connect the Pages project directly to the `gitlab.com/oxidelab/oxis`
-repository (Cloudflare Pages supports GitLab as a Git provider the
-same way it supports GitHub) and set **Root directory** to
-`cloudflare` — this is what lets one repository serve both the
-desktop app and the Market site without duplicating any source.
+Connect the Pages project directly to
+[github.com/oxlaboratory/oxis](https://github.com/oxlaboratory/oxis)
+and set **Root directory** to `cloudflare` — this is what lets one
+repository serve both the desktop app and the Market site without
+duplicating any source.
 
 ### Required configuration (Pages -> Settings)
 
@@ -724,8 +799,8 @@ wrangler kv key put --binding=OXIS_PREMIUM_SOURCE "ai-devops" --path=cloudflare/
 
 **Pre-built binaries are only provided for Windows and Linux** — see
 [Install & Run](#install--run) for Windows (built locally, distributed
-via GitLab Releases) and [Continuous Integration](#continuous-integration)
-for Linux (built automatically by GitLab CI on every push, `.deb`
+via GitHub Releases) and [Continuous Integration](#continuous-integration)
+for Linux (built automatically by GitHub Actions on every push, `.deb`
 included). **There is currently no macOS build** — no CI job, no
 build script, nothing pre-packaged. A Mac user who wants to run OXIS
 needs to clone this repository and build it themselves from source,
@@ -769,7 +844,7 @@ for the case where that path wasn't used.
 
 ```bash
 # Clone
-git clone https://gitlab.com/yourorg/oxis.git
+git clone https://github.com/yourorg/oxis.git
 cd oxis
 
 # One-command setup check
@@ -1267,7 +1342,7 @@ means layering on:
 | Plugin compatibility info          | [shipped]      | minimum OXIS version + OS support declared in the manifest, checked before load (`manifest.ts`'s `satisfiesMin`/`satisfiesRange`) |
 | Plugin categories                  | [shipped]      | already used for built-ins and market listings |
 | Free / community / premium plugins | [planned]      | see [OXIS Market](#oxis-market--subscriptions--premium-plugins) |
-| Plugin marketplace integration     | [shipped]      | a curated static `index.json`, PLUS a real self-service backend (`'plugin publish` opens an actual GitLab merge request — see [Third-Party Developer Marketplace](#third-party-developer-marketplace)), a `/health` self-diagnostic, and real subscriber counts on paid listings |
+| Plugin marketplace integration     | [shipped]      | a curated static `index.json`, PLUS a real self-service backend (`'plugin publish` opens an actual GitHub pull request — see [Third-Party Developer Marketplace](#third-party-developer-marketplace)), a `/health` self-diagnostic, and real subscriber counts on paid listings |
 
 Plugins can already reach commands, the terminal (`oxis.run`,
 `oxis.echo`), themes, events, and tasks. To make "build a serious
@@ -2599,7 +2674,7 @@ take effect again immediately, the same way changing them live does.
 | `fontSize` | `13` | Terminal & editor font size in px — line height scales with it |
 | `cursorStyle` | `block` | `block` / `bar` / `underline` — terminal cursor shape |
 | `cursorBlink` | `true` | Whether the terminal cursor blinks |
-| `updateCheckOnStartup` | `true` | Whether OXIS checks gitlab.com for a newer release on startup — see Auto-Update below |
+| `updateCheckOnStartup` | `true` | Whether OXIS checks for a newer build on startup — see Auto-Update below |
 
 Theme is deliberately **not** one of these — `'theme <name>` already
 exists with its own dedicated persistence via `themeManager`, and
@@ -2633,9 +2708,7 @@ hands you the link.
 same feature** (see CHANGELOG) that only checked tagged GitLab
 Releases — meaning a new push to main never triggered a notification
 until someone manually cut a release. Checking commits instead means
-every push that CI successfully builds can trigger one, once CI is
-actually wired up to publish that rolling release (see "What CI still
-needs to do" below — **this half doesn't exist yet**).
+every push that CI successfully builds can trigger one.
 
 ### How it fires
 
@@ -2655,28 +2728,32 @@ needs to do" below — **this half doesn't exist yet**).
 `internal/update.BuildCommit` (a Go var, not a const — the linker can
 only override a var with `-ldflags -X`) gets stamped into the binary
 at compile time with `-X .../internal/update.BuildCommit=$(git
-rev-parse HEAD)` — `build-linux.sh` already does this. **A build that
-skips this ldflag has an empty `BuildCommit`, and `Check()`
-deliberately always reports "no update available" in that case** —
-never a false positive from comparing against an empty string, and
-never comparing at all until the build pipeline actually sets it. Any
-other build script (a future GitHub Actions workflow, or your own
-local Windows build steps) needs the same ldflag or this silently
-does nothing for builds made that way.
+rev-parse HEAD)` — `build-linux.sh` does this, and
+`.github/workflows/build.yml`'s Linux job runs that same script, so
+CI is covered too. **A build that skips this ldflag has an empty
+`BuildCommit`, and `Check()` deliberately always reports "no update
+available" in that case** — never a false positive from comparing
+against an empty string, and never comparing at all until the build
+pipeline actually sets it. Your own local Windows build steps still
+need the same ldflag added, or this silently does nothing for builds
+made that way.
 
-### What CI still needs to do — **not built yet**
+### What CI does to make this work
 
 Checking a commit SHA against a release's recorded commit only works
-once something is actually publishing that release. The design this
-expects: on every push to the default branch, CI (1) builds with the
-`BuildCommit` ldflag above, then (2) publishes or overwrites a single,
-fixed-name release (`latest-build` — see `RollingReleaseTag` in
-`update.go`) whose body/description contains the plain 40-character
-commit SHA it was built from (a regex in `update.go` looks for exactly
-that), with the built binary attached as an asset. **This is real,
-separate CI work that hasn't been written** — a GitHub Actions
-workflow doing this needs to be added once the actual GitHub repo
-exists (see [Continuous Integration](#continuous-integration)).
+because something is actually publishing that release.
+`.github/workflows/build.yml`'s "Publish rolling latest-build
+release" step does exactly that: on every push to the default branch
+(never a PR), it builds with the `BuildCommit` ldflag above, then
+publishes/overwrites a single, fixed-name release (`latest-build` —
+see `RollingReleaseTag` in `update.go`) whose body contains the plain
+40-character commit SHA it was built from (a regex in `update.go`
+looks for exactly that), with the built binary attached as an asset —
+see [Continuous Integration](#continuous-integration). **Honestly
+flagged, same as the rest of this session's Cloudflare/GitHub work**:
+this workflow step is written and present in the repo, but hasn't
+been exercised against a real GitHub Actions run yet — try one real
+push before trusting the notification end-to-end.
 
 ### Files
 
@@ -2968,15 +3045,15 @@ access.
 
 ## Third-Party Developer Marketplace
 
-**[shipped]** Publishing automates the tedious mechanical part — not
-the review. `'plugin publish` validates a plugin and opens a real
-GitLab merge request against `gitlab.com/oxidelab/oxis` adding it,
-handling the branch/commit/push/open-MR steps a developer would
-otherwise do by hand. **A human still reviews and merges it on
-GitLab** before it's actually live — this deliberately keeps the same
-review gate the manual process always had, it just removes the
-tedious part leading up to it. Stripe Connect account creation and
-verification-status are real, working code too (see Onboarding below).
+**[shipped, migrated to GitHub]** Publishing automates the tedious
+mechanical part — not the review. `'plugin publish` validates a
+plugin and opens a real GitHub pull request adding it, handling the
+branch/commit/push/open-PR steps a developer would otherwise do by
+hand. **A human still reviews and merges it on GitHub** before it's
+actually live — this deliberately keeps the same review gate the
+manual process always had, it just removes the tedious part leading
+up to it. Stripe Connect account creation and verification-status are
+real, working code too (see Onboarding below).
 
 The long-term goal is for other developers to publish and sell their
 own subscription plugins through the OXIS Market. Third-party listings
@@ -3009,9 +3086,9 @@ reviewed) before the Connect account finishes verification — Stripe
 simply won't release any payouts to an unverified account regardless,
 and the listing isn't live until the MR is actually merged anyway.
 
-### Market Publishing — GitLab Merge Request, Automatically Opened
+### Market Publishing — GitHub Pull Request, Automatically Opened
 
-**[shipped]** `'plugin publish <name>`:
+**[shipped, migrated to GitHub]** `'plugin publish <name>`:
 
 ```
 'plugin publish <name>                                      free plugin
@@ -3026,26 +3103,33 @@ genuinely filled in, not just "works for me" — plus everything
 
 - **Free**: sends the plugin's metadata and its actual `.lua` source
   to `POST /submit-plugin` (`cloudflare/functions/submit-plugin.js`),
-  which uses the GitLab API to create a branch, commit the plugin's
-  `.lua` file and an updated `index.json` in one commit, and open a
-  real merge request — then opens that MR in your browser. **Nothing
-  is live until it's reviewed and merged on GitLab.**
+  which uses the GitHub API to create a branch, commit the plugin's
+  `.lua` file and an updated `index.json` (two separate commits, not
+  one — see "Under the hood" below for why), and open a real pull
+  request — then opens that PR in your browser. **Nothing is live
+  until it's reviewed and merged on GitHub.**
 - **Paid**: explains the subscription model and 75/25 split, calls
   `/connect-onboarding` to create a real Stripe Connect Express
-  account and opens the onboarding link, then opens the merge request
+  account and opens the onboarding link, then opens the pull request
   the same way, with the price and Connect account ID included in the
-  MR's `index.json` entry for the reviewer to see.
+  PR's `index.json` entry for the reviewer to see.
 - **Either way, running it again on an already-listed plugin** is
   detected automatically (checking the Market for an existing entry)
-  and opens an UPDATE merge request that replaces the existing
+  and opens an UPDATE pull request that replaces the existing
   `index.json` entry, rather than a fresh one.
 
-**What the merge request does NOT include**: a card for
+**Also available**: `'plugin unpublish <name>` opens a pull request
+*removing* a plugin's listing the same way — see
+[cloudflare/functions/delete-plugin.js](#third-party-developer-marketplace)
+— checked against the listing's own `author` field first (a typo
+guard, not real authentication) before anything is touched.
+
+**What the pull request does NOT include**: a card for
 `cloudflare/index.html` (the Market website's own display list).
 Programmatically editing a JS array embedded inside an HTML file via
 string manipulation is fragile — a malformed edit there is a worse
 failure mode than just asking the reviewer to add it by hand, which
-the MR's description does explicitly.
+the PR's description does explicitly.
 
 **What's still worth being clear-eyed about**: this automates getting
 a plugin's actual code in front of a reviewer, but the review itself
@@ -3058,24 +3142,27 @@ regardless: even a plugin that's merged still has to declare what it
 touches and the user still gets prompted before it can use any of
 that.
 
-**Under the hood** (see `cloudflare/functions/submit-plugin.js`):
-requires a `GITLAB_TOKEN` secret (Cloudflare Pages → Settings →
-Environment variables, same pattern as `STRIPE_SECRET_KEY`), `api`
-scope, Developer role (not Maintainer/Owner — this never needs to
-merge anything) — enough to create a branch/commit/MR but **not**
-enough to merge one; merging stays a human decision made in GitLab's
-own UI. Which *kind* of token depends on your GitLab.com plan: a
-**Project Access Token** (the project's own Settings → Access Tokens)
-is the better choice when it's available — scoped to just this one
-project, not tied to any individual's account — but GitLab.com
-restricts those to **Premium or Ultimate**; on the **Free** tier,
-project access tokens aren't creatable at all, so use a **Personal
-Access Token** instead (your profile → Preferences → Access Tokens),
-scoped down to `api` only. **Honestly flagged**: this backend code
-could not be deployed or exercised end-to-end in the environment it
-was written in (no GitLab/Cloudflare account access) — the GitLab API
-calls follow its documented REST API exactly, but try one real
-submission before relying on it.
+**Under the hood** (see `cloudflare/functions/submit-plugin.js` and
+`cloudflare/functions/lib/github.js`): requires a `GITHUB_TOKEN`
+secret (Cloudflare Pages → Settings → Environment variables, same
+pattern as `STRIPE_SECRET_KEY`) — a fine-grained Personal Access
+Token, scoped to just this repo, with **Contents: Read and write**
+and **Pull requests: Read and write** — enough to create a
+branch/commit/PR but **not** enough to merge one; merging stays a
+human decision made in GitHub's own UI. Uses GitHub's simpler
+Contents API (one file per request) rather than the lower-level Git
+Data API real atomic multi-file commits need — a deliberate
+simplicity tradeoff, not an oversight: submitting a plugin is two
+separate commits on the new branch, not one, so a failure between
+them leaves the branch with only the first change rather than
+neither (the caller's own error handling surfaces that as a failed
+submission; the branch itself would need manual cleanup in that rare
+case). **Honestly flagged**: this backend code could not be deployed
+or exercised end-to-end in the environment it was written in (no
+GitHub/Cloudflare account access) — the GitHub API calls follow its
+documented REST API exactly, but try one real submission before
+relying on it. `OWNER`/`REPO` in `lib/github.js` point at
+`oxlaboratory/oxis`.
 
 A published plugin (free or premium) carries:
 
@@ -3490,7 +3577,7 @@ Navigate to the project directory and OXIS will detect `.oxis/workspace.lua` aut
 ### Project Setup
 
 ```bash
-git clone https://gitlab.com/yourorg/oxis.git
+git clone https://github.com/yourorg/oxis.git
 cd oxis
 node scripts/setup.js
 cd frontend && npm install && cd ..

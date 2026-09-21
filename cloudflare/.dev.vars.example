@@ -21,16 +21,12 @@ STRIPE_WEBHOOK_SECRET=whsec_replace_me
 # redirecting to a Checkout Session URL.
 STRIPE_PUBLISHABLE_KEY=pk_test_replace_me
 
-# GitLab -> create an access token with `api` scope and Developer
-# role on gitlab.com/oxidelab/oxis (not Maintainer/Owner — this never
-# needs to merge anything). Which KIND of token depends on your
-# GitLab.com plan: a Project Access Token (the project's own
-# Settings -> Access Tokens) is the better choice when it's available,
-# but GitLab.com restricts those to Premium/Ultimate — on Free, use a
-# Personal Access Token instead (your profile -> Preferences -> Access
-# Tokens). Used by submit-plugin.js to open a merge request on behalf
-# of 'plugin publish — a human still reviews and merges it on GitLab.
-# Server-side only, exactly like the Stripe secret key above — never
-# put this in the OXIS desktop app or anywhere else that ships to a
-# user's machine.
-GITLAB_TOKEN=glpat-replace_me
+# GitHub -> Settings -> Developer settings -> Fine-grained tokens ->
+# create one scoped to just this repo, with Contents: Read and write,
+# and Pull requests: Read and write (nothing else — this never needs
+# to merge anything). Used by submit-plugin.js/delete-plugin.js to
+# open a pull request on behalf of 'plugin publish/unpublish — a
+# human still reviews and merges it on GitHub. Server-side only,
+# exactly like the Stripe secret key above — never put this in the
+# OXIS desktop app or anywhere else that ships to a user's machine.
+GITHUB_TOKEN=github_pat_replace_me

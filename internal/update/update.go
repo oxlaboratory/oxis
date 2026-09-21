@@ -8,41 +8,37 @@
 // where to get it" so 'update can hand the user a download link (see
 // App.CheckForUpdate / OpenURL in internal/wailsapp/app.go).
 //
-// ██  REPLACE BEFORE THIS WORKS  ██ — ProjectPath below is a
-// placeholder ("REPLACE_WITH_YOUR_GITHUB_OWNER/REPLACE_WITH_YOUR_REPO_NAME").
-// This file was written without knowing your actual GitHub repository
-// path — set it to the real "owner/repo" once you have it (e.g.
-// "oxidelab/oxis" if that's what the GitHub org/repo end up being).
+// Points at github.com/oxlaboratory/oxis (ProjectPath below).
 //
-// COMMIT-BASED CHECKING — WHAT THIS ACTUALLY NEEDS TO WORK, AND WHY IT
-// CAN'T WORK ON ITS OWN YET:
+// COMMIT-BASED CHECKING — HOW THE TWO HALVES OF THIS FIT TOGETHER:
 //
 //  1. BuildCommit (below) has to be set to the real commit SHA the
 //     running binary was built FROM — it's empty by default, and an
 //     empty BuildCommit means Check() always reports no update
 //     available (never "0000..." looking newer than everything, and
 //     never spuriously nagging about an update on every single launch
-//     either). This means every build script needs a new step:
-//     go build -ldflags "-X oxis/internal/update.BuildCommit=$(git rev-parse HEAD)" ...
-//     (adjust the import path prefix — "oxis" — to match this
-//     project's actual Go module name in go.mod if it differs).
-//     Neither build-linux.sh nor the (to-be-written) GitHub Actions
-//     workflow do this yet — see this package's own doc comment
-//     wherever those files live for the matching TODO.
+//     either). build-linux.sh sets this via
+//     -ldflags "-X github.com/oxis/oxis/internal/update.BuildCommit=$(git rev-parse HEAD)"
+//     and .github/workflows/build.yml's Linux job runs that same
+//     script, so it's covered there too. Any OTHER build path (your
+//     own local Windows build steps, say) needs the same ldflag or
+//     this silently does nothing for builds made that way — there's
+//     no way for Check() itself to detect a build that skipped it.
 //
 //  2. There is no meaningful download for an ARBITRARY commit — GitHub
-//     doesn't build binaries for you. The intended design (this file
-//     implements the CHECKING half only): CI builds and publishes to
-//     a single, continuously-overwritten "latest" release/tag on
-//     EVERY push to the default branch (not a new tag per commit —
-//     one rolling tag, replaced each time), with that release's own
-//     body/description recording which commit SHA it was built from.
-//     Check() below reads that recorded SHA and compares it to
-//     BuildCommit — if they differ, a newer build genuinely exists
-//     and DownloadURL points at that same rolling release's asset.
-//     Setting up that CI step is a real, separate piece of work this
-//     file assumes already exists, not something Check() can do by
-//     itself from the client side.
+//     doesn't build binaries for you. The actual design: CI builds
+//     and publishes to a single, continuously-overwritten
+//     "latest-build" release on EVERY push to the default branch (not
+//     a new tag per commit — one rolling tag, replaced each time),
+//     with that release's own body recording which commit SHA it was
+//     built from. Check() below reads that recorded SHA and compares
+//     it to BuildCommit — if they differ, a newer build genuinely
+//     exists and DownloadURL points at that same rolling release's
+//     asset. .github/workflows/build.yml's "Publish rolling
+//     latest-build release" step is what actually does this —
+//     written and present in this repo, but (like everything in this
+//     session with no live account access to verify against) not yet
+//     exercised against a real GitHub Actions run.
 package update
 
 import (
@@ -55,8 +51,7 @@ import (
 )
 
 // ProjectPath is this repo's path on github.com — "owner/repo".
-// ██ PLACEHOLDER — replace once the real GitHub repo exists. ██
-const ProjectPath = "REPLACE_WITH_YOUR_GITHUB_OWNER/REPLACE_WITH_YOUR_REPO_NAME"
+const ProjectPath = "oxlaboratory/oxis"
 
 // RolloingReleaseTag is the single, continuously-overwritten release
 // tag CI publishes to on every push to the default branch — see this

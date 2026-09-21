@@ -7,6 +7,82 @@ change was made, not necessarily when a version was tagged.
 
 ### Added
 
+- **Real YouTube video wired into the README's video section** —
+  `eiCB0-0p7p4`. Switched the thumbnail from `maxresdefault.jpg` to
+  `hqdefault.jpg`, which is guaranteed to exist for every YouTube
+  video (maxres thumbnails only get generated for higher-resolution
+  uploads) — couldn't verify either way from this environment
+  (img.youtube.com isn't in this sandbox's network allowlist), so
+  picked the option that can't end up broken regardless.
+- **GitHub repo URL received (`oxlaboratory/oxis`) — every placeholder
+  from the earlier GitLab→GitHub migration work filled in.**
+  `internal/update.ProjectPath`, `lib/github.js`'s `OWNER`/`REPO`, and
+  every doc link across README/index.html/CONTRIBUTING.md/
+  wrangler.toml now point at the real repo instead of a marked
+  placeholder. Also cleaned up several doc comments that had gone
+  stale mid-session as pieces got built (e.g. `update.go` still said
+  the GitHub Actions workflow was "to-be-written" after it had
+  already been written) — these now accurately describe what exists.
+- **README: badges, a video section, and a real research-backed "why
+  this approach" section.** Badges (OXIS/GitHub stars/License, plus
+  total and latest-release download counts) at the top; a YouTube
+  video placeholder right below them, ready for a real video ID once
+  one exists. New "Why a customizable, extensible terminal at all?"
+  section citing real, external sources for three specific claims —
+  terminal customization's documented effect on developer workflow,
+  Lua's two-decade track record as an embedded extension language
+  (World of Warcraft, Roblox, Adobe Lightroom), and VS Code's
+  100,000+ extension marketplace as proof the plugin-ecosystem model
+  works at scale. That last citation cuts both ways honestly: the
+  same research documents real malicious-extension incidents in the
+  VS Code marketplace, cited specifically as part of *why* OXIS's own
+  Market publishing keeps a human-review gate rather than being fully
+  automatic, not just as a success story with the security risk left
+  out.
+- **GitLab → GitHub migration for the Market's publish/delete
+  backend, prepared ahead of having the actual repo URL.**
+  `cloudflare/functions/lib/gitlab.js` removed; new
+  `cloudflare/functions/lib/github.js` replaces it, using GitHub's
+  Contents API (simpler than the Git Data API real atomic multi-file
+  commits would need — a deliberate tradeoff, documented in the file
+  itself: submitting a plugin is now two separate commits on the
+  branch, not one). `submit-plugin.js` and `delete-plugin.js`
+  rewritten to use it — same behavior, same human-review-gated model,
+  just talking to GitHub instead of GitLab. `wrangler.toml`/
+  `.dev.vars.example` updated for a `GITHUB_TOKEN` secret (fine-
+  grained PAT, Contents + Pull requests read/write, scoped to the
+  repo) replacing `GITLAB_TOKEN`. Updated every GitLab reference in
+  the README and the Market website (`index.html`) to match — the
+  ones that couldn't be filled in with a real value (the repo path
+  itself, in `internal/update.ProjectPath` and
+  `lib/github.js`'s `OWNER`/`REPO`) are clearly marked placeholders,
+  same pattern as the auto-updater and CI workflow from earlier in
+  this session. `'workspace github`/`'workspace gitlab` (for a USER'S
+  OWN project's git remote — completely unrelated to which platform
+  OXIS itself is hosted on) are untouched; both remain fully
+  supported either way.
+- **`.github/workflows/build.yml`** — replaces `.gitlab-ci.yml`
+  (removed). Builds Linux on every push, same as before, uploaded as
+  a workflow artifact. New: on a push to the default branch (never a
+  PR), also publishes the build to a rolling `latest-build` release —
+  this is the CI half the new commit-based auto-updater needed (see
+  below) and didn't have until now. Windows still builds locally, not
+  in CI, unchanged from the GitLab CI version's own approach.
+  **One thing still needs filling in**: `internal/update.ProjectPath`
+  is a placeholder the client uses to know where to check — this
+  workflow itself doesn't need the repo path (GitHub Actions resolves
+  its own repo automatically via `${{ github.repository }}`), but that
+  one client-side constant still does.
+- **`scripts/clean-install.ps1`** — a safe clean-reinstall helper for
+  the recurring "stale 'release' task keeps showing up" reports this
+  session. Root cause: running OXIS as a portable `dist/` folder
+  (extract a zip, run `oxis.exe` directly, rather than the real MSI
+  installer) means workspace/plugin data sitting alongside the exe can
+  silently persist across "new" downloads if a new zip lands on top of
+  an old folder without clearing it first. The script only ever
+  touches files/registry keys it can specifically identify as OXIS's
+  own (never anything inside a connected project), and always shows
+  what it found and asks before deleting, unless run with `-Force`.
 - **`'task commit <message>` — the commit flow, completely redesigned
   after being reported broken (screenshot showed garbled `Write-Host`
   text in the terminal).** Root cause: the auto-created "commit" task
@@ -636,6 +712,21 @@ change was made, not necessarily when a version was tagged.
 
 ### Fixed
 
+- **`cmd/oxi/versioninfo.json`'s numeric version didn't match its own
+  display string — real build warning, reported from an actual
+  Windows build log.** `goversioninfo` (the tool that embeds the icon
+  and version metadata into `oxis.exe`) warned that `FixedFileInfo`
+  (the structured, numeric version Windows itself reads) said
+  `1.2.0.0` while `StringFileInfo` (the human-readable version shown
+  in the .exe's own Properties dialog) said `1.2.1` — a stale patch
+  number left at `0` from whenever these two were last bumped
+  independently instead of together. Fixed by setting `Patch: 1` in
+  both `FixedFileInfo.FileVersion` and `FixedFileInfo.ProductVersion`
+  to actually match. This is exactly the drift this file's own
+  process (documented in README § Auto-Update as "bump VERSION in
+  build-go.js AND cmd/oxi/versioninfo.json") is prone to — two places
+  that have to be kept in sync by hand — worth watching for again
+  next version bump, not something this fix prevents from recurring.
 - **Live-preview resize handle would stick/stop tracking the cursor
   the moment it crossed into the iframe — a classic iframe-vs-drag
   problem, reported after shipping.** The `mousemove` listener lived
