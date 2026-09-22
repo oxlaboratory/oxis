@@ -49,7 +49,7 @@ async function fetchJSON<T>(url: string): Promise<T> {
 }
 
 /** Fetch (and cache for this session) the marketplace index. Just the
- *  one curated index.json — 'plugin publish opens a real GitLab merge
+ *  one curated index.json — 'plugin publish opens a real GitHub pull
  *  request (see cloudflare/functions/submit-plugin.js) rather than
  *  writing anywhere separate, so once a submission is reviewed and
  *  merged, it shows up in this exact same file like everything else;
@@ -177,7 +177,7 @@ export async function installPremium(name: string): Promise<{ entry: MarketEntry
  *  on disk — see README's licensing lifecycle diagram. Called at
  *  startup for every premium package found under .oxis/premium/, and
  *  again by 'market install/'plugin reload. */
-export async function loadPremiumPlugin(name: string): Promise<{ ok: boolean; message: string }> {
+export async function loadPremiumPlugin(name: string, silent = false): Promise<{ ok: boolean; message: string }> {
   if (!isNativeApp()) return { ok: false, message: "premium plugins need the native OXIS app" };
   const email = getLicensedEmail();
   if (!email) return { ok: false, message: `${name}: no licensed email set — 'market license <email>` };
@@ -211,7 +211,7 @@ export async function loadPremiumPlugin(name: string): Promise<{ ok: boolean; me
     return { ok: false, message: `${name}: ${e instanceof Error ? e.message : e}` };
   }
 
-  await pluginManager.registerPremiumPlugin(name, source, "premium");
+  await pluginManager.registerPremiumPlugin(name, source, "premium", silent);
   return { ok: true, message: `${name} loaded` };
 }
 
@@ -234,7 +234,7 @@ export async function loadAllPremiumPlugins(): Promise<{ name: string; ok: boole
   for (const e of entries) {
     if (e.isDir || !e.name.endsWith(".oxispkg")) continue;
     const name = e.name.replace(/\.oxispkg$/, "");
-    const r = await loadPremiumPlugin(name);
+    const r = await loadPremiumPlugin(name, true); // silent — bulk startup load, see pluginManager.load()'s own doc comment
     results.push({ name, ...r });
   }
   return results;

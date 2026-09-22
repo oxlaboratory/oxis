@@ -14,18 +14,18 @@
  *    Stripe returns.
  *  - Submits the plugin's metadata AND its actual .lua source to the
  *    Market's `/submit-plugin` endpoint (see cloudflare/functions/
- *    submit-plugin.js), which opens a REAL GitLab merge request
- *    against gitlab.com/oxidelab/oxis adding the plugin's .lua file
+ *    submit-plugin.js), which opens a REAL GitHub pull request
+ *    against github.com/oxlaboratory/oxis adding the plugin's .lua file
  *    and its index.json entry. This automates the tedious mechanical
- *    part (branch/commit/push/open-MR) but is NOT auto-merged — a
- *    human still reviews and merges it on GitLab before the plugin
+ *    part (branch/commit/push/open-PR) but is NOT auto-merged — a
+ *    human still reviews and merges it on GitHub before the plugin
  *    is actually live and 'market install-able. This function's job
- *    ends at "the MR exists"; opening the returned URL in a browser
+ *    ends at "the PR exists"; opening the returned URL in a browser
  *    is as far as automation goes.
  *
  * Also honest about a real limitation: the submission endpoint itself
  * could not be deployed or exercised end-to-end in the environment
- * this was written in (no GitLab/Cloudflare account access) — if
+ * this was written in (no GitHub/Cloudflare account access) — if
  * `'plugin publish` reports a network/server error, that's the first
  * thing to check, not necessarily a bug in this file.
  */
@@ -102,7 +102,7 @@ export function checkPublishable(name: string): PublishCheckResult {
 }
 
 /** Is this plugin already listed on the Market? If so, 'plugin
- *  publish is publishing an UPDATE (the MR replaces its existing
+ *  publish is publishing an UPDATE (the PR replaces its existing
  *  index.json entry) rather than a first-time listing — detected
  *  automatically rather than needing a separate command. */
 export async function findExistingListing(name: string): Promise<MarketEntry | undefined> {
@@ -112,7 +112,7 @@ export async function findExistingListing(name: string): Promise<MarketEntry | u
 export interface SubmissionResult {
   ok: boolean;
   message: string;
-  mergeRequestUrl?: string;
+  pullRequestUrl?: string;
 }
 
 async function postSubmission(payload: Record<string, unknown>): Promise<SubmissionResult> {
@@ -125,25 +125,25 @@ async function postSubmission(payload: Record<string, unknown>): Promise<Submiss
     });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) {
-      return { ok: false, message: `couldn't open a merge request: ${(body as { error?: string }).error || res.statusText}` };
+      return { ok: false, message: `couldn't open a pull request: ${(body as { error?: string }).error || res.statusText}` };
     }
-    const { mergeRequestUrl } = body as { mergeRequestUrl?: string };
+    const { pullRequestUrl } = body as { pullRequestUrl?: string };
     return {
       ok: true,
-      mergeRequestUrl,
-      message: mergeRequestUrl
-        ? `merge request opened: ${mergeRequestUrl}\nNot live yet — it needs a human review and merge on GitLab first.`
-        : `submitted, but the Market backend didn't return a merge request link — check gitlab.com/oxidelab/oxis's merge requests directly.`,
+      pullRequestUrl,
+      message: pullRequestUrl
+        ? `pull request opened: ${pullRequestUrl}\nNot live yet — it needs a human review and merge on GitHub first.`
+        : `submitted, but the Market backend didn't return a pull request link — check github.com/oxlaboratory/oxis's pull requests directly.`,
     };
   } catch (e) {
     return { ok: false, message: `couldn't reach the Market backend: ${e instanceof Error ? e.message : String(e)}` };
   }
 }
 
-/** Free plugin — opens a real GitLab merge request via the Market's
+/** Free plugin — opens a real GitHub pull request via the Market's
  *  `/submit-plugin` endpoint (see cloudflare/functions/submit-plugin.js)
  *  adding the plugin's .lua file and its index.json entry. Not live
- *  until a human reviews and merges it on GitLab — this only
+ *  until a human reviews and merges it on GitHub — this only
  *  automates getting the MR opened, not the review itself. `existing`
  *  (if the plugin's already listed) only changes the wording — the
  *  submission works the same either way; submit-plugin.js replaces
@@ -161,7 +161,7 @@ export async function prepareFreePublish(metadata: PublishMetadata, existing?: M
   return {
     ...result,
     message: isUpdate
-      ? `update merge request opened for ${metadata.name} (v${existing!.version || "?"} → v${metadata.version}):\n${result.message}`
+      ? `update pull request opened for ${metadata.name} (v${existing!.version || "?"} → v${metadata.version}):\n${result.message}`
       : result.message,
   };
 }
@@ -177,7 +177,7 @@ export interface ConnectOnboardingResult {
  *  deployed /connect-onboarding endpoint — a genuine network call and
  *  a genuine onboarding link Stripe itself generates, not a
  *  placeholder. The actual Market listing (see submitPaidPlugin
- *  below) still goes through GitLab MR review like any other
+ *  below) still goes through GitHub PR review like any other
  *  submission — the account being created here doesn't make anything
  *  live by itself. */
 export async function startConnectOnboarding(email: string): Promise<ConnectOnboardingResult> {
@@ -204,7 +204,7 @@ export async function startConnectOnboarding(email: string): Promise<ConnectOnbo
   }
 }
 
-/** Submits a paid listing — same GitLab-MR endpoint as the free path,
+/** Submits a paid listing — same GitHub-PR endpoint as the free path,
  *  with the price/interval/Connect account attached, still gated on
  *  human review and merge like any other submission. */
 export async function submitPaidPlugin(metadata: PublishMetadata, price: string, interval: string, accountId: string, existing?: MarketEntry): Promise<SubmissionResult> {
@@ -223,13 +223,13 @@ export async function submitPaidPlugin(metadata: PublishMetadata, price: string,
   return {
     ...result,
     message: (isUpdate
-      ? `update merge request opened for ${metadata.name} (v${existing!.version || "?"} → v${metadata.version}):\n${result.message}`
+      ? `update pull request opened for ${metadata.name} (v${existing!.version || "?"} → v${metadata.version}):\n${result.message}`
       : result.message)
       + `\nReminder: paid OXIS Market plugins are recurring Stripe subscriptions, not one-time purchases — the 75/25 developer/OXIS split happens automatically once merged (see cloudflare/functions/checkout.js).`,
   };
 }
 
-/** 'plugin unpublish <name> — opens a GitLab merge request removing
+/** 'plugin unpublish <name> — opens a GitHub pull request removing
  *  the plugin's Market listing (see cloudflare/functions/
  *  delete-plugin.js). Same human-review-gated model as publishing:
  *  nothing is actually removed until a human merges the MR. `author`
@@ -246,15 +246,15 @@ export async function requestPluginDeletion(name: string, author: string): Promi
     });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) {
-      return { ok: false, message: `couldn't open a deletion merge request: ${(body as { error?: string }).error || res.statusText}` };
+      return { ok: false, message: `couldn't open a deletion pull request: ${(body as { error?: string }).error || res.statusText}` };
     }
-    const { mergeRequestUrl } = body as { mergeRequestUrl?: string };
+    const { pullRequestUrl } = body as { pullRequestUrl?: string };
     return {
       ok: true,
-      mergeRequestUrl,
-      message: mergeRequestUrl
-        ? `deletion merge request opened: ${mergeRequestUrl}\nThe plugin stays listed until a human reviews and merges it.`
-        : `submitted, but the Market backend didn't return a merge request link — check gitlab.com/oxidelab/oxis's merge requests directly.`,
+      pullRequestUrl,
+      message: pullRequestUrl
+        ? `deletion pull request opened: ${pullRequestUrl}\nThe plugin stays listed until a human reviews and merges it.`
+        : `submitted, but the Market backend didn't return a pull request link — check github.com/oxlaboratory/oxis's pull requests directly.`,
     };
   } catch (e) {
     return { ok: false, message: `couldn't reach the Market backend: ${e instanceof Error ? e.message : String(e)}` };

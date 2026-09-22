@@ -251,10 +251,17 @@ Stripe **test mode** today, not just designed on paper:
 - **AI DevOps subscription** — the plugin itself is real and makes
   real AI API calls (bring your own key) today; what's missing is a
   live Stripe Price to subscribe to ([AI DevOps](#ai-devops-flagship-plugin))
-- **Third-party paid plugins** — Stripe Connect Express onboarding
-  and account-status checking are real, working endpoints; what's
-  missing is a publishing UI for developers to list a plugin against
-  their own account ([Third-Party Developer Marketplace](#third-party-developer-marketplace))
+- **Third-party paid plugins** — Stripe Connect Express onboarding,
+  account-status checking, and the actual publishing flow itself
+  (`'plugin publish <name> --price=X --interval=month`, which runs
+  onboarding then opens a real GitHub pull request with the price and
+  Connect account ID included) are all real and working today — this
+  row used to describe the publishing flow as the missing piece,
+  which was stale by the time it shipped; found in a full accuracy
+  sweep of this README. What's still gated is Stripe **production**
+  payments specifically — a developer can publish a paid listing right
+  now, it just can't actually charge anyone until OXIS's own Stripe
+  account finishes verification ([Third-Party Developer Marketplace](#third-party-developer-marketplace))
 - **Developer payouts** — the 75/25 split is implemented via Stripe
   Connect destination charges (`application_fee_percent` +
   `transfer_data.destination`) and has been verified to produce
@@ -330,7 +337,7 @@ clear purpose. The status bar always shows which mode is active.
 | **Normal Mode**   | [shipped]     | built-in editor, default     | Vim-style navigation/editing inside `'edit <file>` — hjkl/0/$/gg/G/w/b motion, x/dd/dw/o/O edits; no text is inserted |
 | **Insert Mode**   | [shipped]     | `i`/`a`/`o`/etc. from Normal Mode | Free text entry inside the built-in editor — the textarea is `readOnly` outside this mode, so typing literally can't reach the buffer except here |
 | **Visual Mode**   | [shipped]     | `v` from Normal Mode         | Character-range selection for delete (`d`/`x`) and yank (`y`, via the real clipboard) |
-| **Search Mode**   | [planned]     | `/` in terminal or editor    | Incremental search through scrollback, command history, or open buffer |
+| **Search Mode**   | [shipped, different keybind] | Ctrl+Shift+F (terminal scrollback), Ctrl+R (command history), Ctrl+F (editor find) — not `/` specifically, which isn't bound to anything; found while doing a full accuracy sweep of this README, this row was marked [planned] even though the underlying search capability genuinely exists in all three places, just not through the Vim-style `/` trigger this row originally described | Incremental search through scrollback, command history, or open buffer |
 
 Command Mode is deliberately just one of these, not the whole
 interface — it's the entry point for OXIS's own functionality
@@ -445,16 +452,15 @@ cards). It shows, live:
 - **Workspace status** — ready / loading / no workspace detected
 
 ```
-┌ WORKSPACE ──────────────────────────────────────┐
-│ workspace   my-app                                │
-│ project     oxis                                  │
-│ path        C:\dev\oxis\.oxis\workspace.lua       │
-│ theme       midnight                              │
-│ plugins     6 active  (git, docker, npm, ...)     │
-│ tasks       dev, build, test                      │
-│ status      ● ready                               │
-│ recent      workspace loaded · task "dev" run      │
-└────────────────────────────────────────────────────┘
+WORKSPACE
+  workspace   my-app
+  project     oxis
+  path        C:\dev\oxis\.oxis\workspace.lua
+  theme       midnight
+  plugins     6 active  (git, docker, npm, ...)
+  tasks       dev, build, test
+  status      ● ready
+  recent      workspace loaded · task "dev" run
 ```
 
 The panel is read-only by design — it reflects `workspaceManager` /
@@ -564,13 +570,11 @@ oxis/
 │   │   │   └── Titlebar.tsx    Frameless custom titlebar (traffic lights, drag region) — native window only
 │   │   ├── terminal/
 │   │   │   ├── terminal.ts     Line model, ANSI, banner, output processing
-│   │   │   ├── tabs.ts         Tab creation, switching, persistence
 │   │   │   ├── history.ts      Command history + search + persistence
 │   │   │   ├── keybinds.ts     Keyboard shortcuts + user-defined mappings
 │   │   │   ├── commandRegistry.ts  Unified command registry
 │   │   │   ├── events.ts       Event bus
-│   │   │   ├── themeManager.ts Theme loading, switching, validation
-│   │   │   └── sessionManager.ts   Session save/restore
+│   │   │   └── themeManager.ts Theme loading, switching, validation
 │   │   ├── plugins/
 │   │   │   ├── pluginManager.ts    Discovery, load, unload, enable, disable, disk persistence
 │   │   │   ├── luaRuntime.ts       Real Lua 5.3 VM (fengari) — see Plugin System
@@ -817,6 +821,36 @@ installation and its registry keys before running a newly downloaded
 automatically when both the old and new install go through the MSI
 properly (see `dist/oxis-product.wxs`); this script is specifically
 for the case where that path wasn't used.
+
+### Where OXIS keeps its own data
+
+**[fixed — this used to be broken for MSI installs]** OXIS stores its
+own data (`workspaces/`, `created-plugins/`, `created-documents/`)
+relative to a single resolved directory (`AppDirPath()` in
+`internal/wailsapp/app.go`). For a portable `dist/` folder, that's
+just wherever `oxis.exe` itself is — unchanged, same as always.
+
+**For an MSI install specifically, this used to be a real, serious
+bug**: `oxis.exe` runs from `C:\Program Files\OXIS`, which Windows
+protects from writes by a normal (non-elevated) user session under
+UAC — every attempt to create any of those folders there was silently
+failing. An MSI-installed user could open OXIS, but nothing they
+created (a plugin, a document, a workspace) actually persisted,
+because the app could never write it in the first place.
+
+Fixed with a real write-test (not just permission bits, which UAC
+virtualization can make misleading): if `oxis.exe`'s own directory
+isn't actually writable, OXIS now falls back to a directory under
+`%USERPROFILE%\Downloads\OXIS` instead, which a normal user session
+can always write to. The first time that fallback is used, OXIS also
+clones its own GitHub source into `Downloads\OXIS\source` in the
+background — best-effort and silent (no `git` on `PATH`, no network,
+or a failed clone all just skip quietly rather than surfacing an
+error) — so an MSI-installed user still ends up with the project's
+full source somewhere, just delivered by the running app on first
+launch instead of bundled inside the installer package itself (see
+[Continuous Integration](#continuous-integration) for why the
+installer stopped bundling it).
 
 ### Prerequisites
 
@@ -1317,16 +1351,16 @@ means layering on:
 | Local plugin creation             | [shipped]      | `'plugin new` |
 | Community plugin install          | [shipped]      | `'market install`, see [Plugin Marketplace](#plugin-marketplace) |
 | Plugin metadata (author, version, category, description) | [shipped] | real manifests (`--[[@manifest ...]]`) — see [Plugin Manifests](#plugin-manifests) |
-| Plugin templates                  | [planned]      | `'plugin new <name> --template=devops` scaffolds a starter file per category |
+| Plugin templates                  | [shipped]      | `'plugin new <name> --template=basic\\|dev\\|devops\\|system` scaffolds a real starter file per category, registers it live, and opens it in the Editor — was marked [planned] here, stale; found and fixed in a full accuracy sweep of this README |
 | Plugin dependencies                | [shipped]      | a plugin declares others it needs in its manifest; version compatibility and dependency-cycle checking are real (`checkCompatibility` in `pluginManager.ts`) |
-| Plugin versioning & updates        | [shipped]      | semver in the manifest; `'market update <name>` / `'market update all` are real, with compatibility checks, a backup before replacing, and auto-rollback on failure |
+| Plugin versioning & updates        | [shipped]      | semver in the manifest; `'market update <name>` / `'market update all` are real, with compatibility checks, a backup before replacing, auto-rollback on failure, and the update itself refused (nothing touched) if the backup can't be saved in the first place |
 | Plugin permissions                 | [shipped]      | manifest declares which `oxis.*` namespaces a plugin may call — see [Core System APIs](#core-system-apis) and [Plugin Permissions](#plugin-permissions) |
 | Plugin sandboxing                  | [planned]      | every plugin currently shares ONE Lua VM process — real, per-plugin isolation (each running with only the capabilities its permissions grant) doesn't exist yet |
 | Plugin search                      | [in progress]  | `'market search <query>` exists; local `'plugin search` does not yet |
 | Plugin documentation               | [shipped]      | `'plugin docs <name>` renders a plugin's manifest description |
 | Plugin compatibility info          | [shipped]      | minimum OXIS version + OS support declared in the manifest, checked before load (`manifest.ts`'s `satisfiesMin`/`satisfiesRange`) |
 | Plugin categories                  | [shipped]      | already used for built-ins and market listings |
-| Free / community / premium plugins | [planned]      | see [OXIS Market](#oxis-market--subscriptions--premium-plugins) |
+| Free / community / premium plugins | [shipped]      | free and paid (Stripe Connect subscriptions, 75/25 split) both real — see [OXIS Market](#oxis-market--subscriptions--premium-plugins); was marked [planned] here even though the very next row already correctly described the same shipped flow — found in a full accuracy sweep of this README |
 | Plugin marketplace integration     | [shipped]      | a curated static `index.json`, PLUS a real self-service backend (`'plugin publish` opens an actual GitHub pull request — see [Third-Party Developer Marketplace](#third-party-developer-marketplace)), a `/health` self-diagnostic, and real subscriber counts on paid listings |
 
 Plugins can already reach commands, the terminal (`oxis.run`,
@@ -2009,12 +2043,11 @@ OXIS uses an event bus in `terminal/events.ts`. All subsystems communicate throu
 | workspace_loaded    | A workspace.lua is applied          |
 | workspace_unloaded  | Workspace is cleared                |
 | command_executed    | Any command runs                    |
+| command_error       | A command handler threw an exception — printed visibly in the terminal (`✗ 'name' failed: ...`) and recorded in 'diagnostics, not just logged to the browser console like before |
 | shell_started       | PTY shell process starts            |
 | shell_exited        | PTY shell process exits             |
 | editor_opened       | Built-in editor opens               |
 | editor_closed       | Built-in editor closes              |
-| session_saved       | Session state is persisted          |
-| session_restored    | Session state is restored           |
 
 ### TypeScript Usage
 
@@ -2065,8 +2098,8 @@ Keybinds live in `terminal/keybinds.ts`. Core binds are registered at startup; L
 | Ctrl+C   | Interrupt (SIGINT)  |
 | Ctrl+= / Ctrl+- | Terminal zoom in/out |
 | Ctrl+0   | Reset zoom to default |
-| Ctrl+F   | Find in on-screen output (scrollback) |
-| Ctrl+R   | Search command HISTORY (different from Ctrl+F — see below) |
+| Ctrl+Shift+F | Find in on-screen output (scrollback) — plain Ctrl+F alone is the readline forward-char binding instead, so this needs Shift too |
+| Ctrl+R   | Search command HISTORY (different from Ctrl+Shift+F — see above) |
 | ↑ / ↓   | Command history     |
 
 **Correction, found during a dead-code audit**: there is currently no
@@ -2357,15 +2390,29 @@ Tasks run in the active PTY shell — output appears in the terminal exactly lik
 
 OXIS includes a built-in editor so you never need to leave the app to edit files. **This is the only editor** — the file Editor and plugin editing (`'plugin new`) are the exact same component; see [Creating a Plugin](#creating-a-plugin).
 
-**[shipped]** HTML live preview — a `preview` button appears in the
-editor's toolbar for any `.html`/`.htm` file. Toggling it opens a
-split view: your code on the left, a live-rendered `<iframe>` of it
-on the right, refreshing about 300ms after you stop typing (not on
-every keystroke — a full preview reload is a heavier, more visually
-disruptive operation than the syntax highlighter's own debounce, so
-it gets a longer one). Off by default even when editing an HTML
-file — it's a toggle, not automatic, since opening a file shouldn't
-silently start executing whatever script tags are in it.
+**[shipped]** Live preview — a `preview` button appears in the
+editor's toolbar for any `.html`/`.htm` file, **and now any
+`.md`/`.markdown` file too**. Toggling it opens a split view: your
+code on the left, a live-rendered `<iframe>` of it on the right,
+refreshing about 300ms after you stop typing (not on every keystroke
+— a full preview reload is a heavier, more visually disruptive
+operation than the syntax highlighter's own debounce, so it gets a
+longer one). Off by default even when editing a previewable file —
+it's a toggle, not automatic, since opening a file shouldn't silently
+start executing whatever script tags are in it.
+
+**Markdown preview renders like GitHub/GitLab render a README** — a
+real markdown parser ([marked](https://www.npmjs.com/package/marked),
+added as a dependency specifically for this, not a hand-rolled regex
+converter that would look "close enough" right up until a table or a
+nested list broke it) styled with GitHub's own dark-mode look:
+headers, code blocks, tables, blockquotes, the works. It also renders
+```` ```mermaid ```` fenced code blocks as actual diagrams (via
+Mermaid.js, loaded from a CDN *inside the preview iframe itself* —
+same external-resource model as the HTML preview below), not as
+plain code — this README's own Architecture and Business Model
+diagrams are exactly that, so a markdown preview that couldn't show
+them would visibly fail at the most common real use of this feature.
 
 The preview iframe runs with `sandbox="allow-scripts"` and
 deliberately nothing else — the previewed page's own JavaScript still
@@ -2758,25 +2805,33 @@ OXIS saves session state automatically and restores it on next launch.
 
 ### Persisted State
 
-- Open tabs and order
-- Active tab
-- Active theme
-- Workspace path
-- Command history (500 entries, localStorage)
-- Plugin enabled/disabled states
-- Custom themes
+**[corrected]** — this used to describe a dedicated `sessionManager.ts`
+that saved `tabs`/`activeTab`/`theme`/`workspacePath` together as one
+snapshot. Removed entirely: it was dead code found during an audit —
+`sessionManager.load()` was never called anywhere in the codebase,
+and `sessionManager.clear()` ran on every single startup *before* any
+load could have happened anyway, so the whole round-trip was
+meaningless — save something, wipe it on next launch, never actually
+read it back in between. `tabs`/`activeTab` were also doubly
+pointless given OXIS has no real multi-tab support to persist in the
+first place (see the Directory Structure/keybind corrections
+elsewhere in this doc). What's actually real, and where each one
+genuinely lives:
 
-### Manual Session Control
+- **Active theme** — `themeManager.ts`, its own `oxis-theme`
+  localStorage key (this was already fully working independently of
+  the now-removed sessionManager; nothing was lost by removing it)
+- **Custom themes** — `themeManager.ts`, `oxis-custom-themes`
+- **Command history** — `history.ts`, `oxis-cmd-history-v2` (2,000
+  entries, not 500 — see [Keybind System](#keybind-system))
+- **Plugin enabled/disabled state** — `pluginManager.ts`'s own
+  `restoreState()`/persistence, independent of theme/history
+- **Workspace state** — `workspaceManager.ts`'s own registry, keyed
+  by workspace name, not a single global snapshot
 
-```typescript
-import { sessionManager } from "./terminal/sessionManager";
-
-sessionManager.save({ tabs, activeTab, theme, savedAt: Date.now() });
-sessionManager.load();   // → Session | null
-sessionManager.clear();  // Wipe saved session
-```
-
----
+Each piece of state persists itself, independently, through whichever
+subsystem actually owns it — there's no single combined "session"
+object, and no reason for one; nothing here depends on the others.
 
 ## OXIS Market — Subscriptions & Premium Plugins
 
@@ -3400,19 +3455,25 @@ Share the `.lua` file. Users drop it in their `.oxis/plugins/` directory.
 | `oxis.workspace(path)`        | Signal workspace path                    |
 | `oxis.dashboard(config)`      | Configure dashboard                      |
 
-The table above is what ships today. Planned additions to round out
-[Core System APIs](#core-system-apis) and the [Market](#oxis-market--subscriptions--premium-plugins):
+The table above is what ships today. Most of what was tracked here as
+"planned" has since shipped — the table below was significantly out
+of date until this pass; found while doing a full accuracy sweep of
+this README, checking the ACTUAL Lua API surface (`oxis.fs`'s table
+construction in `luaRuntime.ts`, not just guessing from an older
+description) rather than trusting the label already there:
 
 | API                              | Status    | Description                                    |
 |-----------------------------------|-----------|-------------------------------------------------|
-| `oxis.fs.read/write/watch(path)`  | [planned] | Filesystem access without shelling out          |
-| `oxis.process.spawn/list/kill(...)` | [planned] | Process management beyond the active PTY      |
-| `oxis.net.request(opts)`          | [planned] | Permission-gated HTTP requests                  |
-| `oxis.system.info()`              | [planned] | CPU/memory/battery/OS info, notifications       |
+| `oxis.fs.read/write/list/stat/mkdir/remove(path)` | [shipped] | Filesystem access without shelling out, permission-gated (`fs` namespace) |
+| `oxis.fs.watch(path)`             | [planned] | The one `fs.*` method not yet built — no filesystem-change notifications from Lua |
+| `oxis.process.list/kill(...)`     | [shipped] | Process management beyond the active PTY, permission-gated (`process` namespace) |
+| `oxis.process.spawn(...)`         | [planned] | The one `process.*` method not yet built — no spawning new processes from Lua |
+| `oxis.net.request(opts)`          | [shipped] | Permission-gated HTTP requests (`net` namespace) |
+| `oxis.system.info()`              | [shipped] | CPU/memory/battery/OS info, permission-gated (`system` namespace) — real-time notifications specifically are still planned |
 | `oxis.plugins.call(name, ...)`    | [planned] | Sandboxed cross-plugin calls                    |
 | `oxis.editor.buffer()/mode()`     | [planned] | Read/modify the built-in editor from a plugin   |
 | `oxis.market.subscription(plugin)` | [planned] | Query a plugin's own subscription/license status |
-| `oxis.permissions.request(list)`  | [planned] | Declare/request the namespaces a plugin needs   |
+| `oxis.permissions.request(list)`  | [planned] | Declare/request the namespaces a plugin needs (a manifest's own `permissions:` field already covers this at load time — this row is for a plugin requesting an ADDITIONAL namespace mid-run, which doesn't exist yet) |
 
 ---
 
@@ -3596,18 +3657,7 @@ npm run dev
 | Command dispatch        | `terminal/commandRegistry.ts`, `App.tsx`   |
 | Plugin execution        | `plugins/luaRuntime.ts`, `plugins/pluginAPI.ts` |
 | Theme application       | `terminal/themeManager.ts`                 |
-| Session state           | `terminal/sessionManager.ts`               |
 | Event bus               | `terminal/events.ts`                       |
-
----
-
-## Screenshots
-
-<p align="center">
-  <img src="assets/screenshot-home.png" width="32%">
-  <img src="assets/screenshot-editor.png" width="32%">
-  <img src="assets/screenshot-market.png" width="32%">
-</p>
 
 ---
 

@@ -11,6 +11,15 @@
  * `'plugin rollback <name>` does the same thing manually, any time
  * after an update (not just right after a failed one).
  *
+ * The update is REFUSED, before anything is touched, if the backup
+ * itself can't actually be saved (localStorage full or unavailable)
+ * — flagged by a reviewer as a real gap: proceeding anyway means a
+ * new version that then fails to load has no backup to roll back to,
+ * leaving the plugin broken and disabled with no way back to the
+ * version that worked. Refusing costs nothing here specifically
+ * because nothing has been touched yet at that point — a clean no-op,
+ * not a half-applied update.
+ *
  * Compatibility and dependencies are checked against the NEW
  * version's manifest — parsed from its downloaded source — BEFORE
  * anything is replaced, same checks pluginManager.load() itself does
@@ -31,9 +40,19 @@ function backupKey(name: string): string {
   return `${BACKUP_PREFIX}${name}`;
 }
 
-function saveBackup(name: string, version: string | undefined, lua: string): void {
-  try { localStorage.setItem(backupKey(name), JSON.stringify({ version, lua } satisfies Backup)); }
-  catch { /* storage full/unavailable — update still proceeds, just without a safety net */ }
+/** Returns whether the backup actually saved — callers must check
+ *  this and refuse to proceed with the update if it's false. Without
+ *  a real backup, a failed new version has nothing to roll back to:
+ *  rollbackPlugin() would just report "no backup available" and the
+ *  user is left with a broken, disabled plugin and no way back to
+ *  the version that worked. Reported by a reviewer as exactly this
+ *  edge case — swallowing the failure and updating anyway silently
+ *  removes the safety net the whole backup-before-replace design is
+ *  built around, for the one case (storage full/unavailable) where
+ *  it matters most. */
+function saveBackup(name: string, version: string | undefined, lua: string): boolean {
+  try { localStorage.setItem(backupKey(name), JSON.stringify({ version, lua } satisfies Backup)); return true; }
+  catch { return false; }
 }
 
 function loadBackup(name: string): Backup | null {
@@ -100,8 +119,17 @@ export async function updatePlugin(name: string): Promise<UpdateResult> {
   const precheck = precheckNewVersion(newSource);
   if (!precheck.ok) return { ok: false, message: `update refused: ${precheck.error}` };
 
-  // Back up the CURRENTLY WORKING version before touching anything.
-  saveBackup(name, installedVersion, p.lua ?? "");
+  // Back up the CURRENTLY WORKING version before touching anything —
+  // and refuse to proceed if the backup itself didn't actually save.
+  // Updating anyway on a failed backup means a new version that fails
+  // to load has nothing to roll back to: the user ends up with a
+  // broken, disabled plugin and no way back to the one that worked,
+  // exactly the case the whole backup-before-replace design exists to
+  // prevent. Nothing has been touched yet at this point, so refusing
+  // here is a clean no-op, not a half-applied update.
+  if (!saveBackup(name, installedVersion, p.lua ?? "")) {
+    return { ok: false, message: `update refused: couldn't save a rollback backup (local storage full or unavailable) — nothing has been changed. Free up storage and try again.` };
+  }
 
   const { persisted, persistError } = await pluginManager.addLuaPlugin(name, newSource, entry.category || p.category, "market");
   const afterUpdate = pluginManager.get(name);

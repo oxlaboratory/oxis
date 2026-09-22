@@ -133,16 +133,27 @@ class HistoryManager {
   isSearching():    boolean { return this.rsActive; }
   getSearchQuery(): string  { return this.rsQuery;  }
 
-  /** Returns the best match or null if nothing found. */
+  /** Returns the best match or null if nothing found. Searches from
+   *  the CURRENT match position (rsPos), not always from the newest
+   *  entry — a real, reproduced bug: refining the query while already
+   *  browsing an older match (via searchOlder below) used to jump
+   *  straight back to the newest matching entry on every keystroke,
+   *  discarding the user's position instead of refining from it. Bash's
+   *  own reverse-i-search stays on the current match if it still
+   *  satisfies the longer query, or moves to the next-older one if it
+   *  doesn't — searching from rsPos (which _findFrom treats as an
+   *  inclusive upper bound) reproduces exactly that, since it's
+   *  already initialized to the newest entry in enterSearch(), so the
+   *  very first keystroke of a session is unaffected. */
   searchAppend(ch: string): SearchResult | null {
     this.rsQuery += ch;
-    return this._findFrom(this.entries.length - 1);
+    return this._findFrom(this.rsPos);
   }
 
   searchBackspace(): SearchResult | null {
     this.rsQuery = this.rsQuery.slice(0, -1);
     if (!this.rsQuery) return null;
-    return this._findFrom(this.entries.length - 1);
+    return this._findFrom(this.rsPos);
   }
 
   /** Ctrl+R again — older match */

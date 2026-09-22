@@ -6,6 +6,7 @@
  */
 
 import { events } from "./events";
+import { recordError } from "./diagnostics";
 
 export type CommandHandler = (args: string[], rest: string) => void;
 
@@ -64,7 +65,23 @@ class CommandRegistry {
       cmd.handler(args, rest);
       events.emit("command_executed", { name, args });
     } catch (e) {
+      // Found doing a broad audit: a command handler throwing here
+      // used to be caught and then only ever logged to
+      // console.error — completely invisible to an actual user, who
+      // would just see their command silently do nothing, with zero
+      // feedback that anything went wrong at all. Because this is a
+      // caught exception, not an uncaught one, it also never reached
+      // installGlobalErrorCapture()'s own window-level listener, so
+      // it wouldn't have shown up in 'diagnostics' recent errors
+      // either — a buggy command was invisible from every angle a
+      // real user could actually check. Now recorded properly (same
+      // 'diagnostics list every other app-level error uses) and
+      // emitted as its own event so the active terminal can print
+      // something the user actually sees, instead of dead silence.
+      const message = e instanceof Error ? e.message : String(e);
       console.error(`[oxis:cmd] ${name}`, e);
+      recordError(`command '${name}' failed: ${message}`, "app");
+      events.emit("command_error", { name, message });
     }
     return true;
   }

@@ -6,6 +6,7 @@
 import React, {
   useCallback, useEffect, useMemo, useRef, useState,
 } from "react";
+import { marked } from "marked";
 
 import { openPty }    from "./pty/ptyClient";
 import type { PtySession } from "./pty/ptyClient";
@@ -30,10 +31,9 @@ import { events }                           from "./terminal/events";
 import { keybinds, registerCoreKeybinds }  from "./terminal/keybinds";
 import { registry }                         from "./terminal/commandRegistry";
 import type { CommandHandler }              from "./terminal/commandRegistry";
-import { sessionManager }                   from "./terminal/sessionManager";
 import { workspaceState }                   from "./terminal/workspaceState";
 import { workspaceManager }                 from "./terminal/workspaceManager";
-import { getRecentErrors, installGlobalErrorCapture } from "./terminal/diagnostics";
+import { getRecentErrors, clearRecentErrors, installGlobalErrorCapture } from "./terminal/diagnostics";
 import { cwdTracker, buildCwdProbe, looksLikeDirectoryChange } from "./terminal/cwdTracker";
 import { scriptRunTracker } from "./terminal/scriptRunTracker";
 import { workflowRunner } from "./plugins/workflowRunner";
@@ -60,7 +60,7 @@ import { updatePlugin, updateAllPlugins, rollbackPlugin } from "./plugins/market
 import { exportSettings, importSettings, exportWorkspace, importWorkspace, exportPluginSource, createFullBackup, restoreFullBackup } from "./plugins/backup";
 import { checkPublishable, findExistingListing, prepareFreePublish, submitPaidPlugin, startConnectOnboarding, requestPluginDeletion } from "./plugins/publish";
 import { commitAll, setupRemote, getRemotes, parseGitRemote, type GitProvider } from "./plugins/git";
-import { readFile, writeFile, listDir, makeDir, statPath, movePath, isNativeApp, openUrl, checkForUpdate } from "./native";
+import { readFile, writeFile, listDir, makeDir, statPath, movePath, isNativeApp, openUrl, checkForUpdate, appDir } from "./native";
 import Titlebar from "./components/Titlebar";
 
 // ══════════════════════════════════════════════════════════════
@@ -70,6 +70,10 @@ interface ShellCtx {
   send:        (cmd: string) => void;
   runLine:     (line: string) => void;
   print:       (text: string, kind?: LineKind) => void;
+  /** Batched sibling of print — one state update for several lines
+   *  instead of one per line. See addLines in Terminal for why this
+   *  exists (a real performance finding, not just a convenience). */
+  printLines:  (entries: Array<[string, LineKind?]>) => void;
   clear:       () => void;
   openEditor:  (path: string) => void;
   newTerminal: () => void;
@@ -195,7 +199,7 @@ const SETTINGS: SettingDef[] = [
   },
   {
     key: "updateCheckOnStartup", label: "Check for Updates", default: true,
-    description: "Check gitlab.com for a newer OXIS release on startup",
+    description: "Check for a newer OXIS build on startup",
     apply: () => { /* read directly where used — see checkUpdate() in the root App component */ },
   },
 ];
@@ -253,7 +257,7 @@ function applyAllSettings(): void {
 let _commandsRegistered = false;
 // Gates the background update check to once per app run (see onReady
 // below) — Terminal mounts once per tab, and there's no reason to hit
-// gitlab.com again for a tab opened later in the same session.
+// GitHub again for a tab opened later in the same session.
 let _updateCheckedThisRun = false;
 // Stable ref so clear/print/send always call the latest Terminal instance
 const _ctxRef: { current: ShellCtx | null } = { current: null };
@@ -362,10 +366,10 @@ const COMMAND_DETAILS: Record<string, CommandDetail> = {
       { syntax: "'plugin permissions <name> revoke <ns>",                description: "revoke one" },
       { syntax: "'plugin rollback <name>",                               description: "restore the backup taken by the last 'market update — works any time after an update, not just right after a failed one" },
       { syntax: "'plugin export <name> [path]",                         description: "export a plugin's .lua source to a file — for sharing it, or backing it up outside OXIS" },
-      { syntax: "'plugin publish <name>",                               description: "validates it's ready, then opens a real GitLab merge request adding it to the Market — FREE, not live until a human reviews and merges it" },
+      { syntax: "'plugin publish <name>",                               description: "validates it's ready, then opens a real GitHub pull request adding it to the Market — FREE, not live until a human reviews and merges it" },
       { syntax: "'plugin publish <name> --price=4.99 --interval=month", description: "same, as a PAID listing — creates a real Stripe Connect Express account (via the deployed /connect-onboarding endpoint), opens the onboarding link, then opens the merge request the same way" },
       { syntax: "'plugin publish <name> --email=you@example.com",       description: "email for the Stripe Connect account — defaults to whatever 'market license already has on file" },
-      { syntax: "'plugin unpublish <name>",                             description: "opens a GitLab merge request removing the plugin's Market listing — same human-reviewed model, nothing is actually removed until a human merges it" },
+      { syntax: "'plugin unpublish <name>",                             description: "opens a GitHub pull request removing the plugin's Market listing — same human-reviewed model, nothing is actually removed until a human merges it" },
     ],
     examples: [
       "'plugin new mytools --template=devops   — start a new devops-flavored plugin",
@@ -374,7 +378,7 @@ const COMMAND_DETAILS: Record<string, CommandDetail> = {
       "'plugin publish mytools                  — prepare a free Market listing",
       "'plugin publish mytools --price=4.99 --interval=month --email=you@example.com",
     ],
-    notes: "Publishing automates the tedious part, not the review — it validates the plugin first, and for paid plugins genuinely creates a Stripe Connect account, then opens a real GitLab merge request (branch + commit + MR, via the Market's /submit-plugin endpoint) adding the plugin's .lua file and index.json entry. Nothing is live until a human reviews and merges that MR on GitLab — this just gets it opened without the developer doing the fork/clone/branch/push/MR steps by hand. Running 'plugin publish again on an already-listed plugin opens an UPDATE merge request (replacing its index.json entry) rather than a new one, detected by checking the Market for an existing entry — no separate command needed for that.",
+    notes: "Publishing automates the tedious part, not the review — it validates the plugin first, and for paid plugins genuinely creates a Stripe Connect account, then opens a real GitHub pull request (branch + commit + PR, via the Market's /submit-plugin endpoint) adding the plugin's .lua file and index.json entry. Nothing is live until a human reviews and merges that PR on GitHub — this just gets it opened without the developer doing the fork/clone/branch/push/PR steps by hand. Running 'plugin publish again on an already-listed plugin opens an UPDATE pull request (replacing its index.json entry) rather than a new one, detected by checking the Market for an existing entry — no separate command needed for that.",
   },
   market: {
     summary: "Browse and install plugins from the free OXIS Market.",
@@ -467,6 +471,19 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
   const sep  = ()          => _ctxRef.current?.print("  " + "─".repeat(54), "dim");
   const h    = (cmd: string, d: string) => _ctxRef.current?.print("  " + cmd.padEnd(32) + d, "info");
   const shellCmd = (winCmd: string, unixCmd: string) => isWindows() ? winCmd : unixCmd;
+  /** Batched version of the very common `message.split("\n").forEach(line
+   *  => line ? (ok?ok:err)(line) : ctx.print(""))` pattern — found
+   *  during a performance audit doing this one line ('ctx.print) at a
+   *  time, each paying addLine's own full-buffer-copy cost separately
+   *  for no reason when the whole multi-line message is already known
+   *  up front. Same ✓/✗ prefix and ok/err kind as the ok()/err()
+   *  helpers above, just for every line of a message in one state
+   *  update instead of one per line. */
+  const printResultLines = (message: string, succeeded: boolean) => {
+    const entries: Array<[string, LineKind?]> = message.split("\n").map(line =>
+      line ? [(succeeded ? "  ✓  " : "  ✗  ") + line, (succeeded ? "ok" : "err") as LineKind] : ["", undefined]);
+    _ctxRef.current?.printLines(entries);
+  };
 
   // (ps/ok/err/dim/info/sep/h/shellCmd defined above via _ctxRef)
 
@@ -778,7 +795,7 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
       if(sub==="info"){
         if(!name){err("usage: 'plugin info <name>");return;}
         const r = pluginManager.info(name);
-        if(r.ok) r.text.split("\n").forEach(line => line ? info(line) : ctx.print(""));
+        if(r.ok) ctx.printLines(r.text.split("\n").map(line => [line ? "  " + line : "", line ? "info" as LineKind : undefined]));
         else err(r.message);
         return; }
       if(sub==="docs"){
@@ -849,13 +866,13 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
 
         findExistingListing(name).then(existing => {
           if(!price){
-            // Free plugin — opens a real GitLab MR for review, doesn't auto-merge.
-            info(`opening a merge request for "${name}" on GitLab…`);
+            // Free plugin — opens a real GitHub PR for review, doesn't auto-merge.
+            info(`opening a pull request for "${name}" on GitHub…`);
             return prepareFreePublish(check.metadata!, existing).then(result => {
-              result.message.split("\n").forEach(line => line ? (result.ok?ok:err)(line) : ctx.print(""));
-              if(result.mergeRequestUrl){
-                info("opening the merge request in your browser…");
-                void openUrl(result.mergeRequestUrl);
+              printResultLines(result.message, result.ok);
+              if(result.pullRequestUrl){
+                info("opening the pull request in your browser…");
+                void openUrl(result.pullRequestUrl);
               }
             });
           }
@@ -874,12 +891,12 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
               info("opening the Stripe onboarding link in your browser…");
               void openUrl(conn.onboardingUrl);
             }
-            info(`opening a merge request for "${name}" on GitLab…`);
+            info(`opening a pull request for "${name}" on GitHub…`);
             return submitPaidPlugin(check.metadata!, price, interval, conn.accountId || "", existing).then(result => {
-              result.message.split("\n").forEach(line => line ? (result.ok?ok:err)(line) : ctx.print(""));
-              if(result.mergeRequestUrl){
-                info("opening the merge request in your browser…");
-                void openUrl(result.mergeRequestUrl);
+              printResultLines(result.message, result.ok);
+              if(result.pullRequestUrl){
+                info("opening the pull request in your browser…");
+                void openUrl(result.pullRequestUrl);
               }
             });
           }).catch(e => err(`Stripe Connect onboarding failed: ${e instanceof Error ? e.message : e}`));
@@ -889,12 +906,12 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
         if(!name){err(`usage: 'plugin unpublish <name>`);return;}
         const email = getLicensedEmail();
         const author = email || name; // best-effort — same "not real authentication" caveat as the backend check itself; see delete-plugin.js
-        info(`opening a deletion merge request for "${name}" on GitLab…`);
+        info(`opening a deletion pull request for "${name}" on GitHub…`);
         requestPluginDeletion(name, author).then(result => {
-          result.message.split("\n").forEach(line => line ? (result.ok?ok:err)(line) : ctx.print(""));
-          if(result.mergeRequestUrl){
+          printResultLines(result.message, result.ok);
+          if(result.pullRequestUrl){
             info("opening the merge request in your browser…");
-            void openUrl(result.mergeRequestUrl);
+            void openUrl(result.pullRequestUrl);
           }
         }).catch(e => err(`couldn't reach the Market backend: ${e instanceof Error ? e.message : e}`));
         return; }
@@ -925,10 +942,19 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
         // 'plugin permissions <name>                 — list grants
         // 'plugin permissions <name> grant  <ns>      — grant fs/process/net/system
         // 'plugin permissions <name> revoke <ns>      — revoke it
-        if(!name){err("usage: 'plugin permissions <name> [grant|revoke <fs|process|net|system|workspace|editor|terminal>]");return;}
+        if(!name){err("usage: 'plugin permissions <name> [grant|revoke <fs|process|net|system|workspace|editor|terminal|shell>]");return;}
         const action = args[2]?.toLowerCase();
         const ns = args[3]?.toLowerCase() as PermissionNamespace | undefined;
-        const VALID: PermissionNamespace[] = ["fs","process","net","system","workspace","editor","terminal"];
+        // "shell" was missing from this list — a real bug, not a
+        // stylistic gap: it meant 'plugin permissions <name> grant
+        // shell was silently rejected as invalid usage (this list is
+        // what gates the command, separate from PermissionNamespace's
+        // own type definition), and the listing below could never
+        // show whether "shell" was actually granted to a plugin, even
+        // though it genuinely could be — via the confirm() dialog
+        // oxis.run() itself triggers. Added when "shell" was, should
+        // have been updated then rather than found later by audit.
+        const VALID: PermissionNamespace[] = ["fs","process","net","system","workspace","editor","terminal","shell"];
         if(action==="grant"||action==="revoke"){
           if(!ns || !VALID.includes(ns)){ err(`usage: 'plugin permissions ${name} ${action} <fs|process|net|system>`); return; }
           if(action==="grant") grantPermission(name, ns); else revokePermission(name, ns);
@@ -1469,8 +1495,20 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
   // new direct flow doesn't need a separate command to open a UI at
   // all — 'task commit just does the commit and reports the result.
 
-  registry.register({ name:"diagnostics", category:"info", description:"Local diagnostic info — version, OS, runtime, plugins, workspace, recent errors",
-    handler:()=>{
+  registry.register({ name:"diagnostics", category:"info", description:"Local diagnostic info — version, OS, runtime, plugins, workspace, recent errors ('diagnostics clear to reset the error log)",
+    handler:(args)=>{
+      if(args[0]?.toLowerCase()==="clear"){
+        // clearRecentErrors() existed with no way to actually trigger
+        // it — found during a dead-code audit (an exported function
+        // with zero call sites anywhere, not even internally). The
+        // intent was clearly "let 'diagnostics clear the error log
+        // back out", just never wired to a command — completing that
+        // rather than deleting it, since the feature itself is a real,
+        // small, obviously-useful one.
+        clearRecentErrors();
+        ok("recent-errors log cleared");
+        return;
+      }
       sep(); info("Diagnostics"); sep();
       info(`OXIS version:     1.2.1`);
       info(`OS:                ${isWindows() ? "Windows" : "Linux/Unix"}`);
@@ -1492,7 +1530,7 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
         }
       }
       sep(); dim("This is purely local — nothing on this screen is ever transmitted anywhere.");
-      dim("'plugin doctor for a focused check of installed plugins specifically."); sep();
+      dim("'plugin doctor for a focused check of installed plugins specifically."); dim("'diagnostics clear to reset the recent-errors log."); sep();
     }});
 
   // ── backup / restore ──────────────────────────────────────
@@ -1608,8 +1646,8 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
       h("'plugin rollback <n>","restore the backup from the last 'market update, any time after it");
       h("'plugin docs <n>","a plugin's own documentation, if it declares any");
       h("'plugin export <n> [path]","export a plugin's .lua source to a file");
-      h("'plugin publish <n> [--price --interval --email] [update]","open a GitLab merge request to add it to the Market — reviewed/merged by a human, not live automatically; see 'help plugin");
-      h("'plugin unpublish <n>","open a GitLab merge request to remove it from the Market — same human-reviewed model as publishing");
+      h("'plugin publish <n> [--price --interval --email] [update]","open a GitHub pull request to add it to the Market — reviewed/merged by a human, not live automatically; see 'help plugin");
+      h("'plugin unpublish <n>","open a GitHub pull request to remove it from the Market — same human-reviewed model as publishing");
       h("'plugin permissions <n>","see/grant/revoke fs, process, net, system, workspace, editor, terminal");
       h("'help <n>","show one plugin's commands + what they do");
       h("'market list","browse the free OXIS Market"); h("'market search <q>","search the Market");
@@ -2439,6 +2477,93 @@ function resolveRelativePath(baseDir: string, rel: string): string {
   return baseParts.join(sep);
 }
 
+/** Renders markdown as HTML styled to look like GitHub/GitLab's own
+ *  README rendering — dark mode specifically (not light), to stay
+ *  visually coherent with the rest of OXIS rather than dropping a
+ *  bright white page into an otherwise all-dark app. Uses `marked`
+ *  (a real, tested markdown parser — added as a dependency
+ *  specifically for this) rather than a hand-rolled regex converter,
+ *  since markdown has enough real edge cases (nested lists, tables,
+ *  fenced code with a language hint, etc.) that a partial parser
+ *  would look "close enough" right up until it didn't.
+ *
+ *  Includes Mermaid.js (loaded from a CDN inside the preview iframe
+ *  itself, same as any other external resource a previewed page can
+ *  reference — see inlinePreviewAssets's own doc comment on the
+ *  sandbox model) specifically so a ```mermaid fenced block renders
+ *  as the actual diagram, not a plain code block — this README's own
+ *  Architecture/Business Model diagrams are exactly that, so a
+ *  markdown preview that couldn't show them would be a visibly
+ *  incomplete rendering of the most common real use of this feature. */
+function renderMarkdownPreview(markdown: string): string {
+  const body = marked.parse(markdown, { gfm: true, breaks: false }) as string;
+  return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    background: #0d1117; color: #c9d1d9;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    font-size: 16px; line-height: 1.6;
+    max-width: 860px; margin: 0 auto; padding: 32px 24px 80px;
+  }
+  h1, h2, h3, h4, h5, h6 { color: #e6edf3; font-weight: 600; margin: 24px 0 16px; line-height: 1.25; }
+  h1 { font-size: 2em; padding-bottom: .3em; border-bottom: 1px solid #21262d; }
+  h2 { font-size: 1.5em; padding-bottom: .3em; border-bottom: 1px solid #21262d; }
+  h3 { font-size: 1.25em; }
+  h4 { font-size: 1em; }
+  p, ul, ol, table, pre, blockquote { margin: 0 0 16px; }
+  a { color: #4493f8; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code { background: rgba(110,118,129,.2); padding: .2em .4em; border-radius: 6px; font-family: ui-monospace, "SF Mono", Consolas, monospace; font-size: 85%; }
+  pre { background: #161b22; padding: 16px; border-radius: 6px; overflow-x: auto; border: 1px solid #21262d; }
+  pre code { background: none; padding: 0; font-size: 85%; }
+  blockquote { border-left: .25em solid #3b434b; padding: 0 1em; color: #8b949e; margin-left: 0; }
+  table { border-collapse: collapse; width: 100%; display: block; overflow-x: auto; }
+  th, td { border: 1px solid #30363d; padding: 6px 13px; }
+  th { background: #161b22; font-weight: 600; }
+  tr:nth-child(2n) { background: #161b22; }
+  img { max-width: 100%; background: #fff; border-radius: 6px; }
+  hr { border: none; border-top: 1px solid #21262d; margin: 24px 0; }
+  ul, ol { padding-left: 2em; }
+  li { margin: .25em 0; }
+  li > p { margin: 0; }
+  kbd { background: #161b22; border: 1px solid #30363d; border-bottom-width: 2px; border-radius: 6px; padding: 2px 6px; font-family: ui-monospace, monospace; font-size: 85%; }
+  .mermaid { background: #161b22; border-radius: 6px; padding: 16px; text-align: center; }
+</style>
+</head>
+<body>
+${body}
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>
+  // Real GitHub/GitLab rendering turns a \`\`\`mermaid fence into an
+  // actual diagram, not a plain code block — matched here the same
+  // way: find every <pre><code class="language-mermaid"> marked's
+  // own output produces, and hand its raw text to Mermaid to render
+  // in place. try/catch per-block so one malformed diagram can't take
+  // the rest of the preview down with it.
+  (function () {
+    if (typeof mermaid === "undefined") return;
+    mermaid.initialize({ startOnLoad: false, theme: "dark" });
+    document.querySelectorAll('pre > code.language-mermaid').forEach(function (block, i) {
+      try {
+        var id = "mermaid-preview-" + i;
+        var container = document.createElement("div");
+        container.className = "mermaid";
+        container.textContent = block.textContent;
+        block.parentElement.replaceWith(container);
+        mermaid.run({ nodes: [container] });
+      } catch (e) { /* leave this one as a plain code block rather than breaking the rest */ }
+    });
+  })();
+</script>
+</body>
+</html>`;
+}
+
 /** Inlines a preview HTML page's own local stylesheet/script
  *  references (relative `<link rel="stylesheet" href="...">` and
  *  `<script src="...">` tags) so the live preview actually looks
@@ -2539,6 +2664,8 @@ function Editor({ file, onClose, onSave }: {
   // silently start executing whatever script tags are in the file
   // the user just clicked on.
   const isHtmlFile = /\.html?$/i.test(file.path);
+  const isMarkdownFile = /\.(md|markdown)$/i.test(file.path);
+  const isPreviewable = isHtmlFile || isMarkdownFile;
   const [previewOpen, setPreviewOpen] = useState(false);
   // Debounced independently of changedLines' own debounce above (that
   // one only kicks in past 20,000 characters; a live preview visibly
@@ -2548,12 +2675,15 @@ function Editor({ file, onClose, onSave }: {
   // more visually disruptive operation than a diff recompute).
   const [previewContent, setPreviewContent] = useState(content);
   const previewRunId = useRef(0); // guards against an in-flight resolve landing after a NEWER one already started (fast typing, or a quick file switch)
-  const buildPreview = useCallback((html: string) => {
+  const buildPreview = useCallback((raw: string) => {
     const runId = ++previewRunId.current;
-    inlinePreviewAssets(html, file.path).then(resolved => {
+    const build = isMarkdownFile
+      ? Promise.resolve(renderMarkdownPreview(raw))
+      : inlinePreviewAssets(raw, file.path);
+    build.then(resolved => {
       if (previewRunId.current === runId) setPreviewContent(resolved);
     });
-  }, [file.path]);
+  }, [file.path, isMarkdownFile]);
   useEffect(() => {
     if (!previewOpen) return; // no reason to keep re-rendering an iframe nobody's looking at
     const t = setTimeout(() => buildPreview(content), 300);
@@ -2705,14 +2835,16 @@ function Editor({ file, onClose, onSave }: {
         <div className="editor-bar-right">
           <span className={`editor-mode editor-mode--${mode}`}>{mode.toUpperCase()}</span>
           <span className="editor-meta">{content.split("\n").length} lines</span>
-          {isHtmlFile && (
+          {isPreviewable && (
             <button className={`editor-btn${previewOpen ? " editor-btn--active" : ""}`}
               onClick={() => setPreviewOpen(o => !o)}
-              title="Live preview — renders in a sandboxed frame, updates a moment after you stop typing">
+              title={isMarkdownFile
+                ? "Live preview — rendered like GitHub/GitLab render a README, updates a moment after you stop typing"
+                : "Live preview — renders in a sandboxed frame, updates a moment after you stop typing"}>
               {previewOpen ? "preview ✓" : "preview"}
             </button>
           )}
-          {isHtmlFile && previewOpen && (
+          {isPreviewable && previewOpen && (
             <button className={`editor-btn${previewFullscreen ? " editor-btn--active" : ""}`}
               onClick={() => setPreviewFullscreen(f => !f)}
               title="Expand preview to full size (Ctrl+Shift+Enter, Esc to exit)">
@@ -2759,7 +2891,7 @@ function Editor({ file, onClose, onSave }: {
         {previewOpen && (
           <div className="editor-preview" style={previewFullscreen ? undefined : { width: `${previewWidthPct}%`, flex: "none" }}>
             <div className="editor-preview-bar">
-              <span>live preview</span>
+              <span>{isMarkdownFile ? "markdown preview" : "live preview"}</span>
               <span className="editor-preview-note">sandboxed — scripts run, but can't reach OXIS or your files</span>
               {previewFullscreen && (
                 <button className="editor-preview-exit" onClick={() => setPreviewFullscreen(false)} title="Exit full size (Esc)">
@@ -3139,9 +3271,13 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
   const [searching,    setSearching]    = useState(false);
   const [searchResult, setSearchResult] = useState<SearchResult | null>(null);
 
-  // ── output search (Ctrl+F) — distinct from the above, which is
-  // Ctrl+R's reverse-i-search through COMMAND HISTORY. This searches
-  // the actual on-screen scrollback (`lines`) instead — "did I already
+  // ── output search (Ctrl+Shift+F — Ctrl+F alone was already taken
+  // by readline's forward-char; this used to be declared as a second,
+  // unreachable `case "f":` in the same switch as forward-char, a
+  // genuine bug the build itself caught, see the keydown handler for
+  // the fix) — distinct from the above, which is Ctrl+R's
+  // reverse-i-search through COMMAND HISTORY. This searches the
+  // actual on-screen scrollback (`lines`) instead — "did I already
   // see X printed somewhere above". ──────────────────────────────
   const [outputSearchOpen,  setOutputSearchOpen]  = useState(false);
   const [outputSearchQuery, setOutputSearchQuery] = useState("");
@@ -3281,6 +3417,27 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
     scrollToBottom();
   }, [scrollToBottom]);
 
+  /** Prints several lines as ONE state update instead of one addLine
+   *  call per line — found during a performance audit. addLine's own
+   *  `[...next, newLine]` copies the whole (up to 10,000-line) buffer
+   *  on every call; a command that split a multi-line message and
+   *  called addLine/ctx.print once per line (a real, existing pattern
+   *  — 'plugin publish's own status messages, for one) paid that copy
+   *  cost once PER LINE for no reason, when one copy for the whole
+   *  batch does the same job. Each entry can carry its own kind, same
+   *  as addLine's second argument, for callers whose lines aren't all
+   *  the same color (an ok/err mix, say). */
+  const addLines = useCallback((entries: Array<[string, LineKind?]>) => {
+    if (entries.length === 0) return;
+    setLines(prev => {
+      const next = prev.length >= 10_000 ? prev.slice(-8_000) : prev;
+      const result = [...next, ...entries.map(([text, kind]) => mkLine(text, kind))];
+      linesRef.current = result;
+      return result;
+    });
+    scrollToBottom();
+  }, [scrollToBottom]);
+
   // Real-time workspace auto-reload notifications — see
   // startAutoReload() in workspaceManager.ts. Only the ACTIVE
   // terminal tab prints these (isActive), so switching workspaces in
@@ -3295,7 +3452,16 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
       const { path, message } = (p as { path?: string; message?: string } | undefined) ?? {};
       addLine(`  ⚠ workspace auto-reload failed: ${message ?? "unknown error"} — ${path ?? "?"}`, "warn");
     });
-    return () => { u1(); u2(); };
+    // A command handler throwing used to be caught in
+    // commandRegistry.ts and only ever logged to console.error —
+    // invisible to an actual user, who'd just see their command
+    // silently do nothing. Now it's a real event with a visible
+    // message here, same as the workspace reload notices above.
+    const u3 = events.on("command_error", (p) => {
+      const { name, message } = (p as { name?: string; message?: string } | undefined) ?? {};
+      addLine(`  ✗  '${name ?? "?"}' failed: ${message ?? "unknown error"}`, "err");
+    });
+    return () => { u1(); u2(); u3(); };
   }, [isActive, addLine]);
 
   const clear = useCallback(() => {
@@ -3326,7 +3492,7 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
     ghostRef.current?.focus({ preventScroll: true });
   }, []);
 
-  // Output search (Ctrl+F) — distinct from Ctrl+R's reverse-i-search
+  // Output search (Ctrl+Shift+F) — distinct from Ctrl+R's reverse-i-search
   // through COMMAND HISTORY above; this searches the actual on-screen
   // scrollback (`lines`) instead — "did I already see X printed
   // somewhere above".
@@ -3490,6 +3656,7 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
     if (ctxRef.current) {
       ctxRef.current.send  = sendToShell;
       ctxRef.current.print = addLine;
+      ctxRef.current.printLines = addLines;
       ctxRef.current.clear = clear;
     }
     return registry.execute(verb, args, rest);
@@ -3563,7 +3730,7 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
 
         // Background update check — once per app run, well after
         // startup (see _updateCheckedThisRun) so a slow/offline
-        // gitlab.com never delays the shell becoming usable. Silent
+        // network never delays the shell becoming usable. Silent
         // when up to date; a single line (not a popup) when not, same
         // as every other passive notice in this terminal.
         if (!_updateCheckedThisRun) {
@@ -3607,6 +3774,7 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
       send: sendToShell,
       runLine,
       print: addLine,
+      printLines: addLines,
       clear,
       openEditor: path => {
         setEditorFiles(files => {
@@ -3803,7 +3971,20 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
         // Line editing
         case "a": e.preventDefault(); syncInput(val, 0);          return; // BOL
         case "e": e.preventDefault(); syncInput(val, val.length); return; // EOL
-        case "f": e.preventDefault(); syncInput(val, Math.min(val.length, cur + 1)); return; // fwd char
+        case "f": e.preventDefault();
+          // Ctrl+F alone was already bound (forward-char, readline
+          // convention) — the SEPARATE Ctrl+Shift+F case below this
+          // switch (openOutputSearch, on-screen SCROLLBACK search)
+          // was declared as a second `case "f":` in this exact same
+          // switch, which JS/TS can only ever match on the first
+          // occurrence — the build itself caught this ("this case
+          // clause will never be evaluated because it duplicates an
+          // earlier case clause"), meaning output search had been
+          // completely unreachable via its own keybinding. Folded
+          // both into this one case, branching on e.shiftKey, rather
+          // than two cases matching the same key string.
+          if (e.shiftKey) { openOutputSearch(); return; } // Ctrl+Shift+F — output search (on-screen SCROLLBACK)
+          syncInput(val, Math.min(val.length, cur + 1)); return; // Ctrl+F — fwd char
         case "b": e.preventDefault(); syncInput(val, Math.max(0, cur - 1));          return; // back char
         case "h": e.preventDefault(); // Ctrl+H = Backspace
           if (cur > 0) syncInput(val.slice(0, cur - 1) + val.slice(cur), cur - 1);
@@ -3846,8 +4027,6 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
         case "l": e.preventDefault(); clear(); return; // clear screen
 
         case "r": e.preventDefault(); enterSearch(); return; // reverse search (command HISTORY)
-
-        case "f": e.preventDefault(); openOutputSearch(); return; // output search (on-screen SCROLLBACK)
 
         case "p": // previous history (like up arrow)
           e.preventDefault();
@@ -4781,15 +4960,15 @@ function Home({ onNew, currentTheme, onTheme, onOpenThemeEditor, onOpenPluginCre
 </div>
         <div className="oxis-ver-row">
           <span className="oxis-ver-label">OXIS</span><span className="oxis-ver-num">v1.2.1</span>
-          <button className="oxis-gitlab-btn" onClick={() => void openUrl("https://gitlab.com/oxidelab/oxis.git")}
-            title="Open the OXIS repository on GitLab">GitLab ↗</button>
+          <button className="oxis-github-btn" onClick={() => void openUrl("https://github.com/oxlaboratory/oxis")}
+            title="Open the OXIS repository on GitHub">GitHub ↗</button>
         </div>
         {!workspacePanelHidden && <WorkspacePanel ws={ws} plugins={plugins} activeWorkspace={activeWorkspace} activeWorkspacePath={activeWorkspacePath} />}
         <div className="oxis-box oxis-help-box">
           <div className="oxis-help-row"><span className="oht">Type</span> <span className="ohc">&apos;help</span><span className="ohr"> if you need some help</span></div>
           <div className="oxis-help-row"><span className="oht">Type</span> <span className="ohc">&apos;edit</span> <span className="oha">&lt;file&gt;</span><span className="ohr"> to open the built-in editor</span></div>
           <div className="oxis-help-row"><span className="oht">Type</span> <span className="ohc">&apos;market list</span><span className="ohr"> to browse plugins you can install</span></div>
-          <div className="oxis-help-row"><span className="oht">Type</span> <span className="ohc">&apos;theme</span><span className="ohr"> to see and switch color themes</span></div>
+          <div className="oxis-help-row"><span className="oht">Press</span> <span className="ohc">Ctrl+Shift+P</span><span className="ohr"> to open the command palette</span></div>
           <div className="oxis-help-row"><span className="oht">Press</span> <span className="ohc">Ctrl+Shift+M</span><span className="ohr"> to open the OXIS Market website in your browser</span></div>
         </div>
         <HomeCmdLine value={input} onChange={handleChange} onKeyDown={handleKeyDown} inputRef={inputRef} />
@@ -5146,6 +5325,10 @@ function CommandPalette({ onRun, onClose }: { onRun: (cmd: string) => void; onCl
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  // One shared ref, re-pointed at whichever item is currently
+  // selected via its own ref callback below — simpler than an array
+  // of refs for a list that re-renders on every keystroke/navigation.
+  const selectedItemRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => { setTimeout(() => inputRef.current?.focus(), 20); }, []);
 
@@ -5169,6 +5352,44 @@ function CommandPalette({ onRun, onClose }: { onRun: (cmd: string) => void; onCl
   }, [query]);
 
   useEffect(() => { setSelected(0); }, [query]);
+
+  // The actual fix for "arrow keys navigate but the list doesn't
+  // scroll" — reported directly, and a real gap: selected only ever
+  // moved a highlight class, nothing ever brought that element back
+  // into view once arrowing past whatever's currently visible.
+  // "nearest" (not "center"/"start") specifically so it doesn't yank
+  // the list around on every keystroke once the selection is already
+  // in view — it only scrolls the minimum needed to bring an
+  // off-screen item back on-screen.
+  useEffect(() => {
+    selectedItemRef.current?.scrollIntoView({ block: "nearest" });
+  }, [selected]);
+
+  // Escape not closing the palette was also reported directly. The
+  // input's own onKeyDown below already has a correct Escape case —
+  // arrow keys and Enter through that same handler DO work, which
+  // means the input genuinely has focus and IS receiving keydown
+  // events, so something is specifically intercepting Escape rather
+  // than blocking keys generally. Rather than keep hunting for
+  // exactly which of this app's several other Escape handlers (Find
+  // bars, output search, the theme editor, reverse-search) it is,
+  // this uses the same robust pattern already proven for the live
+  // preview's own fullscreen Escape handling: a dedicated,
+  // capture-phase, window-level listener scoped to whenever this
+  // palette is mounted, independent of DOM focus or React's own
+  // synthetic event bubbling — guaranteed to fire and close the
+  // palette regardless of what else in the app might otherwise catch
+  // the keypress first.
+  useEffect(() => {
+    const onWindowEscape = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      e.stopPropagation();
+      onClose();
+    };
+    window.addEventListener("keydown", onWindowEscape, true);
+    return () => window.removeEventListener("keydown", onWindowEscape, true);
+  }, [onClose]);
 
   const run = useCallback((cmd: string) => {
     onRun(`'${cmd}`);
@@ -5206,6 +5427,7 @@ function CommandPalette({ onRun, onClose }: { onRun: (cmd: string) => void; onCl
           {results.map((c, i) => (
             <div
               key={c.name}
+              ref={i === selected ? selectedItemRef : undefined}
               className={`cmdp-item${i === selected ? " cmdp-item--selected" : ""}`}
               onMouseEnter={() => setSelected(i)}
               onMouseDown={e => { e.preventDefault(); run(c.name); }}
@@ -5245,7 +5467,6 @@ export default function App() {
     applyAllSettings(); // font size, cursor style/blink — persisted from last session, same as changing them live
     installGlobalErrorCapture(); // 'diagnostics — captures uncaught JS exceptions too, not just recordError() call sites
     void workspaceManager.runAutoUpdateIfNeeded(); // brings existing workspaces' folder layout up to date whenever OXIS itself has been updated since the last launch — see README § Workspace Auto-Update
-    sessionManager.clear();
     const animT = setTimeout(() => setShowAnim(false), 1800);
     const checkUpdate = async () => {
       if (getSetting("updateCheckOnStartup") === false) return; // 'config set updateCheckOnStartup false
@@ -5271,6 +5492,7 @@ export default function App() {
         send:        () => {},
         runLine:     () => {},
         print:       (t, k) => console.log("[oxis]", t),
+        printLines:  entries => entries.forEach(([t]) => console.log("[oxis]", t)),
         clear:       () => {},
         openEditor:  () => {},
         newTerminal: () => {},
@@ -5297,15 +5519,17 @@ export default function App() {
     return () => { u1(); u2(); };
   }, []);
 
-  // Persist minimal session state
-  useEffect(() => {
-    sessionManager.save({
-      tabs:      [],
-      activeTab: view,
-      theme:     curTheme,
-      savedAt:   Date.now(),
-    });
-  }, [view, curTheme]);
+  // (sessionManager — used to persist minimal session state here on
+  // every theme/view change — was found to be entirely dead code and
+  // removed: `load()` was never called anywhere in the codebase, and
+  // `sessionManager.clear()` ran at every startup BEFORE any load
+  // could have happened anyway, so the round-trip was meaningless —
+  // save something, wipe it on next launch, never read it in
+  // between. Theme persistence already happens correctly and
+  // independently via themeManager's own "oxis-theme" localStorage
+  // key, so nothing was actually lost by removing this; it was only
+  // ever doing pointless localStorage writes on every single theme
+  // change or Home/Shell switch. sessionManager.ts deleted.)
 
   // "go home" — wired to the 'home command via _goHomeRef
   const goHome = useCallback(() => setView("home"), []);

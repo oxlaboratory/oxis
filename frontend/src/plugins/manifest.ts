@@ -41,7 +41,16 @@ import type { PermissionNamespace } from "./permissions";
  *  string refactor. */
 export const OXIS_VERSION = "1.2.1";
 
-const ALL_NAMESPACES: PermissionNamespace[] = ["fs", "process", "net", "system", "workspace", "editor", "terminal"];
+// Kept in sync with PermissionNamespace's own type union by hand —
+// this is what the manifest's `permissions:` field parser filters
+// against (see below), and it SILENTLY DROPS anything not in this
+// list, no error or warning to the plugin author. Found and fixed a
+// real instance of this drifting out of sync: "shell" existed as a
+// real, working permission namespace elsewhere in the codebase for a
+// while before this list was updated to match, meaning a plugin
+// manifest that declared `permissions: shell` would have had it
+// silently vanish from the parsed result the whole time.
+const ALL_NAMESPACES: PermissionNamespace[] = ["fs", "process", "net", "system", "workspace", "editor", "terminal", "shell"];
 
 export interface PluginManifest {
   version?: string;

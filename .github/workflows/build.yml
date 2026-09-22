@@ -6,7 +6,13 @@
 # against — see that file's own doc comment for the full design.
 #
 #   build → dist/oxis (binary) + dist/deb/oxis_<ver>_amd64.deb
-#         → uploaded as a workflow artifact (every push/PR)
+#         → dist/oxis-<ver>-linux-portable.tar.gz (extract-and-run,
+#           everything pre-created — workspaces/, created-plugins/,
+#           created-documents/ — the Linux equivalent of the Windows
+#           portable dist/ folder, for anyone who'd rather skip the
+#           package manager and /usr/bin's shared, system-wide
+#           install location entirely)
+#         → all three uploaded as a workflow artifact (every push/PR)
 #         → ALSO published to the "latest-build" release (push to the
 #           default branch only, never on a PR — see the `if:` guard
 #           on that step)
@@ -72,6 +78,7 @@ jobs:
           path: |
             dist/oxis
             dist/deb/oxis_*_amd64.deb
+            dist/oxis-*-linux-portable.tar.gz
           retention-days: 30
 
       # Only on an actual push to the default branch — never on a PR
@@ -93,3 +100,4 @@ jobs:
           files: |
             dist/oxis
             dist/deb/oxis_*_amd64.deb
+            dist/oxis-*-linux-portable.tar.gz

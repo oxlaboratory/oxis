@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/oxis/oxis/internal/server"
@@ -126,20 +127,134 @@ func pluginsDir() (string, error) {
 	return dir, nil
 }
 
-// AppDirPath returns the directory the running executable lives in —
-// e.g. the "dist" folder a user extracted the app into, whatever it's
-// actually named or wherever it's been moved, since this is resolved
-// fresh from os.Executable() every call rather than cached. Every
-// "where does OXIS keep its stuff" path (plugins, created documents,
-// created plugins, workspaces) is built from this, specifically so
-// that moving the whole install folder doesn't orphan any of it — the
-// next call just resolves against the new location automatically.
+// appDirOnce/appDirCached/appDirErr — see AppDirPath below for why
+// this is computed once per process rather than on every call (the
+// old implementation deliberately never cached, specifically so
+// moving the whole portable install folder mid-run wouldn't orphan
+// anything — but that only matters for the portable case, and
+// checking writability fresh on every single call would itself be a
+// real performance cost on a function this hot, especially now that
+// the check involves an actual filesystem write-test, not just a
+// string join).
+var (
+	appDirOnce   sync.Once
+	appDirCached string
+	appDirErr    error
+)
+
+// AppDirPath resolves the directory OXIS should read/write its own
+// data (workspaces, created-plugins, created-documents) from and to.
+//
+// Normally that's just wherever oxis.exe itself lives — the portable
+// case, someone extracted a dist/ folder and is running it directly.
+// But an MSI-installed OXIS runs from C:\Program Files\OXIS, which
+// Windows protects from writes by a normal (non-elevated) user
+// session under UAC — every attempt to create workspaces/created-
+// plugins/created-documents there would silently fail. This was a
+// real, reported bug: installing via the MSI left users with no
+// created documents, no plugins, no workspaces at all, because the
+// app could never actually write anything where it was looking —
+// found while investigating a separate installer report (a missing
+// desktop shortcut), and turned out to be the more fundamental of the
+// two problems.
+//
+// The fix: check whether the exe's own directory is actually
+// writable (a real write-test, not just permission bits — those
+// don't always tell the whole story with UAC virtualization/ACLs).
+// If it is, behavior is UNCHANGED from before. If it isn't, fall back
+// to a directory under the user's own Downloads folder instead, which
+// is always writable by a normal user session. On first use of that
+// fallback, cloneSourceInBackground (below) clones this project's own
+// GitHub source into it, and the app's existing folder-creation logic
+// (workspaces, created-plugins, created-documents — unchanged, still
+// just relative paths off whatever this function returns) creates
+// those the same way it always has, just rooted here instead.
 func AppDirPath() (string, error) {
-	exe, err := os.Executable()
+	appDirOnce.Do(func() {
+		exe, err := os.Executable()
+		if err != nil {
+			appDirErr = err
+			return
+		}
+		exeDir := filepath.Dir(exe)
+		if isWritableDir(exeDir) {
+			appDirCached = exeDir
+			return
+		}
+		appDirCached, appDirErr = fallbackDataDir()
+	})
+	return appDirCached, appDirErr
+}
+
+// isWritableDir actually tries creating and removing a small temp
+// file, rather than just inspecting permission bits — the only
+// reliable way to know for sure on Windows, where UAC virtualization
+// can make a directory LOOK writable while silently redirecting
+// writes elsewhere, or ACLs can restrict a specific account in ways
+// the basic mode bits alone won't show.
+func isWritableDir(dir string) bool {
+	f, err := os.CreateTemp(dir, ".oxis-write-test-*")
+	if err != nil {
+		return false
+	}
+	name := f.Name()
+	f.Close()
+	os.Remove(name)
+	return true
+}
+
+// fallbackDataDir is where OXIS keeps its own data when it can't
+// write next to its own exe (see AppDirPath above) — a fixed,
+// predictable location under the user's Downloads folder, created (if
+// it doesn't already exist) the first time it's needed.
+func fallbackDataDir() (string, error) {
+	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Dir(exe), nil
+	dir := filepath.Join(home, "Downloads", "OXIS")
+	firstRun := false
+	if _, statErr := os.Stat(dir); os.IsNotExist(statErr) {
+		firstRun = true
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+	if firstRun {
+		go cloneSourceInBackground(dir)
+	}
+	return dir, nil
+}
+
+// cloneSourceInBackground clones this project's own GitHub source
+// into <fallbackDataDir>/source the first time OXIS ever needs the
+// fallback data directory — so an MSI-installed user still ends up
+// with the project's full source alongside their own data, the same
+// thing the old (now removed) installer-bundled source used to
+// provide, just delivered by the running app instead of baked into
+// the installer package.
+//
+// Entirely best-effort and silent: no git on PATH, no network, or a
+// clone that fails for any other reason are all just skipped, never
+// surfaced as an error anywhere the user would see it. A missing
+// source copy is a real but secondary loss; it should never be able
+// to block, slow down, or destabilize the app itself, which is why
+// this runs in its own goroutine rather than something fallbackDataDir
+// waits on. 5-minute timeout so a stalled clone (bad network, GitHub
+// down) can't run forever in the background.
+func cloneSourceInBackground(dataDir string) {
+	if _, err := exec.LookPath("git"); err != nil {
+		return
+	}
+	target := filepath.Join(dataDir, "source")
+	if _, err := os.Stat(target); err == nil {
+		return // already there somehow
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", "clone", "--depth", "1",
+		"https://github.com/oxlaboratory/oxis.git", target)
+	_ = cmd.Run()
 }
 
 // AppDir exposes AppDirPath to the frontend (window.go.wailsapp.App.AppDir)

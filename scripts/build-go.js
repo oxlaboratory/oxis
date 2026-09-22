@@ -200,7 +200,7 @@ Version: ${VERSION}
 Section: utils
 Priority: optional
 Architecture: amd64
-Maintainer: OxiShell <oxis@gitlab.com>
+Maintainer: OXIS <noreply@oxlaboratory.dev>
 Description: OxiShell terminal
  A Lua-configurable native desktop terminal, built with Wails.
 `);
@@ -215,35 +215,70 @@ Type=Application
 Categories=System;TerminalEmulator;
 `);
     const postinst = path.join(debDir, "postinst");
-    fs.writeFileSync(postinst, "#!/bin/sh\nupdate-desktop-database /usr/share/applications 2>/dev/null || true\ngtk-update-icon-cache /usr/share/icons/hicolor 2>/dev/null || true\nexit 0\n");
+    // dpkg installs are non-interactive by design — there's no GUI
+    // wizard step, and no way to prompt for or offer an install-
+    // location choice the way the Windows MSI now does (WixUI_InstallDir
+    // — see build-msi.js). /usr/bin is fixed, standard, and (same
+    // reasoning as Program Files on Windows) not writable by a
+    // regular non-root user, so OXIS's own write-test in AppDirPath()
+    // (internal/wailsapp/app.go) already redirects to ~/Downloads/OXIS
+    // automatically on Linux too, no installer-side change needed —
+    // this postinst message just tells the person that up front
+    // instead of leaving them to discover it themselves.
+    const postinstScript = [
+      "#!/bin/sh",
+      "update-desktop-database /usr/share/applications 2>/dev/null || true",
+      "gtk-update-icon-cache /usr/share/icons/hicolor 2>/dev/null || true",
+      "echo",
+      "echo 'OXIS installed to /usr/bin/oxis.'",
+      "echo 'Its own data (workspaces, plugins, documents) will live under'",
+      "echo '~/Downloads/OXIS the first time you run it -- /usr/bin is a shared,'",
+      "echo 'system-wide location a regular user account cannot write to, same'",
+      "echo 'as the Windows install choosing between Program Files and Downloads.'",
+      "echo",
+      "exit 0",
+      "",
+    ].join("\n");
+    fs.writeFileSync(postinst, postinstScript);
     fs.chmodSync(postinst, 0o755);
 
     const debFile = path.join(OUT, "deb", `oxis_${VERSION}_amd64.deb`);
     run(`dpkg-deb --build --root-owner-group "${debStage}" "${debFile}"`, ROOT);
     ok(`dist/deb/oxis_${VERSION}_amd64.deb`);
+
+    // Portable tarball — extract-and-run, everything pre-created, no
+    // package manager, no /usr/bin, no waiting on the app's own
+    // first-run git clone. Same thing build-linux.sh (the CI-facing
+    // script) now also builds — kept in sync here so `npm run build`
+    // run directly on Linux produces the same output CI does, not a
+    // narrower one just because it went through a different script.
+    const portableDir = path.join(OUT, "oxis-portable");
+    fs.rmSync(portableDir, { recursive: true, force: true });
+    ["workspaces", "created-plugins", "created-documents"].forEach(d =>
+      fs.mkdirSync(path.join(portableDir, d), { recursive: true }));
+    fs.copyFileSync(outBinary, path.join(portableDir, "oxis"));
+    fs.chmodSync(path.join(portableDir, "oxis"), 0o755);
+    const tarballName = `oxis-${VERSION}-linux-portable.tar.gz`;
+    run(`tar -czf "${tarballName}" -C "${OUT}" oxis-portable`, OUT);
+    fs.rmSync(portableDir, { recursive: true, force: true });
+    ok(`dist/${tarballName}`);
   } else {
     log("   (skipping .deb — dpkg-deb not found)", col.grey);
   }
 }
 
-// ── Step 8: Windows installer (bundles full source) ────────────
-// Runs automatically as part of `npm run build` on Windows — not a
-// separate opt-in step — since the whole point is that building OXIS
-// also produces something the user can hand to someone else that
-// installs both the app AND the full editable source in one go (see
-// scripts/build-msi.js: WiX -> real .msi if available, NSIS .exe as
-// a fallback). Non-fatal: if neither WiX nor NSIS is installed, this
-// just prints instructions instead of failing the whole build — the
-// binary above is already built and usable either way.
-if (IS_WIN) {
-  step(6, "Building Windows installer (dist/oxis.exe + full source)...");
-  const msiScript = path.join(__dirname, "build-msi.js");
-  const r = spawnSync("node", [`"${msiScript}"`], { cwd: ROOT, shell: true, stdio: "inherit" });
-  if (r.status !== 0) {
-    log("   (installer not built — see messages above; binary itself is fine)", col.grey);
-    log("   Run manually once WiX or NSIS is installed:  npm run build:msi", col.grey);
-  }
-}
+// ── Windows installer is a SEPARATE step now: npm run build:msi ──
+// Used to run automatically here as part of `npm run build` — the
+// original reasoning was that building OXIS should also produce
+// something that installs both the app AND the full source in one
+// go. That reasoning no longer applies: the installer doesn't bundle
+// source anymore at all (see build-msi.js's own top comment — the
+// RUNNING APP now clones its own source into a writable data
+// directory on first launch instead, only when it actually needs
+// to). With nothing left to bundle, there's no reason `npm run
+// build` should also spend time building a WiX/NSIS installer nobody
+// asked for on every single build — run `npm run build:msi`
+// explicitly when you actually want one.
 
 log("\n╔══════════════════════════════════╗", col.magenta);
 log("║  Build complete!                 ║", col.magenta);

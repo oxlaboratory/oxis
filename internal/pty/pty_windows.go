@@ -49,10 +49,17 @@ func HandleSession(conn *websocket.Conn) {
 
 	go func() {
 		buf := make([]byte, 8192)
+		var pending []byte // see splitIncompleteUTF8's own doc comment in pty.go
 		for {
 			n, err := cpty.Read(buf)
 			if n > 0 {
-				data := stripCtrl(string(buf[:n]))
+				chunk := buf[:n]
+				if len(pending) > 0 {
+					chunk = append(append([]byte{}, pending...), chunk...)
+				}
+				complete, newPending := splitIncompleteUTF8(chunk)
+				pending = append([]byte{}, newPending...) // copy — chunk's backing array is buf, reused next iteration
+				data := stripCtrl(string(complete))
 				if data != "" {
 					safeSend(conn, &mu, outMsg{Type: "output", Data: data})
 				}

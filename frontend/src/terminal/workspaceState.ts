@@ -73,6 +73,12 @@ class WorkspaceState {
       this.log(`theme switched to "${name}"`);
     });
     events.on("plugin_loaded", (p) => {
+      // Only fires for a genuine, individual load now — bulk startup
+      // loading (loadUserPlugins, loadAllPremiumPlugins) passes
+      // silent:true to pluginManager.load() specifically so this
+      // activity row doesn't get flooded with "plugin X reloaded" for
+      // every one of the ~20+ plugins loaded fresh on every launch,
+      // which is what it used to do before that fix.
       const name = String((p as { name?: string })?.name ?? "");
       if (name) this.log(`plugin "${name}" reloaded`);
     });

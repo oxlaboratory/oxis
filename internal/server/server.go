@@ -7,7 +7,6 @@ import (
 	"log"
 	"net"
 	"net/http"
-	"strings"
 
 	"github.com/gorilla/websocket"
 	"github.com/oxis/oxis/internal/pty"
@@ -50,10 +49,32 @@ var upgrader = websocket.Upgrader{
 	CheckOrigin:     func(r *http.Request) bool { return true },
 }
 
+// isLocalhost gates /ws — the ONLY remaining check on it, since
+// CheckOrigin above allows every origin unconditionally. Real,
+// exploitable bug found here: this used to check
+// strings.HasPrefix(host, "127.0.0.1") — a prefix match, not an exact
+// one, meaning a Host header of "127.0.0.1.attacker.com" (or
+// "127.0.0.1evil.com", or "localhost.attacker.com" for the other
+// branch) would ALSO satisfy it, despite naming a completely
+// different, attacker-controlled domain. This is exactly the shape
+// of a DNS-rebinding attack against a local server: a page running
+// in the browser on the SAME machine gets a domain it controls to
+// resolve to 127.0.0.1, then sends a request that a browser is
+// perfectly willing to make (same machine, real 127.0.0.1
+// destination) carrying whatever Host header the attacker's domain
+// produces — which this prefix check would have happily accepted.
+// Fixed with an exact match against the actual hostname, with the
+// port stripped first via net.SplitHostPort (r.Host normally
+// includes it, e.g. "127.0.0.1:1420" — comparing that whole string
+// against "127.0.0.1" would never match anything, which is why the
+// prefix check existed in the first place; the fix is stripping the
+// port properly, not relaxing the comparison back to a prefix).
 func isLocalhost(r *http.Request) bool {
-	host := r.Host
-	return strings.HasPrefix(host, "localhost") ||
-		strings.HasPrefix(host, "127.0.0.1")
+	host, _, err := net.SplitHostPort(r.Host)
+	if err != nil {
+		host = r.Host // no port present (SplitHostPort fails on a bare host)
+	}
+	return host == "localhost" || host == "127.0.0.1" || host == "::1"
 }
 
 // Listen starts OXIS's local HTTP server: the PTY WebSocket at /ws,

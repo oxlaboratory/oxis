@@ -7,20 +7,162 @@ change was made, not necessarily when a version was tagged.
 
 ### Added
 
-- **README's two ASCII box diagrams (Architecture, Business Model)
-  replaced with real Mermaid diagrams** — reported as rendering
-  broken/misaligned on GitHub, which is a known, common problem with
-  hand-drawn box-drawing-character diagrams in markdown: they depend
-  on pixel-perfect monospace alignment across many lines, which
-  doesn't hold up reliably in every renderer. GitHub natively renders
-  ` ```mermaid ` code fences as actual vector diagrams instead of
-  text, so this isn't a font/alignment problem anymore, on GitHub or
-  anywhere else that renders Mermaid. Left the simpler tree-style
-  diagrams (`├──`/`└──`, used throughout Directory Structure and a
-  few others) and the Home screen's WORKSPACE panel mockup alone —
-  the former render reliably everywhere and aren't what was reported
-  broken, and the latter is intentionally styled to look like the
-  app's own terminal UI, which a vector diagram wouldn't convey.
+- **MSI: install location is now validated and restricted to the
+  user's own profile, not just picker-enabled.** A real Custom Action
+  (VBScript — the reliable WiX 3 pattern for this, not MSI's own
+  property table, which doesn't reliably auto-expose `%USERPROFILE%`)
+  now runs on every "Next" click from the Destination Folder page:
+  defaults the path to `%USERPROFILE%\OXIS` instead of Program Files,
+  and rejects anything NOT under the user's own profile — Program
+  Files, another drive's root, another user's folder, all correctly
+  blocked — with a real warning dialog before install proceeds, not
+  a launch-time rejection after clicking through every remaining
+  page. Extracted and validated the actual generated XML (not just
+  the static template) end to end; well-formed. The workspace/
+  plugins/documents folders added last time are genuinely nested
+  under `INSTALLFOLDER` in the WXS, so they follow wherever the user
+  picks automatically — confirmed, no changes needed there.
+- **Linux: a portable tarball, matching the Windows portable `dist/`
+  folder experience, built in both places that package Linux —
+  found they'd drifted apart.** `build-linux.sh` (what GitHub Actions
+  CI actually calls) turned out to be a completely separate
+  implementation from `build-go.js`'s own Linux packaging path, and
+  it was stale — still said `Maintainer: OxiShell <oxis@gitlab.com>`,
+  and never got the Downloads-fallback postinst message added to the
+  other file earlier this session. Fixed both, and added a new
+  `dist/oxis-<version>-linux-portable.tar.gz` to each: the binary
+  plus pre-created empty `workspaces/`, `created-plugins/`,
+  `created-documents/` folders, extract-and-run, no package manager.
+  Deliberately NOT bundled into the `.deb` itself — `/usr/bin` is
+  shared across every user on a Linux machine, and per-user data
+  belongs there as little as it belongs in Program Files, for the
+  same reason. `.github/workflows/build.yml` updated to upload and
+  publish the new tarball alongside the existing binary and `.deb`.
+- **README accuracy sweep — cross-checked claims against the actual
+  code rather than trusting labels already there, found real,
+  significant staleness.** Checked the real Lua API bindings in
+  `luaRuntime.ts` against what a `[planned]` table claimed:
+  `oxis.fs.read/write/list/stat/mkdir/remove`, `oxis.process.list/kill`,
+  `oxis.net.request`, and `oxis.system.info` are all genuinely
+  shipped — only `fs.watch` and `process.spawn` are actually still
+  missing, not the whole surface the table implied. Also fixed:
+  "Plugin templates" (shipped — `--template=basic|dev|devops|system`
+  is real), "Free/community/premium plugins" (shipped — the very next
+  table row already correctly described the same feature), "Search
+  Mode" (the underlying capability ships in all three places —
+  terminal scrollback, command history, editor find — just not
+  through the literal `/` key this row described), and "Third-party
+  paid plugins" in the Coming Soon section (the actual publishing
+  flow, `'plugin publish --price`, is real and working — what's still
+  gated is OXIS's own Stripe production-mode verification, not a
+  missing publishing UI).
+- **MSI: real install-location picker (`WixUI_InstallDir`) and
+  explicit, empty `workspaces/`/`created-plugins/`/`created-documents/`
+  folders created at install time, not left to appear lazily on
+  first use.** The whole reason nothing seemed to show up under
+  `Program Files\OXIS` right after installing — the folders were
+  correctly permissioned (see the grant below) but genuinely didn't
+  exist yet, since the app only creates each one the first time it's
+  actually needed (first plugin, first document, first workspace).
+  Now they're real, visible, empty folders the moment install
+  finishes, wherever the person chooses to install to — the location
+  picker isn't hardcoded to Program Files anymore either. Needed
+  `WixUIExtension` linked at both compile and link time, and a
+  license RTF for its License Agreement page (`buildLicenseRtf()`
+  converts the real `LICENSE` file — Apache 2.0, not a placeholder —
+  into minimal valid RTF; escaping RTF's own control characters and
+  turning blank lines into paragraph breaks is enough for plain text,
+  no real formatting needed).
+- **Linux `.deb`: matching explanation, not a matching picker —
+  `dpkg` installs are fundamentally non-interactive, so there's no
+  GUI step to add a location choice to, and `/usr/bin` (where the
+  binary goes) has to stay fixed.** The underlying need was already
+  solved without any installer change: `/usr/bin` isn't writable by
+  a regular non-root user either, so OXIS's own write-test in
+  `AppDirPath()` already redirects to `~/Downloads/OXIS` on Linux
+  the same way it does for an MSI install landing in Program Files —
+  same code, no Linux-specific branch needed. Added a `postinst`
+  message that says this plainly right after `apt install` finishes,
+  rather than leaving it to be discovered.
+- **MSI now grants the "Users" group write permission on
+  `Program Files\OXIS` during install** (`util:PermissionEx`, WiX's
+  utility extension — linked at both compile and link time now,
+  `candle.exe` was missing `-ext WixUtilExtension`, needed for the
+  compiler to recognize the extension element at all), so
+  `workspaces/`, `created-plugins/`, `created-documents/` can live
+  under `Program Files\OXIS` itself as requested, not redirected to
+  Downloads. This is the standard, correct way to give an app write
+  access to its own install folder without requiring it to run
+  elevated on every launch — the MSI runs elevated once, during
+  install (installing to Program Files always requires that), and
+  grants the permission up front. Reverting to writing there as a
+  normal user without this would have brought back the exact bug this
+  session already found and fixed (Program Files' UAC protection
+  silently blocking every write). `AppDirPath`'s own write-test/
+  fallback logic in `internal/wailsapp/app.go` needed no changes at
+  all — it's generic, so it now simply detects the grant took effect
+  and uses `Program Files\OXIS` directly; the Downloads-folder
+  fallback stays in place purely as a safety net (e.g. Group Policy
+  overriding the grant), not the primary path anymore for a normal
+  install.
+- **`addLines`/`ctx.printLines` — a batched sibling of `addLine`/
+  `ctx.print`, found and added during a performance audit.**
+  `addLine`'s own `[...next, newLine]` copies the whole scrollback
+  buffer (up to 10,000 lines) on every single call — fine for one
+  line, but a real, measurable cost when a command splits a multi-
+  line message and calls it once per line, which several places
+  already did (`'plugin publish`/`unpublish`'s own status messages,
+  `'plugin info`). Each of those now builds the whole batch of lines
+  first and makes one state update instead of N, same total output,
+  one buffer copy instead of N.
+- **README's "Screenshots" section removed** — three `<img>` tags
+  pointing at `assets/screenshot-*.png` files that don't exist in
+  the repo (confirmed — grepped for any other reference to them,
+  found none). A section of broken images is worse than no section.
+- **Home's help box: the `'theme` line replaced with the command
+  palette hotkey** (`Ctrl+Shift+P`) — checked the palette's own
+  wiring first (the keydown listener is on `window`, unconditional;
+  Home's own input handler only intercepts Escape/Enter, so it
+  doesn't swallow the hotkey; `runHomeCommand` correctly opens the
+  shell and runs the selected command whether or not it's ready yet)
+  and found it already worked correctly — this was a documentation
+  gap, not a functional bug.
+- **Markdown live preview — the editor's preview feature now covers
+  `.md`/`.markdown`, rendered like GitHub/GitLab render a README, not
+  just `.html`.** Added `marked` as a real dependency (a real,
+  tested markdown parser, not a hand-rolled regex converter that
+  would look close enough until a table or nested list broke it) —
+  verified it actually parses correctly before wiring it in. Styled
+  with a GitHub dark-mode look (headers, code blocks, tables,
+  blockquotes). Renders ` ```mermaid ` fenced blocks as actual
+  diagrams via Mermaid.js (loaded from a CDN inside the preview
+  iframe itself, same external-resource model the HTML preview
+  already used) — this README's own Architecture/Business Model
+  diagrams are exactly that, so this wasn't optional for the feature
+  to actually be useful on this repo's own README. Same resizable
+  split, fullscreen mode, and sandboxing (`allow-scripts`, no
+  `allow-same-origin`) as the existing HTML preview — one shared
+  pipeline, not a separate implementation.
+- **README's box diagrams — three found broken, fixed with two
+  different approaches depending on what each one actually was.**
+  Reported as rendering broken/misaligned on GitHub, a known, common
+  problem with hand-drawn box-drawing-character diagrams in markdown:
+  they depend on pixel-perfect monospace alignment across many lines,
+  which doesn't hold up reliably in every renderer. The Architecture
+  and Business Model diagrams (real flowcharts) became actual Mermaid
+  diagrams — GitHub renders ` ```mermaid ` fences as real vector
+  graphics, so there's no alignment to break. **The Home screen's
+  WORKSPACE panel mockup was initially left as-is, incorrectly
+  assumed safe — reported broken too, in a follow-up screenshot,
+  which it was.** That one isn't a flowchart (Mermaid doesn't fit a
+  "here's what this UI panel looks like" mockup), so it got a
+  different fix: the vertical `│` border bars removed entirely,
+  leaving plain, left-aligned key-value text with nothing left that
+  needs cross-line alignment to look right. Also found and fixed,
+  while sweeping the whole document for any other instance of this
+  same problem: Directory Structure's tree listing still included
+  `tabs.ts` — the file deleted as dead code earlier this session —
+  with a description implying it was still active and in use.
 - **Real YouTube video wired into the README's video section** —
   `eiCB0-0p7p4`. Switched the thumbnail from `maxresdefault.jpg` to
   `hqdefault.jpg`, which is guaranteed to exist for every YouTube
@@ -726,6 +868,314 @@ change was made, not necessarily when a version was tagged.
 
 ### Fixed
 
+- **Poor design: a command handler that threw an exception was
+  completely invisible to the user — the central dispatch point for
+  every single command in the app silently swallowed it.**
+  `commandRegistry.ts`'s `execute()` caught the exception and only
+  ever `console.error`'d it — a real user would just see their
+  command do nothing at all, no error, no output, nothing, since it
+  never reached `installGlobalErrorCapture()`'s window-level listener
+  either (it was already caught, not uncaught) — meaning a buggy
+  command was invisible from 'diagnostics, invisible in the terminal,
+  invisible everywhere a real user could actually look. Fixed:
+  errors now go through `recordError()` (the same 'diagnostics list
+  every other app-level error uses) and a new `command_error` event
+  the active terminal listens for to print a real, visible
+  `✗ 'name' failed: ...` line. While in there, also removed
+  `session_saved`/`session_restored` from `OxisEvent`'s own union
+  type — both fully dead now that `sessionManager.ts` is gone (see
+  above), `session_restored` in particular was never emitted at all,
+  a stale entry from before this pass.
+- **`themeManager.export(name)` could silently export under the wrong
+  name — a subtle spread-order bug, reproduced concretely before
+  fixing.** `{ name, ...t }` lets `t`'s own properties override
+  earlier ones with the same key — for an imported theme (which
+  retains its own internal `name` field from its original JSON, see
+  `import()`), that internal field silently won over the `name`
+  parameter the function was actually asked to export under whenever
+  the two diverged. Reproduced with a concrete case (a theme carrying
+  a different internal name than the key it was looked up under)
+  before touching the source: exported name came back wrong. Fixed
+  by moving `name` to the end of the spread so it always wins,
+  matching the function's own obvious intent — verified the fix with
+  the same reproduction case afterward.
+- **Poor design, not a crash: Home's "recent activity" row was
+  completely flooded with startup noise on every single launch,
+  never showing anything the user actually did.** `plugin_loaded`
+  fired unconditionally at the end of every `load()` call, including
+  every one of the ~20+ plugins loaded fresh at startup (both the
+  regular `loadUserPlugins()` path and the separate
+  `loadAllPremiumPlugins()` one) — `workspaceState.ts` logs
+  `plugin "X" reloaded` for each one into a 6-entry-capped activity
+  list, so the very first thing a user saw on Home after any fresh
+  launch was a handful of misleading "reloaded" messages for plugins
+  they never touched, not their own actual recent actions (a task
+  run, a theme switch, a workspace load). Fixed with an optional
+  `silent` parameter threaded through `load()` and both bulk-load
+  call sites — a genuine individual enable/reload/install still logs
+  normally; only the bulk, nothing-the-user-actually-did case is now
+  silenced.
+- **`sessionManager.ts` — entirely dead code, removed, and the
+  README's own claims about what it did were stale even before that.**
+  `sessionManager.save({ tabs, activeTab, theme, ... })` ran on every
+  single theme change or Home/Shell view switch, writing to
+  localStorage — but `sessionManager.load()` was never called
+  anywhere in the whole codebase, and `sessionManager.clear()` ran at
+  every app startup *before* any load could have happened anyway, so
+  the entire round-trip was structurally meaningless: save something,
+  wipe it on the next launch, never read it back in between, ever.
+  Theme persistence already worked correctly and completely
+  independently of this, through `themeManager.ts`'s own
+  `oxis-theme` localStorage key — confirmed before removing anything,
+  so nothing was actually lost. `tabs`/`activeTab` were separately
+  pointless given OXIS has no real multi-tab support to persist in
+  the first place. Deleted the file, its import, both call sites, and
+  fixed five separate stale README references that described it as a
+  real, working feature (a directory-listing entry, a table row, a
+  whole "Manual Session Control" code example, and an events-table
+  row for `session_restored` — an event that, it turns out, was
+  *never even emitted* by the file being removed, meaning that
+  specific claim was stale documentation from well before this fix).
+- **Ctrl+R reverse-i-search lost the user's position on every keystroke
+  once they'd cycled to an older match — a real bug, reproduced and
+  fixed, not just theoretical.** `searchAppend`/`searchBackspace`
+  always called `_findFrom(entries.length - 1)`, meaning refining the
+  query WHILE already browsing an older match (via `searchOlder`)
+  jumped straight back to the newest matching entry instead of
+  refining from wherever the user actually was — bash's own reverse-
+  i-search stays on the current match if it still satisfies the
+  longer query, or moves to the next-older one if it doesn't; this
+  never did either, it just discarded position on every character.
+  Reproduced concretely with a real history array before fixing:
+  cycling to "git push" then typing one more character to refine the
+  query jumped back to "git status" (a newer, unrelated entry)
+  instead of staying near "git push". Fixed by searching from the
+  current `rsPos` instead of always the newest entry — verified both
+  the "current match still satisfies the refined query" case (stays
+  put, correctly) and the "current match no longer satisfies it" case
+  (moves to the next-older match, correctly) with concrete simulated
+  scenarios before changing the actual source.
+- **Command Palette: two real bugs reported directly — arrow-key
+  navigation never scrolled the list, and Escape didn't close it.**
+  (1) `selected` only ever moved a CSS highlight class; nothing ever
+  brought that item back into view once arrowing past whatever was
+  currently visible in the scrollable list. Fixed with a
+  `scrollIntoView({ block: "nearest" })` on the selected item
+  whenever `selected` changes — "nearest" specifically so it doesn't
+  yank the list around once the selection is already visible, only
+  scrolling the minimum needed to bring an off-screen item back.
+  (2) Escape not closing the palette was a genuinely confusing one:
+  the input's own `onKeyDown` already had a correct Escape case, and
+  arrow keys/Enter through that exact same handler DID work — meaning
+  the input genuinely had focus and was receiving keydown events, so
+  something was specifically intercepting Escape rather than
+  blocking keys generally. Checked every other Escape handler and
+  every capture-phase `window` listener in the file (the keybinds
+  system, the live-preview fullscreen handler, the browser-shortcut
+  blocker) without finding a specific culprit that should have been
+  reachable from this input via normal event bubbling. Rather than
+  ship a guess, applied the same pattern already proven for the live
+  preview's own fullscreen Escape handling: a dedicated, capture-
+  phase, window-level listener scoped to whenever the palette is
+  mounted, independent of DOM focus or React's synthetic bubbling —
+  this closes the palette on Escape regardless of what else in the
+  app might otherwise be catching the keypress first. Documented
+  honestly as a robust fix for a confirmed symptom, not a fix
+  targeted at a root cause I could pinpoint with certainty.
+- **Multi-byte UTF-8 characters split across a PTY read boundary got
+  visibly corrupted into replacement characters — a real bug,
+  reproduced and confirmed before fixing, not just a theoretical
+  concern.** Both `pty_unix.go` and `pty_windows.go` read PTY output
+  into an 8192-byte buffer and converted it straight to a Go string
+  (`string(buf[:n])`) every time — if a real multi-byte character (an
+  emoji, a non-English filename, accented characters, CJK output from
+  any tool that prints them) happened to land exactly across that
+  boundary, each half got `json.Marshal`'d separately before ever
+  reaching the frontend, and Go's JSON encoder silently replaces
+  invalid UTF-8 with U+FFFD — the character was already gone by the
+  time the two chunks could have been concatenated, not just
+  temporarily split. Reproduced concretely: `"hello 🎉 world"` split
+  mid-emoji became `"hello ���� world"` on the wire in a standalone
+  test before any fix was applied. Fixed with a shared
+  `splitIncompleteUTF8()` (`pty.go`) that holds back an incomplete
+  trailing sequence and prepends it to the next read, so a chunk is
+  only ever turned into a string once it can't possibly be cut
+  mid-character. Verified three ways: a dedicated unit test for the
+  split function itself (ASCII, a 4-byte emoji, a 3-byte CJK
+  character cut after 2 bytes, an empty buffer, and a genuinely
+  invalid lead byte all covered), a real Go build of the fixed
+  `pty_unix.go` path, and a `gofmt` syntax check of `pty_windows.go`
+  (couldn't fully build-verify that one — cross-compiling for Windows
+  needs a dependency this environment's network allowlist blocks,
+  `golang.org/x/sys` specifically; the fix is identical in both files
+  and the shared helper is the same fully-tested code either way).
+- **SECURITY — a DNS-rebinding vulnerability in the local PTY server's
+  Host-header check, found doing a broad audit pass.** `isLocalhost()`
+  (`internal/server/server.go`) — the ONLY remaining gate on the `/ws`
+  PTY endpoint, since `CheckOrigin` already allows every origin
+  unconditionally by design — used `strings.HasPrefix(host,
+  "127.0.0.1")`, a prefix match rather than an exact one. A Host
+  header like `127.0.0.1.attacker.com` or `localhost.attacker.com`
+  satisfies that prefix check while naming a completely different,
+  attacker-controlled domain — exactly the shape of a DNS-rebinding
+  attack against a local server: a malicious page open in the same
+  browser gets a domain it controls to resolve to 127.0.0.1, then
+  sends a request whose Host header names its own domain, which the
+  old check would have accepted as "localhost enough." Fixed with an
+  exact match against the hostname with the port properly stripped
+  via `net.SplitHostPort` (comparing the whole `r.Host` string,
+  port included, against `"127.0.0.1"` would never have matched
+  anything, which is presumably why the prefix check existed in the
+  first place — stripping the port is the actual fix, not relaxing
+  the comparison). Verified with a real, standalone Go test covering
+  both the legitimate localhost variants (with/without port, IPv6
+  `::1`) and the specific attack-pattern hostnames — all pass.
+- **`'market update` could leave a plugin permanently broken with no
+  way back — reported directly by a user reviewing the code**:
+  `saveBackup()` silently swallowed a `localStorage` failure (full or
+  unavailable) and the update proceeded anyway; if the new version
+  then failed to load, `rollbackPlugin()` had no backup to restore,
+  leaving a broken, disabled plugin with no automatic or manual way
+  back to the version that worked. Fixed by refusing the update
+  outright, before anything is touched, whenever the backup itself
+  can't actually be saved — costs nothing in that case specifically,
+  since nothing has been changed yet at that point. `saveBackup` now
+  returns whether it actually succeeded instead of a caller having no
+  way to know; checked for any other caller of it (none — this was
+  the only one).
+- **The MSI/NSIS installers only ever shipped `oxis.exe` — `dist/logo.png`
+  (produced by the same local build, `build-go.js`'s own Step 6) never
+  made it into `Program Files\OXIS` at all, a real gap distinct from
+  the earlier data-directory fix.** `logo.png` is now installed
+  alongside `oxis.exe` in both installer paths (a conditional
+  component, same "only if it exists" pattern the icon already used,
+  so a build missing it doesn't fail the whole MSI) and cleaned up on
+  NSIS uninstall (WiX handles this automatically for its own
+  components, no separate uninstall line needed there). **Also found
+  and fixed my own bug while re-verifying the earlier Downloads-
+  fallback fix**: a stale, now-incorrect doc comment above
+  `AppDirPath` had been left in place describing the OLD, uncached
+  behavior — worse, removing it had also deleted the actual
+  `appDirOnce`/`appDirCached`/`appDirErr` variable declarations the
+  function needs, which would have failed to compile. Caught and
+  fixed before it went anywhere, re-verified with a real `go build
+  ./...` — clean.
+- **`Ctrl+F` for on-screen output search was completely unreachable —
+  a genuine bug, not just a lint nag, caught by a real build warning
+  ("this case clause will never be evaluated because it duplicates
+  an earlier case clause").** Two `case "f":` existed in the exact
+  same `switch(k.toLowerCase())` block — the first (readline's
+  forward-char, a standard binding worth keeping) always matched
+  first, so the second (`openOutputSearch()`) could never run, no
+  matter how it was reached. `ctrl` in this handler is `e.ctrlKey &&
+  !e.altKey` — it doesn't exclude Shift, and `.toLowerCase()`
+  normalizes `"F"` back to `"f"` either way, so a plain second case
+  keyed on Shift wouldn't have worked either. Fixed by folding both
+  into the one `"f"` case, branching on `e.shiftKey` — **Ctrl+F**
+  stays forward-char, **Ctrl+Shift+F** now actually opens output
+  search. Updated every doc comment and the README's keybind table
+  that still said plain Ctrl+F for this.
+- **Re-confirmed (after being asked to double-check) that `npm run
+  build` no longer auto-triggers the MSI/WiX build** — the fix from
+  earlier this session is still fully intact; no lingering
+  `build-msi.js` call anywhere in `build-go.js`. The GitHub Actions
+  Linux workflow was never affected by this in the first place — it
+  only ever called `build-linux.sh` (binary + `.deb`), completely
+  separate from the Windows installer path.
+- **The app's own UI still said "GitLab merge request" throughout the
+  Market publishing flow, weeks after the actual backend was migrated
+  to GitHub — found via a full sweep after a user screenshot caught
+  one instance on Home.** More than just that one button: help text,
+  status messages (`'plugin publish`/`unpublish`), `'help plugin`'s
+  notes, `publish.ts`'s own doc comments and every user-facing
+  string, `market.ts`'s doc comment, and two stale `updateCheckOnStartup`-adjacent
+  comments/descriptions still describing the OLD gitlab.com-based
+  update checker (also migrated to GitHub earlier this session, just
+  never had these leftover mentions cleaned up). Also renamed the
+  `mergeRequestUrl` field to `pullRequestUrl` for consistency —
+  **and found a real, would-be-breaking bug while doing that
+  specific rename**: the backend (`submit-plugin.js`/
+  `delete-plugin.js`) still sent `mergeRequestUrl` in its JSON
+  response; had I renamed only the client's read side, the two would
+  have silently stopped agreeing on a field name and every submission
+  response would have come back with an undefined PR link. Fixed on
+  both sides together, verified with a full sweep for any other
+  reference to the old field name (none found) and a clean
+  `tsc --noEmit`. Left every `'workspace github`/`'workspace gitlab`
+  reference untouched throughout — that's a real, working, unrelated
+  feature (a USER'S OWN project's git host choice, nothing to do with
+  which platform OXIS itself is hosted on).
+- **CRITICAL — the actual root cause of "installing via the MSI leaves
+  users with no created documents, no plugins, no workspaces": found,
+  fixed, and verified with a real Go build (this environment now has
+  a working Go toolchain — installed specifically to verify this,
+  since it's the most consequential fix of the session and deserved
+  better than the usual "written but not compiled" caveat).**
+  `AppDirPath()` resolved to wherever `oxis.exe` itself lives — fine
+  for a portable `dist/` folder, but an MSI install runs from
+  `C:\Program Files\OXIS`, which Windows protects from writes by a
+  normal (non-elevated) user session under UAC. Every attempt to
+  create `workspaces/`, `created-plugins/`, `created-documents/` there
+  was silently failing — the app wasn't missing files, it could never
+  write any in the first place. Fixed in `internal/wailsapp/app.go`:
+  `AppDirPath()` now does a real write-test (create+delete a temp
+  file, not just checking permission bits, which UAC virtualization
+  can make lie) and falls back to a directory under the user's own
+  Downloads folder when the exe's own directory isn't writable —
+  cached once per process (`sync.Once`), not re-checked on every
+  call, since this function is hot and a filesystem write-test on
+  every single call would itself become a real performance cost.
+  `go build ./...` and `go vet` both clean.
+- **The MSI installer's desktop shortcut was defined but never
+  installed** — `OxisDesktopShortcut` existed as a real `<Component>`
+  in the WiX script but was never referenced by any `<Feature>`, and
+  WiX/MSI never installs a component nothing references, no matter
+  how correctly it's defined elsewhere. Fixed in both
+  `scripts/build-msi.js` (the actual generator) and the static
+  `dist/oxis-product.wxs` snapshot. The Start Menu shortcut was
+  correctly wired already — only the desktop one was silently
+  missing.
+- **Installer no longer bundles the whole project source — that's
+  the running app's job now, not the installer's.** Previously,
+  `npm run build` always also built a full Windows installer
+  (`heat.exe` harvesting the entire project into `dist/source`, then
+  into the `.msi`/`.exe` itself) as an automatic side effect, even
+  when nobody asked for an installer — a real, reported problem, and
+  slower/heavier than it needed to be for something most people never
+  open. Removed entirely: `build-go.js` no longer auto-triggers
+  `build-msi.js` (that's `npm run build:msi` now, explicitly, only
+  when wanted), and `build-msi.js` itself no longer bundles source at
+  all — matching how the GitHub Actions Linux build has only ever
+  produced the binary/`.deb`, nothing more. Source delivery moved to
+  the app itself instead: the very AppDirPath() fallback above clones
+  this project's GitHub source into the Downloads-based data
+  directory in the background, the first time (and only the first
+  time) that fallback is actually needed — so someone running a
+  portable `dist/` folder, where the fallback never triggers, never
+  pays for a clone they don't need either. Best-effort and silent (no
+  git on PATH, no network, or a failed clone all just skip quietly)
+  — this is a nice-to-have alongside the actually-important fix
+  above, never something that should be able to block or destabilize
+  the app itself.
+- **Continuing the permission/dependency system audit — found two
+  real, related bugs, both a direct consequence of adding "shell" as
+  a permission namespace earlier this session and not propagating it
+  everywhere it needed to go.** (1) `'plugin permissions <name> grant
+  shell` / `revoke shell` was silently rejected as invalid usage — a
+  hardcoded `VALID` array in the command handler (separate from
+  `PermissionNamespace`'s own type definition) was never updated when
+  "shell" was added, so there was no way to manually grant/revoke it
+  or see it in the `'plugin permissions <name>` status listing, even
+  though it's a real, working permission elsewhere. (2) A plugin
+  manifest declaring `permissions: shell` would have that entry
+  silently vanish — `manifest.ts`'s own separate `ALL_NAMESPACES` list
+  (used to filter the parsed `permissions:` field) had the same gap,
+  and filters out anything not in it with no error or warning to the
+  plugin author. Both lists now include `"shell"`; checked dependency
+  parsing and cycle detection (`checkCompatibility`) for the same
+  drift pattern and found them fine — dependency names aren't
+  validated against a fixed enum the way permission namespaces are,
+  so there was nothing there to drift.
 - **`cmd/oxi/versioninfo.json`'s numeric version didn't match its own
   display string — real build warning, reported from an actual
   Windows build log.** `goversioninfo` (the tool that embeds the icon

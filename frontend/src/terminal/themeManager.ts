@@ -186,7 +186,17 @@ class ThemeManager {
   export(name: string): string | null {
     const t = this.get(name);
     if (!t) return null;
-    return JSON.stringify({ name, ...t }, null, 2);
+    // `name` last — not first — so it always wins over whatever `t`
+    // itself might carry as its own internal `name` field (imported
+    // themes retain this from their original JSON; see import()
+    // below). Object spread lets a later key silently override an
+    // earlier one with the same name — { name, ...t } would export
+    // under t's own possibly-stale internal name instead of the name
+    // this function was actually asked to export under, whenever the
+    // two diverge. Reproduced concretely before fixing: a theme
+    // looked up under one key but still carrying a different internal
+    // name exported under the wrong one.
+    return JSON.stringify({ ...t, name }, null, 2);
   }
 
   import(json: string): { ok: boolean; name?: string; error?: string } {

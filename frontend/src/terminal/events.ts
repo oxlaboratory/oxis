@@ -16,12 +16,11 @@ export type OxisEvent =
   | "workspace_loaded"
   | "workspace_unloaded"
   | "command_executed"
+  | "command_error"
   | "shell_started"
   | "shell_exited"
   | "editor_opened"
   | "editor_closed"
-  | "session_saved"
-  | "session_restored"
   | "mode_changed"
   | "workspace_loading";
 

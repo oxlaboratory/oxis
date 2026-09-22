@@ -125,29 +125,64 @@ function luaToJS(L: LuaState, idx: number): LuaJSValue {
     case lua.LUA_TSTRING:
       return lua.lua_tojsstring(L, idx);
     case lua.LUA_TTABLE: {
-      const arr: LuaJSValue[] = [];
-      const obj: { [k: string]: LuaJSValue } = {};
-      let isArray = true;
-      let n = 0;
+      // A REAL, CONFIRMED BUG lived here — found by testing against
+      // fengari directly, not by inspection alone: lua_next does NOT
+      // guarantee any particular iteration order, even for a table
+      // as simple as `{10, 20, 30}` — fengari was directly observed
+      // iterating that table's keys as 3, 2, 1 (reverse), not 1, 2, 3.
+      // The old logic decided array-vs-object by checking whether
+      // each key, AS ENCOUNTERED, equalled an incrementing counter —
+      // which assumed sequential iteration order. Reversed order broke
+      // it completely: key 3 arrived first, didn't match counter 1,
+      // flipped isArray to false permanently, and the values already
+      // pushed into the array-in-progress (including a real value,
+      // 20, for key 2) were silently discarded when the function
+      // returned the object instead. `{10, 20, 30}` — the single most
+      // ordinary way to write a Lua array literal — converted to
+      // `{"1":10,"3":30}`, silently dropping 20 entirely. This isn't
+      // a rare edge case; it's the common case for reasonably-sized
+      // tables, since fengari (like real Lua) doesn't store a table's
+      // array part in a way that guarantees forward iteration.
+      //
+      // Fixed by collecting every entry first, then deciding
+      // array-ness from the resulting KEY SET (is it exactly
+      // {1..maxKey}, with no gaps) rather than from the order entries
+      // happened to arrive in. Verified against fengari directly:
+      // plain sequential literals, keys assigned out of order, a
+      // table with a value removed and reassigned, sparse tables
+      // (correctly stay objects), plain string-keyed tables, and an
+      // empty table (kept converting to `[]`, matching this
+      // function's own prior behavior for that one specific case,
+      // since Lua doesn't distinguish an empty array from an empty
+      // object and there's no reason to change that here).
+      const entries: { key: string | number; isNumber: boolean; value: LuaJSValue }[] = [];
+      let maxIntKey = 0;
+      let intKeyCount = 0;
       lua.lua_pushnil(L);
       while (lua.lua_next(L, idx) !== 0) {
         const keyType = lua.lua_type(L, -2);
         const value = luaToJS(L, -1);
         if (keyType === lua.LUA_TNUMBER) {
           const kn = lua.lua_tonumber(L, -2);
-          if (Number.isInteger(kn) && kn === ++n) {
-            arr.push(value);
-          } else {
-            isArray = false;
-            obj[String(kn)] = value;
+          if (Number.isInteger(kn) && kn >= 1) {
+            intKeyCount++;
+            if (kn > maxIntKey) maxIntKey = kn;
           }
+          entries.push({ key: kn, isNumber: true, value });
         } else {
-          isArray = false;
-          obj[lua.lua_tojsstring(L, -2)] = value;
+          entries.push({ key: lua.lua_tojsstring(L, -2), isNumber: false, value });
         }
         lua.lua_pop(L, 1); // pop value, keep key for lua_next
       }
-      return isArray ? arr : obj;
+      const isArray = intKeyCount === entries.length && maxIntKey === entries.length;
+      if (isArray) {
+        const arr: LuaJSValue[] = new Array(maxIntKey);
+        for (const e of entries) arr[(e.key as number) - 1] = e.value;
+        return arr;
+      }
+      const obj: { [k: string]: LuaJSValue } = {};
+      for (const e of entries) obj[e.isNumber ? String(e.key) : (e.key as string)] = e.value;
+      return obj;
     }
     default:
       return undefined; // functions/userdata: not plain data, not converted

@@ -49,6 +49,56 @@ func stripCtrl(s string) string {
 	return ansiRe.ReplaceAllString(s, "")
 }
 
+// splitIncompleteUTF8 returns (complete, pending): pending is any
+// trailing bytes at the end of data that start a multi-byte UTF-8
+// sequence but don't yet have all their continuation bytes present.
+// Shared by both pty_unix.go and pty_windows.go's read loops — each
+// PTY read is converted to a Go string directly (string(buf[:n])),
+// and if a real multi-byte character (an emoji, a non-English
+// filename, accented characters, CJK output from a tool that prints
+// them) happens to land exactly across the read buffer's boundary,
+// converting each half separately corrupts it: json.Marshal replaces
+// each invalid half with one or more U+FFFD replacement characters
+// BEFORE the two chunks ever reach the frontend to be concatenated —
+// by the time the browser sees them, the character is already gone,
+// not just split. A real, reproduced bug: "hello 🎉 world" split
+// mid-emoji became "hello ���� world" on the wire. The fix: hold back
+// an incomplete trailing sequence and prepend it to the NEXT read
+// before converting anything to a string, so a chunk is only ever
+// turned into a string once it can't possibly be cut mid-character.
+func splitIncompleteUTF8(data []byte) (complete []byte, pending []byte) {
+	n := len(data)
+	if n == 0 {
+		return data, nil
+	}
+	// UTF-8 sequences are at most 4 bytes, so an incomplete lead byte
+	// can never be more than 3 bytes from the end.
+	for back := 1; back <= 3 && back <= n; back++ {
+		b := data[n-back]
+		if b&0xC0 == 0x80 {
+			continue // a continuation byte — keep looking further back for the lead byte
+		}
+		var seqLen int
+		switch {
+		case b&0x80 == 0x00:
+			seqLen = 1 // ASCII
+		case b&0xE0 == 0xC0:
+			seqLen = 2
+		case b&0xF0 == 0xE0:
+			seqLen = 3
+		case b&0xF8 == 0xF0:
+			seqLen = 4
+		default:
+			seqLen = 1 // not a valid lead byte at all — genuinely invalid input, not an incomplete-read artifact; leave it for stripCtrl/json.Marshal to handle as they already do
+		}
+		if seqLen > back {
+			return data[:n-back], data[n-back:]
+		}
+		break // this lead byte already has all its continuation bytes (or is ASCII) — nothing incomplete
+	}
+	return data, nil
+}
+
 func safeSend(conn *websocket.Conn, mu *sync.Mutex, msg outMsg) {
 	b, _ := json.Marshal(msg)
 	mu.Lock()

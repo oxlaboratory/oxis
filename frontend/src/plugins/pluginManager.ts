@@ -280,7 +280,19 @@ class PluginManager {
   }
 
   /** Load a plugin's commands into the registry */
-  load(name: string): boolean {
+  /** silent: true skips the plugin_loaded event — used only by the
+   *  bulk startup paths (loadUserPlugins's own loop below, and
+   *  registerPremiumPlugin when called from loadAllPremiumPlugins).
+   *  Found and fixed as a real, reported design gap: plugin_loaded
+   *  fired unconditionally, including for every one of the ~26
+   *  plugins loaded fresh on EVERY app startup — workspaceState.ts
+   *  listens for it to log "plugin X reloaded" into the Home panel's
+   *  "recent" activity row (capped at 6 entries), meaning that row
+   *  was entirely flooded with startup noise on every single launch,
+   *  never showing anything the user actually did. A genuine,
+   *  individual reload/enable/install still emits it normally — this
+   *  only silences the bulk, nothing-the-user-actually-did case. */
+  load(name: string, silent = false): boolean {
     const p = this.plugins.get(name);
     if (!p || !p.enabled) return false;
 
@@ -360,7 +372,7 @@ class PluginManager {
       }
     }
 
-    events.emit("plugin_loaded", { name });
+    if (!silent) events.emit("plugin_loaded", { name });
     return true;
   }
 
@@ -686,10 +698,10 @@ class PluginManager {
    * memory only — the encrypted .oxispkg file under .oxis/premium/
    * is the only on-disk copy that ever exists.
    */
-  registerPremiumPlugin(name: string, lua: string, category = "premium"): void {
+  registerPremiumPlugin(name: string, lua: string, category = "premium", silent = false): void {
     this.register({ name, desc: "Premium plugin", category, builtin: false, enabled: true, lua });
     this.persist(); // enabled/disabled flag only — no source, see persist()'s own doc comment
-    this.load(name);
+    this.load(name, silent);
   }
 
   /** Save an already-registered Lua plugin's source back to disk —
@@ -769,7 +781,7 @@ class PluginManager {
     this.restoreState();
     for (const name of names) {
       const p = this.plugins.get(name);
-      if (p?.enabled) this.load(name);
+      if (p?.enabled) this.load(name, true); // silent — see load()'s own doc comment
     }
   }
 }
