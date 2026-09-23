@@ -9,7 +9,7 @@
   <a href="https://github.com/oxlaboratory/oxis/releases/latest"><img src="https://img.shields.io/github/downloads/oxlaboratory/oxis/latest/total?style=for-the-badge&label=latest%20release&color=3dff64" alt="Latest release downloads"></a>
 </p>
 
-### 🎬 See it in action
+### 🎬 See Workspace linking in action
 
 <p align="center">
   <img src="assets/screenshot-git-connected.png" alt="OXIS Home screen showing a workspace connected to a GitLab repository" width="720">
