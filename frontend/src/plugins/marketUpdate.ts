@@ -138,7 +138,12 @@ export async function updatePlugin(name: string): Promise<UpdateResult> {
     // backup we just saved is what makes this safe to undo automatically
     // instead of leaving a broken plugin registered.
     const restored = await rollbackPlugin(name);
-    return { ok: false, message: `update failed to load — automatically rolled back. ${restored.message}` };
+    return {
+      ok: false,
+      message: restored.ok
+        ? `update failed to load — automatically rolled back. ${restored.message}`
+        : `update failed to load, AND the automatic rollback also failed: ${restored.message}`,
+    };
   }
 
   return {
@@ -160,12 +165,31 @@ export async function updateAllPlugins(): Promise<UpdateResult[]> {
 
 /** `'plugin rollback <name>` — restores the ONE backup taken by the
  *  last update (not a full version history). Works any time after an
- *  update, not just automatically right after a failed one. */
+ *  update, not just automatically right after a failed one.
+ *
+ *  A real fake-success bug lived here, found auditing the update
+ *  flow: this used to return ok:true unconditionally after calling
+ *  addLuaPlugin(), never checking whether the RESTORED plugin
+ *  actually loaded successfully — unlike updatePlugin() itself, which
+ *  already correctly checks exactly this after its own
+ *  addLuaPlugin() call. That made it worse than an ordinary
+ *  fake-success bug: this is the SAFETY NET updatePlugin() calls
+ *  automatically when a new version fails to load, reporting
+ *  "automatically rolled back" — if the rollback itself also failed
+ *  to load (the backed-up source is somehow also broken, a
+ *  compatibility check now rejects it, anything), the person would
+ *  still be told recovery succeeded while the plugin sat there
+ *  broken and disabled. Fixed to check real final state, the same
+ *  way updatePlugin() already does. */
 export async function rollbackPlugin(name: string): Promise<UpdateResult> {
   const backup = loadBackup(name);
   if (!backup) return { ok: false, message: `no backup available for ${name} — rollback only works after 'market update has run at least once` };
   const p = pluginManager.get(name);
   const { persisted, persistError } = await pluginManager.addLuaPlugin(name, backup.lua, p?.category || "market", "market");
+  const afterRollback = pluginManager.get(name);
+  if (!afterRollback?.enabled) {
+    return { ok: false, message: `rollback failed — the backed-up version of ${name} also didn't load. See the message above for why; the plugin remains disabled.` };
+  }
   return {
     ok: true,
     message: `${name} rolled back to v${backup.version || "previous"}`

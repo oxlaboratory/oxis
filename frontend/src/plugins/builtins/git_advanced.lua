@@ -13,5 +13,3 @@ oxis.command("gstash",function() oxis.run("git stash list") end, "list stashed c
 oxis.command("greset",function() oxis.run("git checkout -- . && git status") end, "discard all uncommitted changes")
 oxis.command("gfetch",function() oxis.run("git fetch --all --prune && git status") end, "fetch and prune all remotes, then show status")
 oxis.command("grebase",function() oxis.run("git rebase -i HEAD~5") end, "interactive rebase of the last 5 commits")
-
-oxis.task("release", "git add -A && git commit -m 'chore: release' && git push", "commit everything and push as a release")

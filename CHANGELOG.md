@@ -7,6 +7,140 @@ change was made, not necessarily when a version was tagged.
 
 ### Added
 
+- **The task integrity checker — spec item 8, the piece that makes
+  automatic task generation trustworthy over time instead of a
+  one-shot snapshot.** New `terminal/taskReconciler.ts`, run in the
+  background (never blocking workspace load — a real requirement:
+  detection can spawn subprocesses to confirm a tool exists) every
+  time a linked workspace loads or reloads. The one rule everything
+  here serves, stated explicitly by the person who asked for this:
+  never aggressively "fix" a task the user has hand-edited. Each
+  generated task's content is hashed at generation time
+  (`GeneratedTaskMeta.contentHash`); reconciliation compares that hash
+  against the task's actual current line in the file before touching
+  anything — a mismatch means the user edited it, and that task is
+  permanently carried forward exactly as they left it, un-tracked by
+  the auto-generated metadata from that point on, kept in the file
+  even if its original source configuration later disappears
+  entirely. Untouched tasks are reconciled normally: still present
+  with the same command → left alone; present with a different
+  command (a script got renamed to run something else) → updated;
+  no longer present (a script was deleted) → removed. New tasks a
+  project didn't have before → added. Verified with a direct
+  simulation covering all four cases happening at once in a single
+  pass (one edited, one updated, one removed, one added) before
+  trusting the real implementation — every outcome matched exactly.
+  `go build ./...`/`go vet ./...`/`tsc --noEmit` all clean.
+- **Automatic project detection and task generation on `'workspace
+  link` — Priority 5 of the spec-driven pass.** New
+  `terminal/projectDetector.ts`: real detectors for Rust (Cargo),
+  Node.js/JS/TS (reads actual `package.json` scripts — never
+  generates `npm run build` for a project with no build script;
+  detects the real package manager from its lockfile: pnpm/yarn/bun/
+  npm), Python (`pyproject.toml`/`setup.py`/`requirements.txt`, with
+  real tool-section checks for pytest/ruff/black rather than assuming
+  every Python project uses them), Go (`go.mod`), .NET
+  (`.csproj`/`.fsproj`/`.sln`), Java (Maven or Gradle, using the
+  project's own wrapper script — `./mvnw`/`./gradlew` — when present),
+  C/C++ (CMake, or Make with real target extraction from the actual
+  Makefile — verified with a direct test that it correctly excludes
+  variable assignments like `CFLAGS = ...` and `SRCS := ...`, not
+  just target lines), PHP (`composer.json` scripts), and Ruby
+  (`Gemfile`/`Rakefile`). Generated tasks are written to their own
+  file, `.oxis/tasks/auto-detected.lua` — completely separate from
+  `workspace.lua` and any hand-written `tasks/*.lua`, so generation
+  can never touch or overwrite anything a person wrote themselves,
+  by construction rather than by convention. A metadata sidecar
+  (`.auto-detected-meta.json`) records each task's source and a
+  content hash, laying the groundwork for the task integrity checker
+  (still to come) to tell "still exactly as generated" apart from
+  "hand-edited since" — tested the escaping and generated-file
+  grouping logic directly, including a Lua-string apostrophe case.
+  `go build ./...`/`go vet ./...`/`tsc --noEmit` all clean.
+- **README: replaced the "See it in action" YouTube embed with a real
+  screenshot** (`assets/screenshot-git-connected.png`) showing the
+  Home screen's workspace panel with a live GitLab connection — a
+  static image of the actual app rather than a video link out.
+- **`'update install` — a real, automatic, in-place update, not just
+  a browser link — Priority 2 of the spec-driven engineering pass.**
+  This is genuinely high-risk (a bug here could leave someone without
+  a working `oxis.exe`), so implemented with maximum safety margins
+  at every step, all in `internal/wailsapp/selfupdate.go`: downloads
+  the new build to a temp file first, verifies it (non-trivial size —
+  a real gap flagged in its own doc comment: no checksum is published
+  alongside the rolling release yet to verify against more
+  rigorously), only THEN renames the currently-running exe to a
+  backup path (Windows allows renaming/moving an in-use file, just not
+  overwriting it in place — the whole mechanism depends on this),
+  moves the verified download into the vacated install path, launches
+  it as a new process, and confirms — via a non-blocking `cmd.Wait()`
+  with a timeout, not the Unix-only "signal 0" trick, which doesn't
+  work on Windows — that it's still alive a moment later before
+  declaring success. Any failure at any step rolls back to the exact
+  working state from before. The backup is deleted by the NEW
+  process itself, from its own `(a *App).startup` — genuinely
+  reaching that point IS the real confirmation the spec asked for
+  ("verify the new version actually launched"), not just Start() not
+  immediately erroring. Preserves the exact existing install path
+  always — never Downloads, never a different default location, since
+  it replaces the file at `os.Executable()`'s own path, whatever that
+  actually is. Also fixed a real gap in the CHECK side while building
+  this: `Check()` used to set `Available: true` purely from a commit
+  SHA comparison, without ever confirming a usable download actually
+  existed OR that its URL genuinely resolves — a real HEAD request
+  (`artifactIsAccessible`) now gates `Available` too, matching the
+  spec's explicit "never advertise an update before the actual
+  downloadable artifact exists and is accessible."
+  **Honestly flagged**: `go build ./...`/`go vet ./...` both clean,
+  and the logic was designed with real Windows file-locking semantics
+  in mind throughout, but this could not be exercised against a real
+  Windows install replacing itself from this environment — this is
+  the single most important piece of this whole pass to test for
+  real before trusting it on an actual machine.
+- **Real cancellation for `'task commit` — Ctrl+C now actually kills
+  the in-flight git process, not just stops waiting for it.** There
+  was genuinely no way to interrupt an in-flight `RunCommand` call
+  before this — the only thing that could ever stop one was a fixed
+  timeout. That timeout also had to grow from 30s to 3 minutes as
+  part of this same change, since `commitAll` pushing now (see
+  above) means a real, legitimately slow network operation goes
+  through this exact binding, and 30s could have falsely killed a
+  genuinely-still-in-progress push and reported it as failed. Added
+  `internal/wailsapp/app.go`'s `CancelCommand`, keyed by a request ID
+  the frontend generates per call and can hand back later to cancel
+  that exact in-flight one — cancelling the underlying Go context is
+  what makes `exec.CommandContext` actually kill the child process
+  (`Process.Kill`, per the stdlib's own documented behavior), not
+  just stop waiting on it, so a cancelled push can't leave an
+  orphaned `git.exe` running in the background. `git.ts` tracks
+  whichever step of `'task commit` is currently active so Ctrl+C can
+  target it, and `runCommitTask` now reports a genuine cancellation
+  as its own distinct "commit cancelled" message instead of folding
+  it into a generic "commit failed" — a user-initiated stop isn't
+  the same thing as an actual failure. `go build ./...` and
+  `go vet ./...` both clean.
+- **`'task commit` now actually pushes to the connected remote —
+  starting a large, priority-ordered engineering pass driven by a
+  detailed spec and real screenshots of it still being broken.**
+  `commitAll()` used to explicitly, deliberately never push (an
+  earlier design note said so directly) — a real, reported gap: a
+  "successful" commit task that never reached GitHub/GitLab wasn't
+  doing what anyone running `'task commit` would expect. Pushes to
+  `origin` after a successful commit if one is configured; a commit
+  with no remote configured is NOT an error (`pushed: false`, no
+  error message — committing locally-only is completely valid).
+  Push failures are classified, not just raw stderr dumped at the
+  user: authentication failures, diverged-history rejections
+  (deliberately NOT auto-merged/rebased — that's a real decision a
+  person should make, not something a commit task should guess at),
+  unreachable remotes, and missing repositories each get their own
+  clear message. Added an `onProgress` callback so the caller can
+  show real progress ("staging changes…", "committing…", "pushing to
+  origin…") instead of one silent black box, and `runCommitTask` now
+  reports the push outcome as its own clearly-marked line
+  (`✓ pushed to origin` / `⚠ committed locally, but push failed: ...`
+  / a dim note when there's no remote at all) instead of folding
+  everything into one message.
 - **MSI: install location is now validated and restricted to the
   user's own profile, not just picker-enabled.** A real Custom Action
   (VBScript — the reliable WiX 3 pattern for this, not MSI's own
@@ -868,6 +1002,230 @@ change was made, not necessarily when a version was tagged.
 
 ### Fixed
 
+- **`rollbackPlugin()` — the update flow's own safety net — could
+  itself silently fail, the worst version of the fake-success
+  pattern found this whole audit.** It returned `ok: true`
+  unconditionally after calling `addLuaPlugin()`, never checking
+  whether the RESTORED plugin actually loaded successfully — unlike
+  `updatePlugin()` itself, which already correctly checks exactly
+  this after its own `addLuaPlugin()` call. That made it worse than
+  an ordinary fake-success bug: `updatePlugin()` calls this
+  automatically when a new version fails to load, reporting
+  "automatically rolled back" — if the rollback ALSO failed to load
+  (the backed-up source somehow also broken, a compatibility check
+  now rejecting it), the person would still be told recovery
+  succeeded while the plugin sat there broken and disabled, with no
+  indication anything was still wrong. Fixed to check real final
+  state the same way `updatePlugin()` already does, and fixed the
+  automatic-rollback message itself to distinguish "rolled back
+  successfully" from "rollback also failed" instead of always
+  claiming success in both cases. The `'plugin rollback` command
+  handler already correctly branched on the result's `ok` field, so
+  it benefits from this fix automatically with no changes of its own
+  needed.
+- **`unload()` (and therefore `disable()`) could leave persisted state
+  out of sync with in-memory state if a plugin's own Lua teardown
+  threw — continuing the marketplace reliability audit.**
+  `disable()` sets the in-memory `enabled` flag to false, calls
+  `unload()`, THEN persists — but `unload()`'s call to the plugin's
+  own `dispose()` had no try/catch around it, so an exception there
+  would propagate straight through and abort `disable()` before
+  `persist()` ever ran: in memory the plugin already looked disabled,
+  but the ON-DISK state would still say enabled, meaning it could
+  come back enabled on the next launch — the same class of bug as
+  the uninstall issue above, just a different trigger. Found the
+  inconsistency by noticing this file already wraps the equivalent
+  `dispose()` call in a try/catch elsewhere (`loadTasksFrom`) but not
+  here — fixed to match, so a plugin's own teardown failing can never
+  block the rest of `unload()`/`disable()` from completing correctly.
+  Also audited every caller of `enable()`/`disable()` for the same
+  "trusts an optimistic return value instead of the real, final
+  state" pattern that `enableAll()` already explicitly guards
+  against in its own comment — the `'plugin enable` command and the
+  Plugin panel's own UI toggle both already correctly re-check real
+  state afterward (`pluginManager.get(name)?.enabled` and a full
+  `refresh()` respectively), so no further bug found there.
+- **A plugin could silently reappear after being "successfully"
+  uninstalled — a genuinely severe fake-success bug, found continuing
+  the marketplace reliability audit.** `pluginManager.remove()` used
+  to delete the in-memory entry and persist that removal BEFORE the
+  actual file delete was even attempted, and that delete's failure
+  was silently swallowed by a `catch { /* already gone, or browser
+  mode */ }` — a reasonable-looking comment masking a real problem,
+  since a genuine delete failure (a locked file, permissions, a disk
+  error) looks identical to "already gone" from a bare catch.
+  `loadUserPlugins()` scans the filesystem directly to discover
+  plugins — confirmed it has no separate persisted "which plugins
+  exist" list to consult at all — so a `.lua` file left behind by a
+  failed delete would get silently rediscovered and re-registered
+  the next time plugins load, undoing an uninstall the user had
+  already been told succeeded, with nothing telling them it
+  happened. Fixed by attempting the delete FIRST, then actually
+  confirming the file is gone (`statPath` for user plugins,
+  `listPluginFiles()` for market ones — matching exactly how
+  `loadUserPlugins()` itself discovers each kind) before ever
+  touching the in-memory registry. A file still present after the
+  delete attempt is now a real, reported failure that leaves the
+  plugin exactly as it was — visible, manageable, not silently
+  dropped from OXIS's own view of the world while surviving on disk.
+- **`installPremium()` fake success — Priority 6, marketplace
+  reliability audit.** The package could genuinely download and
+  encrypt successfully while the plugin still failed to actually
+  load (bad Lua source, a validation failure) — this used to
+  `await loadPremiumPlugin(name)` without ever checking its result,
+  so `installPremium()` resolved successfully regardless, and the
+  caller unconditionally printed "installed & unlocked" either way.
+  Now returns `loaded`/`loadMessage` (same honest pattern the free-
+  plugin `install()` already used via its own `persisted`/
+  `persistError`), and the command handler checks it: a genuine load
+  failure now says so plainly, and points at `'plugin reload` to
+  retry without re-downloading — verified that claim is accurate by
+  reading `reload()`'s own implementation, since it reuses the
+  already-decrypted, in-memory Lua source rather than needing to
+  re-fetch or re-decrypt anything.
+  **Noted, not fixed this pass**: `'plugin reload` bypasses the
+  subscription-license check entirely (it calls
+  `pluginManager.reload()` directly, not `market.loadPremiumPlugin()`)
+  — confirmed there's no periodic background re-check anywhere else
+  either (only three call sites for `checkLicense` total: install,
+  load, and the explicit `'market status` command), meaning a premium
+  plugin stays functional through a generic reload even after its
+  subscription has lapsed mid-session, until the app itself restarts.
+  Lower severity than a fake-success bug — checking licenses at
+  startup rather than continuously is a common, accepted pattern —
+  but worth flagging honestly rather than leaving unexamined.
+- **The stale `release` task — Priority 4 of the spec-driven pass,
+  found the actual root cause rather than guessing.** Turned out not
+  to be leftover per-workspace persisted data at all (the first,
+  more complex theory) but a hardcoded `oxis.task("release", ...)`
+  in a built-in, shipped plugin (`git_advanced.lua`) — registered
+  fresh every single time that plugin loads, for every workspace,
+  since built-in plugin source is never separately cached/persisted
+  (only its enabled/disabled flag is — see `persist()`'s own doc
+  comment in `pluginManager.ts`), confirmed before assuming a fix
+  here would actually reach existing installs automatically on their
+  next update. Removed the line entirely — `git add -A && git commit
+  ... && git push` is now fully redundant with what `'task commit`
+  itself already does (commit AND push together, see above), which
+  is exactly what the spec asked for: "the intended default Git-
+  related task is only 'task commit." Swept the rest of the codebase
+  (Go backend, every `.lua` file, every `.ts`/`.tsx` file) for any
+  other source of a `"release"` task string — none found.
+- **`'task commit` invisible from the one place a person would
+  actually look to see it exists, on Home's own workspace panel.**
+  Traced the spec's "'task commit can disappear from the Home task
+  display after it fails" concern and found `'task commit` itself
+  was already fully robust to every scenario listed (success,
+  failure, cancellation, restart, reload) — it's a direct,
+  unconditional special case in the `'task` command handler, not an
+  `oxis.task()` registry entry that could be lost. But it was never
+  actually IN the task list Home's `WorkspacePanel` displays
+  (`workspaceState.taskNames()`) or `'workspace info`'s own tasks
+  line, precisely BECAUSE it isn't a registry entry — both only ever
+  listed `oxis.task()`-registered tasks. Both now always show
+  "commit" first, deduplicated in case a workspace ever also defines
+  its own literal "commit" task, so it's never listed twice.
+- **`'new`/`'touch` while a workspace was active — reported directly
+  as "doesn't create a document, only works once I close the
+  workspace."** `workspaceManager.documentsDir()` used to split
+  between `created-documents/` and `workspaces/<name>/documents/`
+  depending on whether a workspace was active — but a workspace's
+  real, visible top-level location (per the Home file explorer) is
+  `created-documents/`, and a workspace linked to an external project
+  in particular has no obvious reason its own internal
+  `workspaces/<name>/documents/` folder should be where a plain text
+  document lands instead. The reported symptom matches exactly: the
+  file wasn't failing to create, it was landing somewhere buried the
+  user had no reason to go looking, which looked identical to it
+  silently not being created at all. Simplified to always use
+  `created-documents/` — confirmed `'new`/`'touch` are its only two
+  callers, so nothing else could have depended on the old per-
+  workspace behavior. `pluginsDir()` was deliberately left alone: a
+  workspace's own created plugins loading in per-workspace is
+  meaningful in a way a plain document has no equivalent for.
+- **`'healthcheck` (and any plugin calling `oxis.run()` more than
+  once in the same command handler) could produce garbled, colliding
+  script output — the second launch line landing on top of the
+  first, still-running one — a real bug caught by a screenshot, root-
+  caused, and fixed, not patched over.** `scriptRunTracker.ts`'s
+  `pending` map only ever TRACKED which markers to watch for and
+  resolve; nothing actually stopped a second call from dispatching
+  (calling `send(...)`) while a first was still pending.
+  `dispatchOxisCmd` checks `isBusy()` before launching a new
+  top-level `'`-command, but that only guards BETWEEN separate
+  commands — it can't help when a single plugin's own Lua code calls
+  `oxis.run()` more than once inside ONE command handler invocation
+  (check disk space, then network, then git status, as three
+  separate calls — a completely normal thing to write), which Lua
+  has no way to serialize itself: `oxis.run()` is fire-and-forget
+  from Lua's own side, there's no `await` a Lua script can write.
+  Both calls fired their `send(...)` immediately, back to back, into
+  the one shared PTY. Fixed by actually queuing dispatch, not just
+  tracking it — each call now chains onto an internal queue and only
+  sends once whatever was queued before it has genuinely finished, so
+  multiple `oxis.run()` calls from one plugin now run one after
+  another like real sequential script lines, instead of colliding.
+  Also fixed a new edge case my own fix introduced before shipping
+  it: cancelling (Ctrl+C) while multiple calls were queued used to
+  only stop the currently-active one — anything still queued behind
+  it would still go ahead and dispatch once its turn came. Added a
+  generation counter cancel() bumps, so anything still waiting
+  resolves as cancelled without ever sending its command. Verified
+  the whole thing — serialized dispatch, sequential completion, and
+  cancellation actually stopping both the active call and everything
+  still queued — against a direct simulation of the real logic before
+  finalizing, not just reasoned about.
+- **The actual root cause of `'task commit` hanging with a visible,
+  empty `git.exe` popup window — a real, screenshotted report, not a
+  guess.** `exec.Command`/`exec.CommandContext` never set anything to
+  suppress the console window Windows allocates by default for a
+  spawned console program, on any of the four places in `app.go`
+  that spawn one: `RunCommand` (the actual `'task commit` path),
+  `cloneSourceInBackground`'s git clone, `ListProcesses`'
+  `tasklist`/`ps`, and `KillProcess`'s `taskkill` — Wails itself has
+  no console of its own, so Windows creates a brand new one for the
+  child process every time. Fixed with a shared `hideWindow()` helper
+  (`syscall.SysProcAttr.HideWindow`, the documented standard fix),
+  split into `hidewindow_windows.go`/`hidewindow_other.go` following
+  the same platform-file convention already used for the PTY code —
+  the field doesn't exist on non-Windows builds at all, so this
+  couldn't be set unconditionally in `app.go` directly. Verified with
+  a real Go build (`go build ./...`, `go vet ./...`, both clean); a
+  full Windows cross-compile hit the same known sandbox network
+  restriction as earlier PTY work (a transitive `golang.org/x/sys`
+  dependency this environment can't reach) — `gofmt` confirms valid
+  syntax for the new files, but this specific fix still deserves one
+  real Windows test before fully trusting it end to end.
+- **CRITICAL — the single most severe bug found this entire session,
+  in the core Lua↔JS bridge: an ordinary Lua array literal like
+  `{10, 20, 30}` could silently lose values and convert to a
+  malformed object instead of an array.** Not a rare edge case —
+  reproduced directly against the exact fengari version this project
+  uses (0.1.5, confirmed matching) and it broke on the *first, most
+  basic test case*: fengari's `lua_next` iterates that table's keys
+  as 3, 2, 1 (reverse), not 1, 2, 3, and `luaToJS`'s old array-
+  detection logic assumed sequential order — checking each key AS
+  ENCOUNTERED against an incrementing counter. Reversed order broke
+  it completely: key 3 arrived first, didn't match counter 1, flipped
+  an `isArray` flag to false permanently, and every value already
+  pushed into the in-progress array — including a real one, 20, for
+  key 2 — was silently discarded when the function returned the
+  object instead. `{10, 20, 30}` converted to `{"1":10,"3":30}`,
+  dropping `20` entirely. This is the core value-conversion function
+  behind `oxis.dashboard()`, `oxis.workflow()`'s `steps` table,
+  `oxis.setOption()`, and `oxis.net.request()` — any plugin passing
+  an ordinary Lua array to any of these could have silently lost
+  data. Fixed by collecting every table entry first, then deciding
+  array-vs-object from the resulting KEY SET (exactly `{1..maxKey}`,
+  no gaps) rather than the order entries happened to arrive in — a
+  property of the whole table, not sensitive to iteration order at
+  all. Verified against fengari directly across eight cases before
+  and after the fix: plain sequential literals, out-of-order key
+  assignment, a value removed and reassigned, sparse tables (correctly
+  stay objects), plain string-keyed tables, and an empty table (kept
+  converting to `[]`, matching this function's own prior behavior for
+  that one specific case, since Lua doesn't distinguish an empty
+  array from an empty object).
 - **Poor design: a command handler that threw an exception was
   completely invisible to the user — the central dispatch point for
   every single command in the app silently swallowed it.**

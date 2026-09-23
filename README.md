@@ -12,9 +12,7 @@
 ### 🎬 See it in action
 
 <p align="center">
-  <a href="https://www.youtube.com/watch?v=eiCB0-0p7p4">
-    <img src="https://img.youtube.com/vi/eiCB0-0p7p4/maxresdefault.jpg" alt="Watch OXIS in action" width="720">
-  </a>
+  <img src="assets/screenshot-git-connected.png" alt="OXIS Home screen showing a workspace connected to a GitLab repository" width="720">
 </p>
 
 **OXIS is a terminal app for Windows and Linux** — the same

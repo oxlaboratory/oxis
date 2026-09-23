@@ -147,7 +147,7 @@ const encryptedPluginPath = (name: string) => `.oxis/premium/${name}.oxispkg`;
  *  storage, and register it exactly like any other plugin. Requires
  *  the native app (real filesystem) — same constraint the editor and
  *  workspace files already have. */
-export async function installPremium(name: string): Promise<{ entry: MarketEntry }> {
+export async function installPremium(name: string): Promise<{ entry: MarketEntry; loaded: boolean; loadMessage: string }> {
   const entry = await findEntry(name);
   if (!entry) throw new Error(`not found in marketplace: ${name}`);
   if (!entry.premium) throw new Error(`${name} is free — use 'market install ${name} instead`);
@@ -166,8 +166,22 @@ export async function installPremium(name: string): Promise<{ entry: MarketEntry
   const pkg = await encryptPluginPackage(name, data.source, getDeviceId());
   await writeFile(encryptedPluginPath(name), JSON.stringify(pkg));
 
-  await loadPremiumPlugin(name); // register it for this session immediately, don't make the user reload
-  return { entry };
+  // A real, checked result — not fire-and-forget. Found as a genuine
+  // fake-success bug: this used to `await loadPremiumPlugin(name)`
+  // without ever looking at the result, so if loading actually failed
+  // (a decryption error, the plugin's own Lua failing to validate)
+  // installPremium() STILL resolved successfully — the encrypted
+  // package was already safely on disk by this point regardless, so
+  // the caller (the 'market install command handler) would print
+  // "installed & unlocked" even though the plugin never actually
+  // loaded. The package download/encryption genuinely did succeed
+  // (worth keeping on disk either way — 'market install can retry the
+  // load without re-fetching), but "installed" and "loaded" are two
+  // different claims and this now lets the caller tell them apart,
+  // the same way the free-plugin install() above already does via its
+  // own persisted/persistError fields.
+  const loadResult = await loadPremiumPlugin(name);
+  return { entry, loaded: loadResult.ok, loadMessage: loadResult.message };
 }
 
 /** Loads an already-installed premium plugin: decrypts into memory

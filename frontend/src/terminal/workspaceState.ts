@@ -106,10 +106,23 @@ class WorkspaceState {
   }
 
   /** Task names defined so far (`oxis.task(...)`), for "available tasks". */
+  /** Task names shown on Home's workspace panel. "commit" is always
+   *  first, even though it isn't in the registry the way the rest of
+   *  these are (see App.tsx's 'task handler — it's a direct,
+   *  unconditional special case, not an oxis.task() registration) —
+   *  without this it was invisible from the one place a person would
+   *  actually look to see what tasks exist, even though the command
+   *  itself works fine unconditionally. It's also the one task name
+   *  this list can never lose: everything else here comes from
+   *  workspace.lua/plugin registrations that could in principle
+   *  change or fail to load, but "commit" doesn't depend on any of
+   *  that. Deduplicated in case a workspace ever also defines its own
+   *  literal "commit" task — this list should never show it twice. */
   taskNames(): string[] {
-    return registry.all()
+    const registered = registry.all()
       .filter((c) => c.category === "task")
       .map((c) => c.name.replace(/^task:/, ""));
+    return ["commit", ...registered.filter((n) => n !== "commit")];
   }
 
   subscribe(fn: (s: WorkspaceSnapshot) => void): () => void {

@@ -59,8 +59,8 @@ import * as market                         from "./plugins/market";
 import { updatePlugin, updateAllPlugins, rollbackPlugin } from "./plugins/marketUpdate";
 import { exportSettings, importSettings, exportWorkspace, importWorkspace, exportPluginSource, createFullBackup, restoreFullBackup } from "./plugins/backup";
 import { checkPublishable, findExistingListing, prepareFreePublish, submitPaidPlugin, startConnectOnboarding, requestPluginDeletion } from "./plugins/publish";
-import { commitAll, setupRemote, getRemotes, parseGitRemote, type GitProvider } from "./plugins/git";
-import { readFile, writeFile, listDir, makeDir, statPath, movePath, isNativeApp, openUrl, checkForUpdate, appDir } from "./native";
+import { commitAll, setupRemote, getRemotes, parseGitRemote, cancelActiveCommit, type GitProvider } from "./plugins/git";
+import { readFile, writeFile, listDir, makeDir, statPath, movePath, isNativeApp, openUrl, checkForUpdate, performUpdate, quitApp, appDir } from "./native";
 import Titlebar from "./components/Titlebar";
 
 // ══════════════════════════════════════════════════════════════
@@ -488,16 +488,19 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
   // (ps/ok/err/dim/info/sep/h/shellCmd defined above via _ctxRef)
 
   // ── files ──────────────────────────────────────────────
-  // 'new / 'touch: land in created-documents/ (or the active
-  // workspace's own documents/ — see workspaceManager.documentsDir())
-  // via the native file bridge, NOT a raw shell command — the old
-  // version ran New-Item/touch through whatever the *shell's* current
-  // directory happened to be, which is why files it created were
-  // scattered wherever the user last `cd`'d rather than somewhere
-  // predictable. An absolute-looking path (drive letter, leading / or
-  // \\) is still respected as-is, same as 'edit.
+  // 'new / 'touch: always land in created-documents/ (see
+  // workspaceManager.documentsDir()'s own doc comment for why this
+  // no longer splits by whether a workspace is active — it used to,
+  // and that was reported directly as "'new doesn't create a
+  // document" when it was actually landing somewhere buried and
+  // invisible) via the native file bridge, NOT a raw shell command —
+  // the old version ran New-Item/touch through whatever the *shell's*
+  // current directory happened to be, which is why files it created
+  // were scattered wherever the user last `cd`'d rather than
+  // somewhere predictable. An absolute-looking path (drive letter,
+  // leading / or \\) is still respected as-is, same as 'edit.
   const looksAbsolute = (p: string) => /^[A-Za-z]:[\\/]/.test(p) || p.startsWith("/") || p.startsWith("\\");
-  registry.register({ name:"new",    category:"files", description:"Create a document (in created-documents/, or the active workspace)",
+  registry.register({ name:"new",    category:"files", description:"Create a document in created-documents/",
     handler:(_,r)=>{ if(!r){err("usage: 'new <file>");return;}
       const dest = looksAbsolute(r) ? r : `${workspaceManager.documentsDir()}/${r}`;
       writeFile(dest, "").then(() => ok(`created: ${dest}`)).catch(e => err(`couldn't create ${dest}: ${e}`)); }});
@@ -518,7 +521,7 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
       events.emit("ui_workspace_panel_visibility_changed", { hidden: false });
       ok("workspace panel shown on Home"); }});
 
-  registry.register({ name:"touch",  category:"files", description:"Create a document (in created-documents/, or the active workspace)",
+  registry.register({ name:"touch",  category:"files", description:"Create a document in created-documents/",
     handler:(_,r)=>{ if(!r){err("usage: 'touch <file>");return;}
       const dest = looksAbsolute(r) ? r : `${workspaceManager.documentsDir()}/${r}`;
       writeFile(dest, "").then(() => ok(`created: ${dest}`)).catch(e => err(`couldn't create ${dest}: ${e}`)); }});
@@ -601,8 +604,12 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
       if(!r){ events.emit("open_file_tree", {}); return; }
       _ctxRef.current?.openEditor(r); ok(`opening ${r}`); }});
 
-  registry.register({ name:"update", category:"files", description:"Check for a newer OXIS build (commit-based, not release-tag-based — see internal/update/update.go)",
-    handler:()=>{
+  registry.register({ name:"update", category:"files", description:"Check for a newer OXIS build, or 'update install to actually install it in place",
+    handler:(args)=>{
+      if(args[0]?.toLowerCase()==="install"){
+        runUpdateInstall();
+        return;
+      }
       ok("checking for a newer build...");
       checkForUpdate().then(info => {
         if (!info.available) {
@@ -610,10 +617,43 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
           return;
         }
         ok(`newer build available: ${info.currentCommit ? info.currentCommit.slice(0, 7) : "current"} → ${info.latestCommit.slice(0, 7)}`);
-        if (info.downloadUrl) openUrl(info.downloadUrl);
-        else if (info.releaseUrl) openUrl(info.releaseUrl);
+        dim(`'update install to install it in place and restart, or ${info.releaseUrl || info.downloadUrl} to download it yourself`);
       }).catch(() => err("update check failed — check your connection"));
     }});
+
+  /** 'update install — actually replaces the running exe, per the
+   *  spec: real, automatic, in-place updating, not just a browser
+   *  link. Checks first (never installs a build that isn't genuinely
+   *  newer, and never one whose download hasn't already been verified
+   *  accessible — see Check() in update.go). The explicit, separate
+   *  `install` subcommand IS the confirmation step — same pattern as
+   *  other destructive commands in this app ('plugin remove --force,
+   *  for one): no separate modal dialog, but a bare 'update never
+   *  does this on its own, only ever reports what's available. Hands
+   *  off to PerformUpdate for the actual work — see its own doc
+   *  comment in selfupdate.go for every safety guarantee around what
+   *  happens if any step fails. */
+  function runUpdateInstall(): void {
+    info("checking for a newer build...");
+    checkForUpdate().then(async checkInfo => {
+      if (!checkInfo.available) {
+        ok(`already up to date${checkInfo.currentCommit ? ` (${checkInfo.currentCommit.slice(0, 7)})` : ""} — nothing to install`);
+        return;
+      }
+      if (!checkInfo.downloadUrl) {
+        err("a newer build exists, but no verified download is available yet — try again shortly, or check the release page manually");
+        return;
+      }
+      info(`installing build ${checkInfo.latestCommit.slice(0, 7)} (currently on ${checkInfo.currentCommit ? checkInfo.currentCommit.slice(0, 7) : "unknown"})…`);
+      const [ok_, reason] = await performUpdate(checkInfo.downloadUrl);
+      if (!ok_) {
+        err(`✗ update failed: ${reason} — your current install was left untouched`);
+        return;
+      }
+      ok("✓ update installed — the new version has started, restarting now…");
+      setTimeout(() => quitApp(), 800); // brief pause so the message above is actually visible before the window closes
+    }).catch(e => err(`update check failed: ${e instanceof Error ? e.message : e}`));
+  }
 
   // ── shell ─────────────────────────────────────────────
   registry.register({ name:"clear",   category:"shell", description:"Clear terminal output",
@@ -1037,8 +1077,18 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
             // Premium install path: verify the Stripe-issued license,
             // fetch source over HTTPS (never a public static file —
             // see premium-plugin.js), encrypt it locally, register it.
+            // Checks `loaded` now, not just that the promise resolved
+            // — a real fake-success bug found and fixed in
+            // installPremium() itself: the package can genuinely
+            // download and encrypt successfully while the plugin still
+            // fails to actually load (a bad Lua source, a validation
+            // failure), and this used to claim "installed & unlocked"
+            // either way.
             market.installPremium(name)
-              .then(() => ok(`${name} installed & unlocked — 'plugin disable ${name} to turn off`))
+              .then(({ loaded, loadMessage }) => {
+                if (loaded) ok(`${name} installed & unlocked — 'plugin disable ${name} to turn off`);
+                else err(`${name}'s package downloaded and is saved, but it didn't load: ${loadMessage} — 'plugin reload ${name} to retry without re-downloading`);
+              })
               .catch(e => err(`premium install failed: ${e instanceof Error ? e.message : e}`));
             return;
           }
@@ -1167,15 +1217,42 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
     if(!dir){ err(`no project connected — 'workspace link a directory, or 'workspace github/gitlab to set one up`); return; }
     info(`committing in ${dir}…`);
     try {
-      const result = await commitAll(dir, message);
+      const result = await commitAll(dir, message, step => info(step));
       if(result.ok){
-        ok(`✓ committed${result.hash ? ` (${result.hash})` : ""}: ${message}`);
+        const lines: Array<[string, LineKind?]> = [
+          [`  ✓  committed${result.hash ? ` (${result.hash})` : ""}: ${message}`, "ok"],
+        ];
+        if (result.pushed) {
+          lines.push(["  ✓  pushed to origin", "ok"]);
+        } else if (/push failed/.test(result.message)) {
+          // commitAll folds the push failure into its own message
+          // string (see its own doc comment) — pull just that part
+          // back out for its own clearly-marked line instead of one
+          // long run-on sentence.
+          const pushPart = result.message.split("committed locally, but push failed: ")[1];
+          lines.push([`  ⚠  committed locally, but push failed: ${pushPart ?? "unknown reason"}`, "warn"]);
+        } else {
+          lines.push(["     (no remote configured — commit-only; 'workspace github/gitlab to add one)", "dim"]);
+        }
+        ctx.printLines(lines);
         events.emit("filetree_refresh", {});
       } else {
         err(`✗ commit failed: ${result.message}`);
       }
     } catch(e) {
-      err(`✗ commit failed: ${e instanceof Error ? e.message : e}`);
+      const msg = e instanceof Error ? e.message : String(e);
+      // Real cancellation (Ctrl+C during a commit/push — see
+      // cancelActiveCommit) surfaces here as a rejected promise from
+      // RunCommand ("... was cancelled", set on the Go side — see
+      // CancelCommand's own doc comment in app.go). Worth a distinct
+      // message: a user-initiated stop isn't the same thing as an
+      // actual failure, and reporting it as "commit failed" would be
+      // misleading about what actually happened.
+      if (/was cancelled/i.test(msg)) {
+        info("commit cancelled");
+      } else {
+        err(`✗ commit failed: ${msg}`);
+      }
     }
   }
 
@@ -3963,7 +4040,7 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
     if (ctrl) {
       switch (k.toLowerCase()) {
         // Interrupt / EOF / suspend
-        case "c": e.preventDefault(); sendToShell("\x03"); clearInput(); history.resetNav(); scriptRunTracker.cancel(); return;
+        case "c": e.preventDefault(); sendToShell("\x03"); clearInput(); history.resetNav(); scriptRunTracker.cancel(); void cancelActiveCommit(); return;
         case "d": e.preventDefault(); sendToShell("\x04"); return;
         case "z": e.preventDefault(); sendToShell("\x1a"); return;
         case "\\": e.preventDefault(); sendToShell("\x1c"); return;

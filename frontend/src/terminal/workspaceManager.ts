@@ -25,6 +25,8 @@ import { workflowRunner } from "../plugins/workflowRunner";
 import { OXIS_VERSION } from "../plugins/manifest";
 import { registry } from "./commandRegistry";
 import { events } from "./events";
+import { detectProject, writeDetectedTasks } from "./projectDetector";
+import { reconcileDetectedTasks } from "./taskReconciler";
 
 const WORKSPACE_PLUGIN_NAME = "__workspace__";
 const WORKSPACE_REL_PATH = ".oxis/workspace.lua";
@@ -313,10 +315,14 @@ class WorkspaceManager {
   /** `'workspace info` — human-readable dump of the active workspace. */
   info(): WorkspaceOpResult {
     if (!this.activeDir) return { ok: false, message: "no workspace loaded — try 'workspace init \"name\" or open a directory that has one" };
-    const tasks = registry.all().filter(c => c.category === "task" && c.fromPlugin === WORKSPACE_PLUGIN_NAME);
+    const registeredTasks = registry.all().filter(c => c.category === "task" && c.fromPlugin === WORKSPACE_PLUGIN_NAME).map(t => t.name.replace(/^task:/, ""));
+    // "commit" always shown first — see taskNames()'s own doc comment
+    // in workspaceState.ts for why it isn't a real registry entry
+    // here the way the rest of these are, and why it's still shown.
+    const taskNames = ["commit", ...registeredTasks.filter(n => n !== "commit")];
     const lines = [
       this.activeNamed ? `workspace: "${this.activeNamed}"  (workspaces/${this.activeNamed}/)` : `workspace: ${this.activeDir}`,
-      `tasks: ${tasks.length ? tasks.map(t => t.name.replace(/^task:/, "")).join(", ") : "none"}`,
+      `tasks: ${taskNames.join(", ")}`,
     ];
     return { ok: true, message: lines.join("\n") };
   }
@@ -487,7 +493,55 @@ class WorkspaceManager {
     // against the PRE-reload signature and could re-trigger
     // immediately for no reason.
     this.startAutoReload(dir, namedWorkspace);
+    void this.runTaskReconciliationInBackground(dir, namedWorkspace);
     return { ok: true, message: `workspace loaded from ${path}` };
+  }
+
+  /** The task integrity checker (spec item 8) — runs in the
+   *  background, never awaited by load() itself, specifically so it
+   *  can never noticeably slow workspace startup (a real, explicit
+   *  requirement): detection involves real file reads and, for some
+   *  ecosystems, spawning a subprocess to confirm a tool is actually
+   *  on PATH, neither of which should block the workspace from being
+   *  usable immediately with whatever tasks were already loaded.
+   *
+   *  If reconciliation actually changed anything, this reloads the
+   *  whole workspace once more (this.load() again) so the update is
+   *  picked up correctly — load() already unregisters and re-registers
+   *  everything cleanly on every call, which is the safe way to
+   *  reflect an updated/removed task without hand-rolling a partial,
+   *  surgical re-registration that risks leaving something stale in
+   *  the registry. This can't loop: a second reconciliation pass,
+   *  immediately after the first one just wrote the now-current
+   *  state, finds nothing left to change and reports ran:true with
+   *  empty added/updated/removed — no further reload gets triggered. */
+  private async runTaskReconciliationInBackground(dir: string, namedWorkspace: string | null): Promise<void> {
+    if (!namedWorkspace) return; // ad-hoc (unnamed) workspaces have no registry entry to read an externalPath from
+    try {
+      const entries = await this.readRegistry();
+      const entry = entries.find(e => e.name === namedWorkspace);
+      if (!entry?.externalPath) return; // never linked to a project — nothing to reconcile against
+      const result = await reconcileDetectedTasks(entry.externalPath, `${dir}/.oxis/tasks`);
+      if (!result.ran) return;
+      const changed = result.added.length + result.updated.length + result.removed.length;
+      if (changed === 0) return;
+      this.apiCtx?.print(
+        `  ⟳  workspace tasks updated: ${[
+          result.added.length ? `+${result.added.join(", ")}` : "",
+          result.updated.length ? `~${result.updated.join(", ")}` : "",
+          result.removed.length ? `-${result.removed.join(", ")}` : "",
+        ].filter(Boolean).join("  ")}`,
+        "dim",
+      );
+      // Only reload if this is STILL the active workspace — reconciliation
+      // is async and the user may have switched away by the time it finishes.
+      if (this.activeNamed === namedWorkspace) {
+        await this.load(dir, namedWorkspace);
+      }
+    } catch {
+      /* best-effort — a reconciliation failure should never disrupt
+       * an already-successfully-loaded workspace */
+    }
   }
 
   /** Loads every workflows/*.lua file in this workspace/project — each
@@ -782,7 +836,36 @@ class WorkspaceManager {
     await writeConnectorFile(path, this.activeNamed);
     await ensureGitignoreRule(path);
     events.emit("workspace_linked", { path });
-    return { ok: true, message: `workspace "${this.activeNamed}" linked to ${path} (added a .gitignore rule for the connector file, if one wasn't already there)` };
+
+    // Automatic project detection — Priority 5 of the spec-driven
+    // pass. Runs the real detectors (projectDetector.ts) against the
+    // now-linked directory and, if anything real was found, writes
+    // it to its own file under .oxis/tasks/ (see writeDetectedTasks's
+    // own doc comment for why that's always safe to overwrite
+    // wholesale) — completely separate from workspace.lua and any
+    // hand-written tasks/*.lua, so this can never touch or overwrite
+    // anything the user wrote themselves. A detection failure here
+    // (a detector throwing, a write failing) is reported but doesn't
+    // undo the link itself — linking succeeded regardless of whether
+    // detection did.
+    let detectionNote = "";
+    try {
+      const result = await detectProject(path);
+      if (result.tasks.length > 0) {
+        const dir = this.activeNamed ? `workspaces/${this.activeNamed}` : null;
+        if (dir) {
+          await writeDetectedTasks(`${dir}/.oxis/tasks`, result);
+          await this.loadTasks(dir); // load the newly-written tasks immediately, not just on the next full workspace reload
+          detectionNote = ` — detected ${result.projectTypes.join(", ")}, generated ${result.tasks.length} task${result.tasks.length === 1 ? "" : "s"} (${result.tasks.map(t => t.name).join(", ")})`;
+        }
+      } else {
+        detectionNote = " — no recognizable project configuration found to generate tasks from";
+      }
+    } catch (e) {
+      detectionNote = ` — project detection failed (${e instanceof Error ? e.message : e}), link itself still succeeded`;
+    }
+
+    return { ok: true, message: `workspace "${this.activeNamed}" linked to ${path} (added a .gitignore rule for the connector file, if one wasn't already there)${detectionNote}` };
   }
 
   /** `'workspace unlink` — remove the active workspace's external path.
@@ -816,8 +899,26 @@ class WorkspaceManager {
   }
 
   /** Where 'new should write documents right now. */
+  /** Always "created-documents" — reported directly as broken when
+   *  this used to split between that and workspaces/<name>/documents
+   *  depending on whether a workspace was active. The reported
+   *  symptom ("'new doesn't create a document — only works once I
+   *  close the workspace") matches exactly: the file was actually
+   *  being written to workspaces/<name>/documents/, a folder buried
+   *  inside workspaces/ that the Home screen's own file explorer
+   *  doesn't surface as a top-level location the way it does
+   *  created-documents — so a document created while a workspace was
+   *  active looked like it silently failed, when it had actually just
+   *  landed somewhere the user had no reason to go looking. Simplified
+   *  to always use the one, real, visible folder — 'new and 'touch
+   *  are the only two callers (see below), and neither one has any
+   *  reason to split based on workspace state the way pluginsDir()
+   *  legitimately does (created plugins load in per-workspace, so
+   *  scoping them per-workspace is meaningful; a plain text document
+   *  isn't loaded/executed by anything workspace-aware, so there's no
+   *  equivalent reason for it to be scoped that way too). */
   documentsDir(): string {
-    return this.activeNamed ? `workspaces/${this.activeNamed}/documents` : "created-documents";
+    return "created-documents";
   }
 
   /** Where Plugin Creator should write user-created plugins right now. */

@@ -149,6 +149,45 @@ func Check(_ string) Info {
 		}
 	}
 
+	// "Never advertise an update before the actual downloadable
+	// artifact exists and is accessible" — a real, explicit
+	// requirement, not just a nice-to-have. The old version of this
+	// function set Available purely from the commit SHA comparison,
+	// which meant it could report an update as available even with an
+	// EMPTY DownloadURL (no matching asset found at all in the
+	// release), or with a URL that LOOKS present but is actually a
+	// dead/expired link. Both are now checked before Available is
+	// ever set true: a real HEAD request confirms the asset URL
+	// actually resolves (200), not just that GitHub's release API
+	// listed something with a plausible-looking filename.
+	if info.DownloadURL == "" {
+		return info // commits differ, but no usable asset — nothing to actually offer, so nothing to advertise
+	}
+	if !artifactIsAccessible(info.DownloadURL) {
+		return info // asset listed, but the actual download link doesn't resolve — same reasoning
+	}
+
 	info.Available = !strings.EqualFold(latestCommit, BuildCommit)
 	return info
+}
+
+// artifactIsAccessible does a real HEAD request against the asset
+// URL — the actual verification the spec requires, not just trusting
+// that GitHub's release API listed a filename that looks right. A
+// short timeout of its own (separate from httpClient's general one)
+// since this runs as an EXTRA round trip on every single update
+// check, not something that should be allowed to noticeably slow one
+// down even on a slow connection.
+func artifactIsAccessible(url string) bool {
+	req, err := http.NewRequest(http.MethodHead, url, nil)
+	if err != nil {
+		return false
+	}
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	return resp.StatusCode >= 200 && resp.StatusCode < 300
 }

@@ -35,7 +35,7 @@ import { events } from "../terminal/events";
 import { workspaceManager } from "../terminal/workspaceManager";
 import { loadLuaPlugin, checkLuaSyntax, type LoadedLuaPlugin } from "./luaRuntime";
 import { buildLuaAPI, UNDOCUMENTED_SENTINEL, type APIContext } from "./pluginAPI";
-import { isNativeApp, listPluginFiles, readPluginFile, writePluginFile, deletePluginFile, readFile, writeFile, listDir, deletePath } from "../native";
+import { isNativeApp, listPluginFiles, readPluginFile, writePluginFile, deletePluginFile, readFile, writeFile, listDir, deletePath, statPath } from "../native";
 import type { CommandHandler } from "../terminal/commandRegistry";
 import { parseManifest, satisfiesMin, satisfiesRange, OXIS_VERSION, type PluginManifest } from "./manifest";
 import { setDeclaredPermissions, declaredPermissionsOf, type PermissionNamespace } from "./permissions";
@@ -376,10 +376,28 @@ class PluginManager {
     return true;
   }
 
+  /** Real state-consistency guarantee: dispose() throwing here must
+   *  never leave persisted state out of sync with in-memory state.
+   *  disable() sets p.enabled = false, THEN calls unload(), THEN
+   *  persists — if dispose() (the Lua VM's own teardown) threw
+   *  uncaught, that exception would propagate straight through
+   *  unload() and abort disable() before persist() ever ran: the
+   *  in-memory flag would already say disabled, but the ON-DISK
+   *  persisted state would still say enabled, meaning the plugin
+   *  could come back enabled on the next launch — the same class of
+   *  in-memory-vs-disk mismatch as the uninstall bug fixed above,
+   *  just triggered by a different failure point. Other call sites in
+   *  this file already wrap the equivalent dispose() call in a
+   *  try/catch (see loadTasksFrom) — this one didn't, which is the
+   *  actual inconsistency being fixed here, not a change in what
+   *  dispose() itself is expected to do. */
   unload(name: string): void {
     registry.unregisterByPlugin(name);
     const loaded = this.disposers.get(name);
-    if (loaded) { loaded.dispose(); this.disposers.delete(name); }
+    if (loaded) {
+      try { loaded.dispose(); } catch { /* best-effort — a plugin's own teardown failing must not block the rest of unload()/disable() from completing */ }
+      this.disposers.delete(name);
+    }
     events.emit("plugin_unloaded", { name });
   }
 
@@ -442,6 +460,31 @@ class PluginManager {
    *  another installed plugin depends on it — pass `force` to remove
    *  anyway (the caller is responsible for warning the user first;
    *  see 'plugin uninstall's handler in App.tsx). */
+  /** Real requirement this satisfies explicitly: don't report an
+   *  uninstall as successful unless the plugin is actually gone.
+   *
+   *  A genuine bug lived here, found doing a marketplace-reliability
+   *  audit: the in-memory entry used to be deleted and persisted as
+   *  gone BEFORE the actual file delete was even attempted, and that
+   *  delete's failure was silently swallowed (`catch { /* already
+   *  gone, or browser mode *​/ }`) — a reasonable-looking comment that
+   *  masked a real problem, since a GENUINE delete failure (file
+   *  locked, permissions, a disk error) looks identical to "already
+   *  gone" from a bare catch. loadUserPlugins() scans the filesystem
+   *  directly to discover plugins — it has no separate persisted
+   *  "which plugins exist" list to consult — so a .lua file left
+   *  behind by a failed delete gets silently REDISCOVERED AND
+   *  RE-REGISTERED the next time plugins load, undoing the uninstall
+   *  the user was told had already succeeded, with nothing telling
+   *  them it happened. Fixed by attempting the delete FIRST, then
+   *  confirming with statPath that the file is actually gone before
+   *  touching the in-memory registry at all — "already gone" (the
+   *  file genuinely doesn't exist, whether the delete call itself
+   *  threw or not) is still treated as success, but a file that's
+   *  STILL THERE after the delete attempt is now a real, reported
+   *  failure that leaves the plugin exactly as it was, not silently
+   *  removed from OXIS's own view of the world while surviving on
+   *  disk. */
   async remove(name: string, force = false): Promise<{ ok: boolean; message: string }> {
     const p = this.plugins.get(name);
     if (!p) return { ok: false, message: `not found: ${name}` };
@@ -452,15 +495,28 @@ class PluginManager {
         message: `"${name}" is a dependency of: ${dependents.join(", ")}. Uninstalling it would break them.\nUninstall those first, or 'plugin uninstall ${name} --force to remove it anyway.`,
       };
     }
+
+    if (!p.builtin && isNativeApp()) {
+      const filePath = p.origin === "user" ? `${workspaceManager.pluginsDir()}/${name}.lua` : null;
+      try {
+        if (filePath) await deletePath(filePath);
+        else await deletePluginFile(name);
+      } catch {
+        /* the delete call itself threw — could genuinely mean "already
+         * gone" (fine) OR a real failure; statPath below is what
+         * actually distinguishes them, not this catch */
+      }
+      const stillThere = filePath
+        ? await statPath(filePath).then(s => s.exists).catch(() => false)
+        : await listPluginFiles().then(names => names.includes(name)).catch(() => false);
+      if (stillThere) {
+        return { ok: false, message: `couldn't remove ${name} — its file is still on disk and couldn't be deleted (locked, or a permissions issue)` };
+      }
+    }
+
     this.unload(name);
     this.plugins.delete(name);
     this.persist();
-    if (!p.builtin && isNativeApp()) {
-      try {
-        if (p.origin === "user") await deletePath(`${workspaceManager.pluginsDir()}/${name}.lua`);
-        else await deletePluginFile(name);
-      } catch { /* already gone, or browser mode */ }
-    }
     return {
       ok: true,
       message: dependents.length > 0

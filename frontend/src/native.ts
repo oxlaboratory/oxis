@@ -45,12 +45,14 @@ declare global {
           MakeDir?: (path: string) => Promise<void>;
           DeletePath?: (path: string) => Promise<void>;
           MovePath?: (src: string, dst: string) => Promise<void>;
-          RunCommand?: (dir: string, name: string, args: string[]) => Promise<NativeRunCommandResult>;
+          RunCommand?: (requestId: string, dir: string, name: string, args: string[]) => Promise<NativeRunCommandResult>;
+          CancelCommand?: (requestId: string) => Promise<boolean>;
           SystemInfo?: () => Promise<NativeSystemInfo>;
           ListProcesses?: () => Promise<NativeProcessInfo[]>;
           KillProcess?: (pid: number) => Promise<void>;
           OpenURL?: (url: string) => Promise<void>;
           CheckForUpdate?: () => Promise<NativeUpdateInfo>;
+          PerformUpdate?: (downloadUrl: string) => Promise<[boolean, string]>;
           WriteTempScript?: (ext: string, content: string) => Promise<string>;
         };
       };
@@ -221,13 +223,37 @@ export async function movePath(src: string, dst: string): Promise<void> {
 
 /** Runs a real external command (git, most commonly) and captures its
  *  output structurally — see RunCommand in internal/wailsapp/app.go
- *  for the full contract (argv-based, never shell-interpreted; 30s
- *  timeout; a non-zero exit is a normal result here, not a thrown
- *  error — only a genuine failure to start the command throws). */
-export async function runCommand(dir: string, name: string, args: string[]): Promise<NativeRunCommandResult> {
+ *  for the full contract (argv-based, never shell-interpreted; a
+ *  generous multi-minute timeout for real network operations like a
+ *  git push, not just fast local ones; a non-zero exit is a normal
+ *  result here, not a thrown error — only a genuine failure to start
+ *  the command throws).
+ *
+ *  requestId is optional — pass one (any string unique to this
+ *  specific call) if the caller might want to cancel it later via
+ *  cancelCommand() below; omit it (undefined becomes "" on the Go
+ *  side, which just means "don't bother registering this one for
+ *  cancellation") for fire-and-wait calls nothing will ever try to
+ *  interrupt. Generating a fresh ID per call, not a shared/reused one,
+ *  is what lets cancelCommand target the exact in-flight call the
+ *  caller means, even if something else also happens to be running a
+ *  command concurrently. */
+export async function runCommand(dir: string, name: string, args: string[], requestId?: string): Promise<NativeRunCommandResult> {
   const fn = window.go?.wailsapp?.App?.RunCommand;
   if (!fn) throw new NativeUnavailableError();
-  return fn(dir, name, args);
+  return fn(requestId ?? "", dir, name, args);
+}
+
+/** Cancels an in-flight runCommand() call by the same requestId it
+ *  was started with — real cancellation (the Go side kills the actual
+ *  child process via context cancellation, not just "stop waiting for
+ *  it" on this end), not a UI-only "give up on it". Returns false
+ *  (not an error) if that call already finished on its own by the
+ *  time this reaches the backend — nothing to cancel, not a failure. */
+export async function cancelCommand(requestId: string): Promise<boolean> {
+  const fn = window.go?.wailsapp?.App?.CancelCommand;
+  if (!fn) return false;
+  return fn(requestId);
 }
 
 export async function systemInfo(): Promise<NativeSystemInfo> {
@@ -272,6 +298,38 @@ export async function checkForUpdate(): Promise<NativeUpdateInfo> {
   const fn = window.go?.wailsapp?.App?.CheckForUpdate;
   if (!fn) return { available: false, currentCommit: "", latestCommit: "", releaseUrl: "", downloadUrl: "", notes: "" };
   return fn();
+}
+
+/** Actually installs a new build in place — download, verify, back
+ *  up the running exe, replace it, launch the new one, confirm it's
+ *  still alive a moment later. See PerformUpdate in
+ *  internal/wailsapp/app.go (selfupdate.go) for the full design and
+ *  every safety guarantee this makes (never a partial install, the
+ *  previous version is only ever removed by the NEW process itself
+ *  once its own startup is confirmed, any failure rolls back to the
+ *  exact working state from before this was called).
+ *
+ *  Returns [true, ""] on success, having already launched the new
+ *  process — the CALLER is responsible for quitting the current one
+ *  afterward (see quitApp() below), since this function shouldn't
+ *  unilaterally kill the app out from under whatever the caller still
+ *  needs to do first (print a message, etc.). Returns [false, reason]
+ *  on any failure, having left the current install completely
+ *  untouched. Native app only — there's nothing to replace in browser
+ *  mode. */
+export async function performUpdate(downloadUrl: string): Promise<[boolean, string]> {
+  const fn = window.go?.wailsapp?.App?.PerformUpdate;
+  if (!fn) return [false, "updating isn't available outside the native app"];
+  return fn(downloadUrl);
+}
+
+/** Quits the running app — the same real WindowClose binding the
+ *  titlebar's own close button uses (see Titlebar.tsx), reused here
+ *  specifically for performUpdate()'s own "hand off to the new
+ *  process" step: once PerformUpdate has confirmed the new version is
+ *  up and running, THIS process's job is done. */
+export function quitApp(): void {
+  window.go?.wailsapp?.App?.WindowClose?.();
 }
 
 /** Writes content to a fresh file in the OS temp dir and returns its
