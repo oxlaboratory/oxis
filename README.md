@@ -484,8 +484,8 @@ exactly as before.
 ```
 
 Installed plugins become ordinary user Lua plugins — same as anything
-created with `'plugin new` — so `'plugin list`, `'plugin disable`, and
-`'plugin reload` all work on them afterward.
+created with `'plugin new` — so `'plugin list`, `'plugin disable`,
+`'plugin reload`, and `'plugin uninstall` all work on them afterward.
 
 ### Updates and rollback
 

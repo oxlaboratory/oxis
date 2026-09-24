@@ -1071,6 +1071,11 @@ change was made, not necessarily when a version was tagged.
 
 ### Fixed
 
+- **README's "Plugin Marketplace" section listed which `'plugin`
+  commands work on Market-installed plugins afterward, but omitted
+  `'plugin uninstall`** — the exact command with the most severe bug
+  found and fixed anywhere in this session's marketplace audit
+  (plugins silently reappearing after a failed delete). Added.
 - **`build-msi.js`'s `findWiX()` — a real, pre-existing bug, confirmed
   against a second real CI run, that had simply never been triggered
   before now.** After the previous fix stopped chocolatey from
