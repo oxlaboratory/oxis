@@ -1071,6 +1071,50 @@ change was made, not necessarily when a version was tagged.
 
 ### Fixed
 
+- **`build-msi.js`'s `findWiX()` — a real, pre-existing bug, confirmed
+  against a second real CI run, that had simply never been triggered
+  before now.** After the previous fix stopped chocolatey from
+  reinstalling WiX unnecessarily, the very next run got further and
+  hit a different failure: "WiX found but candle.exe/light.exe are
+  incomplete — skipping MSI" — despite WiX genuinely being present.
+  `findWiX()`'s first candidate is the bare string `"candle.exe"`
+  (checking whether it's resolvable via the system PATH at all); when
+  that resolved successfully via `spawnSync`, the code did
+  `path.dirname("candle.exe")`, which is just `"."` for a bare name
+  with no real directory information — not the actual WiX bin
+  directory. `buildMSI()`'s own `fs.existsSync` check for
+  `"./candle.exe"` then correctly found nothing there, since the real
+  binary lives in `C:\Program Files (x86)\WiX Toolset v3.14\bin\`, not
+  the repo root. This is why it was never caught before: on every
+  previous build (local machines, the old manual Windows release
+  process), `candle.exe` was presumably never actually on `PATH`
+  itself, so this candidate always failed cleanly and fell through to
+  the correct, full-path candidates lower in the list — CI is the
+  first environment where WiX being preinstalled AND on `PATH` made
+  this specific buggy branch actually get hit. Fixed with a real
+  `where candle.exe` resolution for the PATH case, checking every
+  match `where` returns (not just the first) for a real sibling
+  `light.exe` before accepting it — since `where` can list more than
+  one match, e.g. a chocolatey shim (a one-off wrapper executable, not
+  necessarily sitting next to a real `light.exe` the way an actual WiX
+  bin directory would be) earlier on `PATH` than the genuine install
+  directory. Verified the parsing (CRLF line endings, multiple
+  matches, correctly skipping a shim with no sibling `light.exe`)
+  against realistic simulated `where` output before trusting it.
+- **CI: `build-windows` failed outright on its very first real run —
+  the exact thing flagged as unverified turned out to need fixing,
+  confirmed against a real GitHub Actions log, not assumed.**
+  `choco install wixtoolset --version=3.14.1` failed with "a newer
+  version of wixtoolset (v3.14.1.20250415) is already installed" —
+  `windows-latest` ships WiX Toolset v3.14 preinstalled, and pinning
+  an exact chocolatey version made it refuse to proceed without
+  `--force`/`--allow-downgrade`, rather than just recognizing a
+  compatible version was already there. Fixed by checking for
+  `candle.exe` at WiX's real v3.14 install path first (the same path
+  `build-msi.js` itself already searches) and only invoking
+  chocolatey if it's genuinely missing — sidesteps the version-pin
+  conflict entirely, and is more robust than the previous unconditional
+  install if a future runner image ever drops WiX from its defaults.
 - **README's "Updates and rollback" section made an absolute claim
   ("you're never left with a broken plugin") that the code didn't
   actually guarantee until this same pass fixed it.** Before the
