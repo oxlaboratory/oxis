@@ -116,17 +116,28 @@ jobs:
         with:
           node-version: "lts/*"
 
-      # windows-latest has no WiX Toolset preinstalled — build-msi.js
-      # looks for candle.exe/light.exe under WiX's standard Program
-      # Files install paths (v3.11 or v3.14) or a WIX env var. Pinned
-      # to 3.14.1 explicitly (confirmed this is what the unversioned
-      # "wixtoolset" chocolatey package currently resolves to) rather
-      # than trusting the unversioned package name indefinitely —
-      # WiX v4+ replaces candle.exe/light.exe with a single wix.exe
-      # and a completely different CLI, so if chocolatey's default
-      # ever moves to v4 this build would otherwise silently break.
-      - name: Install WiX Toolset
-        run: choco install wixtoolset --version=3.14.1 -y --no-progress
+      # windows-latest has been observed shipping WiX Toolset v3.14
+      # preinstalled already (confirmed via a real CI run — pinning an
+      # exact chocolatey version, `--version=3.14.1`, failed outright
+      # because a newer 3.14.1 patch build was already present and
+      # chocolatey refuses to "downgrade" onto the pinned one without
+      # --force/--allow-downgrade). Checking first and only installing
+      # when it's actually missing sidesteps that version-pin conflict
+      # entirely, and is also more robust if a future runner image
+      # ever drops WiX from its default toolset — this still installs
+      # it in that case, just doesn't force an unnecessary, potentially
+      # conflicting reinstall when a compatible one already exists.
+      # build-msi.js's own search paths (scripts/build-msi.js) already
+      # include this exact v3.14 path, which is what's being checked.
+      - name: Install WiX Toolset (if not already present)
+        run: |
+          $candle = "C:\Program Files (x86)\WiX Toolset v3.14\bin\candle.exe"
+          if (Test-Path $candle) {
+            Write-Host "WiX Toolset v3.14 already present at $candle — skipping install"
+          } else {
+            choco install wixtoolset --version=3.14.1 -y --no-progress
+          }
+        shell: pwsh
 
       - name: Build (frontend + Go binary)
         run: npm run build
