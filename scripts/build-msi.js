@@ -114,6 +114,38 @@ function findWiX() {
   ];
   for (const c of candidates) {
     if (!c) continue;
+    // A candidate that's already a real path (has a directory
+    // separator) resolves its own dirname correctly. A BARE name
+    // like "candle.exe" (the first candidate — checking whether it's
+    // resolvable via the system PATH at all) does NOT: fs.existsSync
+    // treats it as relative to the current working directory (almost
+    // never where candle.exe actually lives), and spawnSync resolving
+    // it via PATH doesn't tell you WHERE on PATH it was found — only
+    // that it ran. path.dirname("candle.exe") is just "." either way,
+    // which is not a real WiX bin directory. This was a real,
+    // pre-existing bug, confirmed against an actual CI run: WiX
+    // being genuinely present and on PATH still produced "candle.exe/
+    // light.exe are incomplete" and skipped the MSI, because this
+    // returned "." as wixBinDir and buildMSI()'s own fs.existsSync
+    // check for "./candle.exe" correctly found nothing there.
+    const isBareName = !c.includes("\\") && !c.includes("/");
+    if (isBareName) {
+      const where = spawnSync("where", [c], { shell: false, stdio: "pipe", timeout: 3000 });
+      if (!where.error && where.status === 0) {
+        // "where" can list more than one match (e.g. a chocolatey
+        // shim earlier on PATH than the real WiX install directory) —
+        // a shim is a one-off wrapper executable, not necessarily
+        // sitting next to a real light.exe the way an actual WiX bin/
+        // directory would be, so check each candidate directory for
+        // that sibling rather than trusting the first line blindly.
+        const paths = where.stdout.toString().split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+        for (const resolved of paths) {
+          const dir = path.dirname(resolved);
+          if (fs.existsSync(path.join(dir, "light.exe"))) return dir;
+        }
+      }
+      continue; // not resolvable via PATH with a real light.exe alongside it — nothing more to check for this bare-name candidate
+    }
     try { if (fs.existsSync(c)) return path.dirname(c); } catch {}
     const r = spawnSync(c, ["--version"], { shell: false, stdio: "pipe", timeout: 3000 });
     if (!r.error && r.status === 0) return path.dirname(c);
