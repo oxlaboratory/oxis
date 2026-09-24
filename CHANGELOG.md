@@ -7,6 +7,75 @@ change was made, not necessarily when a version was tagged.
 
 ### Added
 
+- **`'workspace github unlink` / `'workspace gitlab unlink` —
+  Priority 4, a genuinely missing feature found while auditing the
+  README, not just a documentation gap.** There was no way to
+  disconnect a GitHub/GitLab remote at all before this — only ways to
+  set one up or replace it. New `unlinkRemote()` in `git.ts`: by
+  default renames `origin` to a timestamped backup rather than
+  deleting it (OXIS has no separate "which provider is this"
+  bookkeeping of its own — it just looks for a remote literally named
+  `origin` to decide a workspace is connected, so renaming it away is
+  what makes OXIS treat the project as unlinked while the remote's
+  own URL stays fully intact and restorable via plain git), matching
+  the explicit requirement that unlinking must not remove the actual
+  git remote unless specifically asked to (`--remove-remote` does
+  that instead). Touches nothing else — the local project, workspace,
+  `.oxis/` directory, source files, and `.git` repository itself are
+  never touched. `origin` is free again either way, so the same
+  workspace can immediately connect to a different repository
+  afterward. Updated both in-app `'help workspace` listings, which
+  had also gone stale (see below).
+- **README: three sections were dangerously stale, describing
+  functionality that no longer exists while omitting what actually
+  ships now — Priority 8, verified against the real code, not
+  assumed.** "The `commit` task" still described the old
+  `git-commit-dialog`/`tasks/commit.lua`-generated-conditionally flow
+  that was explicitly retired earlier in this pass, with zero mention
+  of push, cancellation, or classified errors — rewritten to describe
+  `'task commit` as the direct, always-available built-in it actually
+  is now. "Auto-Update" explicitly said "it just hands you the
+  link... there's no separate updater process" — completely wrong
+  now that `'update install` performs a real in-place update;
+  rewritten with the actual mechanism, its rollback safety
+  guarantees, the artifact-verification requirement, and the updated
+  three-job CI structure. Added an entirely missing section,
+  "Automatic Project Detection & Task Generation," documenting all
+  nine detected ecosystems, the auto-detected/user-created/default
+  task provenance model, and the task integrity checker's core
+  guarantee (never aggressively overwrites a hand-edited task) — none
+  of which existed anywhere in the README despite being a major
+  feature of this pass.
+- **CI now builds a Windows `.msi` too — the auto-updater added
+  earlier in this pass could never actually offer a Windows update
+  without this.** `Check()` in `update.go` looks for a `.msi`/`.exe`/
+  `.deb` asset in the rolling "latest-build" release, but the CI
+  workflow only ever built Linux — Windows builds were done and
+  released manually, so there was never actually a `.msi` in that
+  release for a Windows install to find. Restructured
+  `.github/workflows/build.yml` into three jobs: `build-linux`
+  (unchanged), a new `build-windows` (installs WiX Toolset via
+  chocolatey — pinned to the exact version, 3.14.1, confirmed to be
+  what the unversioned package currently resolves to, rather than
+  trusting that indefinitely, since WiX v4+ replaces
+  `candle.exe`/`light.exe` with a completely different single-binary
+  CLI and would silently break this build the day chocolatey's
+  default ever moves off v3; runs `npm run build` then
+  `npm run build:msi`, exactly the two commands a person would run
+  locally), and a new `publish-release` that depends on both and
+  downloads their artifacts before publishing. That three-job
+  split — build, build, THEN publish once — is deliberate: two build
+  jobs publishing to the same rolling tag independently, in parallel,
+  would race each other, with whichever finished last winning and
+  whichever finished first potentially having its own assets
+  clobbered before anyone saw them. Each build job stages its own
+  outputs into a flat `release-files/` directory before uploading,
+  specifically so the artifact's own internal layout is simple and
+  predictable — `actions/upload-artifact@v4` otherwise preserves
+  directory structure relative to the *least common ancestor* of
+  whatever paths are listed, which would have quietly produced the
+  wrong download path for the `.deb` (one directory level deeper than
+  the other two Linux outputs) had it been left to that default.
 - **The task integrity checker — spec item 8, the piece that makes
   automatic task generation trustworthy over time instead of a
   one-shot snapshot.** New `terminal/taskReconciler.ts`, run in the
@@ -1002,6 +1071,34 @@ change was made, not necessarily when a version was tagged.
 
 ### Fixed
 
+- **README's "Updates and rollback" section made an absolute claim
+  ("you're never left with a broken plugin") that the code didn't
+  actually guarantee until this same pass fixed it.** Before the
+  `rollbackPlugin()` fake-success fix earlier in this audit, an
+  automatic rollback could itself silently fail while still being
+  reported as successful — meaning the README's claim was aspirational
+  at best, not yet true, at the time it was written. Reworded to be
+  precisely honest now that the underlying fix makes it accurate: a
+  failed restore is reported plainly, not silently masked as recovery
+  having succeeded. Applied the same correction to the compact
+  feature-table row for consistency.
+- **In-app `'help workspace` text and README's "Git Integration"
+  section both still claimed things that haven't been true since
+  earlier in this same pass.** The help listing said `'workspace
+  github`/`gitlab` "also adds a commit task the first time this
+  succeeds" — stale from before `'task commit` became the always-
+  available universal built-in it is now. README's "Git Integration"
+  was worse: it claimed a 30-second timeout (actually 3 minutes,
+  changed earlier in this pass specifically for push support), said
+  the Go binding "could not be compiled or run in the environment it
+  was built in" (false — extensively compiled and `go vet`'d
+  throughout this entire session), described the retired commit-
+  dialog flow, and said remote setup "does not push" (wrong — it does
+  now, via `'task commit`). Rewrote both to match the actual, current
+  code, including documenting the real `RunCommand` signature
+  (verified against `app.go` directly, including the `requestID`
+  parameter that makes real cancellation possible) rather than an
+  outdated one.
 - **`rollbackPlugin()` — the update flow's own safety net — could
   itself silently fail, the worst version of the fake-success
   pattern found this whole audit.** It returned `ok: true`

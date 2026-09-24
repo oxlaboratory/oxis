@@ -1,32 +1,48 @@
 # ══════════════════════════════════════════════════════════════════
-# GitHub Actions — replaces .gitlab-ci.yml (removed). Builds the Linux
-# binary + .deb on every push to the default branch, then publishes/
+# GitHub Actions — replaces .gitlab-ci.yml (removed). Builds Linux
+# AND Windows on every push to the default branch, then publishes/
 # overwrites a single rolling release ("latest-build") that the
 # commit-based auto-updater (internal/update/update.go) checks
 # against — see that file's own doc comment for the full design.
 #
-#   build → dist/oxis (binary) + dist/deb/oxis_<ver>_amd64.deb
-#         → dist/oxis-<ver>-linux-portable.tar.gz (extract-and-run,
-#           everything pre-created — workspaces/, created-plugins/,
-#           created-documents/ — the Linux equivalent of the Windows
-#           portable dist/ folder, for anyone who'd rather skip the
-#           package manager and /usr/bin's shared, system-wide
-#           install location entirely)
-#         → all three uploaded as a workflow artifact (every push/PR)
-#         → ALSO published to the "latest-build" release (push to the
-#           default branch only, never on a PR — see the `if:` guard
-#           on that step)
+#   build-linux    → dist/oxis (binary) + dist/deb/oxis_<ver>_amd64.deb
+#                  → dist/oxis-<ver>-linux-portable.tar.gz
+#   build-windows  → dist/wix/oxis-<ver>.msi (npm run build, then
+#                    npm run build:msi — see build-msi.js's own doc
+#                    comment; WiX Toolset installed via chocolatey,
+#                    since windows-latest doesn't ship it)
+#   publish-release (needs: [build-linux, build-windows]) → downloads
+#     both jobs' own uploaded artifacts and publishes them ALL in one
+#     single action-gh-release step.
 #
-# Windows builds are done locally (Visual Studio / npm run build) —
-# see README § Getting Started — rather than through CI, matching how
-# the GitLab CI version of this worked; there's still no Windows
-# runner registered here.
+# Each build job stages its own output files into a single FLAT
+# directory (release-files/) before uploading, specifically so the
+# uploaded/downloaded artifact's own internal layout is simple and
+# predictable — actions/upload-artifact@v4 otherwise preserves
+# directory structure relative to the LEAST COMMON ANCESTOR of
+# whatever paths are listed, which is easy to get subtly wrong when
+# some outputs (like the .deb, under dist/deb/) sit one level deeper
+# than others (dist/oxis, dist/*.tar.gz directly under dist/) — this
+# sidesteps that entirely rather than trying to predict it.
+#
+# That three-job split (build, build, THEN publish once, rather than
+# each build job publishing on its own) is deliberate, not just
+# structure for its own sake: two build jobs publishing to the SAME
+# rolling "latest-build" tag independently, in parallel, would race
+# against each other — whichever finished last would win, and
+# whichever finished first could get its own uploaded assets
+# clobbered before anyone ever saw them. A real gap found and fixed
+# here: earlier, Windows had no CI job at all (built and released
+# manually), which meant the auto-updater added in this same pass
+# could never actually offer a Windows update — Check() in
+# update.go looks for a .msi/.exe/.deb asset in this exact release,
+# and there was never a .msi in it to find. This is what makes that
+# actually work end to end now, not just on Linux.
 #
 # package.json pins "engines": { "node": ">=24.0.0" }; actions/setup-
 # node's "lts/*" tracks whatever Node release is *current LTS* right
 # now rather than a fixed major, so this keeps working as LTS rolls
-# forward instead of quietly drifting below 24 again — same reasoning
-# the old GitLab CI job's "setup_lts.x" comment had.
+# forward instead of quietly drifting below 24 again.
 #
 # ██ ONE THING STILL NEEDS FILLING IN ██ — the release-publish step
 # uses `${{ github.repository }}` (this repo's own "owner/repo",
@@ -72,20 +88,85 @@ jobs:
           chmod +x build-linux.sh
           ./build-linux.sh
 
+      - name: Stage release files
+        run: |
+          mkdir -p release-files
+          cp dist/oxis release-files/
+          cp dist/deb/oxis_*_amd64.deb release-files/
+          cp dist/oxis-*-linux-portable.tar.gz release-files/
+
       - uses: actions/upload-artifact@v4
         with:
           name: oxis-linux-${{ github.sha }}
-          path: |
-            dist/oxis
-            dist/deb/oxis_*_amd64.deb
-            dist/oxis-*-linux-portable.tar.gz
+          path: release-files/
           retention-days: 30
 
-      # Only on an actual push to the default branch — never on a PR
-      # (a PR's HEAD isn't necessarily going to land, and shouldn't be
-      # what the auto-updater tells every user's OXIS install to fetch).
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "lts/*"
+
+      # windows-latest has no WiX Toolset preinstalled — build-msi.js
+      # looks for candle.exe/light.exe under WiX's standard Program
+      # Files install paths (v3.11 or v3.14) or a WIX env var. Pinned
+      # to 3.14.1 explicitly (confirmed this is what the unversioned
+      # "wixtoolset" chocolatey package currently resolves to) rather
+      # than trusting the unversioned package name indefinitely —
+      # WiX v4+ replaces candle.exe/light.exe with a single wix.exe
+      # and a completely different CLI, so if chocolatey's default
+      # ever moves to v4 this build would otherwise silently break.
+      - name: Install WiX Toolset
+        run: choco install wixtoolset --version=3.14.1 -y --no-progress
+
+      - name: Build (frontend + Go binary)
+        run: npm run build
+        shell: cmd
+
+      - name: Build MSI installer
+        run: npm run build:msi
+        shell: cmd
+
+      - name: Stage release files
+        run: |
+          mkdir release-files
+          copy dist\wix\oxis-*.msi release-files\
+        shell: cmd
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: oxis-windows-${{ github.sha }}
+          path: release-files/
+          retention-days: 30
+
+  # Only on an actual push to the default branch — never on a PR (a
+  # PR's HEAD isn't necessarily going to land, and shouldn't be what
+  # the auto-updater tells every user's OXIS install to fetch).
+  publish-release:
+    needs: [build-linux, build-windows]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: oxis-linux-${{ github.sha }}
+          path: release-files
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: oxis-windows-${{ github.sha }}
+          path: release-files
+
       - name: Publish rolling "latest-build" release
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: latest-build
@@ -97,7 +178,4 @@ jobs:
             auto-updater checks against (see internal/update/update.go).
           prerelease: true
           make_latest: false
-          files: |
-            dist/oxis
-            dist/deb/oxis_*_amd64.deb
-            dist/oxis-*-linux-portable.tar.gz
+          files: release-files/*

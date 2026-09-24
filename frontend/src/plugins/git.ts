@@ -205,6 +205,53 @@ export async function getRemotes(dir: string): Promise<GitRemote[]> {
   return [...seen.entries()].map(([name, url]) => ({ name, url }));
 }
 
+export interface UnlinkRemoteResult { ok: boolean; message: string; removedCompletely: boolean }
+
+/** Backs `'workspace github unlink` / `'workspace gitlab unlink` —
+ *  disconnects the workspace's GitHub/GitLab integration without
+ *  deleting the local project, the workspace, `.oxis/`, source
+ *  files, or the local `.git` repository itself: none of those are
+ *  touched here at all, only the `origin` remote configuration.
+ *
+ *  By default, RENAMES `origin` to a timestamped backup name (`git
+ *  remote rename`) rather than deleting it — this is what actually
+ *  satisfies the specific requirement that unlinking must NOT
+ *  remove the real git remote unless explicitly asked to: OXIS has
+ *  no separate "which provider is this connected to" bookkeeping of
+ *  its own, it just looks for a remote literally named `origin`
+ *  (see getRemotes/setupRemote) to decide whether a workspace is
+ *  connected — renaming it away is what makes OXIS treat the
+ *  project as unlinked while the remote's own URL is fully preserved
+ *  (visible with `git remote -v`, and restorable by renaming it back
+ *  through git directly), not silently discarded. `removeCompletely`
+ *  runs an actual `git remote remove` instead, for someone who
+ *  explicitly wants the remote gone, not just hidden from OXIS.
+ *
+ *  Either way, `origin` is free again afterward, so `'workspace
+ *  github`/`gitlab` can connect the same workspace to a different
+ *  repository right after — the one other explicit requirement this
+ *  needs to satisfy. */
+export async function unlinkRemote(dir: string, removeCompletely = false): Promise<UnlinkRemoteResult> {
+  const remotes = await getRemotes(dir);
+  const origin = remotes.find(r => r.name === "origin");
+  if (!origin) return { ok: false, message: "no origin remote is configured — nothing to unlink", removedCompletely: false };
+
+  if (removeCompletely) {
+    const res = await git(dir, ["remote", "remove", "origin"]);
+    if (res.exitCode !== 0) return { ok: false, message: `couldn't remove the remote: ${(res.stderr || res.stdout).trim()}`, removedCompletely: false };
+    return { ok: true, message: `origin (${origin.url}) removed completely`, removedCompletely: true };
+  }
+
+  const backupName = `origin-unlinked-${Date.now()}`;
+  const res = await git(dir, ["remote", "rename", "origin", backupName]);
+  if (res.exitCode !== 0) return { ok: false, message: `couldn't unlink: ${(res.stderr || res.stdout).trim()}`, removedCompletely: false };
+  return {
+    ok: true,
+    message: `unlinked — origin (${origin.url}) is still there, just renamed to "${backupName}" so OXIS no longer sees it as connected. Restore it by running "git remote rename ${backupName} origin" in the shell if you want it back, or connect a different repo now.`,
+    removedCompletely: false,
+  };
+}
+
 export type GitProvider = "github" | "gitlab";
 
 /** Turns `owner/repo` or a full URL into a real HTTPS remote URL for

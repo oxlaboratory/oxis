@@ -9,7 +9,7 @@
   <a href="https://github.com/oxlaboratory/oxis/releases/latest"><img src="https://img.shields.io/github/downloads/oxlaboratory/oxis/latest/total?style=for-the-badge&label=latest%20release&color=3dff64" alt="Latest release downloads"></a>
 </p>
 
-### 🎬 See Workspace linking in action
+### 🔗 See Workspace linking in action
 
 <p align="center">
   <img src="assets/screenshot-git-connected.png" alt="OXIS Home screen showing a workspace connected to a GitLab repository" width="720">
@@ -496,9 +496,15 @@ manifest, and refuses the update up front if it fails an OXIS-version,
 OS, or dependency check (the same checks a fresh install goes
 through, just run against the new source before anything installed
 gets touched). Before replacing anything, the currently-working
-version is backed up; if the new version fails to load, that backup
-is restored automatically — you're never left with a broken plugin
-because an update went wrong. `'market update all` does the same for
+version is backed up — and the update itself is refused if that
+backup can't actually be saved (storage full/unavailable), rather
+than proceeding without a safety net. If the new version fails to
+load, that backup is restored automatically; the restore itself is
+then verified too (a real gap found and fixed — this used to trust
+that the restore worked without checking), so if the backup *also*
+fails to load for some reason, you're told that plainly rather than
+being silently left with a broken, disabled plugin while the message
+claims recovery succeeded. `'market update all` does the same for
 every Market-installed plugin, reporting already-current ones as
 such rather than skipping them silently.
 
@@ -1351,7 +1357,7 @@ means layering on:
 | Plugin metadata (author, version, category, description) | [shipped] | real manifests (`--[[@manifest ...]]`) — see [Plugin Manifests](#plugin-manifests) |
 | Plugin templates                  | [shipped]      | `'plugin new <name> --template=basic\\|dev\\|devops\\|system` scaffolds a real starter file per category, registers it live, and opens it in the Editor — was marked [planned] here, stale; found and fixed in a full accuracy sweep of this README |
 | Plugin dependencies                | [shipped]      | a plugin declares others it needs in its manifest; version compatibility and dependency-cycle checking are real (`checkCompatibility` in `pluginManager.ts`) |
-| Plugin versioning & updates        | [shipped]      | semver in the manifest; `'market update <name>` / `'market update all` are real, with compatibility checks, a backup before replacing, auto-rollback on failure, and the update itself refused (nothing touched) if the backup can't be saved in the first place |
+| Plugin versioning & updates        | [shipped]      | semver in the manifest; `'market update <name>` / `'market update all` are real, with compatibility checks, a backup before replacing, auto-rollback on failure (itself verified — a failed restore is reported, not silently claimed successful), and the update itself refused (nothing touched) if the backup can't be saved in the first place |
 | Plugin permissions                 | [shipped]      | manifest declares which `oxis.*` namespaces a plugin may call — see [Core System APIs](#core-system-apis) and [Plugin Permissions](#plugin-permissions) |
 | Plugin sandboxing                  | [planned]      | every plugin currently shares ONE Lua VM process — real, per-plugin isolation (each running with only the capabilities its permissions grant) doesn't exist yet |
 | Plugin search                      | [in progress]  | `'market search <query>` exists; local `'plugin search` does not yet |
@@ -2208,33 +2214,35 @@ keybinds.register({
 
 ## Git Integration
 
-**[shipped, needs a real build/test pass]** Real git integration —
-`'workspace github`/`'workspace gitlab` for remote setup, and a
-default `commit` task with an actual commit dialog — built on a new
-Go binding, `RunCommand` (`internal/wailsapp/app.go`), that runs a
-real external command and captures its output structurally:
+**[shipped]** Real git integration — `'workspace github`/`'workspace
+gitlab` for remote setup and unlinking, and `'task commit` for the
+actual commit/push flow — built on a Go binding, `RunCommand`
+(`internal/wailsapp/app.go`), that runs a real external command and
+captures its output structurally:
 
 ```go
-func (a *App) RunCommand(dir string, name string, args []string) (RunCommandResult, error)
+func (a *App) RunCommand(requestID string, dir string, name string, args []string) (RunCommandResult, error)
 ```
 
 Argv-based (a real `name` + `[]string` of args), never a
 shell-interpreted string — a commit message or repo name can't break
 out into a second command the way string-concatenated shell input
-could. 30s timeout. A non-zero exit (e.g. `git commit` with nothing
-staged) is a normal, structured result to inspect, not a thrown
-error — only a genuine failure to start the command at all throws.
-Exposed to the frontend as `runCommand()` (`native.ts`), and
-`frontend/src/plugins/git.ts` builds the actual git operations on top
-of it: `isGitRepo`, `getStatus` (real `git status --porcelain`,
-parsed), `commitAll` (`git add -A` + `git commit -m`), `getRemotes`,
-`setupRemote`.
-
-**Honest caveat**: this Go binding could not be compiled or run in
-the environment it was built in (no Go toolchain available there) —
-only checked for balanced braces/parens as a syntax sanity check.
-**Run a real `go build` and exercise every git command below before
-relying on this.**
+could. A 3-minute timeout (generous enough for a real network push
+over a slow connection, not just fast local operations). A non-zero
+exit (e.g. `git commit` with nothing staged) is a normal, structured
+result to inspect, not a thrown error — only a genuine failure to
+start the command at all throws. `requestID` is what makes real
+cancellation possible: the frontend generates one per call and can
+hand it to `CancelCommand()` to actually kill that exact in-flight
+process via Go context cancellation (`Process.Kill`) — not just give
+up on waiting for a response, which is what makes Ctrl+C during a
+slow `'task commit` push genuinely stop the real `git` process rather
+than leave it running invisibly in the background. Exposed to the
+frontend as `runCommand()` (`native.ts`), and `frontend/src/plugins/
+git.ts` builds the actual git operations on top of it: `isGitRepo`,
+`getStatus` (real `git status --porcelain`, parsed), `commitAll`
+(stage, commit, and push — see [The `commit` task](#the-commit-task)
+for the full flow), `getRemotes`, `setupRemote`, `unlinkRemote`.
 
 ### `'workspace github` / `'workspace gitlab`
 
@@ -2248,47 +2256,82 @@ provider — initializing a real git repository first if one doesn't
 exist yet (a fresh project connected to OXIS is a completely normal
 starting point). Refuses to silently replace a DIFFERENT existing
 `origin` — reports what it would overwrite and requires `--force` to
-actually do it. A full URL (or an `git@host:...` SSH form) passes
+actually do it. A full URL (or a `git@host:...` SSH form) passes
 through unchanged instead of being reinterpreted, so this works for
 SSH remotes too, not just HTTPS. This configures the remote only — it
-does not push, pull, or handle authentication; that needs real
-credentials (an SSH key or credential helper) already set up on the
-machine, which is out of scope here.
+does not manage authentication itself; that needs real credentials
+(an SSH key or credential helper) already set up on the machine.
+Actually pushing happens later, as part of `'task commit` — see
+below.
+
+### Unlinking a GitHub/GitLab remote
+
+```
+'workspace github unlink [--remove-remote]
+'workspace gitlab  unlink [--remove-remote]
+```
+
+Both spellings do the same thing — there's nothing GitHub- or
+GitLab-specific left to unlink once you're down at the remote-config
+level, since OXIS just looks for a remote literally named `origin` to
+decide whether a workspace is "connected" at all. Disconnects that
+without touching anything else: the local project, the workspace, its
+`.oxis/` directory, its source files, and the local `.git` repository
+itself are all left completely alone.
+
+By default this does **not** delete the actual git remote — it
+renames `origin` to a timestamped backup name (`git remote rename`),
+so OXIS stops treating the project as connected while the remote's
+own URL is fully preserved, visible with a plain `git remote -v`, and
+restorable by renaming it back through git directly if you change
+your mind. Pass `--remove-remote` to actually delete it (`git remote
+remove`) instead, if that's genuinely what you want. Either way,
+`origin` is free again afterward, so `'workspace github`/`gitlab` can
+connect the same workspace to a different repository right after —
+unlinking is meant to be a stepping stone to reconnecting elsewhere,
+not a dead end.
 
 ### The `commit` task
 
-**[shipped]** New workspaces start with **no tasks at all** — nothing
-is auto-generated by default, including `commit`. The moment
-`'workspace github`/`'workspace gitlab` actually succeeds at
-configuring a remote, a `commit` task is added automatically (a real
-file, `tasks/commit.lua`, in the active workspace's own directory —
-not a rewrite of `workspace.lua`'s text, so it can't clobber anything
-hand-written there). The reasoning: a `commit` task has nothing to do
-in a workspace with no git connection yet, so it doesn't exist until
-one is actually made.
+**[shipped]** `'task commit <message>` is a direct, universal
+built-in — always available, in every workspace, from the moment
+OXIS starts, not something generated conditionally after
+`'workspace github`/`gitlab` succeeds and not a `tasks/commit.lua`
+file that could be edited away or fail to generate. It's the one
+task name `'workspace info` and Home's own workspace panel always
+list first, ahead of anything auto-detected or hand-written, for
+exactly this reason — it can't be lost the way a registered task
+could be.
 
-It runs `'git-commit-dialog`, a real dedicated command (not a raw
-shell one-liner, since committing needs an actual UI) that:
+What it actually does, end to end (`commitAll()` in `plugins/git.ts`):
 
-1. Finds the active workspace's connected external project.
-2. Runs real `git status`, parses it into structured file changes.
-3. Shows those changes and a message field.
-4. On Commit: real `git add -A` + `git commit -m "<message>"` in that
-   project, reports the resulting commit hash.
-5. Handles "not a project connected", "not a git repo yet", "nothing
-   to commit", and git errors as distinct, clearly-worded states
-   rather than one generic failure message.
-
-**Nothing about this task is special or protected** once it exists —
-it's a completely ordinary task file (`tasks/commit.lua`), openable
-with `'edit` like any other file: rename it, change what it runs,
-delete it, duplicate it, add more tasks alongside it. The one thing
-preserved regardless of how it's edited: `git add -A` (real git, not
-OXIS) only ever stages files inside the repository it's run in — a
-task can't be edited into reaching outside the connected project's
-boundary, because that
-boundary is enforced by git itself, not by anything OXIS could
-accidentally weaken through a task edit.
+1. Finds the active workspace's connected project directory.
+2. Runs real `git status` — reports "nothing to commit" as a clean,
+   distinct result if the working tree has no changes, rather than
+   running commit commands against nothing.
+3. `git add -A` (scoped to the connected project only — real git
+   enforces this, not OXIS) then `git commit -m "<message>"`, with
+   the exact message you typed becoming the exact commit message.
+4. If a `origin` remote is configured, **pushes to it automatically**
+   — a commit with no remote configured is not an error, just a
+   commit-only result. Progress prints live at each step (staging,
+   committing, pushing), not silently all at once at the end.
+5. Push failures are classified rather than shown as raw git stderr:
+   authentication failures, a diverged/rejected push (never
+   auto-merged or rebased — that's a decision for a person to make,
+   not something a commit task should guess at), an unreachable
+   remote, and a missing repository each get their own clear message.
+   A failed push does not undo the commit itself — you're told
+   plainly "committed locally, but push failed: ...", not left
+   guessing which part actually happened.
+6. **Real cancellation.** Ctrl+C during a commit or push actually
+   kills the underlying `git` process (via a Go-side context
+   cancellation that terminates the real child process, not just
+   "stop waiting for a response") and reports "commit cancelled" as
+   its own distinct outcome, separate from an actual failure.
+7. Handles a missing `git` installation, a missing remote, and a
+   directory that isn't a git repository yet as clear, distinct
+   messages rather than one generic failure.
 
 ## PTY Architecture
 
@@ -2381,6 +2424,61 @@ oxis.task("deploy",  "./deploy.sh")
 ```
 
 Tasks run in the active PTY shell — output appears in the terminal exactly like any other command.
+
+### Automatic Project Detection & Task Generation
+
+**[shipped]** `'workspace link "path"` doesn't just connect a
+directory — it inspects the project's own real configuration and
+generates real, runnable tasks from what it actually finds
+(`terminal/projectDetector.ts`). Detected today: Rust (`Cargo.toml`
+→ `build`/`check`/`test`/`run`), Node.js/JavaScript/TypeScript
+(reads the real `package.json` `scripts` section — never invents a
+`build` task for a project with no build script — and detects the
+actual package manager from its lockfile: npm, pnpm, yarn, or bun),
+Python (`pyproject.toml`/`setup.py`/`requirements.txt`, with real
+tool-section checks for pytest/ruff/black rather than assuming every
+Python project uses them), Go (`go.mod`), .NET
+(`.csproj`/`.fsproj`/`.sln`), Java (Maven or Gradle, using the
+project's own wrapper script when present), C/C++ (CMake, or Make
+with real target extraction from the actual Makefile — variable
+assignments like `CFLAGS = ...` are correctly excluded, not just
+lines that happen to contain a colon), PHP (`composer.json`
+scripts), and Ruby (`Gemfile`/`Rakefile`). A project can trigger more
+than one detector at once (a Rust crate with a companion Node-based
+site, say) — task name collisions across detectors get a source-
+specific suffix rather than one silently overwriting the other. The
+architecture is built to extend cleanly — adding a tenth ecosystem is
+the same shape of change as any of these nine, not a special case.
+
+Generated tasks are written to their own file,
+`.oxis/tasks/auto-detected.lua`, inside the workspace's own folder —
+structurally separate from `workspace.lua` and any hand-written
+`tasks/*.lua`, so generation can never touch or overwrite anything
+you wrote yourself, by construction rather than by convention. Task
+provenance is three distinct kinds: **auto-detected** (this file),
+**user-created** (anything you write in `workspace.lua` or your own
+`tasks/*.lua`), and **default** (`commit`, the one universal built-in
+— see [The `commit` task](#the-commit-task)).
+
+**The task integrity checker** keeps auto-detected tasks in sync with
+the project over time, running in the background every time a linked
+workspace opens or reloads — never blocking startup, since detection
+can involve spawning a subprocess to confirm a tool is on PATH. The
+one rule everything about it serves: **it never aggressively
+overwrites a task you've edited.** Each generated task's exact
+content is hashed at generation time; reconciliation compares that
+hash against the task's actual current line before touching
+anything — a mismatch means you edited it, and from that point on
+it's carried forward exactly as you left it, permanently untracked by
+the auto-generated metadata, kept in the file even if the
+configuration that originally produced it later disappears entirely.
+Anything still untouched is reconciled normally: still present with
+the same command → left alone; present with a different command (a
+script got renamed to run something else) → updated; no longer
+present (a script was deleted) → removed. A brand new script a
+project didn't have before → added. If anything actually changes, a
+one-line notice appears in the terminal (`⟳ workspace tasks updated:
++lint  ~build  -dev`) so it's never a silent rewrite.
 
 ---
 
@@ -2726,19 +2824,13 @@ same `SETTINGS` registry in `App.tsx` without a new subsystem.
 
 ## Auto-Update
 
-**[shipped, redesigned]** — OXIS checks for a newer **build**, not a
-newer tagged release: the running binary's own commit SHA (baked in
-at compile time) against the commit a continuously-updated "rolling"
-GitHub release was built from. It never replaces the running `.exe`
-itself — Windows won't let a process overwrite its own binary while
-it's executing, and there's no separate updater process — it just
-hands you the link.
-
-**This is a genuine design change from an earlier version of this
-same feature** (see CHANGELOG) that only checked tagged GitLab
-Releases — meaning a new push to main never triggered a notification
-until someone manually cut a release. Checking commits instead means
-every push that CI successfully builds can trigger one.
+**[shipped]** — OXIS checks for a newer **build**, not a newer
+tagged release: the running binary's own commit SHA (baked in at
+compile time) against the commit a continuously-updated "rolling"
+GitHub release was built from, on both Windows and Linux. `'update
+install` performs a real, automatic, in-place update — this replaced
+an earlier version of the same feature that only ever handed you a
+download link and left the rest to you (see CHANGELOG).
 
 ### How it fires
 
@@ -2746,54 +2838,118 @@ every push that CI successfully builds can trigger one.
   slow or offline network never delays the shell becoming usable).
   Silent if you're up to date; a single terminal line if not:
   ```
-  ↑  a newer OXIS build (a1b2c3d) is available (you're on 9f8e7d6) — run 'update to open it
+  ↑  a newer OXIS build (a1b2c3d) is available (you're on 9f8e7d6) — run 'update to check, 'update install to install it
   ```
-- **On demand** — `'update` checks immediately and, if a newer build
-  exists, opens its first `.exe`/`.msi`/`.deb` asset (falling back to
-  the release page itself) in your default browser via the same
-  `OpenURL` native call the Market's checkout flow uses.
+- **`'update`** — checks immediately and reports what it finds; does
+  not install anything on its own.
+- **`'update install`** — the explicit, separate subcommand IS the
+  confirmation step (same pattern as other commands that do something
+  irreversible, like `'plugin remove --force`): checks again first
+  (never installs a build that isn't genuinely newer, and never one
+  whose download hasn't already been verified accessible), then
+  performs the real update.
+
+### What "never advertise before it's real" actually means
+
+`Check()` doesn't just compare commit SHAs — an update is only ever
+reported `Available: true` if a matching `.exe`/`.msi`/`.deb` asset
+was actually found in the release **and** a real HTTP `HEAD` request
+confirms that asset's URL genuinely resolves (200), not just that
+GitHub's release API listed something with a plausible filename. A
+release whose commit is newer but has no usable, reachable asset
+correctly reports no update available, rather than pointing at a
+broken or missing download.
+
+### What `'update install` actually does
+
+The real, in-place mechanism (`PerformUpdate` in
+`internal/wailsapp/selfupdate.go`) — genuinely high-risk work (a bug
+here could leave someone without a working executable), so every step
+is designed to roll back to the exact prior working state on any
+failure:
+
+1. Downloads the new build to a temp file first — never touches the
+   real install location until the download is verified complete and
+   a reasonable size (a real, if simple, sanity check; there's no
+   published checksum to verify against more rigorously yet).
+2. Renames the **currently running** executable to a backup path in
+   the same directory — Windows allows renaming/moving an in-use
+   file, just not overwriting it in place, which is what makes
+   replacing a running program possible at all without a separate
+   updater helper process.
+3. Moves the verified download into the now-vacated install path —
+   always the **same path** the running exe was already at, never a
+   different or "default" location, and never silently switching to
+   somewhere like Downloads.
+4. Launches the new version as a separate process, and confirms —
+   with a real, non-blocking wait, not just that the OS accepted the
+   launch request — that it's still alive a couple seconds later,
+   not immediately crashed.
+5. If any step fails, the previous, known-working executable is
+   restored and the person is told plainly what went wrong — the
+   update is never reported as successful unless the new version
+   was actually installed and confirmed running.
+6. The old executable's backup is only deleted by the **new**
+   process itself, from its own startup — genuinely reaching that
+   point is the real confirmation the new version launched
+   successfully, not something the old process could know on its own.
+   The caller (the `'update install` command) then closes the old
+   process, handing off cleanly to the new one.
+
+**Honestly flagged**: this was designed around real Windows file-
+locking semantics throughout and passes `go build`/`go vet` cleanly,
+but could not be exercised against a real Windows install replacing
+itself from the environment it was built in — this is the single
+most important piece of the whole update system to test for real on
+an actual machine before fully trusting it.
 
 ### How the commit is determined
 
 `internal/update.BuildCommit` (a Go var, not a const — the linker can
 only override a var with `-ldflags -X`) gets stamped into the binary
 at compile time with `-X .../internal/update.BuildCommit=$(git
-rev-parse HEAD)` — `build-linux.sh` does this, and
-`.github/workflows/build.yml`'s Linux job runs that same script, so
-CI is covered too. **A build that skips this ldflag has an empty
-`BuildCommit`, and `Check()` deliberately always reports "no update
-available" in that case** — never a false positive from comparing
-against an empty string, and never comparing at all until the build
-pipeline actually sets it. Your own local Windows build steps still
-need the same ldflag added, or this silently does nothing for builds
-made that way.
+rev-parse HEAD)` — `build-linux.sh` does this for Linux, and CI's
+Windows job builds via `npm run build` (`scripts/build-go.js`, kept
+in sync with the same ldflag). **A build that skips this ldflag has
+an empty `BuildCommit`, and `Check()` deliberately always reports "no
+update available" in that case** — never a false positive from
+comparing against an empty string.
 
 ### What CI does to make this work
 
 Checking a commit SHA against a release's recorded commit only works
-because something is actually publishing that release.
-`.github/workflows/build.yml`'s "Publish rolling latest-build
-release" step does exactly that: on every push to the default branch
-(never a PR), it builds with the `BuildCommit` ldflag above, then
-publishes/overwrites a single, fixed-name release (`latest-build` —
-see `RollingReleaseTag` in `update.go`) whose body contains the plain
-40-character commit SHA it was built from (a regex in `update.go`
-looks for exactly that), with the built binary attached as an asset —
-see [Continuous Integration](#continuous-integration). **Honestly
-flagged, same as the rest of this session's Cloudflare/GitHub work**:
-this workflow step is written and present in the repo, but hasn't
-been exercised against a real GitHub Actions run yet — try one real
-push before trusting the notification end-to-end.
+because something is actually publishing that release, with a real
+downloadable artifact attached, for **both platforms**.
+`.github/workflows/build.yml` runs three jobs on every push to the
+default branch: `build-linux` and `build-windows` (each stamps the
+`BuildCommit` ldflag into its own binary, then stages its own output
+— the Linux binary/`.deb`/portable tarball, or the Windows `.msi`,
+built via WiX Toolset — into a flat directory and uploads it as a
+workflow artifact) and `publish-release`, which waits on both and
+publishes everything together into a single, fixed-name release
+(`latest-build` — see `RollingReleaseTag` in `update.go`) whose body
+contains the plain 40-character commit SHA it was built from (a
+regex in `update.go` looks for exactly that). Publishing happens as
+its own job, after both builds — not from within either build job
+directly — specifically so two platforms publishing to the same
+rolling release in parallel can't race each other and clobber one
+another's assets. See [Continuous Integration](#continuous-integration).
+**Honestly flagged**: this workflow is written and present in the
+repo, but hasn't been exercised against a real GitHub Actions run
+yet — try one real push before trusting the notification (or the
+Windows `.msi` build specifically) end-to-end.
 
 ### Files
 
 | File                                | Role                                                        |
 |--------------------------------------|--------------------------------------------------------------|
-| `internal/update/update.go`          | `Check()` — hits the GitHub API for the rolling release, compares commit SHAs, never returns an error (a failed/offline check just comes back `Available: false`) |
-| `internal/wailsapp/app.go`           | `CheckForUpdate()` bound method |
-| `frontend/src/native.ts`             | `checkForUpdate()` — typed wrapper around the bound method |
-| `frontend/src/App.tsx`               | `'update` command + the once-per-run startup check          |
-| `build-linux.sh`                     | Injects `BuildCommit` via `-ldflags -X` |
+| `internal/update/update.go`          | `Check()` — hits the GitHub API for the rolling release, compares commit SHAs, verifies the asset is actually downloadable, never returns an error (a failed/offline check just comes back `Available: false`) |
+| `internal/wailsapp/selfupdate.go`    | `PerformUpdate()` — the real, in-place update mechanism, and its own safety/rollback design |
+| `internal/wailsapp/app.go`           | `CheckForUpdate()`/`PerformUpdate()` bound methods, and the post-update backup cleanup in `startup()` |
+| `frontend/src/native.ts`             | `checkForUpdate()`/`performUpdate()`/`quitApp()` — typed wrappers around the bound methods |
+| `frontend/src/App.tsx`               | `'update` / `'update install` commands + the once-per-run startup check |
+| `build-linux.sh`, `scripts/build-go.js` | Inject `BuildCommit` via `-ldflags -X`, for Linux and Windows respectively |
+| `.github/workflows/build.yml`        | `build-linux` / `build-windows` / `publish-release` — see above |
 
 ---
 

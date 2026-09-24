@@ -13,7 +13,7 @@ import type { PtySession } from "./pty/ptyClient";
 
 import {
   mkLine, bannerLines, processOutput, mergeOutput,
-  LINE_COLORS, TRAIN_BODY_LINES, trainWheelFrame, BANNER_LINE_COUNT,
+  LINE_COLORS, TRAIN_BODY_LINES, trainWheelFrame,
   wordLeft, wordRight,
   deleteWordLeft, deleteWordRight,
   deleteToLineStart, deleteToLineEnd,
@@ -59,8 +59,8 @@ import * as market                         from "./plugins/market";
 import { updatePlugin, updateAllPlugins, rollbackPlugin } from "./plugins/marketUpdate";
 import { exportSettings, importSettings, exportWorkspace, importWorkspace, exportPluginSource, createFullBackup, restoreFullBackup } from "./plugins/backup";
 import { checkPublishable, findExistingListing, prepareFreePublish, submitPaidPlugin, startConnectOnboarding, requestPluginDeletion } from "./plugins/publish";
-import { commitAll, setupRemote, getRemotes, parseGitRemote, cancelActiveCommit, type GitProvider } from "./plugins/git";
-import { readFile, writeFile, listDir, makeDir, statPath, movePath, isNativeApp, openUrl, checkForUpdate, performUpdate, quitApp, appDir } from "./native";
+import { commitAll, setupRemote, unlinkRemote, getRemotes, parseGitRemote, cancelActiveCommit, type GitProvider } from "./plugins/git";
+import { readFile, writeFile, listDir, makeDir, statPath, movePath, isNativeApp, openUrl, checkForUpdate, performUpdate, quitApp } from "./native";
 import Titlebar from "./components/Titlebar";
 
 // ══════════════════════════════════════════════════════════════
@@ -327,8 +327,10 @@ const COMMAND_DETAILS: Record<string, CommandDetail> = {
       { syntax: "'workspace newfile <relative-path>", description: "create a file inside the CONNECTED external directory (needs 'workspace link first) and open it in the Editor — nested paths create parent folders automatically; refuses anything that would escape the connected directory" },
       { syntax: "'workspace newdir <relative-path>",  description: "same, for a directory" },
       { syntax: "'workspace move <file> <directory>", description: "move a file to a directory, both relative to the connected project — same thing dragging a file onto a folder in the file tree does" },
-      { syntax: "'workspace github <owner/repo or URL> [--force]", description: "configure the connected project's git remote for GitHub — initializes a repo if needed, refuses to silently overwrite a DIFFERENT existing origin (add --force to replace it). Also adds a \"commit\" task the first time this succeeds — see 'help project" },
+      { syntax: "'workspace github <owner/repo or URL> [--force]", description: "configure the connected project's git remote for GitHub — initializes a repo if needed, refuses to silently overwrite a DIFFERENT existing origin (add --force to replace it). 'task commit is always available regardless — see 'help project" },
       { syntax: "'workspace gitlab <owner/repo or URL> [--force]", description: "same, for GitLab" },
+      { syntax: "'workspace github unlink [--remove-remote]", description: "disconnect the GitHub/GitLab remote without touching the local project, workspace, .oxis/, source files, or .git repo — by default just renames origin (nothing is deleted, connect a different repo right after); --remove-remote actually deletes it" },
+      { syntax: "'workspace gitlab unlink [--remove-remote]", description: "same command, works identically either way you spell it — both just operate on the one origin remote" },
       { syntax: "'workspace export <name> [path]",    description: "export one workspace's real files to a JSON file (default: <name>.oxisworkspace.json)" },
       { syntax: "'workspace import <path> [name]",    description: "import one — creates a NEW workspace, never silently overwrites an existing one" },
       { syntax: "'workspace info",                    description: "show the active workspace's state — name, tasks, link if any" },
@@ -575,7 +577,7 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
                   `mv "${a[0]}" "${a[1]}" && echo "moved"`)); }});
 
   registry.register({ name:"write",  category:"files", description:"Write text to file",
-    handler:(a,r)=>{ if(!a[0]){err("usage: 'write <file> [text]");return;}
+    handler:(a,_r)=>{ if(!a[0]){err("usage: 'write <file> [text]");return;}
       const c=a.slice(1).join(" ");
       if(c) ps(shellCmd(`Set-Content -Path "${a[0]}" -Value '${c.replace(/'/g,"''")}' -Encoding UTF8; Write-Host "wrote: ${a[0]}"`,
                         `echo '${c}' > "${a[0]}" && echo "wrote: ${a[0]}"`));
@@ -723,7 +725,7 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
       ))});
 
   registry.register({ name:"grep",    category:"shell", description:"Search file contents",
-    handler:(a,r)=>{ if(a.length<2){err("usage: 'grep <pattern> <file>");return;}
+    handler:(a,_r)=>{ if(a.length<2){err("usage: 'grep <pattern> <file>");return;}
       ps(shellCmd(
         `Select-String -Pattern "${a[0]}" -Path "${a.slice(1).join(" ")}"`,
         `grep -rn "${a[0]}" ${a.slice(1).join(" ")}`
@@ -1368,7 +1370,25 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
         const provider: GitProvider = sub;
         const repoInput = args[1];
         const force = args.includes("--force");
-        if(!repoInput){ err(`usage: 'workspace ${provider} <owner/repo or full URL> [--force]`); return; }
+        // `'workspace github unlink` / `'workspace gitlab unlink` —
+        // disconnects the origin remote (by default renaming it,
+        // never deleting it, unless --remove-remote is also given —
+        // see unlinkRemote's own doc comment in git.ts for the full
+        // reasoning) without touching the local project, the
+        // workspace, .oxis/, source files, or the .git repo itself.
+        // Both provider names do the same thing here since they both
+        // just operate on the one "origin" remote OXIS actually looks
+        // for — there's nothing GitHub- or GitLab-specific left to
+        // unlink once you're down at the remote-config level.
+        if(repoInput === "unlink"){
+          const removeCompletely = args.includes("--remove-remote");
+          workspaceManager.getActiveExternalPath().then(extPath => {
+            if(!extPath){ err(`no connected project directory — 'workspace link "<path>" first`); return; }
+            return unlinkRemote(extPath, removeCompletely).then(r => (r.ok?ok:err)(r.message));
+          }).catch(e => err(`couldn't unlink: ${e instanceof Error ? e.message : e}`));
+          return;
+        }
+        if(!repoInput){ err(`usage: 'workspace ${provider} <owner/repo or full URL> [--force]  ·  or 'workspace ${provider} unlink [--remove-remote]`); return; }
         workspaceManager.getActiveExternalPath().then(extPath => {
           if(!extPath){ err(`no connected project directory — 'workspace link "<path>" first`); return; }
           return setupRemote(extPath, provider, repoInput, force).then(async r => {
@@ -1743,6 +1763,7 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
       h("'workspace move <file> <directory>","move a file to a directory in the connected project — or just drag it in the file tree");
       h("'workspace github <owner/repo>","configure the connected project's GitHub remote (real git, --force to overwrite)");
       h("'workspace gitlab <owner/repo>","same, for GitLab");
+      h("'workspace github unlink","disconnect the git remote without deleting anything local — 'help workspace for the full syntax");
       h("'workspace export <n> [path]","export one workspace (its real files) to a JSON file");
       h("'workspace import <path> [name]","import one — creates a NEW workspace, never overwrites");
       h("'workspace info","show the active workspace's state");
@@ -4554,37 +4575,6 @@ function ThemeTile({ name, theme, active, isCustom, onClick, onDelete }: {
   );
 }
 
-function PluginCard({ p, onToggle }: {
-  p: ReturnType<typeof pluginManager.all>[0];
-  onToggle: (name: string, enabled: boolean) => void;
-}) {
-  const shortcuts = p.shortcuts ? Object.keys(p.shortcuts) : [];
-  return (
-    <div className="plugin-card">
-      <div className="plugin-card-status" style={{ background: p.enabled ? "var(--purple2)" : "var(--bg4)" }} />
-      <div className="plugin-card-body">
-        <div className="plugin-card-top">
-          <span className="plugin-card-name">{p.name}</span>
-          <span className="plugin-card-cat">{p.category}</span>
-          {p.builtin && <span className="plugin-card-builtin">built-in</span>}
-          {p.lua && !p.builtin && <span className="plugin-card-builtin" style={{color:"var(--purple3)"}}>lua</span>}
-        </div>
-        <div className="plugin-card-desc">{p.desc}</div>
-        {shortcuts.length > 0 && (
-          <div className="plugin-card-keys">
-            {shortcuts.slice(0, 8).map(s => <code key={s} className="plugin-key">{s}</code>)}
-            {shortcuts.length > 8 && <span className="plugin-more">+{shortcuts.length - 8}</span>}
-          </div>
-        )}
-      </div>
-      <button className={`plugin-tog ${p.enabled ? "plugin-tog--on" : ""}`}
-        onClick={() => onToggle(p.name, !p.enabled)}>
-        {p.enabled ? "on" : "off"}
-      </button>
-    </div>
-  );
-}
-
 // ── Sky widget: ASCII sun/clouds by day, ASCII moon/stars by night ──
 function getMoonPhase(date: Date): number {
   // Returns 0-7 (new moon → waxing → full → waning)
@@ -5568,7 +5558,7 @@ export default function App() {
       const stubCtx: ShellCtx = {
         send:        () => {},
         runLine:     () => {},
-        print:       (t, k) => console.log("[oxis]", t),
+        print:       (t, _k) => console.log("[oxis]", t),
         printLines:  entries => entries.forEach(([t]) => console.log("[oxis]", t)),
         clear:       () => {},
         openEditor:  () => {},
