@@ -92,55 +92,17 @@ export const LINE_COLORS: Record<string, string> = {
 // (shell banner, startup splash) is correct automatically and can't
 // regress by rendering the raw arrays directly.
 // ─────────────────────────────────────────────────────────────
-const RAW_TRAIN_BODY_LINES = [
-  "   _     __  __    ___     ___                              ",
-  "  /_\\    \\ \\/ /   |_ _|   / __|                               ",
-  " |(_)|    >  <     | |    \\__ \\     ____            ",
-  ",\\___/, ,/_/\\_\\, ,|___|, ,|___/,____|[]|___||_______.   ",
-  "|#####|_|######|_|#####|_|#####|_____|__|###|_______|}",
-];
-
-const RAW_TRAIN_WHEEL_TEMPLATE =
-  "`-0-0-'*`-0-0-'*`-0-0-'*`-0-0-0+++0-0'`-0-0-'*`-0-0-'";
-
-// Single source of truth for the common width every row/template pads
-// to. Computed from the raw art rather than hardcoded so if the art
-// ever changes, padding recalculates correctly instead of silently
-// truncating or under-padding.
-const TRAIN_WIDTH = Math.max(
-  ...RAW_TRAIN_BODY_LINES.map(l => l.length),
-  RAW_TRAIN_WHEEL_TEMPLATE.length,
-);
-
-const padTrainRow = (s: string): string => s.padEnd(TRAIN_WIDTH, " ");
-
-export const TRAIN_BODY_LINES = RAW_TRAIN_BODY_LINES.map(padTrainRow);
-export const TRAIN_WHEEL_TEMPLATE = padTrainRow(RAW_TRAIN_WHEEL_TEMPLATE);
-
-// Cheap 4-frame "spin" — monospace text can't truly rotate a glyph,
-// so this cycles the wheel character through a shape sequence that
-// reads as motion at ~120ms/frame (0 → O → o → O → …). Only the
-// wheel glyphs themselves are ever swapped — the trailing padding
-// spaces added above are untouched by the /[0Oo]/g replace, so the
-// row's total width (and therefore its centering) never shifts
-// between frames either. That was the other place a "moving" row
-// could visibly jitter: if frame-to-frame text length changed even
-// by one character, a centered row would visibly twitch sideways
-// every ~120ms. Fixed-width template + fixed-width frame chars means
-// every frame is exactly TRAIN_WIDTH characters, always.
-export const TRAIN_WHEEL_FRAME_CHARS = ["0", "O", "o", "O"];
-
-export function trainWheelFrame(frameIndex: number): string {
-  const len = TRAIN_WHEEL_FRAME_CHARS.length;
-  const ch = TRAIN_WHEEL_FRAME_CHARS[((frameIndex % len) + len) % len];
-  return TRAIN_WHEEL_TEMPLATE.replace(/[0Oo]/g, ch);
-}
-
+// The old boot banner rendered a multi-row ASCII train (plus a
+// spinning-wheel animation frame) at the top of every new shell tab.
+// Removed per the terminal-UX pass: it ate vertical space, delayed
+// the shell feeling "live" while it printed, and had nothing to do
+// with the actual terminal session starting. Replaced with a single
+// plain line — no ASCII art, no animation to replace it with (the
+// "OXIS" wordmark now lives in the terminal's own top-right corner
+// instead, rendered once in the Terminal component's JSX, not as
+// scrollback text).
 export function bannerLines(): Line[] {
   return [
-    ...TRAIN_BODY_LINES.map(t => mkLine(t, "banner")),
-    mkLine(trainWheelFrame(0), "banner-wheel"),
-    mkLine("", "banner"),
     mkLine("  OXIS · type 'help for commands · shell is live", "banner"),
     mkLine("", "banner"),
   ];
@@ -148,7 +110,7 @@ export function bannerLines(): Line[] {
 
 // The banner occupies exactly this many lines.
 // Output from the shell is NEVER merged into a banner line.
-export const BANNER_LINE_COUNT = TRAIN_BODY_LINES.length + 1 + 3;
+export const BANNER_LINE_COUNT = 2;
 
 // ─────────────────────────────────────────────────────────────
 // OUTPUT PROCESSOR

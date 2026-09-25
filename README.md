@@ -414,12 +414,20 @@ further, rather than hiding anything outright.
 (40ms, then 250ms) rather than once, since a single attempt could
 lose a race with something else mounting right after (the banner
 animation, a panel re-render) that steals focus back. **Ctrl+I** is a
-reliable manual fallback from anywhere on Home, shown right in the
-input's own placeholder ("Type Here or Ctrl+I") so it's discoverable
-without already knowing it — guarded so it only acts while Home is
-actually the visible screen (Home stays mounted-but-hidden behind the
-terminal, and Ctrl+I is literally the Tab byte at the terminal level —
-without that guard this would have broken tab-completion there).
+reliable manual fallback from anywhere on Home, guarded so it only
+acts while Home is actually the visible screen (Home stays
+mounted-but-hidden behind the terminal, and Ctrl+I is literally the
+Tab byte at the terminal level — without that guard this would have
+broken tab-completion there).
+
+**[shipped]** The prompt itself is styled like a real shell prompt now
+— a plain left-aligned `❯` glyph and the real text caret, not a label
+explaining what mode you're in ("Shell <command-mode>"), the same way
+an actual terminal doesn't caption itself. A small dim "Ctrl+I" hint
+sits right after the `❯` whenever the box is both empty and unfocused
+— exactly the idle state where someone new to Home wouldn't otherwise
+know that shortcut jumps here from anywhere — and disappears the
+moment either stops being true.
 
 The Home screen is OXIS's landing view (`view === "home"`, see
 [Input Modes](#input-modes)) and is meant to feel like the central
@@ -2152,6 +2160,17 @@ terminal-emulator convention (X11 PRIMARY-selection-style), in
 addition to (not instead of) Ctrl+C, which still works exactly as
 before for anyone used to that instead.
 
+**[fixed]** Every copy path (this one, visual-mode `y`, Ctrl+C with a
+selection) now falls back to a real, OS-level clipboard write
+(`internal/wailsapp/clipboard_windows.go`/`clipboard_other.go` — raw
+Win32 calls on Windows, `pbcopy`/`xclip`/`xsel`/`wl-copy` elsewhere)
+whenever the in-page `navigator.clipboard.writeText()` call fails.
+That call can fail silently inside a WebView2-hosted local `wails://`
+page in a way it wouldn't on a real `https://` site, which was a real,
+reported bug — the selection itself worked, but the actual OS
+clipboard was never written to, so pasting elsewhere did nothing with
+no error shown anywhere.
+
 ### Editor Keybinds
 
 The file Editor and Plugin Creator share one keybind set — see
@@ -2659,6 +2678,16 @@ regardless of where it lives — quote the path if it contains spaces:
 'edit "C:\Users\Admin\Downloads\FluxKey_Plus_v6\FKP_v5\LICENSE"
 'edit /home/me/projects/site/index.html
 ```
+
+**[fixed]** A bare leading `/` or `\` with no drive letter (e.g.
+`'edit /workspace.lua`) now resolves against the app's own drive —
+matching the Unix/WSL/Git Bash convention that a leading slash means
+the filesystem root. Go's own `filepath.IsAbs` doesn't consider a path
+absolute on Windows without a volume name, so this used to fall
+straight through to the ordinary relative-path branch and silently
+resolve inside the app's own install directory instead
+(`<app dir>/workspace.lua`, not `C:\workspace.lua`), with nothing in
+the resulting error hinting that's what actually happened.
 
 (Quoting matters even when the path has no spaces, if you're in the
 habit of always quoting paths — `'edit` splits arguments the same

@@ -155,19 +155,45 @@ function coerceStep(raw: LuaJSValue, warnings: string[]): WorkflowStep | null {
   return step;
 }
 
+/** Single-quotes a value for POSIX shells (sh/bash/zsh). Single quotes
+ *  are the one POSIX quoting form that disables ALL substitution —
+ *  `$`, `` ` ``, `\` are all literal inside them — so the only
+ *  character that needs escaping is a literal `'` itself, done by
+ *  closing the quote, emitting an escaped quote, and reopening it. */
+function shQuote(v: string): string {
+  return `'${v.replace(/'/g, `'\\''`)}'`;
+}
+
+/** Single-quotes a value for PowerShell. PowerShell's single-quoted
+ *  strings are the equivalent literal form — no `$var`/`$(...)`
+ *  expansion — and the only escape needed is doubling an embedded `'`. */
+function psQuote(v: string): string {
+  return `'${v.replace(/'/g, "''")}'`;
+}
+
 /** `KEY=value` pairs prepended to a shell command so the step's own
  *  env vars actually reach it — platform-appropriate syntax, and
  *  composes with runScript()'s own multi-line detection: prepending
  *  even one line turns a single-line command into a multi-line one,
  *  which is exactly what routes it through the temp-script path on
- *  native Windows instead of a raw single-line send. */
+ *  native Windows instead of a raw single-line send.
+ *
+ *  Values are quoted with shQuote/psQuote (real shell-literal quoting),
+ *  not JSON.stringify: JSON's escaping rules protect `"` and control
+ *  characters, but leave `$`, backticks, and `$(...)` untouched — which
+ *  are exactly the characters bash/PowerShell treat as "run this" inside
+ *  a double-quoted string. A workflow env value containing `$(...)` (a
+ *  price like "$(5)", a shell snippet being passed through as data,
+ *  anything with that shape) would have been executed by the shell
+ *  instead of exported as literal text. Single-quoting closes that off
+ *  entirely, since single-quoted strings don't expand anything. */
 function withEnvPrefix(cmd: string, env: Record<string, string>): string {
   const entries = Object.entries(env);
   if (entries.length === 0) return cmd;
   if (isWindows()) {
-    return entries.map(([k, v]) => `$env:${k} = ${JSON.stringify(v)}`).join("\n") + "\n" + cmd;
+    return entries.map(([k, v]) => `$env:${k} = ${psQuote(v)}`).join("\n") + "\n" + cmd;
   }
-  return entries.map(([k, v]) => `export ${k}=${JSON.stringify(v)}`).join("\n") + "\n" + cmd;
+  return entries.map(([k, v]) => `export ${k}=${shQuote(v)}`).join("\n") + "\n" + cmd;
 }
 
 class WorkflowRunner {
@@ -261,7 +287,7 @@ class WorkflowRunner {
             for (const s of shellSteps) {
               const r = await this.runOne(s, parentEnv, ctx);
               results.push(r);
-              if (!r.ok && !s.continueOnError) allOk = false;
+              if (!r.ok && !s.continueOnError) { allOk = false; break; } // same stop-on-failure semantics as a plain (non-parallel) step list — a failed step without continueOnError shouldn't let the ones after it still run
             }
             return allOk;
           })(),

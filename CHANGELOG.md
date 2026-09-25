@@ -5,8 +5,86 @@ change was made, not necessarily when a version was tagged.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Up/Down/PageUp/PageDown history navigation was completely
+  unreachable at an idle terminal prompt — reported directly as
+  "arrow keys for previous commands do not work."** The idle-prompt
+  passthrough handler in `App.tsx`'s terminal keydown handler forwarded
+  those four keys straight to the running shell whenever the input was
+  empty, before a later block further down the same handler ever got a
+  chance to run — the block that actually implements OXIS's own
+  command-history/scrollback navigation for those same keys. Same bug
+  class as an earlier "dead Tab handler" finding this session: an
+  earlier, broader conditional silently made a later, correct handler
+  for the same keys permanently unreachable. Removed ArrowUp/ArrowDown/
+  PageUp/PageDown from the passthrough table; ArrowLeft/ArrowRight/
+  Home/End/Delete/Tab/Escape/F-keys are unaffected and still pass
+  straight through to the shell as before.
+- **Windows: a leading `/` or `\` in a path (e.g. `'edit
+  /workspace.lua`) silently resolved inside the app's own install
+  directory instead of the filesystem root — reported via a screenshot
+  showing `couldn't open /workspace.lua` resolving to
+  `C:\Users\...\dist\workspace.lua`.** Root cause: Go's own
+  `filepath.IsAbs()` requires a volume/drive letter to consider a path
+  absolute on Windows — a bare leading slash isn't enough there, unlike
+  Unix, where it always is. `resolvePath()` in `internal/wailsapp/
+  app.go` now detects a bare leading `/` or `\` with no drive letter
+  and resolves it against the anchor directory's own volume via
+  `filepath.VolumeName()`, matching the Unix/WSL/Git Bash convention
+  that a leading slash means the filesystem root — instead of falling
+  through to the ordinary relative-path branch with no hint in the
+  resulting error that this was ever what happened. Linux/macOS were
+  already correct (`filepath.IsAbs` already treats a leading `/` as
+  absolute there), so this branch is effectively unreachable on those
+  platforms.
+- **Mouse-copy in the terminal silently didn't reach the real OS
+  clipboard — reported alongside the path bug above ("you cant copy
+  text with your mouse").** Every copy path in `App.tsx` (copy-on-
+  select, visual-mode `y`, Ctrl+C with a selection) went through
+  `navigator.clipboard.writeText()` inside the WebView2-hosted page
+  only, wrapped in a `.catch()` with no actual fallback — that call can
+  fail silently in this environment in a way it wouldn't on a real
+  `https://` site (a clipboard-write permission that isn't auto-granted
+  to a local `wails://` origin, or the window not holding OS focus at
+  the exact moment the promise resolves), so the selection worked but
+  the write to the real clipboard quietly didn't, and pasting elsewhere
+  did nothing. Added a real native OS-level clipboard write as the
+  fallback: raw Win32 calls on Windows (`internal/wailsapp/
+  clipboard_windows.go`, no cgo/external module, same
+  `syscall.NewLazyDLL` pattern already used for `hideWindow`), and
+  `pbcopy`/`xclip`/`xsel`/`wl-copy` (tried in order) on macOS/Linux
+  (`clipboard_other.go`). Wired through a new `App.WriteClipboard` Go
+  binding and `native.ts`'s `writeClipboard()`, called only when the
+  JS-side write fails — the JS path stays first since it's instant and
+  normally works fine.
+
 ### Added
 
+- **`'update install` now clones this project's own source and builds
+  it locally, in place, instead of downloading a prebuilt binary — no
+  download link, no browser, ever.** `selfupdate.go`'s `PerformUpdate`
+  gained `buildFromSource()`: a plain `git clone --depth 1` of
+  `github.com/oxlaboratory/oxis` into a temp directory, followed by
+  `node scripts/build-go.js` run against that clone — the exact same
+  thing `npm run build` does, producing a real, freshly-compiled
+  binary the same way a person building OXIS by hand would. That
+  binary is staged into a temp file in the same directory as the
+  running exe (new `stageIntoDir` helper) before the existing
+  backup/swap/relaunch/rollback machinery touches it, since the
+  clone's own temp directory can land on a different filesystem than
+  the install directory and Go's `os.Rename` fails outright across
+  filesystems on Linux. The previous download-a-prebuilt-binary path
+  (`downloadRawBinary`) is kept only as an automatic fallback for
+  machines without `git`/`node` available to build with — still a
+  plain in-process HTTP download, never a browser link either way.
+  `update.go`'s `Check()` no longer decides "is an update available"
+  from whether CI happened to publish a release; it compares the
+  running build's commit directly against the true current HEAD of
+  the default branch (GitHub's commits API), which is what
+  `buildFromSource` actually clones — CI's rolling release is now
+  purely best-effort fallback info (`DownloadURL`/`RawBinaryURL`), and
+  its absence never blocks reporting an update as available.
 - **`'workspace github unlink` / `'workspace gitlab unlink` —
   Priority 4, a genuinely missing feature found while auditing the
   README, not just a documentation gap.** There was no way to
@@ -1071,6 +1149,77 @@ change was made, not necessarily when a version was tagged.
 
 ### Fixed
 
+- **Windows self-update never actually completed — every `'update
+  install` downloaded the `.msi` and silently failed to install it.**
+  `update.Check()` picked the first `.exe`/`.msi`/`.deb` asset it saw
+  in the rolling release with no platform filtering, so a Windows
+  install could just as easily be handed a Linux `.deb` link as its
+  own `.msi`, purely from whatever order GitHub's API happened to list
+  assets in. Worse: even pointed at the right asset, `PerformUpdate`'s
+  whole approach is renaming the *downloaded file itself* directly
+  over the running `oxis.exe` and executing it — which only works for
+  a bare binary. On Windows the only asset CI ever produced was the
+  `.msi`, a Windows Installer *package*, not something you can rename
+  to `oxis.exe` and run. Every attempt would download it, rename it
+  over the real working exe, fail to launch (not a valid PE), and roll
+  back — self-update never actually worked on Windows, silently, the
+  whole time. Fixed by splitting `Info` into `DownloadURL` (the proper
+  installer, for a person to run themselves — unchanged) and a new
+  `RawBinaryURL` (the one thing `PerformUpdate` can safely swap in —
+  `.exe` on Windows, matched by exact name on Linux), filtered by
+  `runtime.GOOS` via a new `pickAsset`/`pickRawBinary`. Windows CI now
+  also stages the raw `dist\oxis.exe` into the release alongside the
+  `.msi` specifically so `RawBinaryURL` has something to find. Since
+  superseded as the *primary* update path by the source-build feature
+  above; this raw-binary path is now only the automatic fallback.
+- **MSI installer: choosing a disallowed install directory (e.g.
+  Program Files) could silently pass validation anyway.** The custom
+  "must be under your own user profile" check
+  (`OxisValidateDir`/`OxisInvalidDirDlg`) raced against WixUI's own
+  stock `InstallDirDlg` dialog chain — the library's built-in
+  "advance to next page" event is gated on its own
+  `WIXUI_INSTALLDIR_VALID` property (syntax-only), not the custom
+  `OXIS_VALID_DIR` check, so a syntactically valid but disallowed path
+  could satisfy the library's own check and silently advance the
+  wizard past the error dialog instead of actually being blocked by
+  it. Fixed by scheduling the custom `SpawnDialog`/`NewDialog` events
+  at `Order="10"/"11"`, strictly after everything the stock chain
+  uses internally (which tops out around `Order="4"`), so the custom
+  decision always has the final say.
+- **MSI installer: the package was never declared 64-bit.** Without
+  `Platform="x64"` on `<Package>`, WiX defaults to a 32-bit package —
+  meaning every component's `HKLM\Software\OXIS` registry writes were
+  getting silently redirected to `WOW6432Node` instead of the real
+  64-bit hive, even though `oxis.exe` itself is always amd64.
+  `light.exe -sval` (already in `build-msi.js`) skips the ICE
+  validation that would normally catch this (ICE80), which is why it
+  built "successfully" the whole time without ever being noticed.
+  Added `Platform="x64"` and `Win64="yes"` on every component under
+  `ProgramFiles64Folder`.
+- **Terminal: the command prompt (and the reverse-i-search / output-
+  search bars) scrolled off-screen along with old output.** They were
+  the last children of the same scrolling `.term-out` container as the
+  scrollback itself, so scrolling up through history visually carried
+  the prompt away with it — usually masked by auto-scroll-to-bottom,
+  but a real, reproducible bug. Moved them into a new sibling
+  `.term-prompt-bar`, a fixed, never-scrolling bar below the output —
+  it now behaves the same way a real terminal emulator's prompt does.
+  Home's own command line had the identical bug (worse: three separate
+  mounted `<HomeCmdLine>` instances, one per view, each inline in that
+  view's own scrolling content) — restructured the same way, into one
+  shared instance inside a new `.home-cmdline-bar`.
+- **Removed the ASCII train (boot banner + full-screen startup splash)
+  and a dead, contradictory `Tab` key handler** left over from before
+  real Tab-completion existed — it inserted two literal spaces and
+  could never actually fire (the real completion handler above it
+  already returns unconditionally for every plain `Tab` press), but
+  read as if it sometimes did, which isn't true.
+- **The Home screen's "GitHub ↗" button had zero custom styling.** Its
+  class was renamed from `oxis-gitlab-btn` to `oxis-github-btn` in the
+  JSX at some point, but the CSS rule was never renamed to match —
+  `.oxis-gitlab-btn` sat there dead and unreferenced while the actual
+  button rendered with nothing but browser defaults. Fixed by renaming
+  the CSS rule to match.
 - **README's "Plugin Marketplace" section listed which `'plugin`
   commands work on Market-installed plugins afterward, but omitted
   `'plugin uninstall`** — the exact command with the most severe bug

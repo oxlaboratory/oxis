@@ -46,12 +46,21 @@ var Version = "0.0.0-dev"
 
 // CheckForUpdate backs 'update and the frontend's own background
 // check-once-per-run on shell startup — compares this build against
-// OXIS's latest gitlab.com/oxidelab/oxis release (see internal/update).
-// The frontend calls this directly rather than Go pushing a
-// Wails EventsEmit, since a plain request/response call is the only
-// Go->frontend channel this app already uses anywhere (see native.ts)
-// — no new event-bridge wiring needed for an occasional check.
-func (a *App) CheckForUpdate() update.Info { return update.Check(Version) }
+// OXIS's latest github.com/oxlaboratory/oxis release (see
+// internal/update). The frontend calls this directly rather than Go
+// pushing a Wails EventsEmit, since a plain request/response call is
+// the only Go->frontend channel this app already uses anywhere (see
+// native.ts) — no new event-bridge wiring needed for an occasional
+// check. Passes runtime.GOOS (NOT Version — that was a leftover,
+// unused parameter; Check() never actually read it) so the asset
+// picked out of the release is one this OS can actually run. The
+// rolling "latest-build" release holds BOTH platforms' output at
+// once (build.yml's publish-release job merges build-linux's .deb and
+// build-windows's .msi into the same release), so without filtering
+// by OS a Windows install could just as easily be handed a .deb
+// download link as its own .msi, depending on whatever order GitHub's
+// API happened to list the assets in that day.
+func (a *App) CheckForUpdate() update.Info { return update.Check(runtime.GOOS) }
 
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
@@ -106,6 +115,16 @@ func (a *App) WindowClose()    { wailsRuntime.Quit(a.ctx) }
 // "open OXIS Market" hotkey and 'market subscribe's Stripe Checkout
 // handoff (see native.ts's openUrl()).
 func (a *App) OpenURL(url string) { wailsRuntime.BrowserOpenURL(a.ctx, url) }
+
+// WriteClipboard sets the real OS clipboard to `text` via a native,
+// OS-level call (see clipboard_windows.go / clipboard_other.go) rather
+// than the WebView-hosted page's own navigator.clipboard.writeText().
+// Backs native.ts's writeClipboard() — the fallback path App.tsx's
+// mouse-copy/Ctrl+C handlers use when the JS-side clipboard write
+// fails, which is a real, previously-silent failure mode in this
+// WebView2 environment (see clipboard_windows.go's doc comment for
+// the full story).
+func (a *App) WriteClipboard(text string) error { return writeClipboardNative(text) }
 
 // NOTE: there's deliberately no WindowStartDrag anywhere in this
 // project — Go or JS. Checked against Wails v2's Go runtime package
@@ -411,7 +430,13 @@ func resolvePath(path string) string {
 	if filepath.IsAbs(path) {
 		return filepath.Clean(path)
 	}
-	dir, err := AppDirPath()
+
+	// Resolve the anchor directory first (same app-dir-not-cwd
+	// reasoning as always — see the doc comment above), so a bare
+	// leading "/" or "\" below can be resolved against ITS volume
+	// instead of falling through to being treated as an ordinary
+	// relative path.
+	anchor, err := AppDirPath()
 	if err != nil {
 		// Fall back to the old behavior rather than failing outright —
 		// os.Executable() failing at all is rare (unusual sandboxing),
@@ -421,9 +446,32 @@ func resolvePath(path string) string {
 		if wdErr != nil {
 			return filepath.Clean(path)
 		}
-		return filepath.Join(wd, path)
+		anchor = wd
 	}
-	return filepath.Join(dir, path)
+
+	// A bare leading "/" or "\" (no drive letter) isn't "absolute" by
+	// Go's own definition on Windows — filepath.IsAbs there requires a
+	// volume name — but this app's own 'edit documentation says a
+	// leading "/" means the filesystem root, matching every other
+	// leading-slash convention (Unix, WSL, Git Bash). Without this
+	// check, a path like "/workspace.lua" fell straight through to the
+	// plain filepath.Join below, which normalizes away the leading
+	// slash and silently resolves it AS IF it were an ordinary
+	// relative path anchored to the app's own directory instead — a
+	// real, reported bug: 'edit /workspace.lua opened (or failed to
+	// find) <app dir>/workspace.lua, not C:\workspace.lua, with
+	// nothing in the error message hinting that's what actually
+	// happened. On Linux/macOS this branch is effectively unreachable
+	// in practice — filepath.IsAbs already treats a leading "/" as
+	// absolute there, so it's caught by the check above instead.
+	if len(path) > 0 && (path[0] == '/' || path[0] == '\\') {
+		if vol := filepath.VolumeName(anchor); vol != "" {
+			return filepath.Clean(vol + path)
+		}
+		return filepath.Clean(path) // no volume concept on this OS — already absolute as-is
+	}
+
+	return filepath.Join(anchor, path)
 }
 
 // WriteTempScript backs oxis.run()'s multi-line-script fix (see the

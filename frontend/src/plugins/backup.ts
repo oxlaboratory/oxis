@@ -35,7 +35,7 @@ import { readFile, writeFile, listDir, isNativeApp } from "../native";
 import { workspaceManager, type NamedWorkspaceEntry } from "../terminal/workspaceManager";
 
 const SETTING_PREFIX = "setting.";
-const OPTIONS_STORAGE_KEY = "oxis-options-v1"; // must match OPTIONS_KEY in App.tsx
+const OPTIONS_STORAGE_KEY = "oxis-plugin-options-v1"; // must match OPTIONS_KEY in App.tsx
 
 function readRawOptions(): Record<string, unknown> {
   try {

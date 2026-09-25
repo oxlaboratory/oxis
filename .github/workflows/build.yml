@@ -10,7 +10,15 @@
 #   build-windows  → dist/wix/oxis-<ver>.msi (npm run build, then
 #                    npm run build:msi — see build-msi.js's own doc
 #                    comment; WiX Toolset installed via chocolatey,
-#                    since windows-latest doesn't ship it)
+#                    since windows-latest doesn't ship it) + the raw
+#                    dist/oxis.exe alongside it — the .msi is the
+#                    right thing for a person to download and run
+#                    themselves, but internal/update's in-place
+#                    'update install (selfupdate.go's PerformUpdate)
+#                    can only ever rename a bare executable over the
+#                    running one, never an installer package, so it
+#                    needs this separate raw asset to find. See
+#                    update.go's pickAsset vs pickRawBinary.
 #   publish-release (needs: [build-linux, build-windows]) → downloads
 #     both jobs' own uploaded artifacts and publishes them ALL in one
 #     single action-gh-release step.
@@ -44,13 +52,14 @@
 # now rather than a fixed major, so this keeps working as LTS rolls
 # forward instead of quietly drifting below 24 again.
 #
-# ██ ONE THING STILL NEEDS FILLING IN ██ — the release-publish step
-# uses `${{ github.repository }}` (this repo's own "owner/repo",
-# resolved automatically by GitHub Actions — no placeholder needed
-# HERE), but internal/update/update.go's ProjectPath constant is a
-# separate, still-unfilled placeholder that the CLIENT uses to know
-# where to check. Set that to match this repo's real path once it
-# exists — see update.go's own doc comment.
+# The release-publish step below uses `${{ github.repository }}`
+# implicitly (softprops/action-gh-release targets the checked-out repo
+# automatically — no placeholder needed HERE). The CLIENT side of that
+# same contract is internal/update/update.go's ProjectPath constant,
+# which the running app uses to know where to check for this same
+# rolling release; it's already set to "oxlaboratory/oxis" there — see
+# update.go's own doc comment if that repo path is ever renamed/moved,
+# since the two have to stay in sync by hand.
 # ══════════════════════════════════════════════════════════════════
 
 name: Build
@@ -151,6 +160,7 @@ jobs:
         run: |
           mkdir release-files
           copy dist\wix\oxis-*.msi release-files\
+          copy dist\oxis.exe release-files\
         shell: cmd
 
       - uses: actions/upload-artifact@v4

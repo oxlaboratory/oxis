@@ -51,8 +51,17 @@ declare global {
           ListProcesses?: () => Promise<NativeProcessInfo[]>;
           KillProcess?: (pid: number) => Promise<void>;
           OpenURL?: (url: string) => Promise<void>;
+          WriteClipboard?: (text: string) => Promise<void>;
           CheckForUpdate?: () => Promise<NativeUpdateInfo>;
-          PerformUpdate?: (downloadUrl: string) => Promise<[boolean, string]>;
+          /** Builds a fresh binary FROM SOURCE (clones the repo, runs
+           *  the real build script) and swaps it in, in Go — never a
+           *  browser download link. fallbackBinaryUrl (from
+           *  NativeUpdateInfo.rawBinaryUrl) is only ever used if the
+           *  source build itself can't run (no git/node on this
+           *  machine); still a plain in-process download, still no
+           *  browser involved either way. See selfupdate.go's
+           *  PerformUpdate doc comment for the full design. */
+          PerformUpdate?: (fallbackBinaryUrl: string) => Promise<[boolean, string]>;
           WriteTempScript?: (ext: string, content: string) => Promise<string>;
         };
       };
@@ -87,7 +96,18 @@ export interface NativeUpdateInfo {
    *  for the full "why commits, not semver tags" design. */
   available: boolean;
   currentCommit: string; latestCommit: string;
-  releaseUrl: string; downloadUrl: string; notes: string;
+  releaseUrl: string;
+  /** The platform's proper INSTALLER asset (.msi on Windows, .deb on
+   *  Linux) — for a person to download and run themselves. NEVER pass
+   *  this to performUpdate(); see rawBinaryUrl. */
+  downloadUrl: string;
+  /** The platform's bare, directly-executable binary (oxis.exe /
+   *  oxis) — the only thing performUpdate() can safely rename over
+   *  the running exe. Empty when this platform/build has no such
+   *  asset yet, in which case 'update install has nothing to do and
+   *  should point the user at downloadUrl/releaseUrl instead. */
+  rawBinaryUrl: string;
+  notes: string;
 }
 
 /** True if running inside the native Wails window; false in a plain
@@ -286,6 +306,20 @@ export async function openUrl(url: string): Promise<void> {
   window.open(url, "_blank", "noopener,noreferrer");
 }
 
+/** Writes `text` to the real OS clipboard via a native, OS-level call
+ *  (see clipboard_windows.go / clipboard_other.go) — native window
+ *  only; throws NativeUnavailableError in browser mode, where
+ *  App.tsx's copyToClipboard() already has the JS Clipboard API as
+ *  its first attempt anyway. Exists specifically as the fallback for
+ *  when navigator.clipboard.writeText() silently fails inside the
+ *  WebView2-hosted page (a real, previously-unrecoverable failure —
+ *  see the Go side's doc comment for the full story). */
+export async function writeClipboard(text: string): Promise<void> {
+  const fn = window.go?.wailsapp?.App?.WriteClipboard;
+  if (!fn) throw new NativeUnavailableError();
+  await fn(text);
+}
+
 /** Checks this project's GitHub repo for a newer BUILD (a different,
  *  more recent commit on the default branch — see internal/update/
  *  update.go for the full commit-based design) against this binary's
@@ -296,18 +330,24 @@ export async function openUrl(url: string): Promise<void> {
  *  shouldn't look like an error. */
 export async function checkForUpdate(): Promise<NativeUpdateInfo> {
   const fn = window.go?.wailsapp?.App?.CheckForUpdate;
-  if (!fn) return { available: false, currentCommit: "", latestCommit: "", releaseUrl: "", downloadUrl: "", notes: "" };
+  if (!fn) return { available: false, currentCommit: "", latestCommit: "", releaseUrl: "", downloadUrl: "", rawBinaryUrl: "", notes: "" };
   return fn();
 }
 
-/** Actually installs a new build in place — download, verify, back
- *  up the running exe, replace it, launch the new one, confirm it's
- *  still alive a moment later. See PerformUpdate in
- *  internal/wailsapp/app.go (selfupdate.go) for the full design and
- *  every safety guarantee this makes (never a partial install, the
- *  previous version is only ever removed by the NEW process itself
- *  once its own startup is confirmed, any failure rolls back to the
- *  exact working state from before this was called).
+/** Actually installs a new build in place — clones this project's own
+ *  source, builds it locally (the same thing `npm run build` does),
+ *  backs up the running exe, replaces it, launches the new one,
+ *  confirms it's still alive a moment later. Never opens a browser or
+ *  hands the person a link; the whole thing happens here. fallbackUrl
+ *  (pass checkForUpdate()'s rawBinaryUrl) is only used if the source
+ *  build itself can't run on this machine (no git/node found) — still
+ *  a plain in-process download when that happens, still no browser.
+ *  See PerformUpdate in internal/wailsapp/selfupdate.go for the full
+ *  design and every safety guarantee this makes (never a partial
+ *  install, the previous version is only ever removed by the NEW
+ *  process itself once its own startup is confirmed, any failure
+ *  rolls back to the exact working state from before this was
+ *  called).
  *
  *  Returns [true, ""] on success, having already launched the new
  *  process — the CALLER is responsible for quitting the current one
@@ -317,10 +357,10 @@ export async function checkForUpdate(): Promise<NativeUpdateInfo> {
  *  on any failure, having left the current install completely
  *  untouched. Native app only — there's nothing to replace in browser
  *  mode. */
-export async function performUpdate(downloadUrl: string): Promise<[boolean, string]> {
+export async function performUpdate(fallbackUrl: string): Promise<[boolean, string]> {
   const fn = window.go?.wailsapp?.App?.PerformUpdate;
   if (!fn) return [false, "updating isn't available outside the native app"];
-  return fn(downloadUrl);
+  return fn(fallbackUrl);
 }
 
 /** Quits the running app — the same real WindowClose binding the

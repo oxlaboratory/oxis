@@ -189,7 +189,7 @@ function buildMSI(wixBinDir) {
   // missing logo.png for some reason doesn't fail the whole MSI over
   // one optional file.
   const logoComponent = fs.existsSync(LOGO) ? `
-          <Component Id="OxisLogoComponent" Guid="*">
+          <Component Id="OxisLogoComponent" Guid="*" Win64="yes">
             <File Id="OxisLogo" Source="${LOGO}" KeyPath="yes" />
           </Component>` : "";
   const logoComponentRef = fs.existsSync(LOGO) ? `\n      <ComponentRef Id="OxisLogoComponent" />` : "";
@@ -198,7 +198,22 @@ function buildMSI(wixBinDir) {
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi" xmlns:util="http://schemas.microsoft.com/wix/UtilExtension">
   <Product Id="*" Name="OXIS" Language="1033" Version="${VERSION}"
            Manufacturer="OXIS" UpgradeCode="${UPGRADE_CODE}">
-    <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" />
+    <!-- Platform="x64" — the oxis.exe this installs is always amd64 (go
+         build on windows-latest with no GOARCH override defaults to
+         amd64), so the package itself has to declare x64 too. Without
+         it, WiX defaults to Platform="x86": ProgramFiles64Folder still
+         resolves on a 64-bit OS either way, so this used to "work" and
+         compile clean, but every component under it would install as a
+         32-bit component — its HKLM\Software\OXIS registry writes
+         (OxisPathComponent, the three data-folder components, the
+         permissions marker) would get silently redirected to
+         HKLM\Software\WOW6432Node\OXIS by the OS instead of the real
+         64-bit hive, and Add/Remove Programs would list a 64-bit app
+         under a 32-bit install record. -sval on the light.exe call
+         (below) skips the ICE validation that would otherwise catch
+         this (ICE80), which is exactly why it was never caught by the
+         build failing. -->
+    <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" Platform="x64" />
     <MajorUpgrade DowngradeErrorMessage="A newer version of OXIS is already installed." />
     <MediaTemplate EmbedCab="yes" />
     ${icoLine}
@@ -286,8 +301,25 @@ function buildMSI(wixBinDir) {
 
       <Publish Dialog="WelcomeDlg" Control="Next" Event="DoAction" Value="OxisSetDefaultDir" Order="1">NOT Installed</Publish>
       <Publish Dialog="InstallDirDlg" Control="Next" Event="DoAction" Value="OxisValidateDir" Order="1">1</Publish>
-      <Publish Dialog="InstallDirDlg" Control="Next" Event="SpawnDialog" Value="OxisInvalidDirDlg" Order="2">OXIS_VALID_DIR = "0"</Publish>
-      <Publish Dialog="InstallDirDlg" Control="Next" Event="NewDialog" Value="VerifyReadyDlg" Order="3">OXIS_VALID_DIR = "1"</Publish>
+      <!-- Order 10/11, deliberately higher than anything WixUI_InstallDir's
+           own stock InstallDirDlg.Next chain uses internally (its own
+           SetTargetPath/WixUIValidatePath/SpawnDialog/NewDialog events top
+           out around Order 4) — a real bug, found by tracing the stock
+           dialog set rather than assuming it: the library's own syntax-only
+           WixUIValidatePath sets WIXUI_INSTALLDIR_VALID independently of our
+           OXIS_VALID_DIR, and its own Order-4 "NewDialog VerifyReadyDlg" is
+           conditioned on THAT property, not ours — so any syntactically
+           valid path (e.g. a perfectly well-formed Program Files path) would
+           satisfy the library's own check and silently advance the wizard
+           to VerifyReadyDlg even while our own error dialog below also
+           popped up, letting the user click through it and continue
+           installing to a location OxisFolderPermissions never granted
+           write access to. Running strictly after the library's own chain,
+           and re-issuing NewDialog back to InstallDirDlg itself, means our
+           decision is always the last word: it overrides whatever dialog
+           the stock chain already queued up, for real, instead of racing it. -->
+      <Publish Dialog="InstallDirDlg" Control="Next" Event="SpawnDialog" Value="OxisInvalidDirDlg" Order="10">OXIS_VALID_DIR = "0"</Publish>
+      <Publish Dialog="InstallDirDlg" Control="Next" Event="NewDialog" Value="InstallDirDlg" Order="11">OXIS_VALID_DIR = "0"</Publish>
     </UI>
 
     <!-- The app itself — the only feature now; no more separate,
@@ -328,17 +360,17 @@ function buildMSI(wixBinDir) {
                Applies equally wherever WixUI_InstallDir's directory
                picker ends up pointing INSTALLFOLDER at — not
                hardcoded to Program Files specifically. -->
-          <Component Id="OxisFolderPermissions" Guid="*">
+          <Component Id="OxisFolderPermissions" Guid="*" Win64="yes">
             <CreateFolder>
               <util:PermissionEx User="Users" GenericAll="yes" />
             </CreateFolder>
             <RegistryValue Root="HKLM" Key="Software\\OXIS" Name="FolderPermissions"
                            Type="integer" Value="1" KeyPath="yes" />
           </Component>
-          <Component Id="OxisExeComponent" Guid="*">
+          <Component Id="OxisExeComponent" Guid="*" Win64="yes">
             <File Id="OxisExe" Source="${EXE}" KeyPath="yes" />
           </Component>${logoComponent}
-          <Component Id="OxisPathComponent" Guid="*">
+          <Component Id="OxisPathComponent" Guid="*" Win64="yes">
             <Environment Id="OxisPathEnv" Name="PATH" Value="[INSTALLFOLDER]"
                          Permanent="no" Part="last" Action="set" System="yes" />
             <RegistryValue Root="HKLM" Key="Software\\OXIS" Name="Installed"
@@ -355,21 +387,21 @@ function buildMSI(wixBinDir) {
                the running app writes into them the same way either
                way; this only changes when they first appear. -->
           <Directory Id="WORKSPACESFOLDER" Name="workspaces">
-            <Component Id="OxisWorkspacesFolder" Guid="*">
+            <Component Id="OxisWorkspacesFolder" Guid="*" Win64="yes">
               <CreateFolder />
               <RegistryValue Root="HKLM" Key="Software\\OXIS" Name="WorkspacesFolder"
                              Type="integer" Value="1" KeyPath="yes" />
             </Component>
           </Directory>
           <Directory Id="PLUGINSDATAFOLDER" Name="created-plugins">
-            <Component Id="OxisPluginsFolder" Guid="*">
+            <Component Id="OxisPluginsFolder" Guid="*" Win64="yes">
               <CreateFolder />
               <RegistryValue Root="HKLM" Key="Software\\OXIS" Name="PluginsFolder"
                              Type="integer" Value="1" KeyPath="yes" />
             </Component>
           </Directory>
           <Directory Id="DOCUMENTSDATAFOLDER" Name="created-documents">
-            <Component Id="OxisDocumentsFolder" Guid="*">
+            <Component Id="OxisDocumentsFolder" Guid="*" Win64="yes">
               <CreateFolder />
               <RegistryValue Root="HKLM" Key="Software\\OXIS" Name="DocumentsFolder"
                              Type="integer" Value="1" KeyPath="yes" />

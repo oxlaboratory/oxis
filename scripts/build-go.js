@@ -145,7 +145,7 @@ const binaryName = IS_WIN ? "oxis.exe" : "oxis";
 const outBinary  = path.join(OUT, binaryName);
 // -X wailsapp.Version=... stamps the running VERSION into the binary
 // so 'update (internal/update.Check, called from App.CheckForUpdate)
-// has something real to compare GitLab's latest release tag against —
+// has something real to compare GitHub's latest release tag against —
 // without this it'd stay at Go's "0.0.0-dev" and 'update would look
 // broken (never newer than anything) on every release build.
 const versionFlag = `-X github.com/oxis/oxis/internal/wailsapp.Version=${VERSION}`;

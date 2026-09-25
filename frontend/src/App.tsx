@@ -13,7 +13,7 @@ import type { PtySession } from "./pty/ptyClient";
 
 import {
   mkLine, bannerLines, processOutput, mergeOutput,
-  LINE_COLORS, TRAIN_BODY_LINES, trainWheelFrame,
+  LINE_COLORS,
   wordLeft, wordRight,
   deleteWordLeft, deleteWordRight,
   deleteToLineStart, deleteToLineEnd,
@@ -60,7 +60,7 @@ import { updatePlugin, updateAllPlugins, rollbackPlugin } from "./plugins/market
 import { exportSettings, importSettings, exportWorkspace, importWorkspace, exportPluginSource, createFullBackup, restoreFullBackup } from "./plugins/backup";
 import { checkPublishable, findExistingListing, prepareFreePublish, submitPaidPlugin, startConnectOnboarding, requestPluginDeletion } from "./plugins/publish";
 import { commitAll, setupRemote, unlinkRemote, getRemotes, parseGitRemote, cancelActiveCommit, type GitProvider } from "./plugins/git";
-import { readFile, writeFile, listDir, makeDir, statPath, movePath, isNativeApp, openUrl, checkForUpdate, performUpdate, quitApp } from "./native";
+import { readFile, writeFile, listDir, makeDir, statPath, movePath, isNativeApp, openUrl, checkForUpdate, performUpdate, quitApp, writeClipboard } from "./native";
 import Titlebar from "./components/Titlebar";
 
 // ══════════════════════════════════════════════════════════════
@@ -75,7 +75,11 @@ interface ShellCtx {
    *  exists (a real performance finding, not just a convenience). */
   printLines:  (entries: Array<[string, LineKind?]>) => void;
   clear:       () => void;
-  openEditor:  (path: string) => void;
+  /** `line`, when given, is a 1-based line number the editor jumps
+   *  the cursor/scroll position to once the file finishes loading —
+   *  see 'oxis resize for the motivating case (pointing the user at
+   *  the exact window-size constant instead of making them search). */
+  openEditor:  (path: string, line?: number) => void;
   newTerminal: () => void;
 }
 
@@ -156,6 +160,42 @@ function writePersistedOption(key: string, value: LuaJSValue): void {
   const all = readAllOptions();
   all[key] = value;
   try { localStorage.setItem(OPTIONS_KEY, JSON.stringify(all)); } catch { /* storage full/unavailable — option still works for this session via the per-plugin in-memory cache in pluginAPI.ts */ }
+}
+
+// ── Clipboard writes — mouse-drag copy-on-select, Ctrl+C-with-a-
+// selection, the scrollback context menu's Copy, and 'edit's own
+// Ctrl+C-copies-selection all funnel through here rather than each
+// calling navigator.clipboard.writeText() directly.
+//
+// Real, reported bug: every one of those call sites already wrapped
+// the JS Clipboard API call in a silent `.catch()` — evidence this
+// failure mode was already anticipated, just never actually handled.
+// navigator.clipboard.writeText() can genuinely fail inside a WebView2
+// -hosted page like this one (a clipboard-write permission that isn't
+// auto-granted to a local wails:// origin the way it would be to a
+// real https:// site, or the window not holding OS focus at the exact
+// moment the promise resolves) — when it does, the text selection
+// itself still looked right on screen, but nothing actually reached
+// the OS clipboard, so pasting elsewhere silently did nothing. That's
+// exactly "can't copy text with the mouse" from the user's side, even
+// though the selection mechanism itself was working the whole time.
+//
+// Fix: try the JS API first (instant, and works fine the rest of the
+// time), and if it rejects, fall back to App.WriteClipboard — a real
+// OS-level clipboard write in Go (see clipboard_windows.go /
+// clipboard_other.go) that doesn't depend on the webview's own
+// clipboard permission model at all. Browser mode has no Go binding
+// to fall back to, so a failure there just stays a failure — there's
+// no more-native layer underneath a browser tab to drop down to.
+async function copyToClipboard(text: string): Promise<void> {
+  try {
+    await navigator.clipboard?.writeText(text);
+    return;
+  } catch { /* fall through to the native path below */ }
+  if (isNativeApp()) {
+    try { await writeClipboard(text); }
+    catch { /* genuinely nothing left to try — selection itself still stands */ }
+  }
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -619,22 +659,29 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
           return;
         }
         ok(`newer build available: ${info.currentCommit ? info.currentCommit.slice(0, 7) : "current"} → ${info.latestCommit.slice(0, 7)}`);
-        dim(`'update install to install it in place and restart, or ${info.releaseUrl || info.downloadUrl} to download it yourself`);
+        dim("'update install to pull the latest source, build it, and install it in place — automatically, no download link");
       }).catch(() => err("update check failed — check your connection"));
     }});
 
   /** 'update install — actually replaces the running exe, per the
-   *  spec: real, automatic, in-place updating, not just a browser
-   *  link. Checks first (never installs a build that isn't genuinely
-   *  newer, and never one whose download hasn't already been verified
-   *  accessible — see Check() in update.go). The explicit, separate
-   *  `install` subcommand IS the confirmation step — same pattern as
-   *  other destructive commands in this app ('plugin remove --force,
-   *  for one): no separate modal dialog, but a bare 'update never
-   *  does this on its own, only ever reports what's available. Hands
-   *  off to PerformUpdate for the actual work — see its own doc
-   *  comment in selfupdate.go for every safety guarantee around what
-   *  happens if any step fails. */
+   *  spec: real, automatic, in-place updating from SOURCE, not a
+   *  browser link and not just a downloaded prebuilt asset. Checks
+   *  first (never installs a build that isn't genuinely newer than
+   *  what's running — see Check() in update.go, which compares
+   *  against the true latest commit on the default branch). The
+   *  explicit, separate `install` subcommand IS the confirmation step
+   *  — same pattern as other destructive commands in this app
+   *  ('plugin remove --force, for one): no separate modal dialog, but
+   *  a bare 'update never does this on its own, only ever reports
+   *  what's available. Hands off to PerformUpdate for the actual work
+   *  — it clones this project's own source and builds it locally
+   *  first, falling back to checkInfo.rawBinaryUrl (a prebuilt binary,
+   *  never an installer package — see update.go's pickAsset vs
+   *  pickRawBinary) only if git/node aren't available to build with;
+   *  either way nothing here ever opens a browser or asks the person
+   *  to download anything themselves. See selfupdate.go's own doc
+   *  comment for every safety guarantee around what happens if any
+   *  step fails. */
   function runUpdateInstall(): void {
     info("checking for a newer build...");
     checkForUpdate().then(async checkInfo => {
@@ -642,12 +689,15 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
         ok(`already up to date${checkInfo.currentCommit ? ` (${checkInfo.currentCommit.slice(0, 7)})` : ""} — nothing to install`);
         return;
       }
-      if (!checkInfo.downloadUrl) {
-        err("a newer build exists, but no verified download is available yet — try again shortly, or check the release page manually");
-        return;
-      }
       info(`installing build ${checkInfo.latestCommit.slice(0, 7)} (currently on ${checkInfo.currentCommit ? checkInfo.currentCommit.slice(0, 7) : "unknown"})…`);
-      const [ok_, reason] = await performUpdate(checkInfo.downloadUrl);
+      dim("pulling latest source and building it — this rebuilds the whole app locally, so it can take a few minutes");
+      // rawBinaryUrl is ONLY the fallback for when the source build
+      // itself can't run (no git/node found) — still fully automatic
+      // either way, never a browser download. Passed through even
+      // when empty; PerformUpdate reports plainly if source build
+      // fails AND there's no fallback available, rather than the
+      // frontend trying to predict that in advance.
+      const [ok_, reason] = await performUpdate(checkInfo.rawBinaryUrl);
       if (!ok_) {
         err(`✗ update failed: ${reason} — your current install was left untouched`);
         return;
@@ -782,6 +832,61 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
         const j=themeManager.export(args[1]); if(j) ctx.print(j,"dim"); else err(`not found: ${args[1]}`); return; }
       if(themeManager.apply(rest)) ok(`theme → ${rest}`);
       else err(`not found: '${rest}' — run 'theme to list`); }});
+
+  // ── oxis (application-level settings) ────────────────────
+  // Window size is locked at compile time in internal/wailsapp/app.go
+  // (Width == MinWidth == MaxWidth, DisableResize: true — see that
+  // file's own doc comment on Run()), so there is no live native
+  // WindowSetSize call that could actually change it while OXIS is
+  // running; calling one would just be clamped straight back by the
+  // OS/webview shell to the fixed Min/Max, which is worse than doing
+  // nothing because it would look like it worked. Rather than fake a
+  // resize, 'oxis resize opens the exact Go source line for the user
+  // and tells them precisely what to change and that a rebuild is
+  // required — see the terminal-UX spec, item 8.
+  registry.register({ name:"oxis", category:"ui", description:"OXIS application settings — currently: 'oxis resize",
+    handler:(args)=>{
+      const sub = args[0]?.toLowerCase();
+      if (sub !== "resize") {
+        sep(); ctx.print("  'oxis resize            — show current window size","accent");
+        ctx.print("  'oxis resize <W>x<H>    — open the source line to change it (e.g. 'oxis resize 1200x760)","accent");
+        sep(); return;
+      }
+      // Single source of truth is the Go constant itself — mirrored
+      // here as a literal because window.runtime's WindowGetSize
+      // isn't declared anywhere in this codebase yet, and this value
+      // can ONLY ever equal what's compiled into the running binary
+      // anyway (DisableResize + Min==Max means there is no other
+      // live value it could have drifted to).
+      const CURRENT_W = 940, CURRENT_H = 600;
+      const GO_FILE = "internal/wailsapp/app.go";
+      const GO_LINE = 779; // `const winWidth, winHeight = 940, 600`
+
+      const sizeArg = args[1];
+      if (!sizeArg) {
+        sep(); ctx.print(`  current OXIS window size: ${CURRENT_W} × ${CURRENT_H}`,"accent");
+        dim("fixed at build time (DisableResize) — there's no live drag-resize");
+        dim(`source: ${GO_FILE}:${GO_LINE}`);
+        sep();
+        dim("presets — 'oxis resize 1024x680  ·  1200x760  ·  1400x900");
+        return;
+      }
+
+      const m = /^(\d+)\s*x\s*(\d+)$/i.exec(sizeArg.trim());
+      if (!m) { err(`usage: 'oxis resize <width>x<height>, e.g. 'oxis resize 1200x760`); return; }
+      const w = parseInt(m[1], 10), h = parseInt(m[2], 10);
+      if (w < 480 || h < 320 || w > 3840 || h > 2160) {
+        err(`${w}x${h} is outside the sane range (480x320 – 3840x2160)`); return;
+      }
+
+      _ctxRef.current?.openEditor(GO_FILE, GO_LINE);
+      sep();
+      ctx.print(`  opening ${GO_FILE} at line ${GO_LINE}`,"accent");
+      ctx.print(`  change:  const winWidth, winHeight = ${CURRENT_W}, ${CURRENT_H}`,"dim");
+      ctx.print(`  to:      const winWidth, winHeight = ${w}, ${h}`,"ok");
+      dim("save, then rebuild (npm run build / build:msi) and relaunch OXIS — this is compiled in, not something the running app can change on its own");
+      sep();
+    }});
 
   // ── plugins ───────────────────────────────────────────
   registry.register({ name:"plugin",  category:"plugins", description:"Manage plugins",
@@ -1727,6 +1832,8 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
       h("'user","current user"); h("'path","PATH entries"); h("'open <f>","open with default app");
       info(""); h("── home screen ──────────────────────","");
       h("'hide workspace","hide the WORKSPACE panel on Home"); h("'show workspace","show it again");
+      info(""); h("── oxis ──────────────────────────────","");
+      h("'oxis resize","show the current window size"); h("'oxis resize <W>x<H>","open the source line to change it");
       info(""); h("── themes ────────────────────────────","");
       h("'theme","list themes"); h("'theme <name>","switch theme");
       h("'theme new <n>","visual theme editor"); h("'theme delete <n>","delete custom theme");
@@ -1802,7 +1909,7 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
 // ══════════════════════════════════════════════════════════════
 // BUILT-IN EDITOR
 // ══════════════════════════════════════════════════════════════
-interface EditorFile { path: string; content: string; dirty: boolean; loading: boolean; loadError?: string; }
+interface EditorFile { path: string; content: string; dirty: boolean; loading: boolean; loadError?: string; gotoLine?: number; }
 
 // ══════════════════════════════════════════════════════════════
 // ERROR BOUNDARY — a render-time crash anywhere below this should
@@ -1975,11 +2082,21 @@ const CodeArea = React.forwardRef<HTMLTextAreaElement, {
   // layers below get that same width as a left inset so the numbers
   // never overlap real text. Each line is its own fixed-height row
   // (not one joined <pre> string) so a changed-line marker can be
-  // attached to the exact row it belongs to. Uses the real `value`
-  // (not debouncedValue) — line count is cheap (one split), and having
-  // the gutter's own row count lag behind what's actually on screen
-  // would look broken in a way a slightly-stale highlight color doesn't.
-  const lineCount = useMemo(() => value.split("\n").length, [value]);
+  // attached to the exact row it belongs to.
+  //
+  // Built from `debouncedValue`, not the live `value`: splitting the
+  // string is cheap, but `gutterLines` below mounts one React element
+  // PER LINE with no virtualization, and that is not cheap once a file
+  // runs into the thousands of lines. Deriving it from `value` directly
+  // (as this used to) meant every keystroke in a large file rebuilt and
+  // remounted the entire gutter — exactly the kind of per-keystroke cost
+  // the debounced-highlighting design above exists to avoid, just moved
+  // one layer over. Below DEBOUNCE_THRESHOLD_CHARS, debouncedValue is
+  // kept perfectly in sync with value (see the effect above), so small
+  // and medium files see no behavior change and the numbers never lag;
+  // only large files trade a ~150ms-stale line count for not re-rendering
+  // thousands of DOM nodes on every single keystroke.
+  const lineCount = useMemo(() => debouncedValue.split("\n").length, [debouncedValue]);
   const gutterWidth = useMemo(() => Math.max(2, String(lineCount).length), [lineCount]);
   const gutterLines = useMemo(() => {
     const rows: React.ReactNode[] = [];
@@ -2251,7 +2368,7 @@ function useModalEditor(opts: {
       case "y":
         if (mode === "visual") {
           e.preventDefault();
-          navigator.clipboard?.writeText(selectedText(cur)).catch(() => { /* clipboard unavailable */ });
+          void copyToClipboard(selectedText(cur));
           setPos(pos); setMode("normal");
         }
         return;
@@ -2729,6 +2846,34 @@ function Editor({ file, onClose, onSave }: {
   // still in flight (see openEditor in the root component).
   useEffect(() => { setContent(file.content); setSavedContent(file.content); setDirty(false); }, [file.path, file.loading]);
   useEffect(() => { if (!file.loading) setTimeout(() => taRef.current?.focus(), 40); }, [file.loading]);
+
+  // Jump to file.gotoLine once the real content has loaded (see
+  // ShellCtx.openEditor / 'oxis resize, the motivating caller — it
+  // points the user at the exact line of a Go source constant
+  // instead of making them search a file they may never have opened
+  // before). Places the caret at the start of that line and scrolls
+  // it to roughly the middle of the viewport. Depends on `content`
+  // (not just file.loading) because the textarea's own value —
+  // needed to compute the character offset — isn't set until the
+  // content-sync effect above has run in the same render pass.
+  useEffect(() => {
+    if (file.loading || !file.gotoLine) return;
+    const ta = taRef.current;
+    if (!ta) return;
+    const t = setTimeout(() => {
+      const lines = content.split("\n");
+      const target = Math.max(1, Math.min(file.gotoLine!, lines.length));
+      let offset = 0;
+      for (let i = 0; i < target - 1; i++) offset += lines[i].length + 1;
+      ta.focus();
+      ta.setSelectionRange(offset, offset + lines[target - 1].length);
+      const style = window.getComputedStyle(ta);
+      const lineHeight = parseFloat(style.lineHeight) || 18;
+      ta.scrollTop = Math.max(0, (target - 1) * lineHeight - ta.clientHeight / 2);
+    }, 60); // after the focus effect above and the first paint of `content`
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [file.loading, file.gotoLine, content]);
 
   const save = useCallback(() => {
     onSave(file.path, content);
@@ -3273,44 +3418,6 @@ interface InputState { value: string; cursor: number; }
 
 let _pluginsInited = false;
 
-/**
- * ChimneySmoke / renderTrainRow
- *
- * The smoke used to be a separate absolutely-positioned block, sized
- * and offset by hand (ch units for `left`, row-height arithmetic for
- * `top`) to land on the chimney glyph ("[]") in whichever ASCII row
- * held it. That math had to be re-derived per call site (different
- * font-size, line-height, and even letter-spacing each time) and kept
- * coming out wrong in some context or other.
- *
- * Anchoring directly to the glyph sidesteps all of that: the "[]" is
- * wrapped in its own `position: relative; display: inline-block` span
- * (.oxis-chimney), and the smoke stack is rendered as an absolutely
- * positioned CHILD of that span, centered on it via `left:50%;
- * transform:translateX(-50%)` and anchored to its top edge via
- * `bottom:100%`. Wherever the browser lays out that "[]" — at any
- * font-size, any letter-spacing, any row height — the smoke lands
- * exactly there, because it's positioned relative to the glyph
- * itself rather than a guess about where the glyph will end up.
- */
-function ChimneySmoke({ height }: { height: number }) {
-  return (
-    <span className="oxis-smoke-stack" style={{ height }} aria-hidden="true">
-      <span className="puff puff-1">o</span>
-      <span className="puff puff-2">O</span>
-      <span className="puff puff-3">o</span>
-      <span className="puff puff-4">O</span>
-      <span className="puff puff-5">o</span>
-      <span className="puff puff-6">O</span>
-    </span>
-  );
-}
-
-/** Renders one row of train ASCII art, splicing in ChimneySmoke at the
- *  "[]" if this row has one. `smokeHeight` controls how tall a plume
- *  ("how high the smoke can rise") fits the context — the shell boot
- *  banner's smaller art uses a shorter one (70) than the startup
- *  splash (110); Home no longer has a train of its own at all. */
 // Clickable URLs and file paths in terminal output — a URL opens in
 // the real system browser (openUrl, native.ts); a path opens in the
 // built-in Editor (the same openEditor() 'edit uses). Deliberately
@@ -3340,21 +3447,6 @@ function renderLineWithLinks(text: string, onOpenUrl: (url: string) => void, onO
   return parts;
 }
 
-function renderTrainRow(text: string, smokeHeight: number): React.ReactNode {
-  const i = text.indexOf("[]");
-  if (i === -1) return text || "\u00a0";
-  return (
-    <>
-      {text.slice(0, i)}
-      <span className="oxis-chimney">
-        {"[]"}
-        <ChimneySmoke height={smokeHeight} />
-      </span>
-      {text.slice(i + 2)}
-    </>
-  );
-}
-
 function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: TermProps) {
   // ── output state ─────────────────────────────────────────
   const [lines,      setLines]      = useState<Line[]>(() => bannerLines());
@@ -3368,6 +3460,13 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
   // ── search state ──────────────────────────────────────────
   const [searching,    setSearching]    = useState(false);
   const [searchResult, setSearchResult] = useState<SearchResult | null>(null);
+
+  // ── right-click context menu on the output scrollback ───────
+  // Position is viewport coordinates from the triggering MouseEvent;
+  // null means closed. Only ever opened by a right-click inside
+  // .term-out (see onContextMenu below) — never for the input line,
+  // which keeps its own browser-native context menu.
+  const [outputMenu, setOutputMenu] = useState<{ x: number; y: number } | null>(null);
 
   // ── output search (Ctrl+Shift+F — Ctrl+F alone was already taken
   // by readline's forward-char; this used to be declared as a second,
@@ -3427,38 +3526,6 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
   const ctxRef        = useRef<ShellCtx | null>(null);
   const linesRef       = useRef<Line[]>(bannerLines());
   const suppressOutput = useRef(false);
-  const bannerWheelId  = useRef<number | null>(null);
-
-  // Capture the boot banner's wheel-row line id once, from whatever
-  // was actually used to initialise `lines`, so the spin effect below
-  // can target the right row without re-deriving the banner.
-  useEffect(() => {
-    const wheelLine = lines.find(l => l.kind === "banner-wheel");
-    if (wheelLine) bannerWheelId.current = wheelLine.id;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // "The train is moving" — cycle the boot banner's wheel glyphs
-  // while the shell tab is visible, so the boot banner reads as
-  // rolling rather than parked. Home no longer has a train of its
-  // own at all (removed).
-  useEffect(() => {
-    if (!isActive) return;
-    let frame = 0;
-    const t = setInterval(() => {
-      frame++;
-      const id = bannerWheelId.current;
-      if (id == null) return;
-      setLines(prev => {
-        const idx = prev.findIndex(l => l.id === id);
-        if (idx === -1) return prev;
-        const next = prev.slice();
-        next[idx] = { ...next[idx], text: trainWheelFrame(frame) };
-        return next;
-      });
-    }, 130);
-    return () => clearInterval(t);
-  }, [isActive]);
 
   // ── restore scroll + focus when tab becomes visible ─────────
   useEffect(() => {
@@ -3638,11 +3705,62 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
     const sel = window.getSelection?.();
     const text = sel?.toString() ?? "";
     if (text.length > 0) {
-      navigator.clipboard?.writeText(text).catch(() => { /* clipboard unavailable — selection itself still stands */ });
+      void copyToClipboard(text);
       return;
     }
     focusGhost();
   }, [focusGhost]);
+
+  // ── right-click context menu on scrollback output ────────────
+  // Right-clicking inside .term-out opens a small menu (Copy / Select
+  // All / Clear Selection) instead of the browser's own context menu
+  // — a VS Code-terminal-style convention. Left as three explicit
+  // actions rather than trying to guess intent from whether text
+  // happens to be selected at the moment of the click.
+  const openOutputMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setOutputMenu({ x: e.clientX, y: e.clientY });
+  }, []);
+
+  const copyOutputSelection = useCallback(() => {
+    const sel = window.getSelection?.();
+    const text = sel?.toString() ?? "";
+    if (text) void copyToClipboard(text);
+    setOutputMenu(null);
+  }, []);
+
+  const selectAllOutput = useCallback(() => {
+    const el = outRef.current;
+    if (el && window.getSelection) {
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      const sel = window.getSelection()!;
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
+    setOutputMenu(null);
+  }, []);
+
+  const clearOutputSelectionAction = useCallback(() => {
+    window.getSelection?.()?.removeAllRanges();
+    setOutputMenu(null);
+  }, []);
+
+  // Close the menu on any click elsewhere, or Escape — standard
+  // context-menu dismissal, not tied to the ghost input's own
+  // Escape handling (that sends \x1b to the shell; this just closes
+  // a piece of UI and must not also interrupt anything running).
+  useEffect(() => {
+    if (!outputMenu) return;
+    const onDocClick = () => setOutputMenu(null);
+    const onDocKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOutputMenu(null); };
+    document.addEventListener("mousedown", onDocClick);
+    document.addEventListener("keydown", onDocKey);
+    return () => {
+      document.removeEventListener("mousedown", onDocClick);
+      document.removeEventListener("keydown", onDocKey);
+    };
+  }, [outputMenu]);
 
   // Restore focus to the input when the OS window regains focus
   // (alt-tab back in, click on the window from the taskbar) — without
@@ -3874,10 +3992,16 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
       print: addLine,
       printLines: addLines,
       clear,
-      openEditor: path => {
+      openEditor: (path, line) => {
         setEditorFiles(files => {
-          if (files.some(f => f.path === path)) return files; // already open — just switch to it
-          return [...files, { path, content: "", dirty: false, loading: true }];
+          // Already open — still record the new gotoLine (e.g. a
+          // second 'oxis resize while the file's already sitting in
+          // a background tab should still jump there), just don't
+          // re-open or re-read it.
+          if (files.some(f => f.path === path)) {
+            return line == null ? files : files.map(f => f.path === path ? { ...f, gotoLine: line } : f);
+          }
+          return [...files, { path, content: "", dirty: false, loading: true, gotoLine: line }];
         });
         setActiveEditorPath(path);
         readFile(path)
@@ -4007,11 +4131,20 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
     }
 
     // ── PASSTHROUGH when input empty (program is running) ─
+    // ArrowUp/ArrowDown/PageUp/PageDown are deliberately NOT in this
+    // table (unlike ArrowLeft/ArrowRight/Home/End/Delete/Tab/Escape/
+    // F-keys, which stay passed straight to the shell): those four
+    // are OXIS's own command-history / scrollback navigation keys,
+    // handled by a later block below. Passing them through here made
+    // that later handler permanently unreachable at an idle prompt —
+    // the reported "arrow keys for previous commands do not work"
+    // bug — since this earlier, broader check ran first and always
+    // won for any key present in passSeq.
     if (!val) {
       const passSeq: Record<string, string> = {
-        ArrowUp:"\x1b[A", ArrowDown:"\x1b[B", ArrowRight:"\x1b[C", ArrowLeft:"\x1b[D",
+        ArrowRight:"\x1b[C", ArrowLeft:"\x1b[D",
         Home:"\x1b[H", End:"\x1b[F",
-        Delete:"\x1b[3~", PageUp:"\x1b[5~", PageDown:"\x1b[6~",
+        Delete:"\x1b[3~",
         Tab:"\t", Escape:"\x1b",
         F1:"\x1bOP",F2:"\x1bOQ",F3:"\x1bOR",F4:"\x1bOS",
         F5:"\x1b[15~",F6:"\x1b[17~",F7:"\x1b[18~",F8:"\x1b[19~",
@@ -4060,8 +4193,24 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
     // ── CTRL BINDINGS ─────────────────────────────────────
     if (ctrl) {
       switch (k.toLowerCase()) {
-        // Interrupt / EOF / suspend
-        case "c": e.preventDefault(); sendToShell("\x03"); clearInput(); history.resetNav(); scriptRunTracker.cancel(); void cancelActiveCommit(); return;
+        // Interrupt / EOF / suspend — but if the user has scrollback
+        // text selected (e.g. copying an error message), Ctrl+C here
+        // must copy it instead of killing whatever's running, same as
+        // the window-level fallback above. Without this check, the
+        // ghost input being focused (its normal state) always won the
+        // race against the selection guard, so copying an error while
+        // a build/watch task was running silently killed the task.
+        case "c": {
+          e.preventDefault();
+          const sel = window.getSelection?.();
+          const selText = sel?.toString() ?? "";
+          if (selText.length > 0) {
+            void copyToClipboard(selText);
+            return;
+          }
+          sendToShell("\x03"); clearInput(); history.resetNav(); scriptRunTracker.cancel(); void cancelActiveCommit();
+          return;
+        }
         case "d": e.preventDefault(); sendToShell("\x04"); return;
         case "z": e.preventDefault(); sendToShell("\x1a"); return;
         case "\\": e.preventDefault(); sendToShell("\x1c"); return;
@@ -4216,14 +4365,16 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
     if (k === "PageUp")   { e.preventDefault(); outRef.current?.scrollBy(0, -300); return; }
     if (k === "PageDown") { e.preventDefault(); outRef.current?.scrollBy(0,  300); return; }
 
-    if (k === "Tab") {
-      e.preventDefault();
-      // If buffer empty, pass tab to shell for completion
-      if (!val) { sendToShell("\t"); return; }
-      const next = val.slice(0, cur) + "  " + val.slice(cur);
-      syncInput(next, cur + 2);
-      return;
-    }
+    // NOTE: Tab is fully handled above (── TAB COMPLETION ── block) —
+    // '-commands complete against the real registry, anything else
+    // passes a real \t through to the shell so its own native
+    // completion (directories included) runs, exactly like a real
+    // terminal. A second, later "Tab" case used to live here that
+    // inserted two literal spaces instead — it could never actually
+    // run (the earlier block already returns unconditionally for
+    // every plain Tab press), but it directly contradicted real
+    // completion if it ever had, so it's gone rather than left as
+    // confusing dead code.
 
     if (k === "Enter") {
       e.preventDefault();
@@ -4443,14 +4594,19 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
   return (
     <div className="term" onMouseUp={refocusUnlessSelecting}>
       {connErr && <div className="term-error">⚠ {connErr}</div>}
+      {/* Top-right "OXIS" corner mark — replaces the old ASCII train
+          that used to open every shell tab. No animation, no ASCII
+          art block; just a small fixed label so the screen still
+          reads as OXIS at a glance. */}
+      <div className="term-corner-mark" aria-hidden="true">OXIS</div>
 
-      <div className="term-out" ref={outRef} onScroll={handleScroll} tabIndex={-1}>
+      <div className="term-out" ref={outRef} onScroll={handleScroll} onContextMenu={openOutputMenu} tabIndex={-1}>
         {bannerPart && (
           <div className="term-banner-block">
             {bannerPart.map(line => (
               <div key={line.id} className="term-line term-line--banner"
                 style={{ color: line.kind ? LINE_COLORS[line.kind] : undefined }}>
-                {renderTrainRow(line.text, 110)}
+                {line.text || " "}
               </div>
             ))}
           </div>
@@ -4463,7 +4619,9 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
             {renderLineWithLinks(line.text, u => void openUrl(u), p => _ctxRef.current?.openEditor(p))}
           </div>
         ))}
+      </div>
 
+      <div className="term-prompt-bar">
         {searching && (
           <div className="term-search-bar">
             <span className="term-search-label">reverse-i-search</span>
@@ -4520,6 +4678,22 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
           </div>
         )}
       </div>
+
+      {outputMenu && (
+        <div
+          className="term-ctx-menu"
+          style={{ left: outputMenu.x, top: outputMenu.y }}
+          // Stop the mousedown-to-close document listener above from
+          // firing for a click that's actually ON the menu itself —
+          // otherwise every item click would close the menu via the
+          // document handler before its own onClick ever ran.
+          onMouseDown={e => e.stopPropagation()}
+        >
+          <button className="term-ctx-item" onClick={copyOutputSelection}>Copy</button>
+          <button className="term-ctx-item" onClick={selectAllOutput}>Select All</button>
+          <button className="term-ctx-item" onClick={clearOutputSelectionAction}>Clear Selection</button>
+        </div>
+      )}
 
       <textarea ref={ghostRef} className="term-ghost"
         value={inputVal} onChange={() => {}}
@@ -4599,45 +4773,12 @@ const MOON_ASCII: string[][] = [
 
 const MOON_FULL = ["  _  ", " ( ) ", "  -  "];
 
-// ── Startup splash — the train, rolling in ──────────────────
-// Shown once on launch (see `.startup-anim` fade in index.css). Uses
-// the same train art as the terminal's own shell-boot banner, but
-// spins the wheels for the ~1.8s the splash is visible so it reads
-// as the train arriving. Home no longer has a train of its own at
-// all (removed — see the Home function's return).
-function StartupSplash({ onClick }: { onClick: () => void }) {
-  const [frame, setFrame] = useState(0);
-  useEffect(() => {
-    const t = setInterval(() => setFrame(f => f + 1), 120);
-    return () => clearInterval(t);
-  }, []);
-  useEffect(() => {
-    // Match .startup-anim's 16s CSS fade (index.css) — auto-dismiss
-    // once it's finished fading rather than leaving the splash
-    // (and its wheel-spin interval) mounted forever if the user
-    // never clicks to skip it early.
-    //
-    // Deliberately NOT depending on `onClick`: the parent passes a
-    // fresh arrow function every render (`onClick={() =>
-    // setShowAnim(false)}`), so depending on it here would reset
-    // this timer on every parent re-render (e.g. the home screen's
-    // clock ticking) and the splash might never auto-dismiss. The
-    // underlying setState call it wraps is referentially stable
-    // across renders regardless of which render's closure calls it,
-    // so capturing the mount-time closure once is correct.
-    const t = setTimeout(onClick, 16000);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-  return (
-    <div className="startup-anim" onClick={onClick}>
-      <div className="startup-logo">
-        {TRAIN_BODY_LINES.map((l, i) => <div key={i}>{renderTrainRow(l, 110)}</div>)}
-        <div>{trainWheelFrame(frame)}</div>
-      </div>
-    </div>
-  );
-}
+// The old startup splash (a full-screen ASCII train animation shown
+// for up to 16s on every launch, dismissible by click) was removed
+// per the terminal-UX pass: OXIS now launches straight into the
+// usable app. Deliberately not replaced with a smaller ASCII
+// animation of any kind — see the terminal's own .term-corner-mark
+// ("OXIS" top-right) for where the wordmark now lives instead.
 
 // Cloud glyph variants (day) — picked from randomly per cloud, not
 // hand-assigned one-per-slot, so the mix looks different across
@@ -4773,6 +4914,17 @@ function SkyWidget() {
 }
 
 // ── Persistent command line — defined OUTSIDE Home so it never remounts ──
+// Styled like a real shell prompt now: a plain prompt glyph and a
+// cursor, not a label explaining what mode you're in — a real terminal
+// doesn't caption itself "<command-mode>", it just sits there blinking.
+// The old "Type Here or Ctrl+I" placeholder text is gone; in its place,
+// a small dim "Ctrl+I" hint (oxis-cmdline-hint) sits right after the
+// prompt whenever the box is both empty AND not focused — i.e. exactly
+// the idle state where someone new to Home wouldn't otherwise know
+// that shortcut jumps here from anywhere (see the Ctrl+I handler
+// below). It disappears the moment either stops being true (focus or a
+// keystroke), same handoff-to-the-real-caret behavior the box cursor
+// this replaced had.
 const HomeCmdLine = React.memo(function HomeCmdLine({
   value, onChange, onKeyDown, inputRef,
 }: {
@@ -4781,17 +4933,22 @@ const HomeCmdLine = React.memo(function HomeCmdLine({
   onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;
   inputRef: React.RefObject<HTMLInputElement>;
 }) {
+  const [focused, setFocused] = useState(false);
+  const idle = !focused && !value;
   return (
     <div className="oxis-cmdline">
-      <span className="oxis-cmdline-label">Shell </span>
-      <span className="oxis-cmdline-mode">&lt;command-mode&gt; </span>
+      <span className="oxis-cmdline-prompt" aria-hidden="true">❯</span>
+      {idle && <span className="oxis-cmdline-hint" aria-hidden="true">Ctrl+I</span>}
       <input
         ref={inputRef}
         className="oxis-cmdline-input"
         value={value}
         onChange={e => onChange(e.target.value)}
         onKeyDown={onKeyDown}
-        placeholder="Type Here or Ctrl+I"
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        placeholder=""
+        aria-label="Command input"
         spellCheck={false}
         autoComplete="off"
       />
@@ -4936,11 +5093,21 @@ function Home({ onNew, currentTheme, onTheme, onOpenThemeEditor, onOpenPluginCre
   const ec = plugins.filter(p => p.enabled).length;
   const tog = (name: string, en: boolean) => { if (en) pluginManager.enable(name); else pluginManager.disable(name); refresh(); };
 
+  // Up/Down history recall — Home's prompt used to be a dead end for
+  // this (no history navigation at all, unlike the shell's own input),
+  // even though every command run from here already lands in the same
+  // shared `history` singleton via runLine()'s history.push(). Reuses
+  // the identical prev()/next()/setDraft() API the terminal uses, so
+  // browsing history from Home and from the shell tab is genuinely
+  // the same underlying list, not a separate copy.
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Escape") { setInput(""); return; }
+    if (e.key === "Escape") { setInput(""); history.resetNav(); return; }
+    if (e.key === "ArrowUp")   { e.preventDefault(); setInput(history.prev(input)); return; }
+    if (e.key === "ArrowDown") { e.preventDefault(); setInput(history.next()); return; }
     if (e.key === "Enter") {
       const cmd = input.trim();
       setInput("");
+      history.resetNav();
       if (!cmd) { onNew(); return; }
       onCommand(cmd);
     }
@@ -4948,13 +5115,25 @@ function Home({ onNew, currentTheme, onTheme, onOpenThemeEditor, onOpenPluginCre
 
   const handleChange = useCallback((v: string) => {
     setInput(v);
+    history.setDraft(v);
     if (v === "t") { setView("themes"); setInput(""); }
     if (v === "p") { setView("plugins"); setInput(""); }
     if (v === "n") { setInput(""); onNew(); }
   }, [onNew]);
 
-  if (view === "themes") return (
-    <div className="home" onMouseDown={e => { if (e.target === e.currentTarget) inputRef.current?.focus(); }}>
+  // The scrollable per-view content only — the command line itself is
+  // rendered ONCE, below, in a bar pinned to the bottom of `.home`
+  // (mirroring the terminal's own `.term-prompt-bar`, added when that
+  // prompt was fixed to never scroll off-screen). It used to be a
+  // third copy of <HomeCmdLine> inline at the bottom of each view's
+  // own scrolling content — same bug the terminal had (scroll up and
+  // it went with the content), plus three separate mounted instances
+  // of the same input instead of one, which is what "available
+  // throughout OXIS, no duplication" actually calls for.
+  let body: React.ReactNode;
+
+  if (view === "themes") {
+    body = (
       <div className="oxis-home">
         <div className="nv-panel">
           <div className="nv-panel-header"><span className="nv-panel-title">◉ Themes</span><button className="nv-back" onClick={() => setView("home")}>← back</button></div>
@@ -4975,16 +5154,11 @@ function Home({ onNew, currentTheme, onTheme, onOpenThemeEditor, onOpenPluginCre
               <div className="theme-tile-name" style={{ color: "var(--dim)" }}>new theme</div>
             </div>
           </div>
-          <div style={{ marginTop: 12 }}>
-            <HomeCmdLine value={input} onChange={handleChange} onKeyDown={handleKeyDown} inputRef={inputRef} />
-          </div>
         </div>
       </div>
-    </div>
-  );
-
-  if (view === "plugins") return (
-    <div className="home" onMouseDown={e => { if (e.target === e.currentTarget) inputRef.current?.focus(); }}>
+    );
+  } else if (view === "plugins") {
+    body = (
       <div className="oxis-home">
         <div className="nv-panel">
           <div className="nv-panel-header">
@@ -5007,37 +5181,42 @@ function Home({ onNew, currentTheme, onTheme, onOpenThemeEditor, onOpenPluginCre
               </div>
             ))}
           </div>
-          <div style={{ marginTop: 10 }}>
-            <HomeCmdLine value={input} onChange={handleChange} onKeyDown={handleKeyDown} inputRef={inputRef} />
-          </div>
         </div>
       </div>
-    </div>
-  );
+    );
+  } else {
+    body = (
+      <>
+        <SkyWidget />
+        <div className="oxis-home">
+          <div className="oxis-sub-row">
+    <span><strong className="oxis-letter">O</strong>pen</span>
+    <span><strong className="oxis-letter">X</strong>enial</span>
+    <span><strong className="oxis-letter">I</strong>ntelligent</span>
+    <span><strong className="oxis-letter">S</strong>hell</span>
+  </div>
+          <div className="oxis-ver-row">
+            <span className="oxis-ver-label">OXIS</span><span className="oxis-ver-num">v1.2.1</span>
+            <button className="oxis-github-btn" onClick={() => void openUrl("https://github.com/oxlaboratory/oxis")}
+              title="Open the OXIS repository on GitHub">GitHub ↗</button>
+          </div>
+          {!workspacePanelHidden && <WorkspacePanel ws={ws} plugins={plugins} activeWorkspace={activeWorkspace} activeWorkspacePath={activeWorkspacePath} />}
+          <div className="oxis-box oxis-help-box">
+            <div className="oxis-help-row"><span className="oht">Type</span> <span className="ohc">&apos;help</span><span className="ohr"> if you need some help</span></div>
+            <div className="oxis-help-row"><span className="oht">Type</span> <span className="ohc">&apos;edit</span> <span className="oha">&lt;file&gt;</span><span className="ohr"> to open the built-in editor</span></div>
+            <div className="oxis-help-row"><span className="oht">Type</span> <span className="ohc">&apos;market list</span><span className="ohr"> to browse plugins you can install</span></div>
+            <div className="oxis-help-row"><span className="oht">Press</span> <span className="ohc">Ctrl+Shift+P</span><span className="ohr"> to open the command palette</span></div>
+            <div className="oxis-help-row"><span className="oht">Press</span> <span className="ohc">Ctrl+Shift+M</span><span className="ohr"> to open the OXIS Market website in your browser</span></div>
+          </div>
+        </div>
+      </>
+    );
+  }
 
   return (
     <div className="home" onMouseDown={e => { if (e.target === e.currentTarget) inputRef.current?.focus(); }}>
-      <SkyWidget />
-      <div className="oxis-home">
-        <div className="oxis-sub-row">
-  <span><strong className="oxis-letter">O</strong>pen</span>
-  <span><strong className="oxis-letter">X</strong>enial</span>
-  <span><strong className="oxis-letter">I</strong>ntelligent</span>
-  <span><strong className="oxis-letter">S</strong>hell</span>
-</div>
-        <div className="oxis-ver-row">
-          <span className="oxis-ver-label">OXIS</span><span className="oxis-ver-num">v1.2.1</span>
-          <button className="oxis-github-btn" onClick={() => void openUrl("https://github.com/oxlaboratory/oxis")}
-            title="Open the OXIS repository on GitHub">GitHub ↗</button>
-        </div>
-        {!workspacePanelHidden && <WorkspacePanel ws={ws} plugins={plugins} activeWorkspace={activeWorkspace} activeWorkspacePath={activeWorkspacePath} />}
-        <div className="oxis-box oxis-help-box">
-          <div className="oxis-help-row"><span className="oht">Type</span> <span className="ohc">&apos;help</span><span className="ohr"> if you need some help</span></div>
-          <div className="oxis-help-row"><span className="oht">Type</span> <span className="ohc">&apos;edit</span> <span className="oha">&lt;file&gt;</span><span className="ohr"> to open the built-in editor</span></div>
-          <div className="oxis-help-row"><span className="oht">Type</span> <span className="ohc">&apos;market list</span><span className="ohr"> to browse plugins you can install</span></div>
-          <div className="oxis-help-row"><span className="oht">Press</span> <span className="ohc">Ctrl+Shift+P</span><span className="ohr"> to open the command palette</span></div>
-          <div className="oxis-help-row"><span className="oht">Press</span> <span className="ohc">Ctrl+Shift+M</span><span className="ohr"> to open the OXIS Market website in your browser</span></div>
-        </div>
+      <div className="home-scroll">{body}</div>
+      <div className="home-cmdline-bar">
         <HomeCmdLine value={input} onChange={handleChange} onKeyDown={handleKeyDown} inputRef={inputRef} />
       </div>
     </div>
@@ -5518,7 +5697,6 @@ export default function App() {
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [activeProject, setActiveProject] = useState(() => workspaceState.get().projectName);
   const [updateMsg,     setUpdateMsg]     = useState("");
-  const [showAnim, setShowAnim] = useState(true);
   const pendingHomeCmd = useRef<string>("");
   const shellMounted   = useRef(false); // shell only ever mounts once, then stays alive forever
 
@@ -5534,7 +5712,6 @@ export default function App() {
     applyAllSettings(); // font size, cursor style/blink — persisted from last session, same as changing them live
     installGlobalErrorCapture(); // 'diagnostics — captures uncaught JS exceptions too, not just recordError() call sites
     void workspaceManager.runAutoUpdateIfNeeded(); // brings existing workspaces' folder layout up to date whenever OXIS itself has been updated since the last launch — see README § Workspace Auto-Update
-    const animT = setTimeout(() => setShowAnim(false), 1800);
     const checkUpdate = async () => {
       if (getSetting("updateCheckOnStartup") === false) return; // 'config set updateCheckOnStartup false
       // This used to be a SEPARATE, already-broken implementation —
@@ -5569,7 +5746,6 @@ export default function App() {
       workspaceManager.init(forwardingApiCtx);
       registerBuiltinCommands(stubCtx);
     }
-    return () => clearTimeout(animT);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -5681,7 +5857,6 @@ export default function App() {
   return (
     <div className={`app${isNativeApp() ? "" : " app--browser"}`}>
       {isNativeApp() && <Titlebar mode={isHome ? "home" : "shell"} />}
-      {showAnim && <StartupSplash onClick={() => setShowAnim(false)} />}
 
       <div className="app-body">
         {/* Overlays — always on top */}
