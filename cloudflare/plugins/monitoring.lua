@@ -1,12 +1,5 @@
--- monitoring.lua — log tailing and process watching
---
--- Cross-platform: every script here branches on oxis.platform
--- ("windows" or "unix") to run PowerShell or the bash equivalent.
--- Previously this only ever wrote PowerShell — the interactive
--- Read-Host prompts and process-listing syntax below just aren't
--- valid on Linux/macOS's bash, so 'tail/'healthcheck/'task watch-mem
--- silently didn't work there at all (they'd either error out or, in
--- the Read-Host case, hang waiting for a prompt bash never shows).
+-- monitoring.lua — log tailing and process watching.
+-- Every script branches on oxis.platform (PowerShell or bash).
 
 oxis.command("tail", function()
   if oxis.platform == "windows" then
@@ -53,11 +46,8 @@ oxis.command("healthcheck", function()
   end
 end, "GET a health endpoint and show the status code")
 
--- Runs until you stop it with Ctrl+C, same convention as the built-in
--- process watcher (pwatch). oxis.task() takes a plain command string
--- (no per-call branching like oxis.run()'s function body above), so
--- the platform check happens once here, at registration time, picking
--- whichever single command string actually gets registered.
+-- Runs until Ctrl+C. oxis.task() takes a fixed string, so pick the
+-- platform's command at registration time.
 if oxis.platform == "windows" then
   oxis.task("watch-mem",
     "while ($true) { Get-Process | Sort-Object WS -Descending | Select-Object -First 5 Name,WS; Start-Sleep 5 }",

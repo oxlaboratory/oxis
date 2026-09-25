@@ -73,12 +73,12 @@
   .tb-name{ font-weight:700; letter-spacing:3px; font-size:13px; color:var(--white); }
   .tb-sep{ color:var(--grey-dim); font-size:12px; }
   .tb-route{ color:var(--green); font-size:12px; letter-spacing:1px; }
-  .tb-gitlab{
+  .tb-link{
     color:var(--grey); font-size:11px; letter-spacing:1px; text-decoration:none;
     border:1px solid var(--line); padding:5px 10px; transition:.12s;
     white-space:nowrap;
   }
-  .tb-gitlab:hover{ color:var(--green); border-color:var(--green-dim); background:var(--green-bg); }
+  .tb-link:hover{ color:var(--green); border-color:var(--green-dim); background:var(--green-bg); }
   .tb-links{ display:flex; align-items:center; gap:8px; }
   .tb-nav{ display:flex; align-items:center; gap:14px; margin-left:6px; }
   .tb-nav a{ color:var(--grey); font-size:11px; letter-spacing:1px; text-decoration:none; transition:.12s; }
@@ -377,12 +377,8 @@
     display:none;
   }
 
-  /* ---------- mobile: touch targets + iOS zoom-on-focus fix ----------
-     iOS Safari auto-zooms the page when a focused input/select has a
-     font-size under 16px — bumping these to 16px on mobile only (kept
-     smaller on desktop for the compact terminal look) avoids that.
-     Also widening tap targets closer to the ~44px accessibility
-     minimum, since the desktop sizes above run a bit small for touch. */
+  /* ---------- mobile: 16px inputs (stops iOS zoom-on-focus) and
+     larger tap targets ---------- */
   @media(max-width:640px){
     .cmdbar input, #region-select{ font-size:16px; }
     .chip{ padding:9px 14px; }
@@ -406,8 +402,8 @@
       </nav>
     </div>
     <div class="tb-links">
-      <a class="tb-gitlab" href="https://github.com/oxlaboratory/oxis" target="_blank" rel="noopener noreferrer">GitHub ↗</a>
-      <a class="tb-gitlab" href="https://sourceforge.net/projects/oxis/" target="_blank" rel="noopener noreferrer">SourceForge ↗</a>
+      <a class="tb-link" href="https://github.com/oxlaboratory/oxis" target="_blank" rel="noopener noreferrer">GitHub ↗</a>
+      <a class="tb-link" href="https://sourceforge.net/projects/oxis/" target="_blank" rel="noopener noreferrer">SourceForge ↗</a>
     </div>
   </div>
 
@@ -480,54 +476,29 @@
 
 <script>
 /* ================================================================
-   PLUGINS — this is the whole catalog. To add a new plugin, copy
-   one of the objects below, paste it into the array, and edit it.
+   PLUGINS — the Market catalog shown on this page. Copy an entry to
+   add one.
 
-   REQUIRED fields (every plugin):
-     name    – unique id, lowercase-with-dashes. Used as the .lua
-               filename when downloaded, so keep it filesystem-safe.
-     ver     – version string, e.g. "1.0.0"
-     cat     – category, must exactly match one of the CATEGORIES
-               list a few lines down (all caps)
-     creator – who made it, shown on the card and searchable
-     desc    – one or two sentence description shown on the card
-     tags    – array of short lowercase keywords, shown as #tags
-     size    – display-only file size string, e.g. "12kb"
+   Required:
+     name    – unique lowercase-with-dashes id (also the .lua filename)
+     ver     – version, e.g. "1.0.0"
+     cat     – one of CATEGORIES below
+     creator – author, shown and searchable
+     desc    – one or two sentences
+     tags    – short lowercase keywords
+     size    – display size, e.g. "12kb"
 
-   OPTIONAL fields — only add these for a PREMIUM (subscription) plugin:
-     premium      – set to true
-     priceDisplay – display string shown on the card, e.g. "$3.99/mo".
-                    This is cosmetic only — the REAL price lives on the
-                    Stripe Price object itself (stripePriceId below).
-     stripePriceId – a Stripe recurring Price ID (price_...), created
-                    in the Stripe Dashboard -> Product catalog. This is
-                    what /checkout.js actually charges — priceDisplay
-                    is just what the card shows, keep them in sync by
-                    hand.
-     comingSoon   – set to true while a premium plugin isn't
-                    purchasable yet (e.g. before its Stripe Price
-                    exists, or before an account is fully set up).
-                    Shows a "coming soon" badge instead of a buy
-                    button — see README § OXIS Market for why nothing
-                    should ever claim to be purchasable before it is.
-     stripeConnectAccountId – ONLY for third-party developer plugins
-                    (acct_...) — enables the 75/25 revenue split via
-                    Stripe Connect. Omit entirely for OXIS-owned
-                    plugins; the whole subscription is OXIS revenue.
+   Premium (subscription) plugins only:
+     premium                – true
+     priceDisplay           – text on the card, e.g. "$3.99/mo" (keep it
+                              in sync with the Stripe Price by hand)
+     stripePriceId          – the Stripe recurring Price (price_...)
+     comingSoon             – true until it can actually be bought
+     stripeConnectAccountId – third-party plugins only (acct_...), for
+                              the 75/25 split
 
-   There are no one-time-purchase plugins and no cryptocurrency
-   payments — every paid plugin is a Stripe subscription, full stop.
-
-   OPTIONAL for any plugin:
-     demoVideo – a URL to show under the "watch demo" button on that
-                 card. YouTube links (youtube.com/watch?v=... or
-                 youtu.be/...) embed automatically; anything else is
-                 treated as a direct video file URL (.mp4 etc.) and
-                 played with a plain <video> tag. Leave as null (or
-                 omit it) and the card shows "no demo video yet".
-
-   That's it — the page reads straight from this array, so nothing
-   else needs to change when you add, remove, or reorder a plugin.
+   Any plugin:
+     demoVideo – YouTube link or direct video URL (null for none)
    ================================================================ */
 
 const CATEGORIES = [
@@ -537,14 +508,8 @@ const CATEGORIES = [
 ]; // keep this in sync with any "cat" values you use below
 
 function escapeHtml(s){
-  // Every plugin field below is either user/developer-submitted
-  // (Market Publishing's GitHub-PR flow — see README § Third-Party
-  // Developer Marketplace) or, for the built-in catalog, hand-edited
-  // by whoever maintains this file — either way, none of it should be
-  // trusted as safe HTML. Used everywhere a plugin field is
-  // interpolated into a template string that ends up in .innerHTML,
-  // in both text-content and attribute-value positions (hence
-  // escaping quotes too, not just < / >).
+  // Plugin fields come from submissions, so escape them wherever they
+  // go into innerHTML (text and attribute positions).
   return String(s ?? '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -575,16 +540,9 @@ const PLUGINS = [
 ];
 
 /* ================================================================
-   REGION / DISPLAY CURRENCY — this only changes what price is shown
-   on the card. It does NOT change what Stripe actually charges —
-   Stripe Checkout always bills in whatever currency the Price object
-   itself was created with. This is a cosmetic convenience for buyers
-   browsing from different countries, nothing more.
-
-   To add a country: add one line to COUNTRIES and one rate to
-   FX_RATES (USD -> that currency). FX_RATES are rough, static demo
-   figures — swap for a live rates API (e.g. exchangerate.host,
-   openexchangerates.org) before relying on this in production.
+   REGION / DISPLAY CURRENCY — changes only the price shown; Stripe
+   always charges in the Price's own currency. FX_RATES are rough
+   static values. To add a country, add it to COUNTRIES and FX_RATES.
    ================================================================ */
 
 const COUNTRIES = [
@@ -869,11 +827,8 @@ grid.addEventListener('click', (e)=>{
   }
 });
 
-// Real Stripe Checkout — see functions/checkout.js. This is the same
-// endpoint the OXIS desktop app's `'market subscribe` command calls;
-// the website and the app both just redirect to whatever URL Stripe
-// gives back, so there's exactly one checkout implementation, not two
-// that could drift out of sync.
+// Stripe Checkout via functions/checkout.js — the same endpoint the
+// app's 'market subscribe uses.
 async function startCheckout(pluginName, btn){
   const email = window.prompt("Email for your subscription (used to verify your license in the OXIS app):");
   if(!email) return;
