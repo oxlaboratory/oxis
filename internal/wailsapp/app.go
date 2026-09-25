@@ -61,9 +61,23 @@ func (a *App) WindowClose()    { wailsRuntime.Quit(a.ctx) }
 // OpenURL opens a URL in the user's default browser.
 func (a *App) OpenURL(url string) { wailsRuntime.BrowserOpenURL(a.ctx, url) }
 
-// WriteClipboard writes to the OS clipboard natively. The frontend uses
-// it when navigator.clipboard is rejected inside the WebView.
-func (a *App) WriteClipboard(text string) error { return writeClipboardNative(text) }
+// WriteClipboard writes text to the OS clipboard: Wails' own clipboard
+// first, then the platform fallback (Win32, or pbcopy/xclip/xsel/
+// wl-copy).
+func (a *App) WriteClipboard(text string) error {
+	if a.ctx != nil {
+		if err := wailsRuntime.ClipboardSetText(a.ctx, text); err == nil {
+			return nil
+		}
+	}
+	return writeClipboardNative(text)
+}
+
+// ReadClipboard returns the OS clipboard's text (for Paste menu items;
+// the WebView won't read the clipboard without a user gesture).
+func (a *App) ReadClipboard() (string, error) {
+	return wailsRuntime.ClipboardGetText(a.ctx)
+}
 
 // GetPTYPort returns the port of the local PTY/frontend server. Inside
 // the native window location.host is the Wails asset origin, so the

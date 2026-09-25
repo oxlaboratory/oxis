@@ -24,6 +24,11 @@ All notable changes to OXIS. The format follows
 - Right-click menu items are disabled when there's nothing to copy, and
   the menu stays inside the window.
 - Go tests for escape stripping and UTF-8 splitting.
+- Cut / Copy / Paste / Select All right-click menu on every text field
+  and in the editor (the desktop window has no browser menu).
+- The status bar confirms every copy ("copied 14 chars").
+- An in-app confirm dialog replaces the system "wails.localhost says"
+  boxes (discarding edits, multi-line paste, restore, theme delete).
 
 ### Changed
 - Up/Down history: with text typed first, only matching commands are
@@ -37,6 +42,16 @@ All notable changes to OXIS. The format follows
 - The Windows shell starts without PSReadLine. OXIS does its own line
   editing, and PSReadLine's redraws garbled the echoed command.
 - `oxis.run()` translates `a && b` for Windows PowerShell 5.1.
+- Copy and paste use the native clipboard first in the desktop app, so
+  they work even when the WebView's clipboard API is unavailable.
+- Pasting several lines runs the complete ones and leaves the last,
+  unfinished line in the prompt. It used to wait in the shell's hidden
+  input and join onto the next command.
+- Paste and cut work in the editor's Normal mode.
+- Typing while the prompt isn't focused no longer drops or reorders
+  fast keystrokes.
+- Clouds on Home move together and no longer overlap each other or the
+  sun.
 - Shortcut plugins (`sysmon`, `files`, `network`, `python`, `winutil`)
   use POSIX commands on Linux.
 - One shared startup update check (it used to run twice and ignored

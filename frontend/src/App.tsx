@@ -63,8 +63,11 @@ import { checkPublishable, findExistingListing, prepareFreePublish, submitPaidPl
 import { commitAll, setupRemote, unlinkRemote, getRemotes, parseGitRemote, cancelActiveCommit, type GitProvider } from "./plugins/git";
 import { loadUserConfig } from "./terminal/userConfig";
 import { userConfigDir } from "./native";
-import { readFile, writeFile, listDir, makeDir, statPath, movePath, isNativeApp, openUrl, checkForUpdate, performUpdate, quitApp, writeClipboard, windowGetSize, windowSetSize } from "./native";
+import { readFile, writeFile, listDir, makeDir, statPath, movePath, isNativeApp, openUrl, checkForUpdate, performUpdate, quitApp, windowGetSize, windowSetSize } from "./native";
 import Titlebar from "./components/Titlebar";
+import TextContextMenu from "./components/TextContextMenu";
+import ConfirmDialog, { confirmDialog } from "./components/ConfirmDialog";
+import { copyText, pasteText } from "./terminal/clipboard";
 
 // ══════════════════════════════════════════════════════════════
 // SHELL CONTEXT — passed to command registry
@@ -151,20 +154,8 @@ function writePersistedOption(key: string, value: LuaJSValue): void {
   try { localStorage.setItem(OPTIONS_KEY, JSON.stringify(all)); } catch { /* storage full/unavailable — option still works for this session via the per-plugin in-memory cache in pluginAPI.ts */ }
 }
 
-// ── Clipboard ─────────────────────────────────────────────
-// navigator.clipboard can be rejected inside the WebView (permission or
-// focus), in which case the copy falls back to the native OS clipboard
-// (App.WriteClipboard). Browser mode has only the JS API.
-async function copyToClipboard(text: string): Promise<void> {
-  try {
-    await navigator.clipboard?.writeText(text);
-    return;
-  } catch { /* fall through to the native path below */ }
-  if (isNativeApp()) {
-    try { await writeClipboard(text); }
-    catch { /* genuinely nothing left to try — selection itself still stands */ }
-  }
-}
+// Clipboard: see terminal/clipboard.ts (native first, then web APIs).
+const copyToClipboard = copyText;
 
 // ══════════════════════════════════════════════════════════════
 // SETTINGS — 'config / 'settings. Stored in the same option store as
@@ -1695,9 +1686,11 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
     }});
 
   registry.register({ name:"restore", category:"system", description:"Restore a backup made with 'backup — overwrites matching files, asks first",
-    handler:(_,r)=>{
+    handler:async(_,r)=>{
       if(!r){ err("usage: 'restore <path>"); return; }
-      if(!confirm(`Restore from ${r}? This will overwrite any settings/workspace files/documents/plugins with the same name as what's in the backup. Anything else is left alone.`)) {
+      if(!await confirmDialog(`Restore from ${r}?
+
+Settings, workspace files, documents and plugins with the same name as ones in the backup are overwritten. Everything else is left alone.`, { ok: "Restore" })) {
         dim("restore cancelled"); return;
       }
       info(`restoring from ${r}…`);
@@ -2418,9 +2411,13 @@ function useModalEditor(opts: {
   // through here instead of the caller setting content directly, so
   // ordinary typing is captured by undo/redo too, grouped one
   // keystroke-run per Insert-mode session (see `commit` above).
-  const handleChange = useCallback((next: string) => {
-    if (mode !== "insert") return;
-    commit(next, true);
+  // Outside Insert mode typing is blocked at keydown; paste and cut
+  // (menu, Ctrl+V/X) still apply, like Vim's p and d, as their own step.
+  const handleChange = useCallback((next: string, inputType?: string) => {
+    if (mode === "insert") { commit(next, true); return; }
+    if (inputType === "insertFromPaste" || inputType === "deleteByCut" || inputType === "insertText") {
+      commit(next, false);
+    }
   }, [mode, commit]);
 
   return {
@@ -2799,8 +2796,8 @@ function Editor({ file, onClose, onSave }: {
     content,
     onEdit,
     onSave: save,
-    onEscapeNormal: () => {
-      if (dirty && !confirm("Discard unsaved changes?")) return;
+    onEscapeNormal: async () => {
+      if (dirty && !await confirmDialog("Discard unsaved changes?", { ok: "Discard", danger: true })) return;
       onClose();
     },
   });
@@ -2872,8 +2869,8 @@ function Editor({ file, onClose, onSave }: {
             </button>
           )}
           <button className="editor-btn" onClick={save}>save</button>
-          <button className="editor-btn editor-btn--close" onClick={() => {
-            if (dirty && !confirm("Discard unsaved changes?")) return;
+          <button className="editor-btn editor-btn--close" onClick={async () => {
+            if (dirty && !await confirmDialog("Discard unsaved changes?", { ok: "Discard", danger: true })) return;
             onClose();
           }}>×</button>
         </div>
@@ -2899,7 +2896,7 @@ function Editor({ file, onClose, onSave }: {
         <CodeArea ref={taRef} className={`editor-ta editor-ta--${mode}`} value={content}
           lang={detectLang(file.path)}
           changedLines={changedLines}
-          onChange={e => handleChange(e.target.value)}
+          onChange={e => handleChange(e.target.value, (e.nativeEvent as InputEvent).inputType)}
           onKeyDown={onKeyDown}
           style={previewOpen && !previewFullscreen ? { width: `${100 - previewWidthPct}%`, flex: "none" } : undefined}
           hidden={previewFullscreen} />
@@ -3515,6 +3512,24 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
     setOutputMenu(null);
   }, [outputSelectionText]);
 
+  // Paste from the output menu goes into the prompt (like VS Code's
+  // terminal); the prompt's own paste handling decides what to do.
+  const pasteIntoPrompt = useCallback(async () => {
+    setOutputMenu(null);
+    const el = promptRef.current;
+    if (!el) return;
+    const text = await pasteText();
+    el.focus({ preventScroll: true });
+    if (text === null) { events.emit("status_flash", { text: "can't read the clipboard — use Ctrl+V" }); return; }
+    const data = new DataTransfer();
+    data.setData("text/plain", text);
+    const pasteEvent = new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true });
+    if (el.dispatchEvent(pasteEvent) && !document.execCommand("insertText", false, text)) {
+      const start = el.selectionStart ?? el.value.length;
+      syncInput(el.value.slice(0, start) + text + el.value.slice(el.selectionEnd ?? start), start + text.length);
+    }
+  }, [syncInput]);
+
   const selectAllOutput = useCallback(() => {
     const el = outRef.current;
     if (el && window.getSelection) {
@@ -3573,13 +3588,23 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
       if (e.ctrlKey || e.metaKey || e.altKey || e.key.length !== 1) return;
       if (isEditable(document.activeElement)) return;
       if (document.querySelector(".overlay, .cmdp-backdrop")) return;
-      focusPrompt(); // the character then lands in the prompt
+      const el = promptRef.current;
+      if (!el) return;
+      // Insert the key ourselves at the end of the command: letting the
+      // browser deliver it after a focus change can drop or misplace it
+      // when keys arrive quickly.
+      e.preventDefault();
+      el.focus({ preventScroll: true });
+      el.setSelectionRange(el.value.length, el.value.length);
+      if (!document.execCommand("insertText", false, e.key)) {
+        syncInput(el.value + e.key, el.value.length + 1);
+      }
     };
     const onFocusRequest = () => focusPrompt();
     window.addEventListener("keydown", onKeyDown);
     const off = events.on("focus_prompt", onFocusRequest);
     return () => { window.removeEventListener("keydown", onKeyDown); off(); };
-  }, [focusPrompt]);
+  }, [focusPrompt, syncInput]);
 
   useEffect(() => events.on("clear_terminal", () => clear()), [clear]);
 
@@ -4125,7 +4150,7 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
   // ── Paste ─────────────────────────────────────────────────
   // One line goes into the prompt natively; several lines go straight
   // to the shell (after confirming).
-  const handlePaste = useCallback((e: React.ClipboardEvent<HTMLInputElement>) => {
+  const handlePaste = useCallback(async (e: React.ClipboardEvent<HTMLInputElement>) => {
     const text = e.clipboardData.getData("text");
     if (!text || !/[\r\n]/.test(text.replace(/[\r\n]+$/, ""))) {
       if (/[\r\n]$/.test(text)) {
@@ -4138,12 +4163,32 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
       }
       return;
     }
+    // Several lines: the complete ones run and the last, unfinished one
+    // goes into the prompt, the way a terminal's line editor keeps it.
+    // (Sent to the shell, it would sit in its hidden input buffer and
+    // join onto the next command.) Text around the cursor is kept.
     e.preventDefault();
-    const lns = text.split(/\r?\n/).filter(Boolean);
-    if (lns.length > 1 && !window.confirm(`Paste ${lns.length} lines to the shell?`)) return;
-    clearInput();
-    sendToShell(text.replace(/\r?\n/g, "\r"));
-  }, [syncInput, clearInput, sendToShell]);
+    const el = e.currentTarget;
+    const start = el.selectionStart ?? el.value.length, end = el.selectionEnd ?? start;
+    const after = el.value.slice(end);
+    const lines = text.replace(/\r\n?/g, "\n").split("\n");
+    lines[0] = el.value.slice(0, start) + lines[0];
+    const unfinished = lines.pop() ?? "";
+    const count = lines.filter(l => l.trim()).length;
+    if (count > 1 && !await confirmDialog(
+      `Run ${count} pasted lines in the shell?${unfinished.trim() ? " The last line goes into the prompt." : ""}`,
+      { ok: "Run" },
+    )) return;
+    if (!isActiveRef.current) onShowShell();
+    if (lines.some(l => /^\s*('|oxi(\s|$))/i.test(l))) {
+      lines.forEach(l => runLine(l)); // has OXIS commands: run line by line
+    } else {
+      lines.forEach(l => { if (l.trim()) history.push(l.trim()); });
+      sendToShell(lines.join("\r") + "\r");
+      scrollToBottom(true);
+    }
+    syncInput(unfinished + after, unfinished.length);
+  }, [syncInput, sendToShell, runLine, onShowShell, scrollToBottom]);
 
   // ── Editor save — written natively. A plugin's own source file is
   // saved through pluginManager so it reloads (findPluginForPath).
@@ -4183,9 +4228,9 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
     });
   }, []);
 
-  const requestCloseEditorTab = useCallback((path: string) => {
+  const requestCloseEditorTab = useCallback(async (path: string) => {
     const f = editorFiles.find(e => e.path === path);
-    if (f?.dirty && !confirm(`Discard unsaved changes to ${path}?`)) return;
+    if (f?.dirty && !await confirmDialog(`Discard unsaved changes to ${path}?`, { ok: "Discard", danger: true })) return;
     closeEditorTab(path);
     if (editorFiles.length <= 1) setTimeout(focusPrompt, 50);
   }, [editorFiles, closeEditorTab, focusPrompt]);
@@ -4406,6 +4451,9 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
           <button className="term-ctx-item" onClick={copyOutputSelection} disabled={!outputMenu.hasSel}>
             <span>Copy</span><span className="term-ctx-key">Ctrl+C</span>
           </button>
+          <button className="term-ctx-item" onClick={() => void pasteIntoPrompt()}>
+            <span>Paste</span><span className="term-ctx-key">Ctrl+V</span>
+          </button>
           <button className="term-ctx-item" onClick={selectAllOutput}>Select All</button>
           <button className="term-ctx-item" onClick={clearOutputSelectionAction} disabled={!outputMenu.hasSel}>Clear Selection</button>
         </div>
@@ -4486,40 +4534,49 @@ const CLOUD_GLYPHS = [
 
 function rand(min: number, max: number): number { return min + Math.random() * (max - min); }
 
-interface CloudLayout { glyph: string; top: number; left: number; fontSize: number; opacity: number; duration: number; delay: number; zIndex: number }
+interface CloudLayout { glyph: string; top: number; left: number; fontSize: number; opacity: number; sway: number }
 
-/** One cloud per equal-width band (jittered), with evenly spread
- *  animation phases, so clouds don't clump or move in lockstep. */
-function layoutClouds(count: number, widthPx: number): CloudLayout[] {
-  const band = widthPx / count;
-  const out: CloudLayout[] = [];
-  for (let i = 0; i < count; i++) {
-    const duration = rand(16, 30);
-    out.push({
-      glyph: CLOUD_GLYPHS[Math.floor(Math.random() * CLOUD_GLYPHS.length)],
-      left: i * band + rand(band * 0.1, band * 0.9),
-      // Alternating high/low lane (by index parity) plus jitter, so
-      // even two adjacent clouds visibly differ in height rather than
-      // both sitting in the same narrow vertical strip.
-      top: (i % 2 === 0 ? rand(0, 10) : rand(20, 34)) ,
-      fontSize: rand(7, 10),
-      opacity: rand(0.35, 0.75),
-      duration,
-      // Evenly spread starting phase across the cycle (a negative
-      // delay starts the animation already partway through), plus
-      // enough jitter that it doesn't look mechanically evenly
-      // spaced either.
-      delay: -((i / count) * duration) + rand(-1.5, 1.5),
-      // Randomly in front of (3) or behind (1) the sun (z-index 2) —
-      // a real sky has clouds pass both in front of and behind the
-      // sun depending on where they are, not permanently one or the
-      // other.
-      zIndex: Math.random() < 0.5 ? 1 : 3,
-    });
-  }
-  return out;
+// Monospace glyph width as a fraction of font size (JetBrains Mono ≈ 0.6).
+const GLYPH_WIDTH_EM = 0.62;
+// Clouds sway left by `sway` px and back (@keyframes cloud-sway), all on
+// the same beat, like one breeze. Bigger (nearer) clouds sway further;
+// the gap between neighbours is wider than that difference, so they
+// never touch, and at rest they sit clear of the sun.
+const CLOUD_SWAY_MIN = 14;
+const CLOUD_SWAY_PER_PX = 4;
+const CLOUD_GAP = 18;
+const SUN_CLEARANCE = 10;
+
+/** Lays clouds out left to right in the room before `limitRight` (the
+ *  sun's left edge), dropping clouds that don't fit, with the spare
+ *  room shared out randomly and alternating high/low lanes. */
+function layoutClouds(count: number, limitRight: number): CloudLayout[] {
+  const clouds = Array.from({ length: count }, () => {
+    const glyph = CLOUD_GLYPHS[Math.floor(Math.random() * CLOUD_GLYPHS.length)];
+    const fontSize = rand(7, 10);
+    const cols = Math.max(...glyph.split("\n").map(l => l.length));
+    return { glyph, fontSize, width: cols * fontSize * GLYPH_WIDTH_EM };
+  });
+  const room = limitRight - SUN_CLEARANCE;
+  const needed = () => clouds.reduce((sum, c) => sum + c.width, 0) + CLOUD_GAP * (clouds.length - 1);
+  while (clouds.length > 1 && needed() > room) clouds.pop();
+  let spare = Math.max(0, room - needed());
+  let x = 0;
+  return clouds.map((c, i) => {
+    const extra = rand(0, spare * (i === 0 ? 0.4 : 0.6));
+    spare -= extra;
+    const left = x + extra;
+    x = left + c.width + CLOUD_GAP;
+    return {
+      glyph: c.glyph,
+      fontSize: c.fontSize,
+      left,
+      top: i % 2 === 0 ? rand(0, 6) : rand(22, 28),
+      opacity: rand(0.45, 0.8),
+      sway: CLOUD_SWAY_MIN + (c.fontSize - 7) * CLOUD_SWAY_PER_PX,
+    };
+  });
 }
-
 const STAR_GLYPHS = ["*", "."];
 
 interface StarLayout { glyph: string; top: number; left: number; fontSize: number; delay: number }
@@ -4552,20 +4609,30 @@ function SkyWidget() {
   const isDay = hour >= 6 && hour < 18;
   const moonPhase = getMoonPhase(now);
 
-  // Laid out once per mount so clouds don't jump on each clock tick.
-  const clouds = useMemo(() => layoutClouds(Math.floor(rand(4, 6)), SKY_WIDGET_WIDTH - 20), []);
-  // Same reasoning/count-range as clouds — see layoutStars above.
+  // Clouds stay left of the sun, so measure where it actually is (the
+  // estimate is only used for the first layout pass).
+  const sunRef = useRef<HTMLPreElement>(null);
+  const [sunLeft, setSunLeft] = useState(SKY_WIDGET_WIDTH - 48);
+  useLayoutEffect(() => {
+    const el = sunRef.current;
+    if (el && el.offsetLeft > 0 && Math.abs(el.offsetLeft - sunLeft) > 1) setSunLeft(el.offsetLeft);
+  }, [isDay, sunLeft]);
+
+  // Laid out once (per sun position) so clouds don't jump on each clock tick.
+  const cloudCount = useMemo(() => Math.floor(rand(3, 5)), []);
+  const clouds = useMemo(() => layoutClouds(cloudCount, sunLeft), [cloudCount, sunLeft]);
+  const cloudPhase = useMemo(() => -rand(0, 30), []); // start mid-sway
   const stars = useMemo(() => layoutStars(Math.floor(rand(5, 8)), SKY_WIDGET_WIDTH - 20), []);
 
   if (isDay) {
     return (
       <div className="sky-widget sky-widget--day">
-        <pre className="sky-ascii sky-sun">{"  \\ | /\n -- O --\n  / | \\"}</pre>
+        <pre ref={sunRef} className="sky-ascii sky-sun">{"  \\ | /\n -- O --\n  / | \\"}</pre>
         {clouds.map((c, i) => (
           <pre key={i} className="sky-ascii sky-cloud" style={{
             top: `${c.top}px`, left: `${c.left}px`, fontSize: `${c.fontSize}px`,
-            animationDuration: `${c.duration}s`, animationDelay: `${c.delay}s`, zIndex: c.zIndex,
-            ["--cloud-opacity" as string]: c.opacity,
+            opacity: c.opacity, animationDelay: `${cloudPhase}s`,
+            ["--sway" as string]: `${-c.sway}px`,
           } as React.CSSProperties}>{c.glyph}</pre>
         ))}
       </div>
@@ -4674,8 +4741,8 @@ function Home({ currentTheme, onTheme, onOpenThemeEditor, onOpenPluginCreator }:
               <ThemeTile key={name} name={name} theme={t} active={name === currentTheme}
                 isCustom={!!themeManager.customThemes()[name]}
                 onClick={() => { themeManager.apply(name); onTheme(name); }}
-                onDelete={() => {
-                  if (!confirm(`Delete "${name}"?`)) return;
+                onDelete={async () => {
+                  if (!await confirmDialog(`Delete the theme "${name}"?`, { ok: "Delete", danger: true })) return;
                   themeManager.removeCustom(name);
                   if (currentTheme === name) { themeManager.apply("default"); onTheme("default"); }
                   else onTheme(currentTheme);
@@ -4842,6 +4909,17 @@ function StatusBar({ mode, count, idx, ready, theme, project, updateMsg }: {
     const t = setInterval(() => setTime(new Date().toLocaleTimeString()), 1000);
     return () => clearInterval(t);
   }, []);
+  // Short confirmations ("copied 3 lines") from events.emit("status_flash").
+  const [flash, setFlash] = useState("");
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const off = events.on("status_flash", p => {
+      setFlash(String((p as { text?: string } | undefined)?.text ?? ""));
+      clearTimeout(timer);
+      timer = setTimeout(() => setFlash(""), 1800);
+    });
+    return () => { off(); clearTimeout(timer); };
+  }, []);
   return (
     <div className="statusline">
       <div className="sl-mode">{mode === "home" ? "HOME" : "SHELL"}</div>
@@ -4850,6 +4928,7 @@ function StatusBar({ mode, count, idx, ready, theme, project, updateMsg }: {
         {ready ? "● connected" : "○ connecting"}
         {project && <><span className="sl-dot"> · </span><span className="sl-project">{project}</span></>}
         {updateMsg && <span className="sl-update"> · ⬆ {updateMsg}</span>}
+        {flash && <span className="sl-flash"> · {flash}</span>}
       </div>
       <div className="sl-right">
         <span className="sl-theme">{theme}</span>
@@ -5309,6 +5388,9 @@ export default function App() {
           />
         </div>
       </div>
+
+      <TextContextMenu />
+      <ConfirmDialog />
 
       {/* The one global command prompt, fixed above the status line. */}
       <div className="global-prompt" ref={setPromptHost} />

@@ -40,6 +40,7 @@ declare global {
           KillProcess?: (pid: number) => Promise<void>;
           OpenURL?: (url: string) => Promise<void>;
           WriteClipboard?: (text: string) => Promise<void>;
+          ReadClipboard?: () => Promise<string>;
           CheckForUpdate?: () => Promise<NativeUpdateInfo>;
           /** Builds the latest source and swaps it in (see
            *  PerformUpdate in selfupdate.go); fallbackBinaryUrl is used
@@ -252,6 +253,13 @@ export async function writeClipboard(text: string): Promise<void> {
   const fn = window.go?.wailsapp?.App?.WriteClipboard;
   if (!fn) throw new NativeUnavailableError();
   await fn(text);
+}
+
+/** Reads the OS clipboard's text natively. */
+export async function readClipboard(): Promise<string> {
+  const fn = window.go?.wailsapp?.App?.ReadClipboard;
+  if (!fn) throw new NativeUnavailableError();
+  return fn();
 }
 
 /** Checks GitHub for a newer build (see internal/update). Reports

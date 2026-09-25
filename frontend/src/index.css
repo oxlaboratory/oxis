@@ -477,6 +477,39 @@ html, body, #root {
   z-index: 100;
 }
 
+/* ── CONFIRM DIALOG — components/ConfirmDialog.tsx ── */
+.confirm-backdrop {
+  position: fixed; inset: 0; z-index: 300;
+  background: rgba(0,0,0,.5);
+  display: flex; align-items: flex-start; justify-content: center;
+  padding: 18vh 16px 0;
+}
+.confirm-box {
+  width: min(460px, 100%);
+  background: var(--bg1); border: 1px solid var(--border);
+  border-radius: 6px; box-shadow: 0 20px 60px rgba(0,0,0,.5);
+  padding: 18px 18px 14px;
+  font-family: var(--font);
+}
+.confirm-msg {
+  color: var(--text); font-size: 13px; line-height: 1.6;
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.confirm-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.confirm-btn {
+  font-family: var(--font); font-size: 12px; cursor: pointer;
+  color: var(--muted); background: none;
+  border: 1px solid var(--border); border-radius: var(--r);
+  padding: 5px 14px; outline: none;
+}
+.confirm-btn:hover { color: var(--text); background: var(--bg2); }
+.confirm-btn:focus-visible, .confirm-btn:focus { border-color: var(--border2); }
+.confirm-btn--ok { color: var(--bg); background: var(--accent); border-color: var(--accent); font-weight: 600; }
+.confirm-btn--ok:hover { color: var(--bg); background: var(--purple2); }
+.confirm-btn--danger { background: var(--err); border-color: var(--err); }
+.confirm-btn--danger:hover { background: var(--err); filter: brightness(1.1); }
+.confirm-btn--ok:focus { box-shadow: 0 0 0 2px var(--bg1), 0 0 0 3px var(--text); }
+
 /* ── COMMAND PALETTE — Ctrl+Shift+P. See CommandPalette in App.tsx. ── */
 .cmdp-backdrop {
   position: absolute; inset: 0;
@@ -655,7 +688,7 @@ html, body, #root {
 .oxis-wa--name { color: var(--purple); } /* the active workspace's own name — slightly brighter, first thing to scan for */
 .oxis-wa--connected { color: var(--green, #7cd992); font-weight: 700; font-style: italic; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 420px; }
 .oxis-wa--disconnected { color: var(--dim); font-style: italic; font-size: 12px; }
-.oxis-wa--disconnected code { color: var(--purple3); font-style: normal; }
+.oxis-wa--disconnected code { color: var(--purple3); font-style: normal; white-space: nowrap; }
 
 /* Workspace panel — Home screen (see README § Home Screen & Workspace Panel) */
 .oxis-workspace-box { margin-top: 6px; }
@@ -706,7 +739,7 @@ html, body, #root {
   text-shadow: 0 0 5px rgba(255,210,74,.35);
   animation: sun-pulse 4s ease-in-out infinite;
   line-height: 1.2;
-  z-index: 2;
+  z-index: 2; /* clouds (z-index 1) never reach it, but stay behind it regardless */
 }
 @keyframes sun-pulse {
   0%, 100% { opacity: .9; }
@@ -714,15 +747,19 @@ html, body, #root {
 }
 
 /* Per-cloud position and timing are inline (SkyWidget). */
+/* All clouds share one duration and phase (set in SkyWidget), so they
+   move together and keep their spacing; --sway is each cloud's reach. */
 .sky-cloud {
   position: absolute; color: #ffffff; font-family: var(--font);
-  white-space: pre; animation-name: cloud-drift; animation-timing-function: linear; animation-iteration-count: infinite;
+  white-space: pre; z-index: 1;
+  animation: cloud-sway 30s ease-in-out infinite alternate;
 }
-@keyframes cloud-drift {
-  0%   { transform: translateX(24px); opacity: 0; }
-  12%  { opacity: var(--cloud-opacity, .75); }
-  88%  { opacity: var(--cloud-opacity, .75); }
-  100% { transform: translateX(-48px); opacity: 0; }
+@keyframes cloud-sway {
+  from { transform: translateX(0); }
+  to   { transform: translateX(var(--sway, -16px)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sky-cloud, .sky-sun, .sky-star { animation: none; }
 }
 
 .sky-moon {
@@ -906,3 +943,4 @@ input, textarea { font-family: var(--font); }
 .wails-spacer { width: 62px; flex-shrink: 0; }
 /* oxis.dashboard({ header = "..." }) */
 .oxis-dash-header { margin-top: 6px; font-size: var(--home-fs); color: var(--purple3); font-weight: 700; letter-spacing: .06em; }
+.sl-flash { color: var(--bg); font-weight: 700; }
