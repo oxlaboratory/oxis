@@ -1,18 +1,8 @@
 #!/usr/bin/env node
 /**
- * scripts/dev.js — watch + rebuild + relaunch loop for the native
- * Wails window.
- *
- * There's no live hot-reload here: the frontend is embedded into the
- * Go binary at compile time via go:embed, so a rebuild is the only
- * way for changes to reach the running window. This script watches
- * frontend/src, cmd/, and internal/ and, on change, reruns the full
- * `npm run build` (frontend build → embed → go build) and relaunches
- * dist/oxis(.exe), killing the previous instance first.
- *
- * Slower than true HMR, but correct — and simple enough that a
- * `go build` failure or a Wails runtime error shows up exactly like
- * it would in a normal build.
+ * scripts/dev.js — rebuild and relaunch the app whenever frontend/src,
+ * cmd/ or internal/ change. The frontend is embedded in the Go binary,
+ * so every change is a full `npm run build`.
  */
 const { spawn, spawnSync } = require("child_process");
 const path = require("path");
@@ -30,12 +20,8 @@ const WATCH_DIRS = [
 const col = { reset:"\x1b[0m", magenta:"\x1b[35m", cyan:"\x1b[36m", red:"\x1b[31m", grey:"\x1b[90m" };
 const log = (m, c=col.reset) => console.log(c+m+col.reset);
 
-// The build itself writes into internal/server/dist (embedded frontend
-// copy) and cmd/oxi/resource.syso (icon resource) — both inside
-// directories we watch. Without filtering these out, every build
-// triggers the fs.watch callback, which schedules another build,
-// forever. Match on normalized path segments so it works with both
-// "/" and "\" separators.
+// The build writes into internal/server/dist and cmd/oxi/resource.syso,
+// inside watched folders; ignore them or every build triggers another.
 const IGNORE_SEGMENTS = [
   ["internal", "server", "dist"],
   ["cmd", "oxi", "resource.syso"],

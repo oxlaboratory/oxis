@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * scripts/setup.js — OxiShell one-command setup
+ * scripts/setup.js — one-command OXIS setup
  * Usage: npm run setup
  */
 const { spawnSync } = require("child_process");
@@ -42,9 +42,7 @@ function findGo() {
 }
 
 // ── Header ──────────────────────────────────────────────────
-log("\n╔══════════════════════════════════════╗", col.magenta);
-log("║  OXIS Setup                      ║", col.magenta);
-log("╚══════════════════════════════════════╝", col.magenta);
+log("\n→ OXIS setup", col.magenta);
 log(`\n  Platform: ${process.platform} (${os.arch()})`);
 log(`  Node:     ${process.version}`);
 log(`  Root:     ${ROOT}\n`);
@@ -93,10 +91,8 @@ if (!run("npm install", frontendDir)) {
 // ── Step 4: Go modules ───────────────────────────────────
 step(4, "Fetching Go modules...");
 if (goResult) {
-  const goSum = path.join(ROOT, "go.sum");
-  if (fs.existsSync(goSum)) fs.rmSync(goSum);
-  if (!run(`"${goResult.bin}" mod tidy`, ROOT)) {
-    err("go mod tidy failed");
+  if (!run(`"${goResult.bin}" mod download`, ROOT)) {
+    err("go mod download failed");
     allGood = false;
   } else {
     ok("Go modules ready");
@@ -124,7 +120,8 @@ if (IS_WIN) {
 
   // WiX
   const wixFound = check("candle --version") ||
-    fs.existsSync("C:\\Program Files (x86)\\WiX Toolset v3.11\\bin\\candle.exe");
+    fs.existsSync("C:\\Program Files (x86)\\WiX Toolset v3.11\\bin\\candle.exe") ||
+    fs.existsSync("C:\\Program Files (x86)\\WiX Toolset v3.14\\bin\\candle.exe");
   if (wixFound) ok("WiX Toolset found");
   else warn("WiX not found (optional) — winget install WiXToolset.WiXToolset");
 }
@@ -135,7 +132,7 @@ if (allGood) {
   log("\n  ✓  Setup complete! You can now run:\n", col.green);
   log("     npm run build          ← build the app", col.cyan);
   log("     npm run build:msi      ← build installer (Windows)", col.cyan);
-  log("     .\\dist\\oxis.exe    ← run OxiShell\n", col.cyan);
+  log(`     ${IS_WIN ? ".\\dist\\oxis.exe" : "./dist/oxis"}      ← run OXIS\n`, col.cyan);
 } else {
   log("\n  ⚠  Setup completed with warnings.", col.yellow);
   log("     Fix the issues above, then run npm run setup again.\n", col.yellow);

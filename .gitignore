@@ -29,15 +29,14 @@ stripe.env
 
 # ── build output / binaries ────────────────────────────────────────
 dist/
-build/
-out/
-bin/
+/build/
+/out/
+/bin/
 *.exe
 *.dll
 *.dylib
 *.so
-oxis
-oxis.exe
+/oxis
 frontend/dist/
 frontend/build/
 
@@ -95,17 +94,6 @@ cloudflare/.dev.vars.*
 !cloudflare/.dev.vars.example
 cloudflare/.wrangler/
 
-# ── Cloudflare Plugin Secrets (cloudflare/premium-source)
+# ── private server code and premium plugin source ─────────────────────
 cloudflare/premium-source/
-cloudflare/premium-source/ai_devops.lua
-
-# ──────
 cloudflare/functions/
-cloudflare/functions/checkout.js
-cloudflare/functions/connect-onboarding.js
-cloudflare/functions/connect-status.js
-cloudflare/functions/premium-plugin.js
-cloudflare/functions/verify-license.js
-cloudflare/functions/webhook.js
-cloudflare/functions/lib/licenses.js
-cloudflare/functions/lib/stripe.js

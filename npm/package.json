@@ -1,17 +1,17 @@
 {
   "name": "oxis",
   "version": "1.2.1",
-  "description": "OXIS — browser-based local terminal. Starts on port 1420.",
-  "license": "MIT",
+  "description": "OXIS — Open Xenial Intelligent Shell. Launcher that downloads and runs the prebuilt desktop app.",
+  "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "https://gitlab.com/oxis/oxis.git"
+    "url": "https://github.com/oxlaboratory/oxis.git"
   },
-  "homepage": "https://gitlab.com/oxis/oxis",
-  "keywords": ["terminal", "shell", "oxis", "browser", "pty", "websocket"],
+  "homepage": "https://github.com/oxlaboratory/oxis",
+  "keywords": ["terminal", "shell", "oxis", "lua", "desktop"],
   "bin": {
     "oxis": "./bin/oxis.js",
-    "oxi":      "./bin/oxis.js"
+    "oxi": "./bin/oxis.js"
   },
   "scripts": {
     "postinstall": "node scripts/install.js"

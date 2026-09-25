@@ -2,5 +2,5 @@
 
 package main
 
-// This file is compiled only on Windows.
-// The -ldflags="-H windowsgui" in the build script suppresses the console window.
+// Windows builds link with -H windowsgui (see scripts/build-go.js) so no
+// console window opens alongside the app.

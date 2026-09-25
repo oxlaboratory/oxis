@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
- * scripts/build-go.js — OxiShell full build
- * Requires Node >= 24.0.0 and Go >= 1.21
+ * scripts/build-go.js — full OXIS build (frontend + Go binary).
+ * Requires Node >= 24 and Go >= 1.22. On Linux also GTK3 and WebKitGTK
+ * development packages (see build-linux.sh).
  */
 
 const { spawnSync } = require("child_process");
@@ -15,12 +16,11 @@ if (nodeMajor < 24) {
   process.exit(1);
 }
 
-const ROOT       = path.resolve(__dirname, "..");
-const FRONTEND   = path.join(ROOT, "frontend");
+const ROOT     = path.resolve(__dirname, "..");
+const FRONTEND = path.join(ROOT, "frontend");
 
-// Guard: make sure we are running from the project root, not from frontend/
 if (!fs.existsSync(path.join(ROOT, "go.mod"))) {
-  console.error("\nERROR: Run this from the project root (oxi-go-fixed/), not from frontend/\n");
+  console.error("\nERROR: run this from the project root, not from frontend/\n");
   console.error("  cd " + ROOT);
   console.error("  npm run build\n");
   process.exit(1);
@@ -28,7 +28,8 @@ if (!fs.existsSync(path.join(ROOT, "go.mod"))) {
 const EMBED_DIST = path.join(ROOT, "internal", "server", "dist");
 const OUT        = path.join(ROOT, "dist");
 const IS_WIN     = process.platform === "win32";
-const VERSION    = "1.2.1";
+const IS_LINUX   = process.platform === "linux";
+const VERSION    = require(path.join(ROOT, "package.json")).version;
 
 const col = {
   reset:"\x1b[0m", magenta:"\x1b[35m", cyan:"\x1b[36m",
@@ -73,14 +74,12 @@ function copyDir(src, dest) {
   }
 }
 
-log("\n╔══════════════════════════════════╗", col.magenta);
-log("║  OXIS build                  ║", col.magenta);
-log("╚══════════════════════════════════╝", col.magenta);
+log(`\n→ OXIS ${VERSION} build`, col.magenta);
 
 const GO = process.env.GO_BIN || findGo();
 if (!GO) {
   log("\nERROR: Go not found.", col.red);
-  log("  Install Go 1.21+: https://go.dev/dl/", col.cyan);
+  log("  Install Go 1.22+: https://go.dev/dl/", col.cyan);
   log("  Then open a new terminal and re-run: npm run build", col.reset);
   process.exit(1);
 }
@@ -110,22 +109,13 @@ ok("internal/server/dist/ ready");
 
 // ── Step 3: Go deps ───────────────────────────────────────────
 step(3, "Fetching Go dependencies...");
-const goSumPath = path.join(ROOT, "go.sum");
-if (fs.existsSync(goSumPath)) { fs.rmSync(goSumPath); log("   (go.sum removed — regenerating)", col.grey); }
-run(`"${GO}" mod tidy`, ROOT, { PATH:augmentedPath });
+run(`"${GO}" mod download`, ROOT, { PATH:augmentedPath });
 ok("go modules ready");
 
 // ── Step 4: Windows icon embedding ───────────────────────────
 if (IS_WIN) {
   step(4, "Embedding icon into .exe (goversioninfo)...");
-  const icoSrc  = path.join(ROOT, "cmd", "oxi", "oxis.ico");
-  const sysoOut = path.join(ROOT, "cmd", "oxi", "resource.syso");
-
-  // Install goversioninfo if not present
-  const gvi = spawnSync(`"${GO}" run github.com/josephspurrier/goversioninfo/cmd/goversioninfo@latest -help`,
-    { shell:true, stdio:"pipe", cwd:path.join(ROOT,"cmd","oxi"), env:{...process.env,PATH:augmentedPath} });
-
-  if (fs.existsSync(icoSrc)) {
+  if (fs.existsSync(path.join(ROOT, "cmd", "oxi", "oxis.ico"))) {
     const r = spawnSync(
       `"${GO}" run github.com/josephspurrier/goversioninfo/cmd/goversioninfo@latest -icon=oxis.ico -o=resource.syso`,
       { shell:true, stdio:"inherit", cwd:path.join(ROOT,"cmd","oxi"), env:{...process.env,PATH:augmentedPath} }
@@ -143,40 +133,41 @@ fs.mkdirSync(OUT, { recursive:true });
 
 const binaryName = IS_WIN ? "oxis.exe" : "oxis";
 const outBinary  = path.join(OUT, binaryName);
-// -X wailsapp.Version=... stamps the running VERSION into the binary
-// so 'update (internal/update.Check, called from App.CheckForUpdate)
-// has something real to compare GitHub's latest release tag against —
-// without this it'd stay at Go's "0.0.0-dev" and 'update would look
-// broken (never newer than anything) on every release build.
-const versionFlag = `-X github.com/oxis/oxis/internal/wailsapp.Version=${VERSION}`;
-const ldflags    = IS_WIN ? `"-s -w -H windowsgui ${versionFlag}"` : `"-s -w ${versionFlag}"`;
-// Wails v2 requires the "desktop" build tag (selects its native webview
-// bindings) — a plain `go build` without it links, but the resulting
-// binary refuses to start and shows an error dialog pointing at `wails
-// build`. "production" additionally strips Wails' dev-mode banner and
-// asset-server debug logging. See internal/wailsapp/app.go.
-run(`"${GO}" build -tags desktop,production -ldflags=${ldflags} -o "${outBinary}" ./cmd/oxi`, ROOT, { PATH:augmentedPath });
+
+// Version and BuildCommit feed 'update (internal/update). Without
+// BuildCommit a build never reports an available update.
+const buildCommit = (() => {
+  const r = spawnSync("git", ["rev-parse", "HEAD"], { cwd:ROOT, stdio:"pipe" });
+  return r.status === 0 ? r.stdout.toString().trim() : "";
+})();
+const xflags  = `-X github.com/oxis/oxis/internal/wailsapp.Version=${VERSION} -X github.com/oxis/oxis/internal/update.BuildCommit=${buildCommit}`;
+const ldflags = IS_WIN ? `"-s -w -H windowsgui ${xflags}"` : `"-s -w ${xflags}"`;
+
+// Wails needs the "desktop" tag or the binary refuses to start;
+// "production" drops dev-mode logging. Ubuntu 24.04+ only ships
+// WebKitGTK 4.1, which also needs webkit2_41.
+const tags = ["desktop", "production"];
+const hasWebkit41 = IS_LINUX && spawnSync("pkg-config", ["--exists", "webkit2gtk-4.1"], { stdio:"pipe" }).status === 0;
+if (hasWebkit41) tags.push("webkit2_41");
+run(`"${GO}" build -tags ${tags.join(",")} -ldflags=${ldflags} -o "${outBinary}" ./cmd/oxi`, ROOT, { PATH:augmentedPath });
 
 const sizeMB = (fs.statSync(outBinary).size / 1024 / 1024).toFixed(1);
 ok(`dist/${binaryName} (${sizeMB} MB)`);
 
-// ── Step 6: Copy icon assets alongside binary ─────────────────
+// ── Step 6: Copy icon alongside binary ────────────────────────
 const logoSrc = path.join(FRONTEND, "public", "logo.png");
 if (fs.existsSync(logoSrc)) {
   fs.copyFileSync(logoSrc, path.join(OUT, "logo.png"));
   ok("dist/logo.png");
 }
 
-// ── Step 7: .deb (Linux only) ─────────────────────────────────
-// dist/deb/ holds both the staging tree AND the final .deb — same
-// "installer files live in their own subfolder" pattern as
-// dist/wix/ and dist/nsis/ on Windows (see build-msi.js), so dist/
-// itself only ever has oxis(.exe)/logo.png loose at its root.
-if (!IS_WIN) {
+// ── Step 7: .deb + portable tarball (Linux) ───────────────────
+if (IS_LINUX) {
   const hasDpkg = spawnSync("dpkg-deb", ["--version"], {shell:true, stdio:"pipe"}).status === 0;
   if (hasDpkg) {
     step(5, "Building .deb package...");
     const debStage = path.join(OUT, "deb", `oxis_${VERSION}_amd64`);
+    fs.rmSync(debStage, { recursive:true, force:true });
     const usrBin   = path.join(debStage, "usr", "bin");
     const debDir   = path.join(debStage, "DEBIAN");
     const appsDir  = path.join(debStage, "usr", "share", "applications");
@@ -185,14 +176,8 @@ if (!IS_WIN) {
 
     fs.copyFileSync(outBinary, path.join(usrBin, "oxis"));
     fs.chmodSync(path.join(usrBin, "oxis"), 0o755);
-
-    // Install icon for Linux
-    if (fs.existsSync(logoSrc)) {
-      fs.copyFileSync(logoSrc, path.join(iconsDir, "oxis.png"));
-    }
-
-    const symlink = path.join(usrBin, "oxi");
-    try { if (!fs.existsSync(symlink)) fs.symlinkSync("/usr/bin/oxis", symlink); } catch {}
+    if (fs.existsSync(logoSrc)) fs.copyFileSync(logoSrc, path.join(iconsDir, "oxis.png"));
+    try { fs.symlinkSync("/usr/bin/oxis", path.join(usrBin, "oxi")); } catch { /* already there */ }
 
     fs.writeFileSync(path.join(debDir, "control"),
 `Package: oxis
@@ -200,58 +185,45 @@ Version: ${VERSION}
 Section: utils
 Priority: optional
 Architecture: amd64
+Depends: libgtk-3-0, ${hasWebkit41 ? "libwebkit2gtk-4.1-0" : "libwebkit2gtk-4.0-37"}
 Maintainer: OXIS <noreply@oxlaboratory.dev>
-Description: OxiShell terminal
- A Lua-configurable native desktop terminal, built with Wails.
+Homepage: https://github.com/oxlaboratory/oxis
+Description: OXIS — Open Xenial Intelligent Shell
+ A native desktop terminal with Lua plugins, workspaces and a
+ built-in editor.
 `);
     fs.writeFileSync(path.join(appsDir, "oxis.desktop"),
 `[Desktop Entry]
-Name=OxiShell
-Comment=Lua-configurable native desktop terminal
+Name=OXIS
+Comment=Open Xenial Intelligent Shell
 Exec=/usr/bin/oxis
 Icon=oxis
 Terminal=false
 Type=Application
 Categories=System;TerminalEmulator;
+StartupWMClass=oxis
 `);
+    // /usr/bin isn't user-writable, so data goes to ~/Downloads/OXIS
+    // (AppDirPath in internal/wailsapp/app.go).
     const postinst = path.join(debDir, "postinst");
-    // dpkg installs are non-interactive by design — there's no GUI
-    // wizard step, and no way to prompt for or offer an install-
-    // location choice the way the Windows MSI now does (WixUI_InstallDir
-    // — see build-msi.js). /usr/bin is fixed, standard, and (same
-    // reasoning as Program Files on Windows) not writable by a
-    // regular non-root user, so OXIS's own write-test in AppDirPath()
-    // (internal/wailsapp/app.go) already redirects to ~/Downloads/OXIS
-    // automatically on Linux too, no installer-side change needed —
-    // this postinst message just tells the person that up front
-    // instead of leaving them to discover it themselves.
-    const postinstScript = [
+    fs.writeFileSync(postinst, [
       "#!/bin/sh",
       "update-desktop-database /usr/share/applications 2>/dev/null || true",
       "gtk-update-icon-cache /usr/share/icons/hicolor 2>/dev/null || true",
       "echo",
       "echo 'OXIS installed to /usr/bin/oxis.'",
-      "echo 'Its own data (workspaces, plugins, documents) will live under'",
-      "echo '~/Downloads/OXIS the first time you run it -- /usr/bin is a shared,'",
-      "echo 'system-wide location a regular user account cannot write to, same'",
-      "echo 'as the Windows install choosing between Program Files and Downloads.'",
+      "echo 'Workspaces, plugins and documents are stored in ~/Downloads/OXIS.'",
       "echo",
       "exit 0",
       "",
-    ].join("\n");
-    fs.writeFileSync(postinst, postinstScript);
+    ].join("\n"));
     fs.chmodSync(postinst, 0o755);
 
     const debFile = path.join(OUT, "deb", `oxis_${VERSION}_amd64.deb`);
     run(`dpkg-deb --build --root-owner-group "${debStage}" "${debFile}"`, ROOT);
     ok(`dist/deb/oxis_${VERSION}_amd64.deb`);
 
-    // Portable tarball — extract-and-run, everything pre-created, no
-    // package manager, no /usr/bin, no waiting on the app's own
-    // first-run git clone. Same thing build-linux.sh (the CI-facing
-    // script) now also builds — kept in sync here so `npm run build`
-    // run directly on Linux produces the same output CI does, not a
-    // narrower one just because it went through a different script.
+    // Portable tarball: extract and run, data stays next to the binary.
     const portableDir = path.join(OUT, "oxis-portable");
     fs.rmSync(portableDir, { recursive: true, force: true });
     ["workspaces", "created-plugins", "created-documents"].forEach(d =>
@@ -267,22 +239,9 @@ Categories=System;TerminalEmulator;
   }
 }
 
-// ── Windows installer is a SEPARATE step now: npm run build:msi ──
-// Used to run automatically here as part of `npm run build` — the
-// original reasoning was that building OXIS should also produce
-// something that installs both the app AND the full source in one
-// go. That reasoning no longer applies: the installer doesn't bundle
-// source anymore at all (see build-msi.js's own top comment — the
-// RUNNING APP now clones its own source into a writable data
-// directory on first launch instead, only when it actually needs
-// to). With nothing left to bundle, there's no reason `npm run
-// build` should also spend time building a WiX/NSIS installer nobody
-// asked for on every single build — run `npm run build:msi`
-// explicitly when you actually want one.
+// The Windows installer is a separate step: npm run build:msi
 
-log("\n╔══════════════════════════════════╗", col.magenta);
-log("║  Build complete!                 ║", col.magenta);
-log("╚══════════════════════════════════╝", col.magenta);
-log(`\n  Binary:  dist/${binaryName} (${sizeMB} MB)`, col.green);
+log("\n✓ Build complete", col.magenta);
+log(`  Binary:  dist/${binaryName} (${sizeMB} MB)`, col.green);
 log(`  Run:     ${IS_WIN ? ".\\dist\\oxis.exe" : "./dist/oxis"}`, col.cyan);
 log("");

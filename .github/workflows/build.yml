@@ -1,66 +1,13 @@
-# ══════════════════════════════════════════════════════════════════
-# GitHub Actions — replaces .gitlab-ci.yml (removed). Builds Linux
-# AND Windows on every push to the default branch, then publishes/
-# overwrites a single rolling release ("latest-build") that the
-# commit-based auto-updater (internal/update/update.go) checks
-# against — see that file's own doc comment for the full design.
+# Builds Linux and Windows on every push/PR to main. Pushes to main then
+# publish both outputs together to the rolling "latest-build" release,
+# which the in-app updater uses for fallback downloads
+# (internal/update). Publishing from one job avoids the two builds
+# racing to update the same release.
 #
-#   build-linux    → dist/oxis (binary) + dist/deb/oxis_<ver>_amd64.deb
-#                  → dist/oxis-<ver>-linux-portable.tar.gz
-#   build-windows  → dist/wix/oxis-<ver>.msi (npm run build, then
-#                    npm run build:msi — see build-msi.js's own doc
-#                    comment; WiX Toolset installed via chocolatey,
-#                    since windows-latest doesn't ship it) + the raw
-#                    dist/oxis.exe alongside it — the .msi is the
-#                    right thing for a person to download and run
-#                    themselves, but internal/update's in-place
-#                    'update install (selfupdate.go's PerformUpdate)
-#                    can only ever rename a bare executable over the
-#                    running one, never an installer package, so it
-#                    needs this separate raw asset to find. See
-#                    update.go's pickAsset vs pickRawBinary.
-#   publish-release (needs: [build-linux, build-windows]) → downloads
-#     both jobs' own uploaded artifacts and publishes them ALL in one
-#     single action-gh-release step.
-#
-# Each build job stages its own output files into a single FLAT
-# directory (release-files/) before uploading, specifically so the
-# uploaded/downloaded artifact's own internal layout is simple and
-# predictable — actions/upload-artifact@v4 otherwise preserves
-# directory structure relative to the LEAST COMMON ANCESTOR of
-# whatever paths are listed, which is easy to get subtly wrong when
-# some outputs (like the .deb, under dist/deb/) sit one level deeper
-# than others (dist/oxis, dist/*.tar.gz directly under dist/) — this
-# sidesteps that entirely rather than trying to predict it.
-#
-# That three-job split (build, build, THEN publish once, rather than
-# each build job publishing on its own) is deliberate, not just
-# structure for its own sake: two build jobs publishing to the SAME
-# rolling "latest-build" tag independently, in parallel, would race
-# against each other — whichever finished last would win, and
-# whichever finished first could get its own uploaded assets
-# clobbered before anyone ever saw them. A real gap found and fixed
-# here: earlier, Windows had no CI job at all (built and released
-# manually), which meant the auto-updater added in this same pass
-# could never actually offer a Windows update — Check() in
-# update.go looks for a .msi/.exe/.deb asset in this exact release,
-# and there was never a .msi in it to find. This is what makes that
-# actually work end to end now, not just on Linux.
-#
-# package.json pins "engines": { "node": ">=24.0.0" }; actions/setup-
-# node's "lts/*" tracks whatever Node release is *current LTS* right
-# now rather than a fixed major, so this keeps working as LTS rolls
-# forward instead of quietly drifting below 24 again.
-#
-# The release-publish step below uses `${{ github.repository }}`
-# implicitly (softprops/action-gh-release targets the checked-out repo
-# automatically — no placeholder needed HERE). The CLIENT side of that
-# same contract is internal/update/update.go's ProjectPath constant,
-# which the running app uses to know where to check for this same
-# rolling release; it's already set to "oxlaboratory/oxis" there — see
-# update.go's own doc comment if that repo path is ever renamed/moved,
-# since the two have to stay in sync by hand.
-# ══════════════════════════════════════════════════════════════════
+#   build-linux    → dist/oxis, dist/deb/oxis_<ver>_amd64.deb,
+#                    dist/oxis-<ver>-linux-portable.tar.gz
+#   build-windows  → dist/wix/oxis-<ver>.msi and the bare dist/oxis.exe
+#                    ('update install can only swap in a bare binary)
 
 name: Build
 
@@ -89,8 +36,10 @@ jobs:
         with:
           node-version: "lts/*"
 
-      - name: Install packaging tools
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq dpkg-dev
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq dpkg-dev pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev
 
       - name: Build
         run: |
@@ -125,19 +74,8 @@ jobs:
         with:
           node-version: "lts/*"
 
-      # windows-latest has been observed shipping WiX Toolset v3.14
-      # preinstalled already (confirmed via a real CI run — pinning an
-      # exact chocolatey version, `--version=3.14.1`, failed outright
-      # because a newer 3.14.1 patch build was already present and
-      # chocolatey refuses to "downgrade" onto the pinned one without
-      # --force/--allow-downgrade). Checking first and only installing
-      # when it's actually missing sidesteps that version-pin conflict
-      # entirely, and is also more robust if a future runner image
-      # ever drops WiX from its default toolset — this still installs
-      # it in that case, just doesn't force an unnecessary, potentially
-      # conflicting reinstall when a compatible one already exists.
-      # build-msi.js's own search paths (scripts/build-msi.js) already
-      # include this exact v3.14 path, which is what's being checked.
+      # windows-latest usually ships WiX 3.14 already; only install it when
+      # missing (pinning a version over a newer preinstalled patch fails).
       - name: Install WiX Toolset (if not already present)
         run: |
           $candle = "C:\Program Files (x86)\WiX Toolset v3.14\bin\candle.exe"
@@ -169,9 +107,7 @@ jobs:
           path: release-files/
           retention-days: 30
 
-  # Only on an actual push to the default branch — never on a PR (a
-  # PR's HEAD isn't necessarily going to land, and shouldn't be what
-  # the auto-updater tells every user's OXIS install to fetch).
+  # Never publish from a pull request.
   publish-release:
     needs: [build-linux, build-windows]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -193,10 +129,8 @@ jobs:
           tag_name: latest-build
           name: "Latest build"
           body: |
-            Automatically built from commit ${{ github.sha }} — not a
-            tagged release, just the most recent successful build of
-            the default branch. This is what OXIS's own commit-based
-            auto-updater checks against (see internal/update/update.go).
+            Automatically built from commit ${{ github.sha }}: the most
+            recent successful build of main, not a tagged release.
           prerelease: true
           make_latest: false
           files: release-files/*

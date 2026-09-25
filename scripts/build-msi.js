@@ -1,24 +1,10 @@
 #!/usr/bin/env node
 /**
- * build-msi.js — Windows installer builder (NSIS + WiX)
- * Fixes NSIS detection by checking all known install paths.
- *
- * Ships ONLY the binary (+ icon) — no longer bundles the whole
- * project source the way earlier versions of this script did. That
- * used to happen at INSTALL time (heat.exe harvesting dist/source
- * into the .msi itself, or NSIS's own "Source code" section) —
- * removed for two real reasons: it made every install slower and
- * heavier for something most users never touch, and — the more
- * important one — it meant `npm run build` always also produced a
- * dist/wix/ + dist/source tree regardless of whether an installer was
- * even being built. Source delivery is now the RUNNING APP's job
- * instead: on first launch, if it detects it can't write next to its
- * own exe (the real case an MSI install hits — see AppDirPath's own
- * doc comment in internal/wailsapp/app.go for the full story), it
- * clones this project's GitHub source into a writable data directory
- * under the user's own Downloads folder in the background. Simpler
- * installer, and source only ever gets fetched for someone who
- * actually needs the writable-fallback path in the first place.
+ * build-msi.js — Windows installer builder. Builds a WiX .msi when WiX
+ * is available, otherwise an NSIS .exe installer. Run after
+ * `npm run build`. Only the binary and icon are packaged; installs that
+ * can't write next to the exe clone the source on first launch instead
+ * (see AppDirPath in internal/wailsapp/app.go).
  */
 const { spawnSync } = require("child_process");
 const path = require("path");
@@ -30,10 +16,7 @@ const EXE     = path.join(DIST, "oxis.exe");
 const ICO     = path.join(ROOT, "cmd", "oxi", "oxis.ico");
 const LOGO    = path.join(DIST, "logo.png");
 const LICENSE = path.join(ROOT, "LICENSE");
-const VERSION = "1.2.1";
-// Every WiX/NSIS-generated file (scripts, intermediate .wixobj, and
-// the final installer itself) lives under its own subfolder instead
-// of loose in dist/ — see README § dist/ layout.
+const VERSION = require(path.join(ROOT, "package.json")).version;
 const WIX_DIR  = path.join(DIST, "wix");
 const NSIS_DIR = path.join(DIST, "nsis");
 
@@ -47,16 +30,8 @@ const info = m => log("   → " + m, col.cyan);
 const warn = m => log("   ! " + m, col.grey);
 const fail = m => { log("\nERROR: " + m, col.red); process.exit(1); };
 
-// WixUI_InstallDir (the standard WiX dialog set that lets the user
-// browse/change the install location — see buildMSI below) requires
-// a license RTF for its License Agreement page; there's no way to
-// skip straight to the directory picker without a custom dialog set,
-// which is a lot more WiX authoring for what's a completely standard
-// UI flow otherwise. Converts the REAL LICENSE file's actual text
-// (not a summary/placeholder) into minimal valid RTF — escaping
-// backslash/brace (RTF's own control characters) and turning blank
-// lines into paragraph breaks is enough for a plain-text license;
-// nothing here needs real RTF formatting.
+// WixUI_InstallDir needs a license RTF for its License page; this
+// converts the plain-text LICENSE (escaping \ { }) into minimal RTF.
 function buildLicenseRtf() {
   const text = fs.existsSync(LICENSE) ? fs.readFileSync(LICENSE, "utf8") : "Apache License 2.0";
   const escaped = text
@@ -74,9 +49,7 @@ function buildLicenseRtf() {
 
 if (!fs.existsSync(EXE)) fail("dist/oxis.exe not found. Run npm run build first.");
 
-log("\n╔══════════════════════════════════╗", col.magenta);
-log("║  OXIS Installer Build        ║", col.magenta);
-log("╚══════════════════════════════════╝", col.magenta);
+log(`\n→ OXIS ${VERSION} installer build`, col.magenta);
 
 // ── Find NSIS ──────────────────────────────────────────────
 function findNSIS() {
@@ -114,37 +87,20 @@ function findWiX() {
   ];
   for (const c of candidates) {
     if (!c) continue;
-    // A candidate that's already a real path (has a directory
-    // separator) resolves its own dirname correctly. A BARE name
-    // like "candle.exe" (the first candidate — checking whether it's
-    // resolvable via the system PATH at all) does NOT: fs.existsSync
-    // treats it as relative to the current working directory (almost
-    // never where candle.exe actually lives), and spawnSync resolving
-    // it via PATH doesn't tell you WHERE on PATH it was found — only
-    // that it ran. path.dirname("candle.exe") is just "." either way,
-    // which is not a real WiX bin directory. This was a real,
-    // pre-existing bug, confirmed against an actual CI run: WiX
-    // being genuinely present and on PATH still produced "candle.exe/
-    // light.exe are incomplete" and skipped the MSI, because this
-    // returned "." as wixBinDir and buildMSI()'s own fs.existsSync
-    // check for "./candle.exe" correctly found nothing there.
+    // A bare name only says "it's on PATH", not where; resolve it with
+    // `where` and pick the entry that has light.exe next to it (a
+    // chocolatey shim may come first).
     const isBareName = !c.includes("\\") && !c.includes("/");
     if (isBareName) {
       const where = spawnSync("where", [c], { shell: false, stdio: "pipe", timeout: 3000 });
       if (!where.error && where.status === 0) {
-        // "where" can list more than one match (e.g. a chocolatey
-        // shim earlier on PATH than the real WiX install directory) —
-        // a shim is a one-off wrapper executable, not necessarily
-        // sitting next to a real light.exe the way an actual WiX bin/
-        // directory would be, so check each candidate directory for
-        // that sibling rather than trusting the first line blindly.
         const paths = where.stdout.toString().split(/\r?\n/).map(s => s.trim()).filter(Boolean);
         for (const resolved of paths) {
           const dir = path.dirname(resolved);
           if (fs.existsSync(path.join(dir, "light.exe"))) return dir;
         }
       }
-      continue; // not resolvable via PATH with a real light.exe alongside it — nothing more to check for this bare-name candidate
+      continue;
     }
     try { if (fs.existsSync(c)) return path.dirname(c); } catch {}
     const r = spawnSync(c, ["--version"], { shell: false, stdio: "pipe", timeout: 3000 });
@@ -153,12 +109,7 @@ function findWiX() {
   return null;
 }
 
-// ── Generate WiX MSI ────────────────────────────────────────
-// This is the actual `.msi` builder — the NSIS path above produces
-// a `.exe` installer, which is NOT the same file format even though
-// people often say "MSI" loosely for either. Just candle.exe -> wixobj
-// -> light.exe -> msi now — no heat.exe harvesting step, since there's
-// no source tree to harvest anymore (see this file's own top comment).
+// ── Generate WiX MSI (candle → light) ─────────────────────
 function buildMSI(wixBinDir) {
   const candle = path.join(wixBinDir, "candle.exe");
   const light  = path.join(wixBinDir, "light.exe");
@@ -171,23 +122,13 @@ function buildMSI(wixBinDir) {
   const productWxs  = path.join(WIX_DIR, "oxis-product.wxs");
   const outMsi      = `oxis-${VERSION}.msi`;
   const licenseRtf  = buildLicenseRtf();
-  // WiX needs a stable GUID per product/upgrade-code so future
-  // versions can upgrade in place instead of side-by-side installing.
-  // Generated once and hardcoded (NOT regenerated per build) —
-  // regenerating this every run would break upgrade detection.
+  // Must never change, or upgrades install side by side.
   const UPGRADE_CODE = "4F3A9B2E-6C1D-4E8A-9F2B-1A7C5D8E9F01";
 
   const icoLine = fs.existsSync(ICO)
     ? `<Icon Id="OxisIcon" SourceFile="${ICO}" />\n    <Property Id="ARPPRODUCTICON" Value="OxisIcon" />`
     : "";
 
-  // logo.png ships in the LOCAL dist/ folder (build-go.js's own Step
-  // 6) but was never actually part of what the MSI installs — a real
-  // gap, reported: Program Files\OXIS ended up with just oxis.exe,
-  // not the same file set dist/ itself has. Conditional component,
-  // same "only if it exists" pattern as the icon above, so a build
-  // missing logo.png for some reason doesn't fail the whole MSI over
-  // one optional file.
   const logoComponent = fs.existsSync(LOGO) ? `
           <Component Id="OxisLogoComponent" Guid="*" Win64="yes">
             <File Id="OxisLogo" Source="${LOGO}" KeyPath="yes" />
@@ -198,55 +139,20 @@ function buildMSI(wixBinDir) {
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi" xmlns:util="http://schemas.microsoft.com/wix/UtilExtension">
   <Product Id="*" Name="OXIS" Language="1033" Version="${VERSION}"
            Manufacturer="OXIS" UpgradeCode="${UPGRADE_CODE}">
-    <!-- Platform="x64" — the oxis.exe this installs is always amd64 (go
-         build on windows-latest with no GOARCH override defaults to
-         amd64), so the package itself has to declare x64 too. Without
-         it, WiX defaults to Platform="x86": ProgramFiles64Folder still
-         resolves on a 64-bit OS either way, so this used to "work" and
-         compile clean, but every component under it would install as a
-         32-bit component — its HKLM\Software\OXIS registry writes
-         (OxisPathComponent, the three data-folder components, the
-         permissions marker) would get silently redirected to
-         HKLM\Software\WOW6432Node\OXIS by the OS instead of the real
-         64-bit hive, and Add/Remove Programs would list a 64-bit app
-         under a 32-bit install record. -sval on the light.exe call
-         (below) skips the ICE validation that would otherwise catch
-         this (ICE80), which is exactly why it was never caught by the
-         build failing. -->
+    <!-- x64: oxis.exe is amd64; without this, registry writes land in
+         WOW6432Node. -->
     <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" Platform="x64" />
     <MajorUpgrade DowngradeErrorMessage="A newer version of OXIS is already installed." />
     <MediaTemplate EmbedCab="yes" />
     ${icoLine}
 
-    <!-- WixUI_InstallDir — the standard WiX dialog set with a real
-         "choose install location" page (Browse... button and all),
-         set to control INSTALLFOLDER below, so the person installing
-         picks where OXIS (and its data — workspaces/created-plugins/
-         created-documents, all created as real, visible folders
-         right in that location, not lazily on first use — see the
-         explicit CreateFolder components below) actually lives,
-         rather than it being silently fixed to Program Files. Needs
-         a license RTF for its License Agreement page — buildLicenseRtf()
-         above converts the real LICENSE file, not a placeholder. -->
+    <!-- Standard install-location dialog, bound to INSTALLFOLDER. -->
     <UIRef Id="WixUI_InstallDir" />
     <WixVariable Id="WixUILicenseRtf" Value="${licenseRtf}" />
     <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
 
-    <!-- Defaults INSTALLFOLDER to somewhere under the CURRENT user's
-         own profile (%USERPROFILE%\\OXIS) instead of Program Files —
-         genuinely writable by a regular account with no ACL grant or
-         elevation needed at all, which is the whole point: Program
-         Files only worked because OxisFolderPermissions (below)
-         explicitly grants it, a real but avoidable workaround for a
-         problem a user-profile default just doesn't have in the
-         first place. Read via VBScript's own environment-expansion
-         (WScript.Shell.ExpandEnvironmentStrings), not through MSI's
-         property table, since USERPROFILE isn't guaranteed to be
-         auto-imported as an MSI property the way this needs — this
-         works regardless of that. Runs before the directory dialog
-         even shows (During="firstSequence"), so the field is already
-         filled with a real, working path rather than the Program
-         Files default from before. -->
+    <!-- Default INSTALLFOLDER to %USERPROFILE%\OXIS, which a normal account
+         can write to without elevation. -->
     <CustomAction Id="OxisSetDefaultDir" Return="ignore" Execute="immediate" Script="vbscript">
       <![CDATA[
         Dim shell, profile
@@ -256,19 +162,8 @@ function buildMSI(wixBinDir) {
       ]]>
     </CustomAction>
 
-    <!-- Runs on every "Next" click from the Destination Folder page —
-         re-reads whatever INSTALLFOLDER the person just typed or
-         browsed to (their own edit, or the Browse... dialog's own
-         result) and sets OXIS_VALID_DIR to "1" only if it's under
-         their own profile. Same ExpandEnvironmentStrings approach as
-         the default above, for the same reliability reason — this is
-         the actual gate: Program Files, another drive's root, another
-         user's profile folder, or any other admin-owned location all
-         correctly evaluate to "0" here, not just Program Files
-         specifically, since the check is "is this under MY OWN
-         profile", not "is this NOT Program Files" — the latter would
-         still let through other locations a regular account can't
-         actually write to either. -->
+    <!-- On Next from the folder page: OXIS_VALID_DIR=1 only if the chosen
+         folder is under the user's own profile. -->
     <CustomAction Id="OxisValidateDir" Return="check" Execute="immediate" Script="vbscript">
       <![CDATA[
         Dim shell, profile, chosen
@@ -283,13 +178,7 @@ function buildMSI(wixBinDir) {
       ]]>
     </CustomAction>
 
-    <!-- A minimal, standard WiX error dialog — shown instead of
-         advancing when OxisValidateDir above found the chosen path
-         isn't under the user's own profile. This IS the "warn before
-         they continue" — it fires the moment Next is clicked on a
-         bad path, before anything is installed, not a launch-time
-         rejection after they've already clicked through every
-         remaining page. -->
+    <!-- Shown instead of advancing when the folder isn't under the profile. -->
     <UI>
       <Dialog Id="OxisInvalidDirDlg" Width="370" Height="140" Title="OXIS Setup">
         <Control Id="Text" Type="Text" X="20" Y="15" Width="330" Height="70" NoPrefix="yes"
@@ -301,30 +190,13 @@ function buildMSI(wixBinDir) {
 
       <Publish Dialog="WelcomeDlg" Control="Next" Event="DoAction" Value="OxisSetDefaultDir" Order="1">NOT Installed</Publish>
       <Publish Dialog="InstallDirDlg" Control="Next" Event="DoAction" Value="OxisValidateDir" Order="1">1</Publish>
-      <!-- Order 10/11, deliberately higher than anything WixUI_InstallDir's
-           own stock InstallDirDlg.Next chain uses internally (its own
-           SetTargetPath/WixUIValidatePath/SpawnDialog/NewDialog events top
-           out around Order 4) — a real bug, found by tracing the stock
-           dialog set rather than assuming it: the library's own syntax-only
-           WixUIValidatePath sets WIXUI_INSTALLDIR_VALID independently of our
-           OXIS_VALID_DIR, and its own Order-4 "NewDialog VerifyReadyDlg" is
-           conditioned on THAT property, not ours — so any syntactically
-           valid path (e.g. a perfectly well-formed Program Files path) would
-           satisfy the library's own check and silently advance the wizard
-           to VerifyReadyDlg even while our own error dialog below also
-           popped up, letting the user click through it and continue
-           installing to a location OxisFolderPermissions never granted
-           write access to. Running strictly after the library's own chain,
-           and re-issuing NewDialog back to InstallDirDlg itself, means our
-           decision is always the last word: it overrides whatever dialog
-           the stock chain already queued up, for real, instead of racing it. -->
+      <!-- Order 10/11 runs after WixUI's own Next chain (which tops out at
+           4 and only checks path syntax), so our check has the last word. -->
       <Publish Dialog="InstallDirDlg" Control="Next" Event="SpawnDialog" Value="OxisInvalidDirDlg" Order="10">OXIS_VALID_DIR = "0"</Publish>
       <Publish Dialog="InstallDirDlg" Control="Next" Event="NewDialog" Value="InstallDirDlg" Order="11">OXIS_VALID_DIR = "0"</Publish>
     </UI>
 
-    <!-- The app itself — the only feature now; no more separate,
-         deselectable "source code" feature, since there's no bundled
-         source to make optional. Required, can't be unchecked. -->
+
     <Feature Id="MainApp" Title="OXIS" Level="1" Absent="disallow">
       <ComponentRef Id="OxisFolderPermissions" />
       <ComponentRef Id="OxisExeComponent" />
@@ -339,27 +211,8 @@ function buildMSI(wixBinDir) {
     <Directory Id="TARGETDIR" Name="SourceDir">
       <Directory Id="ProgramFiles64Folder">
         <Directory Id="INSTALLFOLDER" Name="OXIS">
-          <!-- Grants the built-in "Users" group (every regular,
-               non-admin local account) full control of INSTALLFOLDER
-               itself, so the RUNNING app can create workspaces/,
-               created-plugins/, created-documents/ there without
-               needing to run elevated. Program Files is normally
-               UAC-protected against writes from a regular user
-               session — this is the standard, correct fix for an app
-               that wants its own data folder to live next to its exe
-               anyway: the MSI (which does run elevated, installing
-               to Program Files always requires that) grants the
-               permission up front, once, during install, rather than
-               the app trying to write there as a normal user and
-               silently failing (which is the exact bug this
-               replaces — see AppDirPath in internal/wailsapp/app.go,
-               which still keeps its own Downloads-folder fallback as
-               a safety net for the rare case this grant doesn't take,
-               e.g. Group Policy overriding it, but no longer needs to
-               trigger for a normal install with this in place).
-               Applies equally wherever WixUI_InstallDir's directory
-               picker ends up pointing INSTALLFOLDER at — not
-               hardcoded to Program Files specifically. -->
+          <!-- Let regular users write the data folders next to the exe, wherever
+               INSTALLFOLDER ends up. -->
           <Component Id="OxisFolderPermissions" Guid="*" Win64="yes">
             <CreateFolder>
               <util:PermissionEx User="Users" GenericAll="yes" />
@@ -376,16 +229,8 @@ function buildMSI(wixBinDir) {
             <RegistryValue Root="HKLM" Key="Software\\OXIS" Name="Installed"
                            Type="integer" Value="1" KeyPath="yes" />
           </Component>
-          <!-- Created explicitly, empty, at install time — the exact
-               real, reported gap this closes: without these, nothing
-               under INSTALLFOLDER was visible besides oxis.exe until
-               the app itself lazily created a folder on first actual
-               use (first plugin, first document, first workspace),
-               so right after installing, Program Files\\OXIS looked
-               like it had nothing in it. These are real, empty
-               folders on disk from the moment install finishes —
-               the running app writes into them the same way either
-               way; this only changes when they first appear. -->
+          <!-- Create the data folders at install time so they're visible
+               immediately. -->
           <Directory Id="WORKSPACESFOLDER" Name="workspaces">
             <Component Id="OxisWorkspacesFolder" Guid="*" Win64="yes">
               <CreateFolder />
@@ -471,7 +316,7 @@ function buildNSI(nsisBin) {
   fs.mkdirSync(NSIS_DIR, { recursive: true });
   const nsiFile  = path.join(NSIS_DIR, "oxis-setup.nsi");
   const outExe   = `oxis-${VERSION}-setup.exe`;
-  const icoLine = fs.existsSync(ICO) ? `Icon "${ICO}"` : ""
+  const icoLine = fs.existsSync(ICO) ? `Icon "${ICO}"` : "";
 
   const script = `
 Unicode true
@@ -501,10 +346,7 @@ Section "OXIS" SecMain
   File "${EXE.replace(/\\/g,"\\\\\\\\")}"
   ${fs.existsSync(ICO)?`File "${ICO.replace(/\\/g,"\\\\\\\\")}"` : ""}
   ${fs.existsSync(LOGO)?`File "${LOGO.replace(/\\/g,"\\\\\\\\")}"` : ""}
-  ; Created explicitly, empty, at install time -- same reason as the
-  ; MSI side (see OxisWorkspacesFolder etc. in buildMSI above): without
-  ; these, $INSTDIR showed nothing but oxis.exe until the app itself
-  ; lazily created a folder on first actual use.
+  ; Create the data folders up front, same as the MSI.
   CreateDirectory "$INSTDIR\\\\workspaces"
   CreateDirectory "$INSTDIR\\\\created-plugins"
   CreateDirectory "$INSTDIR\\\\created-documents"
@@ -569,8 +411,7 @@ if (!nsisBin && !wixBin) {
 
 let built = false;
 
-// WiX (real .msi) is tried first since that's the actual ask — NSIS
-// (.exe) is the fallback for machines that only have NSIS installed.
+// Prefer a real .msi; NSIS is the fallback.
 if (wixBin) {
   info("WiX found — building MSI...");
   built = buildMSI(wixBin);
@@ -583,9 +424,7 @@ if (nsisBin && !built) {
 }
 
 if (built) {
-  log("\n╔══════════════════════════════════╗", col.magenta);
-  log("║  Installer built successfully!   ║", col.magenta);
-  log("╚══════════════════════════════════╝\n", col.magenta);
+  log("\n✓ Installer built\n", col.magenta);
 } else {
   log("\n  Installer build did not complete — see warnings above.", col.red);
   process.exit(1);
