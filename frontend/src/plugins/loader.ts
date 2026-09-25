@@ -1,21 +1,20 @@
 /**
  * loader.ts — OXIS plugin bootstrapper
  *
- * Registers all 25 built-in plugins (TypeScript shortcut tables),
- * restores user-toggled states, loads user Lua plugins, then
- * activates all enabled plugins.
+ * Registers the built-in plugins (10 shortcut tables + 16 Lua plugins),
+ * restores user-toggled states, loads user/market/premium Lua plugins,
+ * then activates everything enabled.
  */
 
 import { pluginManager } from "./pluginManager";
 import { loadAllPremiumPlugins } from "./market";
 import type { APIContext } from "./pluginAPI";
+import { isWindows } from "../terminal/terminal";
 
-// Real Lua source for every shipped Lua plugin — see the "?raw" Vite
-// import suffix, which inlines the file's exact text content as a
-// string at build time. These used to be replaced with a fake
-// one-line stub at registration time (`oxis.command(name+"_info", ...)`)
-// because there was no real Lua interpreter to run the actual files —
-// see luaRuntime.ts for why that's no longer true.
+// Shortcut tables pick PowerShell or POSIX commands once, at startup.
+const WIN = isWindows();
+
+// Bundled Lua plugin sources (Vite "?raw" imports).
 import fuzzyLua from "./builtins/fuzzy.lua?raw";
 import gitAdvancedLua from "./builtins/git_advanced.lua?raw";
 import lspDiagLua from "./builtins/lsp_diag.lua?raw";
@@ -46,7 +45,7 @@ const BUILTINS: BuiltinDef[] = [
   { name:"git", desc:"Git workflow shortcuts", category:"dev", builtin:true, enabled:true,
     shortcuts:{
       gs:"git status", gl:"git log --oneline -20", gd:"git diff",
-      ga:"git add -A && git status", gp:"git push", gpl:"git pull",
+      ga:"git add -A; git status", gp:"git push", gpl:"git pull",
       gb:"git branch -a", gst:"git stash",
       gc :(a)=>a?`git commit -m "${a}"`:`echo "usage: 'gc <msg>"`,
       gco:(a)=>a?`git checkout ${a}`:`echo "usage: 'gco <branch>"`,
@@ -67,46 +66,63 @@ const BUILTINS: BuiltinDef[] = [
       drm :(a)=>`docker rm -f ${a}`,
     }},
   { name:"sysmon", desc:"System monitoring", category:"system", builtin:true, enabled:true,
-    shortcuts:{
+    shortcuts: WIN ? {
       top:`Get-Process | Sort-Object CPU -Descending | Select-Object -First 20 Name,Id,@{N='CPU';E={[math]::Round($_.CPU,1)}},@{N='RAM(MB)';E={[math]::Round($_.WorkingSet/1MB,0)}} | Format-Table -AutoSize`,
       mem:`$o=Get-CimInstance Win32_OperatingSystem;Write-Host "RAM: $([math]::Round(($o.TotalVisibleMemorySize-$o.FreePhysicalMemory)/1MB,1))GB used / $([math]::Round($o.TotalVisibleMemorySize/1MB,1))GB total"`,
       cpu:`Get-CimInstance Win32_Processor | Select-Object Name,NumberOfCores,NumberOfLogicalProcessors,MaxClockSpeed | Format-List`,
       uptime:`$b=(Get-CimInstance Win32_OperatingSystem).LastBootUpTime;$u=New-TimeSpan -Start $b;Write-Host "Uptime: $($u.Days)d $($u.Hours)h $($u.Minutes)m"`,
+    } : {
+      top:"ps -eo pid,comm,%cpu,%mem --sort=-%cpu | head -n 21",
+      mem:"free -h",
+      cpu:"lscpu | head -n 20",
+      uptime:"uptime -p",
     }},
   { name:"network", desc:"Network diagnostics", category:"system", builtin:true, enabled:false,
-    shortcuts:{
+    shortcuts: WIN ? {
       myip:`(Invoke-WebRequest -Uri 'https://api.ipify.org' -UseBasicParsing).Content`,
       wifi:`netsh wlan show interfaces`,
       ports:`Get-NetTCPConnection | Where-Object State -eq 'Listen' | Sort-Object LocalPort | Format-Table LocalPort,@{N='Process';E={(Get-Process -Id $_.OwningProcess -EA SilentlyContinue).Name}} -AutoSize`,
       ping:(a)=>`Test-Connection ${a||"8.8.8.8"} -Count 4`,
       dns :(a)=>`Resolve-DnsName ${a} | Format-Table -AutoSize`,
+    } : {
+      myip:"curl -s https://api.ipify.org; echo",
+      wifi:"nmcli device wifi list",
+      ports:"ss -tlnp",
+      ping:(a)=>`ping -c 4 ${a||"8.8.8.8"}`,
+      dns :(a)=>`getent hosts ${a}`,
     }},
   { name:"files", desc:"Advanced file operations", category:"files", builtin:true, enabled:true,
-    shortcuts:{
+    shortcuts: WIN ? {
       fsize  :(a)=>`$s=Get-ChildItem -Recurse "${a||"."}" -EA SilentlyContinue|Measure-Object -Property Length -Sum;Write-Host "$([math]::Round($s.Sum/1MB,2)) MB ($($s.Count) files)"`,
       fopen  :(a)=>`Start-Process "${a}"`,
       fhash  :(a)=>`Get-FileHash "${a}" | Format-Table Algorithm,Hash`,
       flatest:`Get-ChildItem -Recurse -File -EA SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 10 LastWriteTime,@{N='File';E={$_.Name}} | Format-Table -AutoSize`,
       fbig   :`Get-ChildItem -Recurse -File -EA SilentlyContinue | Sort-Object Length -Descending | Select-Object -First 10 @{N='MB';E={[math]::Round($_.Length/1MB,2)}},Name | Format-Table -AutoSize`,
+    } : {
+      fsize  :(a)=>`du -sh "${a||"."}"`,
+      fopen  :(a)=>`xdg-open "${a}"`,
+      fhash  :(a)=>`sha256sum "${a}"`,
+      flatest:`find . -type f -printf '%T@ %TY-%Tm-%Td %TH:%TM  %p\n' 2>/dev/null | sort -rn | head -n 10 | cut -d' ' -f2-`,
+      fbig   :`find . -type f -printf '%s\t%p\n' 2>/dev/null | sort -rn | head -n 10 | awk -F'\t' '{printf "%8.2f MB  %s\n", $1/1048576, $2}'`,
     }},
   { name:"python", desc:"Python/pip shortcuts", category:"dev", builtin:true, enabled:false,
     shortcuts:{
-      py    :(a)=>`python ${a}`, pip:(a)=>`pip install ${a}`,
-      venv  :`python -m venv .venv`, act:`.venv\\Scripts\\Activate.ps1`,
+      py    :(a)=>`${WIN ? "python" : "python3"} ${a}`, pip:(a)=>`pip install ${a}`,
+      venv  :`${WIN ? "python" : "python3"} -m venv .venv`, act: WIN ? `.venv\Scripts\Activate.ps1` : `. .venv/bin/activate`,
       freeze:`pip freeze > requirements.txt`, pipu:`pip list --outdated`,
     }},
   { name:"go", desc:"Go development shortcuts", category:"dev", builtin:true, enabled:false,
     shortcuts:{
-      gobuild:"go build ./...", gorun:(a)=>`go run ${a||"main.go"}`,
+      gobuild:"go build ./...", gorun:(a)=>`go run ${a||"."}`,
       gotest :"go test ./...",  gotidy:"go mod tidy", govet:"go vet ./...",
     }},
-  { name:"winutil", desc:"Windows power tools", category:"system", builtin:true, enabled:false,
-    shortcuts:{
+  { name:"winutil", desc:"Windows power tools (Windows only)", category:"system", builtin:true, enabled:false,
+    shortcuts: WIN ? {
       admin :`Start-Process powershell -Verb runAs`,
       events:`Get-EventLog -LogName System -Newest 20 | Format-Table TimeGenerated,Source,Message -AutoSize`,
       sfc   :`Start-Process powershell -ArgumentList 'sfc /scannow' -Verb runAs`,
       winver:`[System.Environment]::OSVersion.Version`,
-    }},
+    } : Object.fromEntries(["admin","events","sfc","winver"].map(n => [n, `echo "'${n} is Windows-only"`])) },
   { name:"rust", desc:"Rust/Cargo shortcuts", category:"dev", builtin:true, enabled:false,
     shortcuts:{
       cb:"cargo build", cr:(a)=>`cargo run${a?" -- "+a:""}`,
@@ -181,20 +197,12 @@ export function initPlugins(ctx: APIContext): void {
   // Restore user-toggled enable/disable states
   pluginManager.restoreState();
 
-  // Load user/market Lua plugins from disk (native window only — see
-  // isNativeApp() in native.ts) and activate any that are enabled.
-  // Async — not awaited here deliberately: this function's own
-  // signature stays synchronous (its caller doesn't await it either),
-  // and loadUserPlugins() calls pluginManager.load() itself for each
-  // plugin once its file arrives, so those plugins' commands appear in
-  // the registry moments after startup rather than blocking it.
+  // User/Market plugins load from disk asynchronously (native app only)
+  // so startup isn't blocked; their commands appear a moment later.
   void pluginManager.loadUserPlugins();
 
-  // Premium plugins (see README § Premium Plugin Licensing &
-  // Encryption) live under .oxis/premium/ as encrypted packages, not
-  // as plain .lua files, so they're not picked up by
-  // loadUserPlugins() above — scanned and license-checked separately.
-  // Also async/not-awaited for the same startup-latency reason.
+  // Premium plugins are encrypted packages in .oxis/premium/, loaded and
+  // license-checked separately, also asynchronously.
   void loadAllPremiumPlugins();
 
   // Activate all enabled built-in plugins.

@@ -1,13 +1,6 @@
 /**
- * fengari.d.ts — minimal ambient types for the fengari package.
- *
- * fengari ships no type declarations of its own; this covers only
- * the subset of its API this project actually calls (see
- * luaRuntime.ts). Everything is intentionally typed loosely (`any`
- * for the lua_State handle) — fengari's real signatures are C-style
- * stack-based functions that don't map cleanly onto precise TS types,
- * and a loose shim here is far less risk than hand-maintaining a
- * full one against a dependency we don't control.
+ * fengari.d.ts — loose types for the parts of fengari this project uses
+ * (the package ships none).
  */
 declare module "fengari" {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

@@ -1,15 +1,9 @@
 /**
- * events.ts — OXIS event system
- *
- * All internal subsystems (PTY, tabs, plugins, themes, commands) communicate
- * through this bus. Lua plugins subscribe via oxis.autocmd().
+ * events.ts — the internal event bus (PTY, plugins, themes, workspaces,
+ * commands). Lua subscribes via oxis.autocmd().
  */
 
 export type OxisEvent =
-  | "terminal_open"
-  | "terminal_close"
-  | "tab_created"
-  | "tab_closed"
   | "theme_changed"
   | "plugin_loaded"
   | "plugin_unloaded"

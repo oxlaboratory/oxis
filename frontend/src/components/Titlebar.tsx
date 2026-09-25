@@ -1,39 +1,16 @@
 /**
- * Titlebar.tsx — custom frameless titlebar.
+ * Titlebar.tsx — the frameless window's titlebar (native window only).
  *
- * OXIS runs as a native, frameless Wails window (see
- * internal/wailsapp/app.go), so it draws its own titlebar — a
- * draggable region plus close/minimise window controls. (No
- * maximise control: the window is a fixed size — Width/Height ==
- * Min == Max, DisableResize — so there's nothing to toggle into.)
- *
- * Dragging: handled entirely natively by Wails via the
- * `--wails-draggable: drag` CSS property already set on
- * .wails-titlebar / .wails-drag (see index.css) — that's the real,
- * documented Wails v2 mechanism (options.App.CSSDragProperty /
- * CSSDragValue, which default to exactly this even when unset). No
- * JS or Go call is needed or exists for this: `WindowStartDrag` was
- * checked against Wails v2's actual Go runtime package, its JS
- * runtime docs, AND its internal Frontend interface (the thing that
- * defines every real window method on both sides) — it exists in
- * none of them. An earlier version of this file called
- * window.runtime.WindowStartDrag() as a fallback on every mousedown;
- * that function doesn't exist, so it silently retried 10 times and
- * did nothing, on every single click, before giving up. Removed —
- * plain CSS is both correct and sufficient here.
- *
- * window.go.wailsapp.App.* (the Go-bound methods) is the primary path
- * for the two real buttons below; window.runtime.* is a fallback only
- * for the unlikely case the app isn't bound yet on first paint.
+ * Dragging comes from the `--wails-draggable: drag` CSS property on
+ * .wails-titlebar / .wails-drag; no JS call is involved. The buttons
+ * call the bound App.WindowMinimise / WindowClose, with window.runtime
+ * as a fallback if the bindings aren't ready yet. There's no maximise
+ * button; the size is set with 'oxis resize.
  */
 
 import React from "react";
 
-// window.go.wailsapp.App.* is declared once, globally, in native.ts —
-// intentionally not redeclared here. Two separate `declare global`
-// blocks describing different, incompatible shapes for the same real
-// object is a TS2717 error (duplicate declarations must match
-// exactly), and silently drops type-checking on this file if ignored.
+// window.go's type is declared once, in native.ts.
 import "../native";
 
 declare global {

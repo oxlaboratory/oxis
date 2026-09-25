@@ -1,6 +1,5 @@
-// Package wailsapp runs OXIS as a native, frameless, borderless desktop
-// window using Wails v2. This is the only runtime mode OXIS has —
-// there is no browser/app-mode fallback.
+// Package wailsapp runs OXIS as a native, frameless desktop window
+// using Wails v2.
 package wailsapp
 
 import (
@@ -24,12 +23,7 @@ import (
 )
 
 // App is bound to the frontend as window.go.wailsapp.App.* (the JS
-// binding namespace mirrors this Go package's name, "wailsapp" — NOT
-// "main", even though cmd/oxi/main.go's own package is main; only the
-// package the bound *struct* is declared in matters to Wails here).
-// Used by the custom titlebar for window controls
-// (minimise/maximise/close) and by the PTY client to find its
-// WebSocket port.
+// namespace follows this package's name, not cmd/oxi's "main").
 type App struct {
 	ctx     context.Context
 	ptyPort int
@@ -37,29 +31,12 @@ type App struct {
 
 func NewApp() *App { return &App{} }
 
-// Version is this build's version string (e.g. "1.2.1"), set at build
-// time via -ldflags "-X .../wailsapp.Version=..." — see VERSION in
-// scripts/build-go.js. Left at its dev default for `go run`/unlinked
-// builds; CheckForUpdate below still works fine against that (it just
-// never reports "0.0.0-dev" as newer than anything).
+// Version is set at build time via
+// -ldflags "-X github.com/oxis/oxis/internal/wailsapp.Version=...".
 var Version = "0.0.0-dev"
 
-// CheckForUpdate backs 'update and the frontend's own background
-// check-once-per-run on shell startup — compares this build against
-// OXIS's latest github.com/oxlaboratory/oxis release (see
-// internal/update). The frontend calls this directly rather than Go
-// pushing a Wails EventsEmit, since a plain request/response call is
-// the only Go->frontend channel this app already uses anywhere (see
-// native.ts) — no new event-bridge wiring needed for an occasional
-// check. Passes runtime.GOOS (NOT Version — that was a leftover,
-// unused parameter; Check() never actually read it) so the asset
-// picked out of the release is one this OS can actually run. The
-// rolling "latest-build" release holds BOTH platforms' output at
-// once (build.yml's publish-release job merges build-linux's .deb and
-// build-windows's .msi into the same release), so without filtering
-// by OS a Windows install could just as easily be handed a .deb
-// download link as its own .msi, depending on whatever order GitHub's
-// API happened to list the assets in that day.
+// CheckForUpdate compares this build against the latest GitHub release
+// for this OS (see internal/update).
 func (a *App) CheckForUpdate() update.Info { return update.Check(runtime.GOOS) }
 
 func (a *App) startup(ctx context.Context) {
@@ -67,98 +44,34 @@ func (a *App) startup(ctx context.Context) {
 	cleanupSelfUpdateBackup()
 }
 
-// cleanupSelfUpdateBackup — the other half of PerformUpdate
-// (selfupdate.go). If this process was launched BY a self-update (see
-// selfUpdateBackupEnv's own doc comment there), reaching this point —
-// (a *App).startup, called once Wails' own runtime has genuinely
-// finished initializing and the window exists — IS the real
-// confirmation that the new version actually started successfully,
-// which is what the spec asked for explicitly: never delete the
-// previous, known-working install until the new one is CONFIRMED
-// working, not just launched. Deleting the backup here, not from
-// PerformUpdate itself, is deliberate: the OLD process that ran
-// PerformUpdate has no way to know whether THIS process's own startup
-// will actually succeed — only this process does, once it's actually
-// happened. Best-effort: a failed delete here just leaves a harmless
-// leftover .oxis-update-backup-*.exe file behind, not a broken
-// install — never something worth surfacing as an error to the user
-// over.
+// cleanupSelfUpdateBackup deletes the previous executable once a
+// self-updated build has started successfully (see PerformUpdate).
+// Reaching startup is the confirmation that the new build works.
 func cleanupSelfUpdateBackup() {
-	backupPath := os.Getenv(selfUpdateBackupEnv)
-	if backupPath == "" {
-		return // not launched by a self-update — nothing to do
+	if backupPath := os.Getenv(selfUpdateBackupEnv); backupPath != "" {
+		_ = os.Remove(backupPath)
 	}
-	_ = os.Remove(backupPath)
 }
 
-// WindowMinimise / WindowClose back the custom titlebar's window
-// controls (dragging is handled separately — see the NOTE below).
-// There's no maximise control at all: the window is a fixed size
-// (Width == MinWidth == MaxWidth, DisableResize — see Run below), so
-// there's nothing to toggle into. window.go bindings like these are
-// populated as soon as Wails' own runtime script runs against the
-// window's document — which now happens exactly once, since the
-// frontend is served directly as this window's AssetServer.Assets
-// (see Run below) and the window never navigates away from it after
-// that. Earlier builds routed the window through a bootstrap page
-// that redirected to a separate HTTP server, which raced that same
-// injection on a second document and is what made these controls
-// (and dragging) intermittently do nothing — see server.Listen's
-// doc comment for the full history.
+// WindowMinimise / WindowClose back the custom titlebar. Dragging uses
+// the --wails-draggable CSS property; no Go/JS call is involved.
 func (a *App) WindowMinimise() { wailsRuntime.WindowMinimise(a.ctx) }
 func (a *App) WindowClose()    { wailsRuntime.Quit(a.ctx) }
 
-// OpenURL opens a URL in the user's actual default system browser via
-// Wails' own runtime call — not by shelling out to Start-Process/
-// xdg-open, which is fragile across platforms and unnecessary when
-// Wails already provides the right primitive. Backs the Ctrl+Shift+M
-// "open OXIS Market" hotkey and 'market subscribe's Stripe Checkout
-// handoff (see native.ts's openUrl()).
+// OpenURL opens a URL in the user's default browser.
 func (a *App) OpenURL(url string) { wailsRuntime.BrowserOpenURL(a.ctx, url) }
 
-// WriteClipboard sets the real OS clipboard to `text` via a native,
-// OS-level call (see clipboard_windows.go / clipboard_other.go) rather
-// than the WebView-hosted page's own navigator.clipboard.writeText().
-// Backs native.ts's writeClipboard() — the fallback path App.tsx's
-// mouse-copy/Ctrl+C handlers use when the JS-side clipboard write
-// fails, which is a real, previously-silent failure mode in this
-// WebView2 environment (see clipboard_windows.go's doc comment for
-// the full story).
+// WriteClipboard writes to the OS clipboard natively. The frontend uses
+// it when navigator.clipboard is rejected inside the WebView.
 func (a *App) WriteClipboard(text string) error { return writeClipboardNative(text) }
 
-// NOTE: there's deliberately no WindowStartDrag anywhere in this
-// project — Go or JS. Checked against Wails v2's Go runtime package
-// (pkg/runtime), its JS runtime docs, and its internal Frontend
-// interface (which defines every real window method on both sides):
-// no such function exists in any of them. Dragging works purely via
-// the native `--wails-draggable` CSS hit-testing mechanism (see
-// Titlebar.tsx and .wails-titlebar/.wails-drag in index.css) — no Go
-// or JS call is needed at all. An earlier version of this file (and
-// of Titlebar.tsx) called window.runtime.WindowStartDrag() as a
-// fallback on every mousedown — that function doesn't exist, so it
-// silently retried 10 times and did nothing, every single click.
-
-// GetPTYPort returns the loopback port the local server (PTY +
-// frontend — see server.Listen) is listening on. The native window's
-// ptyClient can't just connect to `ws://${location.host}/ws`, because
-// inside the native window, location.host is Wails' own AssetServer
-// origin, not this server's — this is how it finds the right one. A
-// plain browser tab open to http://127.0.0.1:<port> never calls this;
-// it's same-origin with the WebSocket already (see native.ts's
-// isNativeApp / ptyClient.ts's wsURL).
+// GetPTYPort returns the port of the local PTY/frontend server. Inside
+// the native window location.host is the Wails asset origin, so the
+// frontend needs this to find the WebSocket.
 func (a *App) GetPTYPort() int { return a.ptyPort }
 
-// pluginsDir returns (creating if needed) the real on-disk folder
-// user/market-installed Lua plugins live in — next to the executable,
-// not the process's working directory, since that varies by how the
-// user launched OXIS but the executable's own location doesn't.
-//
-// Before this, 'plugin new and 'market install only ever wrote plugin
-// source into localStorage (inside the WebView2 profile) — nothing
-// ever touched the real filesystem, which is why a plugin created or
-// installed that way was genuinely nowhere to be found in Explorer:
-// it never existed as a file. This is the actual fix for that, not
-// just a better error message.
+// pluginsDir returns (creating if needed) the folder user and
+// market-installed Lua plugins live in, under AppDirPath.
 func pluginsDir() (string, error) {
 	dir, err := AppDirPath()
 	if err != nil {
@@ -171,48 +84,16 @@ func pluginsDir() (string, error) {
 	return dir, nil
 }
 
-// appDirOnce/appDirCached/appDirErr — see AppDirPath below for why
-// this is computed once per process rather than on every call (the
-// old implementation deliberately never cached, specifically so
-// moving the whole portable install folder mid-run wouldn't orphan
-// anything — but that only matters for the portable case, and
-// checking writability fresh on every single call would itself be a
-// real performance cost on a function this hot, especially now that
-// the check involves an actual filesystem write-test, not just a
-// string join).
 var (
 	appDirOnce   sync.Once
 	appDirCached string
 	appDirErr    error
 )
 
-// AppDirPath resolves the directory OXIS should read/write its own
-// data (workspaces, created-plugins, created-documents) from and to.
-//
-// Normally that's just wherever oxis.exe itself lives — the portable
-// case, someone extracted a dist/ folder and is running it directly.
-// But an MSI-installed OXIS runs from C:\Program Files\OXIS, which
-// Windows protects from writes by a normal (non-elevated) user
-// session under UAC — every attempt to create workspaces/created-
-// plugins/created-documents there would silently fail. This was a
-// real, reported bug: installing via the MSI left users with no
-// created documents, no plugins, no workspaces at all, because the
-// app could never actually write anything where it was looking —
-// found while investigating a separate installer report (a missing
-// desktop shortcut), and turned out to be the more fundamental of the
-// two problems.
-//
-// The fix: check whether the exe's own directory is actually
-// writable (a real write-test, not just permission bits — those
-// don't always tell the whole story with UAC virtualization/ACLs).
-// If it is, behavior is UNCHANGED from before. If it isn't, fall back
-// to a directory under the user's own Downloads folder instead, which
-// is always writable by a normal user session. On first use of that
-// fallback, cloneSourceInBackground (below) clones this project's own
-// GitHub source into it, and the app's existing folder-creation logic
-// (workspaces, created-plugins, created-documents — unchanged, still
-// just relative paths off whatever this function returns) creates
-// those the same way it always has, just rooted here instead.
+// AppDirPath is where OXIS keeps its data (workspaces, plugins, created
+// documents, window.json). Normally that's the executable's own folder
+// (portable install). If that folder isn't writable — e.g. an MSI
+// install under Program Files — it falls back to ~/Downloads/OXIS.
 func AppDirPath() (string, error) {
 	appDirOnce.Do(func() {
 		exe, err := os.Executable()
@@ -230,12 +111,8 @@ func AppDirPath() (string, error) {
 	return appDirCached, appDirErr
 }
 
-// isWritableDir actually tries creating and removing a small temp
-// file, rather than just inspecting permission bits — the only
-// reliable way to know for sure on Windows, where UAC virtualization
-// can make a directory LOOK writable while silently redirecting
-// writes elsewhere, or ACLs can restrict a specific account in ways
-// the basic mode bits alone won't show.
+// isWritableDir does a real write test; permission bits aren't reliable
+// on Windows (UAC virtualization, ACLs).
 func isWritableDir(dir string) bool {
 	f, err := os.CreateTemp(dir, ".oxis-write-test-*")
 	if err != nil {
@@ -247,20 +124,14 @@ func isWritableDir(dir string) bool {
 	return true
 }
 
-// fallbackDataDir is where OXIS keeps its own data when it can't
-// write next to its own exe (see AppDirPath above) — a fixed,
-// predictable location under the user's Downloads folder, created (if
-// it doesn't already exist) the first time it's needed.
 func fallbackDataDir() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
 	dir := filepath.Join(home, "Downloads", "OXIS")
-	firstRun := false
-	if _, statErr := os.Stat(dir); os.IsNotExist(statErr) {
-		firstRun = true
-	}
+	_, statErr := os.Stat(dir)
+	firstRun := os.IsNotExist(statErr)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
@@ -270,48 +141,46 @@ func fallbackDataDir() (string, error) {
 	return dir, nil
 }
 
-// cloneSourceInBackground clones this project's own GitHub source
-// into <fallbackDataDir>/source the first time OXIS ever needs the
-// fallback data directory — so an MSI-installed user still ends up
-// with the project's full source alongside their own data, the same
-// thing the old (now removed) installer-bundled source used to
-// provide, just delivered by the running app instead of baked into
-// the installer package.
-//
-// Entirely best-effort and silent: no git on PATH, no network, or a
-// clone that fails for any other reason are all just skipped, never
-// surfaced as an error anywhere the user would see it. A missing
-// source copy is a real but secondary loss; it should never be able
-// to block, slow down, or destabilize the app itself, which is why
-// this runs in its own goroutine rather than something fallbackDataDir
-// waits on. 5-minute timeout so a stalled clone (bad network, GitHub
-// down) can't run forever in the background.
+// cloneSourceInBackground gives installed users a copy of the source
+// next to their data. Best effort: skipped silently without git or
+// network.
 func cloneSourceInBackground(dataDir string) {
 	if _, err := exec.LookPath("git"); err != nil {
 		return
 	}
 	target := filepath.Join(dataDir, "source")
 	if _, err := os.Stat(target); err == nil {
-		return // already there somehow
+		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "git", "clone", "--depth", "1",
 		"https://github.com/oxlaboratory/oxis.git", target)
-	hideWindow(cmd) // see hidewindow_windows.go
+	hideWindow(cmd)
 	_ = cmd.Run()
 }
 
-// AppDir exposes AppDirPath to the frontend (window.go.wailsapp.App.AppDir)
-// so JS can build paths like "<AppDir>/created-documents/notes.md"
-// without hardcoding or guessing where the app is installed.
+// AppDir exposes AppDirPath to the frontend.
 func (a *App) AppDir() (string, error) { return AppDirPath() }
 
-// pluginFilePath resolves a plugin name to its file, rejecting
-// anything that isn't a plain name — no path separators, no "..".
-// Plugin names come from user input ('plugin new <n>, 'market install)
-// and get used to build a filesystem path, so this is the boundary
-// that keeps that from ever writing outside pluginsDir().
+// UserConfigDir returns ~/.oxis (creating it and its themes folder),
+// which holds config.lua and user theme JSON files. It lives in the
+// home directory so it survives reinstalls and is shared by every copy
+// of OXIS on the machine.
+func (a *App) UserConfigDir() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	dir := filepath.Join(home, ".oxis")
+	if err := os.MkdirAll(filepath.Join(dir, "themes"), 0o755); err != nil {
+		return "", err
+	}
+	return dir, nil
+}
+
+// pluginFilePath maps a plugin name to its file, rejecting anything
+// that isn't a plain name so user input can't escape pluginsDir.
 func pluginFilePath(name string) (string, error) {
 	if name == "" || name != filepath.Base(name) || strings.Contains(name, "..") {
 		return "", fmt.Errorf("invalid plugin name: %q", name)
@@ -323,8 +192,7 @@ func pluginFilePath(name string) (string, error) {
 	return filepath.Join(dir, name+".lua"), nil
 }
 
-// ListPlugins returns the names (without ".lua") of every plugin file
-// on disk in pluginsDir().
+// ListPlugins returns the names (without ".lua") of the plugin files on disk.
 func (a *App) ListPlugins() ([]string, error) {
 	dir, err := pluginsDir()
 	if err != nil {
@@ -344,9 +212,6 @@ func (a *App) ListPlugins() ([]string, error) {
 	return names, nil
 }
 
-// ReadPluginFile / WritePluginFile / DeletePluginFile back
-// 'plugin new, 'market install, and 'plugin delete — real files in
-// pluginsDir(), not localStorage.
 func (a *App) ReadPluginFile(name string) (string, error) {
 	path, err := pluginFilePath(name)
 	if err != nil {
@@ -375,17 +240,11 @@ func (a *App) DeletePluginFile(name string) error {
 	return os.Remove(path)
 }
 
-// maxEditableSize caps what the built-in editor will load — large
-// files (logs, binaries) shouldn't get pulled whole into a <textarea>.
-const maxEditableSize = 8 * 1024 * 1024 // 8MB
+// maxEditableSize caps what the built-in editor will load.
+const maxEditableSize = 8 * 1024 * 1024
 
-// ReadFile backs the built-in editor ('edit <file>). Relative paths
-// resolve against the app's own directory (see resolvePath) — not the
-// PTY shell's current directory, which Go has no reliable
-// cross-platform way to observe from outside the shell process. Pass
-// an absolute path (quote it if it contains spaces — e.g.
-// 'edit "C:\Users\Admin\My Docs\file.txt") to edit a file anywhere
-// else, regardless of where you've cd'd to in the terminal.
+// ReadFile backs the built-in editor. Relative paths resolve against
+// AppDirPath (see resolvePath).
 func (a *App) ReadFile(path string) (string, error) {
 	full := resolvePath(path)
 	info, err := os.Stat(full)
@@ -396,7 +255,7 @@ func (a *App) ReadFile(path string) (string, error) {
 		return "", os.ErrInvalid
 	}
 	if info.Size() > maxEditableSize {
-		return "", &os.PathError{Op: "read", Path: full, Err: os.ErrInvalid}
+		return "", &os.PathError{Op: "read", Path: full, Err: fmt.Errorf("file is larger than %d MB", maxEditableSize>>20)}
 	}
 	b, err := os.ReadFile(full)
 	if err != nil {
@@ -405,85 +264,43 @@ func (a *App) ReadFile(path string) (string, error) {
 	return string(b), nil
 }
 
-// WriteFile backs the editor's save (Ctrl+S). Same path-resolution
-// rule as ReadFile.
+// WriteFile backs the editor's save, creating parent folders as needed.
 func (a *App) WriteFile(path string, content string) error {
 	full := resolvePath(path)
-	if dir := filepath.Dir(full); dir != "." {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return err
-		}
+	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+		return err
 	}
 	return os.WriteFile(full, []byte(content), 0o644)
 }
 
-// resolvePath anchors a relative path against the app's own directory
-// (see AppDirPath) — NOT the process's working directory, which
-// varies by how the user launched OXIS (double-click vs a shortcut
-// with a different "Start in" folder vs a terminal) in a way the app
-// directory doesn't. This is also what makes moving the whole install
-// folder "just work": every relative path resolves fresh against
-// wherever the executable currently is, every call. Pass an absolute
-// path (e.g. from 'edit "C:\Users\...\LICENSE") to bypass this
-// entirely and read/write exactly that file, wherever it lives.
+// resolvePath anchors relative paths to AppDirPath rather than the
+// process working directory, which depends on how OXIS was launched.
+// A bare leading "/" or "\" means the root of the app's drive on
+// Windows, matching the 'edit docs.
 func resolvePath(path string) string {
 	if filepath.IsAbs(path) {
 		return filepath.Clean(path)
 	}
-
-	// Resolve the anchor directory first (same app-dir-not-cwd
-	// reasoning as always — see the doc comment above), so a bare
-	// leading "/" or "\" below can be resolved against ITS volume
-	// instead of falling through to being treated as an ordinary
-	// relative path.
 	anchor, err := AppDirPath()
 	if err != nil {
-		// Fall back to the old behavior rather than failing outright —
-		// os.Executable() failing at all is rare (unusual sandboxing),
-		// and a relative path resolved against cwd is still better
-		// than none of this working.
 		wd, wdErr := os.Getwd()
 		if wdErr != nil {
 			return filepath.Clean(path)
 		}
 		anchor = wd
 	}
-
-	// A bare leading "/" or "\" (no drive letter) isn't "absolute" by
-	// Go's own definition on Windows — filepath.IsAbs there requires a
-	// volume name — but this app's own 'edit documentation says a
-	// leading "/" means the filesystem root, matching every other
-	// leading-slash convention (Unix, WSL, Git Bash). Without this
-	// check, a path like "/workspace.lua" fell straight through to the
-	// plain filepath.Join below, which normalizes away the leading
-	// slash and silently resolves it AS IF it were an ordinary
-	// relative path anchored to the app's own directory instead — a
-	// real, reported bug: 'edit /workspace.lua opened (or failed to
-	// find) <app dir>/workspace.lua, not C:\workspace.lua, with
-	// nothing in the error message hinting that's what actually
-	// happened. On Linux/macOS this branch is effectively unreachable
-	// in practice — filepath.IsAbs already treats a leading "/" as
-	// absolute there, so it's caught by the check above instead.
 	if len(path) > 0 && (path[0] == '/' || path[0] == '\\') {
 		if vol := filepath.VolumeName(anchor); vol != "" {
 			return filepath.Clean(vol + path)
 		}
-		return filepath.Clean(path) // no volume concept on this OS — already absolute as-is
+		return filepath.Clean(path)
 	}
-
 	return filepath.Join(anchor, path)
 }
 
-// WriteTempScript backs oxis.run()'s multi-line-script fix (see the
-// long comment on `run` in pluginAPI.ts for the actual bug this
-// solves). Writes content to a fresh file in the OS temp directory
-// and returns its absolute path. Deliberately NOT resolvePath-based —
-// this needs a path that's valid regardless of the PTY's current
-// working directory (which can be anywhere the user has `cd`'d to),
-// and os.TempDir() already returns an absolute, OS-correct path
-// (%TEMP% on Windows) with no ambiguity to resolve. The frontend
-// tells the shell to run this file, then delete it, in one line — see
-// pluginAPI.ts.
+// WriteTempScript writes content to a fresh file in the OS temp dir and
+// returns its absolute path. oxis.run() uses it to run multi-line
+// scripts as one file instead of pasting them line by line.
 func (a *App) WriteTempScript(ext string, content string) (string, error) {
 	if ext == "" {
 		ext = ".txt"
@@ -503,15 +320,8 @@ func (a *App) WriteTempScript(ext string, content string) (string, error) {
 	return f.Name(), nil
 }
 
-// ═══════════════════════════════════════════════════════════════
-// Core System APIs — backs oxis.fs.*, oxis.process.*, oxis.system.*
-// (see README § Core System APIs). Every one of these is meant to sit
-// behind plugin permissions on the frontend (permissions.ts) before a
-// plugin can reach it at all; the Go side here doesn't itself enforce
-// that — permission checks are a frontend/UX concern (which plugin is
-// asking, what it already declared), the same boundary ReadFile/
-// WriteFile already crossed for the editor.
-// ═══════════════════════════════════════════════════════════════
+// ── Core system APIs: oxis.fs.*, oxis.process.*, oxis.system.* ──
+// Plugin permissions are enforced on the frontend (permissions.ts).
 
 // FileEntry is one row of a ListDir result.
 type FileEntry struct {
@@ -521,11 +331,8 @@ type FileEntry struct {
 	ModTime int64  `json:"modTime"` // unix seconds
 }
 
-// ListDir backs oxis.fs.list(path) — a plugin-facing directory listing
-// that doesn't require shelling out to `ls`/`Get-ChildItem`.
 func (a *App) ListDir(path string) ([]FileEntry, error) {
-	full := resolvePath(path)
-	entries, err := os.ReadDir(full)
+	entries, err := os.ReadDir(resolvePath(path))
 	if err != nil {
 		return nil, err
 	}
@@ -545,8 +352,6 @@ func (a *App) ListDir(path string) ([]FileEntry, error) {
 	return out, nil
 }
 
-// StatPath backs oxis.fs.stat(path) — existence + basic metadata
-// without a full directory read.
 type StatResult struct {
 	Exists  bool  `json:"exists"`
 	IsDir   bool  `json:"isDir"`
@@ -565,15 +370,10 @@ func (a *App) StatPath(path string) (StatResult, error) {
 	return StatResult{Exists: true, IsDir: info.IsDir(), Size: info.Size(), ModTime: info.ModTime().Unix()}, nil
 }
 
-// MakeDir / DeletePath back oxis.fs.mkdir / oxis.fs.remove.
 func (a *App) MakeDir(path string) error { return os.MkdirAll(resolvePath(path), 0o755) }
 
-// MovePath backs 'workspace move and file-tree drag-and-drop — a real,
-// atomic os.Rename (works for files and directories alike, same-
-// filesystem). Path safety (staying inside a connected project, no
-// traversal) is the CALLER's job (see safeJoinWithinDir in App.tsx) —
-// this is a thin, honest wrapper, not a second place that safety
-// logic would need to be kept in sync.
+// MovePath renames a file or directory and refuses to overwrite. Path
+// safety (staying inside a project) is the caller's job.
 func (a *App) MovePath(src string, dst string) error {
 	resolvedSrc := resolvePath(src)
 	resolvedDst := resolvePath(dst)
@@ -588,73 +388,29 @@ func (a *App) MovePath(src string, dst string) error {
 
 func (a *App) DeletePath(path string) error {
 	full := resolvePath(path)
-	// Refuse to delete a drive root / the working directory itself —
-	// oxis.fs.remove is meant for plugin-managed files, not "rm -rf /".
 	if full == filepath.Dir(full) {
 		return fmt.Errorf("refusing to delete root path: %s", full)
 	}
 	return os.RemoveAll(full)
 }
 
-// RunCommand runs a real external command (git, most commonly) and
-// captures its output structurally, instead of piping it through the
-// visible PTY shell — needed for anything that has to actually READ
-// and act on a command's result (git status, git commit) rather than
-// just showing text to the user. Argv-based (name + a real []string
-// of args), never a shell-interpreted string, so nothing in `args`
-// (a commit message, say) can break out into a second command the
-// way string-concatenated shell input could — this is deliberately
-// safer than the PTY path for exactly that reason.
-//
-// dir resolves the same way every other path in this file does (see
-// resolvePath) — relative to the app's own directory unless absolute,
-// so callers pass the real, resolved project path they already have
-// (e.g. a workspace's connected external directory), not something
-// this re-derives on its own.
-//
-// A generous timeout applies to every call (see runCommandTimeout
-// below) — long enough for a real network push/fetch, not just local
-// git status/add/commit, which is all this was originally scoped for
-// before commitAll() (git.ts) started pushing too; 30s was a real gap
-// found while adding cancellation support here, since a legitimately
-// slow push over a bad connection could have been falsely killed and
-// reported as "failed" well before it would have actually finished.
+// RunCommandResult is a captured external command result. A non-zero
+// exit is a normal result, not an error.
 type RunCommandResult struct {
 	Stdout   string `json:"stdout"`
 	Stderr   string `json:"stderr"`
 	ExitCode int    `json:"exitCode"`
 }
 
-// runCommandTimeout — see RunCommandResult's own doc comment above
-// for why this isn't 30s anymore. 3 minutes is generous for a single
-// git operation (including push) without being unbounded — a genuine
-// hang still eventually resolves instead of running forever, and real
-// cancellation (see below) means a person doesn't have to wait this
-// long anyway if they want out sooner.
+// runCommandTimeout is long enough for a slow git push.
 const runCommandTimeout = 3 * time.Minute
 
-// runningCommands / RunCommand / CancelCommand — real cancellation,
-// not just a timeout. Found as a genuine gap while building this:
-// there was no way for the frontend to interrupt an in-flight
-// RunCommand call at all before this — the ONLY thing that could
-// stop one was waiting out the timeout, which (per the reasoning
-// above) could now be up to 3 minutes. A person pressing Ctrl+C
-// during a slow 'task commit push deserves that to actually work,
-// not silently do nothing until the timeout eventually fires.
-//
-// requestID is generated by the FRONTEND (see runCommand in
-// native.ts) specifically so it can call CancelCommand with that same
-// ID before RunCommand itself has returned — Wails bindings are
-// otherwise just "call it, get a promise, wait for the result", with
-// no built-in way to reach back into an in-flight call. A sync.Map
-// keyed by that ID, storing each call's own context.CancelFunc, is
-// what CancelCommand actually invokes; cancelling the context is what
-// makes exec.CommandContext kill (Process.Kill) and wait on the child
-// process itself, per the stdlib's own documented behavior — this is
-// also what guarantees a cancelled git.exe/push doesn't linger as an
-// orphaned background process, not just that OXIS stops waiting on it.
-var runningCommands sync.Map // requestID string -> context.CancelFunc
+// runningCommands maps a frontend-generated request ID to its cancel
+// func so CancelCommand can stop an in-flight RunCommand.
+var runningCommands sync.Map
 
+// RunCommand runs an external command (argv, never a shell string) in
+// dir and captures its output.
 func (a *App) RunCommand(requestID string, dir string, name string, args []string) (RunCommandResult, error) {
 	resolvedDir := resolvePath(dir)
 	if info, err := os.Stat(resolvedDir); err != nil || !info.IsDir() {
@@ -668,37 +424,27 @@ func (a *App) RunCommand(requestID string, dir string, name string, args []strin
 	}
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = resolvedDir
-	hideWindow(cmd) // see hidewindow_windows.go — this is the actual 'task commit path
+	hideWindow(cmd)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
-	err := cmd.Run()
-	if err != nil {
-		if ctx.Err() == context.Canceled {
+	if err := cmd.Run(); err != nil {
+		switch ctx.Err() {
+		case context.Canceled:
 			return RunCommandResult{}, fmt.Errorf("%s was cancelled", name)
-		}
-		if ctx.Err() == context.DeadlineExceeded {
+		case context.DeadlineExceeded:
 			return RunCommandResult{}, fmt.Errorf("%s timed out after %s", name, runCommandTimeout)
 		}
 		if exitErr, ok := err.(*exec.ExitError); ok {
-			// A non-zero exit is a normal, structured result for the
-			// caller to inspect (e.g. `git commit` with nothing staged
-			// exits 1) — not a Go-level error.
 			return RunCommandResult{Stdout: stdout.String(), Stderr: stderr.String(), ExitCode: exitErr.ExitCode()}, nil
 		}
-		// The command genuinely couldn't be started at all (binary not
-		// found, permissions) — THIS is a real error.
 		return RunCommandResult{}, fmt.Errorf("couldn't run %s: %w", name, err)
 	}
-	return RunCommandResult{Stdout: stdout.String(), Stderr: stderr.String(), ExitCode: 0}, nil
+	return RunCommandResult{Stdout: stdout.String(), Stderr: stderr.String()}, nil
 }
 
-// CancelCommand backs the frontend's ability to actually interrupt an
-// in-flight RunCommand call — see runningCommands' own doc comment
-// above RunCommand for the full design. Returns whether a matching
-// in-flight call was actually found and cancelled; false (not an
-// error) just means it already finished on its own, which the
-// frontend treats as "nothing to do", not a failure.
+// CancelCommand stops an in-flight RunCommand. false means it had
+// already finished.
 func (a *App) CancelCommand(requestID string) bool {
 	if v, ok := runningCommands.Load(requestID); ok {
 		v.(context.CancelFunc)()
@@ -707,15 +453,13 @@ func (a *App) CancelCommand(requestID string) bool {
 	return false
 }
 
-// SystemInfo backs oxis.system.info() — the pieces sysmon.lua/
-// system_health.lua currently get by shelling out to platform-specific
-// commands, exposed as one first-class call instead.
+// SystemInfo backs oxis.system.info().
 type SystemInfo struct {
 	OS           string `json:"os"`
 	Arch         string `json:"arch"`
 	NumCPU       int    `json:"numCPU"`
 	GoVersion    string `json:"goVersion"`
-	AllocMB      uint64 `json:"allocMB"` // OXIS process's own heap, not total system memory
+	AllocMB      uint64 `json:"allocMB"` // OXIS's own heap, not system memory
 	NumGoroutine int    `json:"numGoroutine"`
 }
 
@@ -729,26 +473,23 @@ func (a *App) SystemInfo() SystemInfo {
 	}
 }
 
-// ProcessInfo is one row of a ListProcesses result.
 type ProcessInfo struct {
 	PID  int    `json:"pid"`
 	Name string `json:"name"`
 }
 
-// ListProcesses backs oxis.process.list() — shells out to the
-// platform's own process listing (there's no cross-platform stdlib
-// way to enumerate processes) and parses just PID + name. Real
-// process *control* beyond that (spawn/signal) is deliberately not
-// exposed yet — see README § Core System APIs, still [planned] for
-// anything beyond listing.
+// ListProcesses backs oxis.process.list().
 func (a *App) ListProcesses() ([]ProcessInfo, error) {
 	var cmd *exec.Cmd
-	if runtime.GOOS == "windows" {
+	switch runtime.GOOS {
+	case "windows":
 		cmd = exec.Command("tasklist", "/FO", "CSV", "/NH")
-	} else {
-		cmd = exec.Command("ps", "-eo", "pid,comm", "--no-headers")
+	default:
+		// -A/-o work on both Linux procps and BSD/macOS ps; --no-headers
+		// is GNU-only, so skip the header line ourselves instead.
+		cmd = exec.Command("ps", "-A", "-o", "pid=,comm=")
 	}
-	hideWindow(cmd) // see hidewindow_windows.go — tasklist would otherwise flash a console window
+	hideWindow(cmd)
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, err
@@ -760,23 +501,26 @@ func (a *App) ListProcesses() ([]ProcessInfo, error) {
 		if line == "" {
 			continue
 		}
+		var pid int
 		if runtime.GOOS == "windows" {
 			fields := strings.Split(line, "\",\"")
 			if len(fields) < 2 {
 				continue
 			}
-			name := strings.Trim(fields[0], "\"")
-			pidStr := strings.Trim(fields[1], "\"")
-			var pid int
-			fmt.Sscanf(pidStr, "%d", &pid)
-			result = append(result, ProcessInfo{PID: pid, Name: name})
-		} else {
-			var pid int
-			var name string
-			if _, err := fmt.Sscanf(line, "%d %s", &pid, &name); err == nil {
-				result = append(result, ProcessInfo{PID: pid, Name: name})
+			if _, err := fmt.Sscanf(strings.Trim(fields[1], "\""), "%d", &pid); err != nil {
+				continue
 			}
+			result = append(result, ProcessInfo{PID: pid, Name: strings.Trim(fields[0], "\"")})
+			continue
 		}
+		pidStr, name, ok := strings.Cut(line, " ")
+		if !ok {
+			continue
+		}
+		if _, err := fmt.Sscanf(pidStr, "%d", &pid); err != nil {
+			continue
+		}
+		result = append(result, ProcessInfo{PID: pid, Name: strings.TrimSpace(name)})
 	}
 	return result, nil
 }
@@ -785,7 +529,7 @@ func (a *App) ListProcesses() ([]ProcessInfo, error) {
 func (a *App) KillProcess(pid int) error {
 	if runtime.GOOS == "windows" {
 		cmd := exec.Command("taskkill", "/PID", fmt.Sprintf("%d", pid), "/F")
-		hideWindow(cmd) // see hidewindow_windows.go
+		hideWindow(cmd)
 		return cmd.Run()
 	}
 	proc, err := os.FindProcess(pid)
@@ -795,17 +539,11 @@ func (a *App) KillProcess(pid int) error {
 	return proc.Kill()
 }
 
-// Run starts OXIS as a native Wails window. It blocks until the window
-// is closed.
+// Run starts OXIS as a native window and blocks until it closes.
 //
-// The frontend is served directly as this window's AssetServer.Assets
-// — Wails' standard embedded-filesystem path — so window.go/window.runtime
-// are injected into the one and only document this window ever loads.
-// A second, real HTTP server (server.Listen) carries the PTY WebSocket
-// (which Wails' own AssetServer can't do — see its doc comment) and,
-// as a bonus, the same frontend build again, on a real port — so
-// http://127.0.0.1:1420 also works from an ordinary browser, entirely
-// independent of this native window.
+// The frontend is served as the window's embedded assets. A separate
+// loopback HTTP server (server.Listen) carries the PTY WebSocket and
+// also serves the same frontend at http://127.0.0.1:1420 for browsers.
 func Run() error {
 	app := NewApp()
 
@@ -820,22 +558,22 @@ func Run() error {
 		return err
 	}
 
-	// Window size is locked: Width/Height == Min == Max and
-	// DisableResize is true, so the OS gives no resize handles/cursors
-	// and there's no maximise control in the titlebar at all (see
-	// Titlebar.tsx) — nothing to expand into. Intentional, not a bug.
-	const winWidth, winHeight = 940, 600
+	// Saved by 'oxis resize (window.json); defaults to 940x600.
+	winWidth, winHeight := loadWindowSize()
 
 	return wails.Run(&options.App{
-		Title:            "OXIS",
-		Width:            winWidth,
-		Height:           winHeight,
-		MinWidth:         winWidth,
-		MinHeight:        winHeight,
-		MaxWidth:         winWidth,
-		MaxHeight:        winHeight,
-		Frameless:        true,
-		DisableResize:    true,
+		Title:     "OXIS",
+		Width:     winWidth,
+		Height:    winHeight,
+		MinWidth:  minWinWidth,
+		MinHeight: minWinHeight,
+		MaxWidth:  maxWinWidth,
+		MaxHeight: maxWinHeight,
+		Frameless: true,
+		// No drag handles on Windows/macOS; the size comes from 'oxis
+		// resize. GTK ignores programmatic resizes of a non-resizable
+		// window, so Linux keeps it resizable.
+		DisableResize:    runtime.GOOS != "linux",
 		BackgroundColour: &options.RGBA{R: 12, G: 10, B: 18, A: 255},
 		AssetServer: &assetserver.Options{
 			Assets: distFS,

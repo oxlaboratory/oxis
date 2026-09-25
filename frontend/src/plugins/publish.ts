@@ -1,33 +1,11 @@
 /**
- * publish.ts — 'plugin publish <name>.
+ * publish.ts — 'plugin publish / 'plugin unpublish.
  *
- * What this genuinely does:
- *  - Validates the plugin is actually publishable (real checks, reusing
- *    pluginManager.validate() plus publish-specific manifest
- *    completeness checks — version/description/author/category/
- *    min_oxis_version all need to be real for a Market listing, even
- *    though they're merely optional for a plugin you only run yourself).
- *  - For a PAID plugin, kicks off a REAL Stripe Connect Express
- *    account — a genuine network call to the already-deployed
- *    `/connect-onboarding` endpoint (see cloudflare/functions/
- *    connect-onboarding.js) — and opens the real onboarding URL
- *    Stripe returns.
- *  - Submits the plugin's metadata AND its actual .lua source to the
- *    Market's `/submit-plugin` endpoint (see cloudflare/functions/
- *    submit-plugin.js), which opens a REAL GitHub pull request
- *    against github.com/oxlaboratory/oxis adding the plugin's .lua file
- *    and its index.json entry. This automates the tedious mechanical
- *    part (branch/commit/push/open-PR) but is NOT auto-merged — a
- *    human still reviews and merges it on GitHub before the plugin
- *    is actually live and 'market install-able. This function's job
- *    ends at "the PR exists"; opening the returned URL in a browser
- *    is as far as automation goes.
- *
- * Also honest about a real limitation: the submission endpoint itself
- * could not be deployed or exercised end-to-end in the environment
- * this was written in (no GitHub/Cloudflare account access) — if
- * `'plugin publish` reports a network/server error, that's the first
- * thing to check, not necessarily a bug in this file.
+ * Checks the plugin is ready (validate() plus a complete manifest), then
+ * sends it to the Market's /submit-plugin endpoint, which opens a pull
+ * request against github.com/oxlaboratory/oxis. Nothing goes live until
+ * a maintainer merges it. Paid plugins first go through Stripe Connect
+ * onboarding (/connect-onboarding).
  */
 
 import { pluginManager } from "./pluginManager";
@@ -57,11 +35,8 @@ export interface PublishCheckResult {
 
 const REQUIRED_OS = ["windows", "unix"];
 
-/** Checks the plugin is actually ready to publish — real manifest
- *  completeness checks on top of pluginManager.validate()'s existing
- *  ones, since a field being merely OPTIONAL for a plugin you only run
- *  yourself (e.g. no declared version) isn't good enough for a public
- *  Market listing. */
+/** Publish checks: validate() plus the manifest fields a Market
+ *  listing needs (optional for plugins you only run yourself). */
 export function checkPublishable(name: string): PublishCheckResult {
   const p = pluginManager.get(name);
   if (!p) return { ok: false, issues: [`not installed: ${name}`] };
@@ -140,14 +115,8 @@ async function postSubmission(payload: Record<string, unknown>): Promise<Submiss
   }
 }
 
-/** Free plugin — opens a real GitHub pull request via the Market's
- *  `/submit-plugin` endpoint (see cloudflare/functions/submit-plugin.js)
- *  adding the plugin's .lua file and its index.json entry. Not live
- *  until a human reviews and merges it on GitHub — this only
- *  automates getting the MR opened, not the review itself. `existing`
- *  (if the plugin's already listed) only changes the wording — the
- *  submission works the same either way; submit-plugin.js replaces
- *  the existing index.json entry in place either way. */
+/** Free plugin: opens a pull request adding the .lua file and its
+ *  index.json entry (replacing the entry if it's already listed). */
 export async function prepareFreePublish(metadata: PublishMetadata, existing?: MarketEntry): Promise<SubmissionResult> {
   const p = pluginManager.get(metadata.name);
   const source = p?.lua ?? "";
@@ -173,13 +142,8 @@ export interface ConnectOnboardingResult {
   accountId?: string;
 }
 
-/** Kicks off a REAL Stripe Connect Express account via the already-
- *  deployed /connect-onboarding endpoint — a genuine network call and
- *  a genuine onboarding link Stripe itself generates, not a
- *  placeholder. The actual Market listing (see submitPaidPlugin
- *  below) still goes through GitHub PR review like any other
- *  submission — the account being created here doesn't make anything
- *  live by itself. */
+/** Creates a Stripe Connect Express account and returns its
+ *  onboarding link. The listing itself still goes through PR review. */
 export async function startConnectOnboarding(email: string): Promise<ConnectOnboardingResult> {
   try {
     const res = await fetch(`${MARKET_BASE}/connect-onboarding`, {
@@ -229,13 +193,9 @@ export async function submitPaidPlugin(metadata: PublishMetadata, price: string,
   };
 }
 
-/** 'plugin unpublish <name> — opens a GitHub pull request removing
- *  the plugin's Market listing (see cloudflare/functions/
- *  delete-plugin.js). Same human-review-gated model as publishing:
- *  nothing is actually removed until a human merges the MR. `author`
- *  is checked against the CURRENT listing's own author server-side —
- *  this is a typo/mistake guard, not real authentication, same
- *  caveat as the rest of this pipeline. */
+/** 'plugin unpublish <name>: opens a PR removing the listing. The
+ *  author is checked against the listing as a guard against mistakes,
+ *  not as authentication. */
 export async function requestPluginDeletion(name: string, author: string): Promise<SubmissionResult> {
   try {
     const res = await fetch(`${MARKET_BASE}/delete-plugin`, {

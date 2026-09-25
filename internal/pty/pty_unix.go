@@ -45,11 +45,7 @@ func HandleSession(conn *websocket.Conn) {
 				rows = 30
 			}
 
-			// Shell profile support: OXIS_SHELL, set before launching
-			// OXIS, overrides $SHELL — lets you use a different shell
-			// specifically for OXIS without changing your system
-			// default. Falls back to $SHELL (already the user's own
-			// configured shell, if set), then /bin/bash.
+			// OXIS_SHELL overrides $SHELL; /bin/bash is the last resort.
 			shell := os.Getenv("OXIS_SHELL")
 			if shell == "" {
 				shell = os.Getenv("SHELL")
@@ -79,7 +75,7 @@ func HandleSession(conn *websocket.Conn) {
 			// PTY → WebSocket in background
 			go func() {
 				buf := make([]byte, 8192)
-				var pending []byte // see splitIncompleteUTF8's own doc comment
+				var pending []byte // incomplete UTF-8 tail carried to the next read
 				for {
 					n, err := ptmx.Read(buf)
 					if n > 0 {
@@ -88,7 +84,7 @@ func HandleSession(conn *websocket.Conn) {
 							chunk = append(append([]byte{}, pending...), chunk...)
 						}
 						complete, newPending := splitIncompleteUTF8(chunk)
-						pending = append([]byte{}, newPending...) // copy — chunk's backing array is buf, reused next iteration
+						pending = append([]byte{}, newPending...) // copy: buf is reused
 						data := stripCtrl(string(complete))
 						if data != "" {
 							safeSend(conn, &mu, outMsg{Type: "output", Data: data})

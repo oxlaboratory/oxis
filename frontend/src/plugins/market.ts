@@ -1,21 +1,10 @@
 /**
- * market.ts — OXIS plugin marketplace client
+ * market.ts — client for the plugin Market (oxis-market.pages.dev):
  *
- * Talks to the community plugin index at https://oxis-market.pages.dev.
- * Expected contract (static JSON + raw files, e.g. served straight off
- * Cloudflare Pages):
+ *   GET {BASE}/index.json  → [{ name, desc, category, version, author, file }]
+ *   GET {BASE}/{file}      → the plugin's Lua source
  *
- *   GET  {BASE}/index.json
- *     → [ { name, desc, category, version, author, file }, ... ]
- *
- *   GET  {BASE}/{file}          (file path as given in the index entry)
- *     → raw Lua source for that plugin
- *
- * Installed plugins are registered as ordinary user Lua plugins via
- * pluginManager.addLuaPlugin(), so once installed they behave exactly
- * like a plugin written locally with 'plugin new — written to a real
- * .lua file on disk (native window only; see isNativeApp() in
- * native.ts), manageable with 'plugin enable/disable/reload.
+ * Installed plugins are ordinary Lua plugins (pluginManager.addLuaPlugin).
  */
 
 import { pluginManager } from "./pluginManager";
@@ -48,12 +37,7 @@ async function fetchJSON<T>(url: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-/** Fetch (and cache for this session) the marketplace index. Just the
- *  one curated index.json — 'plugin publish opens a real GitHub pull
- *  request (see cloudflare/functions/submit-plugin.js) rather than
- *  writing anywhere separate, so once a submission is reviewed and
- *  merged, it shows up in this exact same file like everything else;
- *  there's no second, self-published index to also fetch and merge. */
+/** The Market index, cached for the session. */
 export async function fetchIndex(force = false): Promise<MarketEntry[]> {
   if (cachedIndex && !force) return cachedIndex;
   const entries = await fetchJSON<MarketEntry[]>(`${MARKET_BASE}/index.json`);
@@ -66,14 +50,8 @@ export async function findEntry(name: string): Promise<MarketEntry | undefined> 
   return idx.find(e => e.name.toLowerCase() === name.toLowerCase());
 }
 
-/** Active subscriber count for a premium plugin — derived server-side
- *  from real license/webhook data (see cloudflare/functions/
- *  subscriber-counts.js and lib/licenses.js's countActiveSubscribers),
- *  not tracked separately here. Returns null (not 0) on any failure
- *  — network hiccup, KV not bound yet, etc. — so callers can tell
- *  "genuinely zero subscribers" apart from "couldn't find out" and
- *  word the message accordingly rather than showing a possibly-wrong
- *  zero. */
+/** Active subscribers for a premium plugin, from the server. null when
+ *  it can't be determined (so it isn't shown as a false zero). */
 export async function fetchSubscriberCount(name: string): Promise<number | null> {
   try {
     const counts = await fetchJSON<Record<string, number>>(`${MARKET_BASE}/subscriber-counts?plugin=${encodeURIComponent(name)}`);
@@ -102,12 +80,9 @@ export async function fetchPluginSource(entry: MarketEntry): Promise<string> {
   return res.text();
 }
 
-/** Download + register + persist (to a real .lua file — see
- *  pluginManager.addLuaPlugin) a marketplace plugin by name. Resolves
- *  with both the marketplace entry and whether the disk write itself
- *  succeeded — a plugin can be fully installed & working this session
- *  even if persistence to disk failed (browser mode, permissions,
- *  etc.), and callers need to tell those two outcomes apart. */
+/** Downloads, registers and saves a Market plugin. Reports separately
+ *  whether saving to disk worked (a plugin can run this session even if
+ *  it couldn't be saved). */
 export async function install(name: string): Promise<{ entry: MarketEntry; persisted: boolean; persistError?: unknown }> {
   const entry = await findEntry(name);
   if (!entry) throw new Error(`not found in marketplace: ${name}`);
@@ -117,13 +92,9 @@ export async function install(name: string): Promise<{ entry: MarketEntry; persi
   return { entry, persisted, persistError };
 }
 
-// ── Premium plugins — Stripe subscription + local encryption ────
-// See README § Premium Plugin Licensing & Encryption for the full
-// flow this implements: subscribe (Stripe Checkout) -> webhook issues
-// a license -> desktop verifies the license -> fetches source over
-// HTTPS (never as a public static file, see premium-plugin.js) ->
-// encrypts it for local storage -> decrypts into memory only when the
-// license is confirmed active.
+// ── Premium plugins: Stripe subscription → license → source fetched
+// over HTTPS → stored encrypted → decrypted into memory while the
+// license is active. ──
 
 /** Starts a Stripe Checkout session for a premium plugin and returns
  *  the URL to open in a browser — Checkout is a hosted Stripe page,
@@ -142,11 +113,8 @@ export async function subscribe(name: string, email?: string): Promise<{ url: st
 
 const encryptedPluginPath = (name: string) => `.oxis/premium/${name}.oxispkg`;
 
-/** After a successful subscription (webhook has run, license is
- *  active): fetch the plugin's real source, encrypt it for local
- *  storage, and register it exactly like any other plugin. Requires
- *  the native app (real filesystem) — same constraint the editor and
- *  workspace files already have. */
+/** Fetches, encrypts, stores and loads a premium plugin once its
+ *  license is active (native app only). */
 export async function installPremium(name: string): Promise<{ entry: MarketEntry; loaded: boolean; loadMessage: string }> {
   const entry = await findEntry(name);
   if (!entry) throw new Error(`not found in marketplace: ${name}`);
@@ -166,31 +134,16 @@ export async function installPremium(name: string): Promise<{ entry: MarketEntry
   const pkg = await encryptPluginPackage(name, data.source, getDeviceId());
   await writeFile(encryptedPluginPath(name), JSON.stringify(pkg));
 
-  // A real, checked result — not fire-and-forget. Found as a genuine
-  // fake-success bug: this used to `await loadPremiumPlugin(name)`
-  // without ever looking at the result, so if loading actually failed
-  // (a decryption error, the plugin's own Lua failing to validate)
-  // installPremium() STILL resolved successfully — the encrypted
-  // package was already safely on disk by this point regardless, so
-  // the caller (the 'market install command handler) would print
-  // "installed & unlocked" even though the plugin never actually
-  // loaded. The package download/encryption genuinely did succeed
-  // (worth keeping on disk either way — 'market install can retry the
-  // load without re-fetching), but "installed" and "loaded" are two
-  // different claims and this now lets the caller tell them apart,
-  // the same way the free-plugin install() above already does via its
-  // own persisted/persistError fields.
+  // Report whether it actually loaded: the encrypted package is saved
+  // either way (so a retry doesn't re-download), but "installed" and
+  // "loaded" are different results.
   const loadResult = await loadPremiumPlugin(name);
   return { entry, loaded: loadResult.ok, loadMessage: loadResult.message };
 }
 
-/** Loads an already-installed premium plugin: decrypts into memory
- *  (never written back to disk in plaintext) IF the subscription is
- *  still active. This is the check that makes an expired subscription
- *  stop a plugin from running while leaving the encrypted file alone
- *  on disk — see README's licensing lifecycle diagram. Called at
- *  startup for every premium package found under .oxis/premium/, and
- *  again by 'market install/'plugin reload. */
+/** Loads an installed premium plugin into memory if its subscription is
+ *  still active; the encrypted file is left alone either way. Called at
+ *  startup and by 'market install / 'plugin reload. */
 export async function loadPremiumPlugin(name: string, silent = false): Promise<{ ok: boolean; message: string }> {
   if (!isNativeApp()) return { ok: false, message: "premium plugins need the native OXIS app" };
   const email = getLicensedEmail();
@@ -229,13 +182,8 @@ export async function loadPremiumPlugin(name: string, silent = false): Promise<{
   return { ok: true, message: `${name} loaded` };
 }
 
-/** Scans .oxis/premium/ for previously-installed encrypted packages
- *  and attempts to load each — called once at startup (see App.tsx's
- *  root init effect), same idea as pluginManager's own loadAll() for
- *  ordinary plugin files. Each package independently succeeds or
- *  reports why it didn't (expired subscription, no licensed email
- *  set, etc.) via loadPremiumPlugin()'s own return value; one
- *  package's failure doesn't stop the others from loading. */
+/** Loads every package in .oxis/premium/ at startup; each succeeds or
+ *  reports why independently. */
 export async function loadAllPremiumPlugins(): Promise<{ name: string; ok: boolean; message: string }[]> {
   if (!isNativeApp()) return [];
   let entries;

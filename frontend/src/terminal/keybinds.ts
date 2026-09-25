@@ -1,8 +1,6 @@
 /**
- * keybinds.ts — OXIS keybind system
- *
- * Built-in keybinds + user-overridable mappings.
- * Lua: oxis.keymap("normal", "<C-t>", function() ... end)
+ * keybinds.ts — app shortcuts plus Lua keymaps
+ * (oxis.keymap("normal", "<C-t>", fn)).
  */
 
 export type KeyHandler = (e: KeyboardEvent) => boolean | void;
@@ -17,10 +15,8 @@ export interface Keybind {
   /** true = registered by Lua */
   fromLua?: boolean;
   /**
-   * Input mode this bind is scoped to ("normal" | "insert" | "visual",
-   * see README § Input Modes and `oxis.keymap(mode, key, fn)`).
-   * Undefined = fires regardless of mode (core app shortcuts like
-   * Ctrl+T always behave this way).
+   * Editor mode this bind is limited to ("normal" | "insert" |
+   * "visual"); undefined fires in any mode.
    */
   mode?: string;
 }
@@ -56,9 +52,12 @@ class KeybindManager {
       a.mode === b.mode;
   }
 
-  handle(e: KeyboardEvent): boolean {
+  /** skipCore: ignore built-in app shortcuts (not Lua or mode-scoped
+   *  binds), used while the user is typing in another text field. */
+  handle(e: KeyboardEvent, opts: { skipCore?: boolean } = {}): boolean {
     for (const bind of this.binds) {
       if (bind.mode && bind.mode !== this.activeMode) continue;
+      if (opts.skipCore && !bind.mode && !bind.fromLua) continue;
       if (
         e.key.toLowerCase() === bind.key.toLowerCase() &&
         !!e.ctrlKey === !!bind.ctrl &&

@@ -1,8 +1,6 @@
 /**
- * themeManager.ts — OXIS theme manager
- *
- * Loads themes from JSON definitions (builtins inline + custom via localStorage).
- * Supports hot-reload, import/export, inheritance, and validation.
+ * themeManager.ts — built-in themes, custom themes (localStorage), theme
+ * files from ~/.oxis/themes, inheritance (`extends`), import/export.
  */
 
 import { events } from "./events";
@@ -76,6 +74,9 @@ const BUILTINS: Record<string, Theme> = {
 
 class ThemeManager {
   private custom: Record<string, Theme> = {};
+  /** Themes loaded from ~/.oxis/themes/*.json each launch (not saved to
+   *  localStorage; the files are the source of truth). */
+  private external: Record<string, Theme> = {};
   private current = "default";
 
   constructor() {
@@ -96,11 +97,26 @@ class ThemeManager {
   }
 
   all(): Record<string, Theme> {
-    return { ...BUILTINS, ...this.custom };
+    return { ...BUILTINS, ...this.external, ...this.custom };
   }
 
   builtins(): Record<string, Theme> { return { ...BUILTINS }; }
   customThemes(): Record<string, Theme> { return { ...this.custom }; }
+
+  /** Re-applies the saved theme once file themes are loaded, in case it
+   *  is one of them (they aren't known yet when the constructor runs). */
+  restoreSaved(): void {
+    let saved: string | null = null;
+    try { saved = localStorage.getItem("oxis-theme"); } catch { /* storage unavailable */ }
+    if (saved && saved !== this.current && this.all()[saved]) this.apply(saved);
+  }
+
+  /** Registers a theme read from a file; returns missing keys, if any. */
+  addExternal(name: string, theme: Theme): string[] {
+    const missing = this.validate(theme);
+    if (missing.length === 0) this.external[name] = theme;
+    return missing;
+  }
 
   get(name: string): Theme | undefined {
     const all = this.all();
@@ -164,8 +180,12 @@ class ThemeManager {
     r.setProperty("--accent",  t.purple);
   }
 
+  /** Keys still missing after applying `extends`, if any. */
   validate(t: Partial<Theme>): string[] {
-    return REQUIRED_KEYS.filter(k => !t[k]);
+    const base = t.extends ? this.all()[t.extends] : undefined;
+    if (t.extends && !base) return [`extends: unknown theme "${t.extends}"`];
+    const merged = { ...base, ...t };
+    return REQUIRED_KEYS.filter(k => !merged[k]);
   }
 
   addCustom(name: string, theme: Theme): boolean {
@@ -186,16 +206,7 @@ class ThemeManager {
   export(name: string): string | null {
     const t = this.get(name);
     if (!t) return null;
-    // `name` last — not first — so it always wins over whatever `t`
-    // itself might carry as its own internal `name` field (imported
-    // themes retain this from their original JSON; see import()
-    // below). Object spread lets a later key silently override an
-    // earlier one with the same name — { name, ...t } would export
-    // under t's own possibly-stale internal name instead of the name
-    // this function was actually asked to export under, whenever the
-    // two diverge. Reproduced concretely before fixing: a theme
-    // looked up under one key but still carrying a different internal
-    // name exported under the wrong one.
+    // `name` last so it wins over a stale internal name from an import.
     return JSON.stringify({ ...t, name }, null, 2);
   }
 
@@ -203,6 +214,7 @@ class ThemeManager {
     try {
       const t = JSON.parse(json) as Theme & { name?: string };
       const name = t.name ?? "imported";
+      if (BUILTINS[name]) return { ok: false, error: `"${name}" is a built-in theme name — rename it in the JSON` };
       const missing = this.validate(t);
       if (missing.length) return { ok: false, error: `Missing keys: ${missing.join(", ")}` };
       this.addCustom(name, t);

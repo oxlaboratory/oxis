@@ -1,18 +1,7 @@
 /**
- * syntaxHighlight.ts — small, dependency-free syntax highlighter for
- * the built-in Editor and the Plugin Creator (App.tsx's <CodeArea>).
- *
- * Deliberately not a real tokenizer/parser (no Monaco/CodeMirror —
- * this app has no bundled editor library and stays that way): a
- * single regex pass per render that recognises comments, strings,
- * numbers, keywords and `name(` function calls per language, in that
- * priority order. Good enough to make Lua plugin source and common
- * source files readable at a glance; not a substitute for a real
- * language server.
- *
- * Output is an HTML string (already escaped) meant for
- * dangerouslySetInnerHTML inside a <pre> that sits behind a
- * transparent <textarea> — see CodeArea in App.tsx.
+ * syntaxHighlight.ts — a small regex highlighter for the editor
+ * (comments, strings, numbers, keywords, function calls). Returns
+ * escaped HTML for the <pre> behind CodeArea's textarea.
  */
 
 export type EditorLang =

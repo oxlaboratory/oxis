@@ -1,14 +1,9 @@
 /**
  * history.ts — OXIS command history
  *
- * Features:
- *   - 2 000 entry cap, persisted to localStorage
- *   - Consecutive-duplicate deduplication
- *   - Up/Down with draft preservation
- *   - Prefix-aware Up (type partial command → Up finds matches)
- *   - Ctrl+R incremental reverse-i-search (like bash/zsh)
- *   - Search result cycling with Ctrl+R
- *   - clear() command support
+ * One shared history for the global prompt: 2,000 entries persisted to
+ * localStorage, consecutive duplicates dropped, Up/Down with the typed
+ * draft preserved, prefix-filtered Up, and Ctrl+R reverse-i-search.
  */
 
 const KEY = "oxis-cmd-history-v2";
@@ -64,51 +59,46 @@ class HistoryManager {
     if (this.navIdx === -1) this.draft = s;
   }
 
+  /** Up: the previous entry. If text was typed before the first Up,
+   *  only entries starting with it are visited (like bash's
+   *  history-search-backward); at the oldest match it stays put. */
   prev(currentInput: string): string {
     if (this.entries.length === 0) return currentInput;
 
     if (this.navIdx === -1) {
       this.draft  = currentInput;
-      this.prefix = currentInput.trimStart();
+      this.prefix = currentInput.trim();
       this.navIdx = this.entries.length;
     }
 
-    // Prefix-aware backward scan
-    if (this.prefix) {
-      for (let i = this.navIdx - 1; i >= 0; i--) {
-        if (this.entries[i].startsWith(this.prefix)) {
-          this.navIdx = i;
-          return this.entries[i];
-        }
+    for (let i = this.navIdx - 1; i >= 0; i--) {
+      if (!this.prefix || this.entries[i].startsWith(this.prefix)) {
+        this.navIdx = i;
+        return this.entries[i];
       }
-      // Nothing found — clear prefix and fall through
-      this.prefix = "";
     }
-
-    if (this.navIdx > 0) this.navIdx--;
-    return this.entries[this.navIdx] ?? currentInput;
+    // Nothing older: stay on the current entry (or the draft if Up
+    // found nothing at all).
+    return this.navIdx < this.entries.length ? this.entries[this.navIdx] : this.draft;
   }
 
+  /** Down: the next newer entry, then back to the draft. */
   next(): string {
     if (this.navIdx === -1) return this.draft;
 
-    if (this.prefix) {
-      for (let i = this.navIdx + 1; i < this.entries.length; i++) {
-        if (this.entries[i].startsWith(this.prefix)) {
-          this.navIdx = i;
-          return this.entries[i];
-        }
+    for (let i = this.navIdx + 1; i < this.entries.length; i++) {
+      if (!this.prefix || this.entries[i].startsWith(this.prefix)) {
+        this.navIdx = i;
+        return this.entries[i];
       }
-      this.prefix = "";
     }
-
-    this.navIdx++;
-    if (this.navIdx >= this.entries.length) {
-      this.navIdx = -1;
-      return this.draft;
-    }
-    return this.entries[this.navIdx] ?? "";
+    const draft = this.draft;
+    this.navIdx = -1;
+    this.prefix = "";
+    return draft;
   }
+
+  isNavigating(): boolean { return this.navIdx !== -1; }
 
   resetNav(): void {
     this.navIdx = -1;
@@ -133,18 +123,8 @@ class HistoryManager {
   isSearching():    boolean { return this.rsActive; }
   getSearchQuery(): string  { return this.rsQuery;  }
 
-  /** Returns the best match or null if nothing found. Searches from
-   *  the CURRENT match position (rsPos), not always from the newest
-   *  entry — a real, reproduced bug: refining the query while already
-   *  browsing an older match (via searchOlder below) used to jump
-   *  straight back to the newest matching entry on every keystroke,
-   *  discarding the user's position instead of refining from it. Bash's
-   *  own reverse-i-search stays on the current match if it still
-   *  satisfies the longer query, or moves to the next-older one if it
-   *  doesn't — searching from rsPos (which _findFrom treats as an
-   *  inclusive upper bound) reproduces exactly that, since it's
-   *  already initialized to the newest entry in enterSearch(), so the
-   *  very first keystroke of a session is unaffected. */
+  /** Refines the search from the current match (like bash): stays on
+   *  it if it still matches, otherwise moves to the next older one. */
   searchAppend(ch: string): SearchResult | null {
     this.rsQuery += ch;
     return this._findFrom(this.rsPos);

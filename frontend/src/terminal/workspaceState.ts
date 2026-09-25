@@ -1,15 +1,6 @@
 /**
- * workspaceState.ts — backs the Home screen's Workspace panel (see
- * README § Home Screen & Workspace Panel).
- *
- * This is the piece that was missing before: `oxis.workspace(path)`
- * already emitted a "workspace_loaded" event (see pluginAPI.ts), but
- * nothing in the app ever listened for it — App.tsx's `activeProject`
- * state was declared and passed to <StatusBar>, but never actually
- * set. This module is the single place that listens to the events
- * that matter for "what is my workspace doing right now" and keeps a
- * small rolling activity log, so both the status bar and the Home
- * panel can read from one source instead of duplicating listeners.
+ * workspaceState.ts — the workspace status and recent activity shown on
+ * Home and in the status bar, fed by workspace, task and plugin events.
  */
 
 import { events } from "./events";
@@ -50,11 +41,8 @@ class WorkspaceState {
       void path; // path becomes authoritative once "workspace_loaded" lands below
     });
     events.on("workspace_loaded", (p) => {
-      // workspaceManager.load() emits this with the real, absolute
-      // directory once loadLuaPlugin() actually succeeds — not
-      // whatever relative string workspace.lua itself happened to
-      // pass to oxis.workspace(path) (usually just "."), which
-      // wouldn't be useful to display here.
+      // The absolute directory workspaceManager loaded (not the "."
+      // that workspace.lua passes).
       const path = String((p as { path?: string })?.path ?? "");
       const name = path.split(/[\\/]/).filter(Boolean).pop() ?? path;
       this.snapshot = { ...this.snapshot, projectPath: path, projectName: name, status: "ready" };
@@ -73,12 +61,7 @@ class WorkspaceState {
       this.log(`theme switched to "${name}"`);
     });
     events.on("plugin_loaded", (p) => {
-      // Only fires for a genuine, individual load now — bulk startup
-      // loading (loadUserPlugins, loadAllPremiumPlugins) passes
-      // silent:true to pluginManager.load() specifically so this
-      // activity row doesn't get flooded with "plugin X reloaded" for
-      // every one of the ~20+ plugins loaded fresh on every launch,
-      // which is what it used to do before that fix.
+      // Bulk startup loads are silent, so this only logs real reloads.
       const name = String((p as { name?: string })?.name ?? "");
       if (name) this.log(`plugin "${name}" reloaded`);
     });
@@ -106,18 +89,8 @@ class WorkspaceState {
   }
 
   /** Task names defined so far (`oxis.task(...)`), for "available tasks". */
-  /** Task names shown on Home's workspace panel. "commit" is always
-   *  first, even though it isn't in the registry the way the rest of
-   *  these are (see App.tsx's 'task handler — it's a direct,
-   *  unconditional special case, not an oxis.task() registration) —
-   *  without this it was invisible from the one place a person would
-   *  actually look to see what tasks exist, even though the command
-   *  itself works fine unconditionally. It's also the one task name
-   *  this list can never lose: everything else here comes from
-   *  workspace.lua/plugin registrations that could in principle
-   *  change or fail to load, but "commit" doesn't depend on any of
-   *  that. Deduplicated in case a workspace ever also defines its own
-   *  literal "commit" task — this list should never show it twice. */
+  /** Task names for Home's panel. "commit" is built in rather than
+   *  registered, so it's added first (once). */
   taskNames(): string[] {
     const registered = registry.all()
       .filter((c) => c.category === "task")

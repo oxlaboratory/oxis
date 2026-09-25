@@ -1,33 +1,11 @@
 /**
- * pluginManager.ts — OXIS plugin manager
+ * pluginManager.ts — plugin discovery, loading, enable/disable, reload,
+ * uninstall and persistence.
  *
- * Handles discovery, loading, unloading, enabling, disabling, and reloading.
- * Built-in plugins are TypeScript shortcut tables; user/market Lua
- * plugins run through a real Lua VM (see luaRuntime.ts).
- *
- * ── Documentation compliance ─────────────────────────────────
- * Every command a plugin registers (via oxis.command/oxis.task, or a
- * TS shortcut) is supposed to carry a real description — see
- * pluginAPI.ts. Right after a Lua plugin finishes executing, load()
- * scans the registry for anything it just registered that's still
- * tagged with UNDOCUMENTED_SENTINEL. It USED to disable the whole
- * plugin over this; it no longer does — a plugin silently disabled
- * over one missing description is functionally indistinguishable from
- * one that never loaded at all, which defeats the actual point (make
- * plugins show up and work in 'help). Missing descriptions now get a
- * short auto-generated fallback instead, plus a loud one-time warning
- * telling the author to add a real one — 'help still shows something
- * useful either way, and the plugin's commands actually work.
- *
- * ── Persistence ──────────────────────────────────────────────
- * User/market plugin Lua source is written to real .lua files on disk
- * (via the native Go bindings in native.ts — see pluginsDir() in
- * internal/wailsapp/app.go), not localStorage. This only works inside
- * the native window (browser mode has no filesystem access at all —
- * see isNativeApp() in native.ts); loadUserPlugins()/saveLuaPlugin()
- * are no-ops in browser mode rather than throwing, since a plugin
- * manager with no persistence is still a perfectly usable session, it
- * just won't survive a refresh.
+ * Built-ins are TypeScript shortcut tables or bundled Lua; user and
+ * Market plugins are .lua files on disk (native app only), run in their
+ * own Lua VM (luaRuntime.ts). A command registered without a
+ * description gets a generated one plus a warning to the author.
  */
 
 import { registry } from "../terminal/commandRegistry";
@@ -57,24 +35,13 @@ export interface PluginMeta {
   lua?: string;
   /** TypeScript shortcut table (for built-in plugins) */
   shortcuts?: Record<string, string | ((a: string) => string)>;
-  /** Where a non-builtin plugin's .lua file actually lives:
-   *  "market" → dist/plugins/ (via the dedicated ListPlugins/
-   *  ReadPluginFile/WritePluginFile/DeletePluginFile Go bindings —
-   *  see pluginsDir() in internal/wailsapp/app.go), the original
-   *  location, still used for 'market install.
-   *  "user" → created-plugins/ (or the active workspace's own
-   *  plugins/ — see workspaceManager.pluginsDir()), via the generic
-   *  file bridge. Used for plugins made with the Plugin Creator
-   *  ('plugin new), so a user's own plugins land somewhere separate
-   *  from ones installed from the marketplace. Undefined for
-   *  premium plugins (never written to disk at all) and builtins. */
+  /** Where a non-builtin plugin's file lives: "market" → plugins/ (the
+   *  plugin-file Go bindings), "user" → created-plugins/ or the active
+   *  workspace's plugins/. Undefined for builtins and premium plugins
+   *  (never written to disk). */
   origin?: "user" | "market";
-  /** Parsed from a `--[[@manifest ... ]]` block in the plugin's Lua
-   *  source — see manifest.ts. Undefined for a "legacy" plugin (no
-   *  manifest block at all, including every built-in) — see
-   *  checkCompatibility() and permissions.ts's declaredPermissions for
-   *  where legacy vs. manifest'd plugins are actually treated
-   *  differently. */
+  /** From the `--[[@manifest ... ]]` block (manifest.ts); undefined for
+   *  legacy plugins, which skip compatibility checks. */
   manifest?: PluginManifest;
 }
 
@@ -117,12 +84,8 @@ function suggestionFor(issue: string, pluginName: string): string | undefined {
   return undefined;
 }
 
-/** The one place a plugin-related failure becomes text a user reads —
- *  used for Lua exec errors (load(), oxis.command()/oxis.task()
- *  invocations in pluginAPI.ts) AND compatibility/dependency/
- *  permission failures here, so every failure mode looks like the
- *  same kind of thing instead of some being a formatted block and
- *  others a raw exception message or stack trace. */
+/** Formats every plugin failure (Lua errors, compatibility,
+ *  dependencies, permissions) the same way. */
 export function formatPluginError(info: PluginErrorInfo): string {
   const lines = ["Plugin Error", `Plugin: ${info.plugin}`];
   if (info.command) lines.push(`Command: ${info.command}`);
@@ -142,28 +105,15 @@ class PluginManager {
   /** Must be called once at startup before loading plugins */
   init(ctx: APIContext): void {
     this.apiCtx = ctx;
-    // User-created plugins are workspace-scoped (see pluginsDir() —
-    // "created-plugins/" with no workspace active, or the active
-    // named workspace's own "plugins/" folder) — but until this,
-    // nothing ever re-scanned that folder after startup. Switching
-    // workspaces left the PREVIOUS workspace's user plugins still
-    // registered/enabled (stale — their files might not even exist
-    // under the new workspace) and never loaded the NEW workspace's
-    // own. Re-sync on every workspace_loaded/unloaded: clear out
-    // whatever "user"-origin plugins are currently registered, then
-    // re-scan whichever plugins/ directory is active now. Market-
-    // installed plugins are untouched — those were never workspace-
-    // scoped to begin with.
+    // User plugins are per-workspace: on every workspace change, drop
+    // the current user plugins and rescan the active plugins/ folder.
+    // Market plugins aren't affected.
     events.on("workspace_loaded",   () => this.resyncUserPlugins());
     events.on("workspace_unloaded", () => this.resyncUserPlugins());
   }
 
-  // Guards against overlapping calls — a workspace auto-detected right
-  // at startup could fire "workspace_loaded" around the same moment
-  // loader.ts makes its own initial loadUserPlugins() call; without
-  // this, both could interleave (unload-while-loading) since JS only
-  // yields at await points, not mid-statement, but there's no reason
-  // to rely on that being harmless when a simple guard avoids it.
+  // Prevents overlapping rescans (startup load vs. an early
+  // workspace_loaded).
   private userPluginResyncInFlight = false;
   private resyncUserPlugins(): void {
     if (this.userPluginResyncInFlight) return;
@@ -189,11 +139,8 @@ class PluginManager {
       const manifest = parseManifest(meta.lua);
       if (manifest) {
         meta.manifest = manifest;
-        // Manifest fields fill in gaps rather than overriding anything
-        // the caller (addLuaPlugin/loadUserPlugins) already set —
-        // e.g. 'market install already knows the real category from
-        // the Market index, which should win over a stale one someone
-        // hand-wrote into their own manifest.
+        // Manifest fields only fill gaps; values the caller already set
+        // (e.g. the Market's category) win.
         if (manifest.version && !meta.version) meta.version = manifest.version;
         if (manifest.author && !meta.author) meta.author = manifest.author;
         if (manifest.description) meta.desc = manifest.description;
@@ -204,16 +151,10 @@ class PluginManager {
     this.plugins.set(meta.name, meta);
   }
 
-  /** OS / min-OXIS-version / dependency checks — run BEFORE a manifest'd
-   *  plugin's Lua ever executes. A legacy plugin (no manifest) skips
-   *  all of this entirely, same as before manifests existed: there's
-   *  nothing declared to check compatibility against, and it already
-   *  worked, so it keeps working. Dependency resolution enables an
-   *  already-installed-but-disabled dependency automatically (with
-   *  cycle detection via `chain`); a genuinely MISSING dependency is
-   *  reported, not auto-installed from the Market — that's a bigger,
-   *  separate piece of work (see README § Plugin System's roadmap
-   *  note) this doesn't attempt to fake. */
+  /** OS, minimum OXIS version and dependency checks, run before a
+   *  manifest plugin's Lua executes (legacy plugins skip them). An
+   *  installed but disabled dependency is enabled; a missing one is
+   *  reported. `chain` detects cycles. */
   private checkCompatibility(p: PluginMeta, chain: Set<string> = new Set()): { ok: true } | { ok: false; error: string; dependency?: string } {
     const m = p.manifest;
     if (!m) return { ok: true };
@@ -235,17 +176,8 @@ class PluginManager {
       }
       const nextChain = new Set(chain).add(p.name);
       for (const [depName, range] of Object.entries(m.dependencies)) {
-        // Checked BEFORE looking at whether depName is enabled —
-        // enabled or not, if it's already an ancestor in this
-        // resolution chain (including p itself, for a self-dependency),
-        // enabling it would mean enabling p a second time to satisfy
-        // it, which is exactly what a cycle is. Gating this behind
-        // "only recurse if disabled" (as an earlier version of this
-        // code did) missed real cycles whenever the ancestor happened
-        // to already be marked enabled — which, since the caller in
-        // load()/enable() sets `enabled = true` on p optimistically
-        // BEFORE calling this, is true almost every time p is its own
-        // indirect dependency.
+        // Check for a cycle first, whether or not the dependency is
+        // enabled (the caller marks p enabled before calling this).
         if (nextChain.has(depName)) {
           return { ok: false, dependency: depName, error: `Dependency cycle detected: ${[...nextChain, depName].join(" -> ")}` };
         }
@@ -280,18 +212,8 @@ class PluginManager {
   }
 
   /** Load a plugin's commands into the registry */
-  /** silent: true skips the plugin_loaded event — used only by the
-   *  bulk startup paths (loadUserPlugins's own loop below, and
-   *  registerPremiumPlugin when called from loadAllPremiumPlugins).
-   *  Found and fixed as a real, reported design gap: plugin_loaded
-   *  fired unconditionally, including for every one of the ~26
-   *  plugins loaded fresh on EVERY app startup — workspaceState.ts
-   *  listens for it to log "plugin X reloaded" into the Home panel's
-   *  "recent" activity row (capped at 6 entries), meaning that row
-   *  was entirely flooded with startup noise on every single launch,
-   *  never showing anything the user actually did. A genuine,
-   *  individual reload/enable/install still emits it normally — this
-   *  only silences the bulk, nothing-the-user-actually-did case. */
+  /** silent: skip the plugin_loaded event, for bulk startup loading
+   *  (otherwise Home's "recent" row fills with startup noise). */
   load(name: string, silent = false): boolean {
     const p = this.plugins.get(name);
     if (!p || !p.enabled) return false;
@@ -308,9 +230,7 @@ class PluginManager {
       }
     }
 
-    // TypeScript shortcut plugins — description is derived from the
-    // real underlying command so 'help <plugin> shows something
-    // genuinely useful (what it actually runs), not a placeholder.
+    // Shortcut plugins: the description is the command it runs.
     if (p.shortcuts) {
       for (const [verb, impl] of Object.entries(p.shortcuts)) {
         const handler: CommandHandler = (_args, rest) => {
@@ -332,11 +252,8 @@ class PluginManager {
 
     // Lua plugins — real Lua VM, see luaRuntime.ts.
     if (p.lua && this.apiCtx) {
-      // isTrusted: built-in plugins are shipped BY OXIS itself, same
-      // trust level as OXIS's own core TypeScript — they skip the
-      // oxis.run()/oxis.task() shell-permission prompt (see
-      // requireShellPermission in permissions.ts). Every market/user
-      // plugin (p.builtin === false) goes through the real prompt.
+      // Built-in plugins are trusted (no shell prompt); every
+      // Market/user plugin goes through requireShellPermission.
       const bindings = buildLuaAPI({ ...this.apiCtx, pluginName: name, isTrusted: p.builtin });
       const result = loadLuaPlugin(p.lua, bindings);
       if (!result.ok) {
@@ -376,21 +293,8 @@ class PluginManager {
     return true;
   }
 
-  /** Real state-consistency guarantee: dispose() throwing here must
-   *  never leave persisted state out of sync with in-memory state.
-   *  disable() sets p.enabled = false, THEN calls unload(), THEN
-   *  persists — if dispose() (the Lua VM's own teardown) threw
-   *  uncaught, that exception would propagate straight through
-   *  unload() and abort disable() before persist() ever ran: the
-   *  in-memory flag would already say disabled, but the ON-DISK
-   *  persisted state would still say enabled, meaning the plugin
-   *  could come back enabled on the next launch — the same class of
-   *  in-memory-vs-disk mismatch as the uninstall bug fixed above,
-   *  just triggered by a different failure point. Other call sites in
-   *  this file already wrap the equivalent dispose() call in a
-   *  try/catch (see loadTasksFrom) — this one didn't, which is the
-   *  actual inconsistency being fixed here, not a change in what
-   *  dispose() itself is expected to do. */
+  /** Never lets a throwing dispose() abort the caller, so disable()
+   *  still persists its new state. */
   unload(name: string): void {
     registry.unregisterByPlugin(name);
     const loaded = this.disposers.get(name);
@@ -455,36 +359,13 @@ class PluginManager {
       .map(p => p.name);
   }
 
-  /** Remove a plugin entirely: unload it, drop its metadata, and (for
-   *  user/market plugins) delete its real file from disk. Refuses if
-   *  another installed plugin depends on it — pass `force` to remove
-   *  anyway (the caller is responsible for warning the user first;
-   *  see 'plugin uninstall's handler in App.tsx). */
-  /** Real requirement this satisfies explicitly: don't report an
-   *  uninstall as successful unless the plugin is actually gone.
-   *
-   *  A genuine bug lived here, found doing a marketplace-reliability
-   *  audit: the in-memory entry used to be deleted and persisted as
-   *  gone BEFORE the actual file delete was even attempted, and that
-   *  delete's failure was silently swallowed (`catch { /* already
-   *  gone, or browser mode *​/ }`) — a reasonable-looking comment that
-   *  masked a real problem, since a GENUINE delete failure (file
-   *  locked, permissions, a disk error) looks identical to "already
-   *  gone" from a bare catch. loadUserPlugins() scans the filesystem
-   *  directly to discover plugins — it has no separate persisted
-   *  "which plugins exist" list to consult — so a .lua file left
-   *  behind by a failed delete gets silently REDISCOVERED AND
-   *  RE-REGISTERED the next time plugins load, undoing the uninstall
-   *  the user was told had already succeeded, with nothing telling
-   *  them it happened. Fixed by attempting the delete FIRST, then
-   *  confirming with statPath that the file is actually gone before
-   *  touching the in-memory registry at all — "already gone" (the
-   *  file genuinely doesn't exist, whether the delete call itself
-   *  threw or not) is still treated as success, but a file that's
-   *  STILL THERE after the delete attempt is now a real, reported
-   *  failure that leaves the plugin exactly as it was, not silently
-   *  removed from OXIS's own view of the world while surviving on
-   *  disk. */
+  /** Removes a plugin: unloads it, deletes its file (user/Market), and
+   *  drops it from the list. Refuses if another plugin depends on it
+   *  unless `force` is set (the caller warns the user). */
+  /** The file is deleted and confirmed gone (statPath) before the
+   *  plugin is removed from the list; otherwise it would be rediscovered
+   *  on the next start. A file that survives the delete is reported and
+   *  the plugin left as it was. */
   async remove(name: string, force = false): Promise<{ ok: boolean; message: string }> {
     const p = this.plugins.get(name);
     if (!p) return { ok: false, message: `not found: ${name}` };
@@ -502,9 +383,7 @@ class PluginManager {
         if (filePath) await deletePath(filePath);
         else await deletePluginFile(name);
       } catch {
-        /* the delete call itself threw — could genuinely mean "already
-         * gone" (fine) OR a real failure; statPath below is what
-         * actually distinguishes them, not this catch */
+        /* "already gone" or a real failure; statPath below decides */
       }
       const stillThere = filePath
         ? await statPath(filePath).then(s => s.exists).catch(() => false)
@@ -525,16 +404,9 @@ class PluginManager {
     };
   }
 
-  /** 'plugin validate <name> — checks the manifest, permissions,
-   *  dependencies, version, and OS/OXIS-version compatibility, plus a
-   *  full Lua syntax check — all WITHOUT executing a single
-   *  instruction of the plugin's Lua (see checkLuaSyntax). That catches
-   *  every syntax error (Lua compiles the whole chunk upfront, so this
-   *  isn't limited to "whichever branch happens to run"), but not
-   *  runtime/logic errors that only surface when specific code
-   *  actually executes (e.g. a nil dereference inside a rarely-called
-   *  command handler) — 'plugin test actually loads the plugin for
-   *  that; this is the fast, safe, "is this installable at all" check. */
+  /** 'plugin validate <name>: manifest, permissions, dependencies,
+   *  compatibility and a Lua syntax check, without running any of the
+   *  plugin's code ('plugin test does that). */
   validate(name: string): { ok: boolean; issues: string[] } {
     const p = this.plugins.get(name);
     if (!p) return { ok: false, issues: [`not found: ${name}`] };
@@ -552,11 +424,7 @@ class PluginManager {
     }
 
     if (p.lua) {
-      // checkLuaSyntax only compiles the chunk — it never executes it
-      // (unlike loadLuaPlugin, a real run), so this is safe to call on
-      // a plugin that's currently loaded/enabled: it can't duplicate
-      // its registered commands or re-trigger side effects a real
-      // load would (a top-level oxis.run(), etc.).
+      // Compile only, never run, so this is safe on a loaded plugin.
       const syntaxCheck = checkLuaSyntax(p.lua);
       if (!syntaxCheck.ok) issues.push(`Lua syntax error: ${syntaxCheck.error}`);
     }
@@ -564,18 +432,10 @@ class PluginManager {
     return { ok: issues.length === 0, issues };
   }
 
-  /** 'plugin doctor — validate() run across EVERY installed (non-
-   *  builtin) plugin at once, plus a couple of checks validate()
-   *  doesn't do because they only matter in aggregate or against real
-   *  disk state: a missing file (deleted outside OXIS after being
-   *  registered) and whether a plugin marked enabled actually has any
-   *  commands registered right now (a real, currently-broken plugin,
-   *  vs. one that's merely disabled and fine). Severity is genuinely
-   *  distinguished, not just a flat issue list: an enabled plugin with
-   *  problems is an ERROR (it's actively not working); a disabled
-   *  plugin with the same problems is a WARNING (dormant, not
-   *  currently hurting anything); a legacy plugin's "no manifest" note
-   *  is INFO (not a problem at all, just informational). */
+  /** 'plugin doctor: validate() for every installed plugin, plus
+   *  missing files and enabled plugins with no commands. Problems on an
+   *  enabled plugin are errors, on a disabled one warnings; "no
+   *  manifest" is info. */
   async doctor(): Promise<PluginDoctorResult[]> {
     const results: PluginDoctorResult[] = [];
     for (const p of this.plugins.values()) {
@@ -647,16 +507,8 @@ class PluginManager {
     return { ok: true, text: lines.join("\n") };
   }
 
-  /** 'plugin test <name> — actually loads the plugin (a real
-   *  execution, unlike validate()) and reports what got registered,
-   *  then restores whatever enabled/disabled state it had before —
-   *  so running a test on a currently-disabled plugin doesn't leave it
-   *  enabled afterward. This is a real load through the exact same
-   *  path 'plugin enable uses, not a separate sandboxed copy (OXIS
-   *  doesn't have a second, isolated Lua environment to run a
-   *  plugin-under-test in without affecting the live one) — treat it
-   *  as "does this actually load cleanly right now", not as proof
-   *  nothing it registers could ever misbehave once actually used. */
+  /** 'plugin test <name>: loads the plugin for real, reports what it
+   *  registered, then restores its previous enabled state. */
   test(name: string): { ok: boolean; message: string } {
     const p = this.plugins.get(name);
     if (!p) return { ok: false, message: `not found: ${name}` };
@@ -706,25 +558,10 @@ class PluginManager {
     } catch { /* noop */ }
   }
 
-  /** Register + persist + load a new Lua plugin in one call — used by
-   *  both 'plugin new (PluginCreator) and 'market install. Writes the
-   *  real .lua file to disk (native window only; returns false there
-   *  instead of throwing in browser mode, where there's no filesystem
-   *  access to write to at all) — but only once load() actually
-   *  succeeds. A plugin that fails to load (a real syntax error, or —
-   *  what was actually happening here before the Cloudflare Pages
-   *  root-directory fix — a "market install" that silently downloaded
-   *  the wrong HTML page instead of real Lua source, since a
-   *  misconfigured Market deployment serves *something* at every
-   *  path, just not the plugin) used to get written to disk anyway.
-   *  That's what made a single bad install self-perpetuating: every
-   *  future launch would load that same broken file from disk again,
-   *  fail again, and print the same error again — with no obvious way
-   *  to tell "this plugin is broken" from "this plugin never actually
-   *  installed". Skipping the write on failure means a failed install
-   *  leaves nothing behind to retry against; running the same
-   *  install/'plugin new again is a clean retry, not a repeat of
-   *  whatever went wrong the first time. */
+  /** Register, load and save a new Lua plugin ('plugin new,
+   *  'market install). The file is only written if load() succeeds, so
+   *  a broken download or plugin leaves nothing behind to fail again on
+   *  the next start. Returns false in browser mode. */
   async addLuaPlugin(name: string, lua: string, category = "plugin", origin: "user" | "market" = "market"): Promise<{ persisted: boolean; persistError?: unknown }> {
     this.register({ name, desc: "User Lua plugin", category, builtin: false, enabled: true, lua, origin });
     this.persist();
@@ -744,15 +581,9 @@ class PluginManager {
   }
 
   /**
-   * Register + load a premium plugin's DECRYPTED source for this
-   * session only. Deliberately separate from addLuaPlugin(): that
-   * method always writes `lua` to plugins/<name>.lua via
-   * writePluginFile(), which would put the plaintext premium source
-   * right back on disk next to the whole point of encrypting it (see
-   * market.ts's loadPremiumPlugin() / README § Premium Plugin
-   * Licensing & Encryption). This keeps the decrypted string in
-   * memory only — the encrypted .oxispkg file under .oxis/premium/
-   * is the only on-disk copy that ever exists.
+   * Registers and loads a premium plugin's decrypted source for this
+   * session only. Unlike addLuaPlugin() nothing is written to disk; the
+   * encrypted .oxispkg stays the only copy.
    */
   registerPremiumPlugin(name: string, lua: string, category = "premium", silent = false): void {
     this.register({ name, desc: "Premium plugin", category, builtin: false, enabled: true, lua });
@@ -778,24 +609,14 @@ class PluginManager {
         result = { persisted: false, persistError };
       }
     }
-    // Actually apply the new code, not just remember/persist it — this
-    // is what makes saving a plugin file in the Editor equivalent to
-    // the old Plugin Creator's dedicated "save & load" button, now
-    // that plugins are edited in the exact same Editor as any other
-    // file (see openEditor's plugin-aware save path in App.tsx).
+    // Apply the new code now, so saving the file in the editor reloads
+    // the plugin.
     if (p?.enabled) this.reload(name);
     return result;
   }
 
-  /** Load every user/market plugin file from disk (native window
-   *  only — browser mode has nothing to scan and just returns). Call
-   *  once at startup, after restoreState(). Unlike the old
-   *  localStorage-based version, this actually calls load() for each
-   *  enabled plugin — the localStorage version only ever registered
-   *  metadata, never re-executed the Lua source, so every
-   *  user/market-installed plugin silently had zero working commands
-   *  after any app restart even though 'plugin list still showed it
-   *  as enabled. */
+  /** Loads every user/Market plugin file from disk and runs the enabled
+   *  ones (native app only). Called once at startup after restoreState(). */
   async loadUserPlugins(): Promise<void> {
     if (!isNativeApp()) return;
 

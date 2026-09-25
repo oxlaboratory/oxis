@@ -2,29 +2,10 @@
  * marketUpdate.ts — 'market update <name> / 'market update all /
  * 'plugin rollback <name>.
  *
- * Backup-before-replace, automatic rollback on failure: before an
- * update touches anything, the CURRENTLY WORKING version's source is
- * saved (one backup per plugin, overwritten by the next update — this
- * is "undo the last update", not a full version history). If the new
- * version fails to load, this automatically restores that backup
- * rather than leaving a half-installed, broken plugin registered.
- * `'plugin rollback <name>` does the same thing manually, any time
- * after an update (not just right after a failed one).
- *
- * The update is REFUSED, before anything is touched, if the backup
- * itself can't actually be saved (localStorage full or unavailable)
- * — flagged by a reviewer as a real gap: proceeding anyway means a
- * new version that then fails to load has no backup to roll back to,
- * leaving the plugin broken and disabled with no way back to the
- * version that worked. Refusing costs nothing here specifically
- * because nothing has been touched yet at that point — a clean no-op,
- * not a half-applied update.
- *
- * Compatibility and dependencies are checked against the NEW
- * version's manifest — parsed from its downloaded source — BEFORE
- * anything is replaced, same checks pluginManager.load() itself does
- * for a fresh install, just run one step earlier here so a doomed
- * update never even gets as far as touching the installed plugin.
+ * The new version is checked (compatibility, dependencies) before
+ * anything changes. The working version is backed up first (one backup
+ * per plugin), and the update is refused if the backup can't be saved.
+ * If the new version fails to load, the backup is restored.
  */
 
 import { pluginManager } from "./pluginManager";
@@ -40,16 +21,7 @@ function backupKey(name: string): string {
   return `${BACKUP_PREFIX}${name}`;
 }
 
-/** Returns whether the backup actually saved — callers must check
- *  this and refuse to proceed with the update if it's false. Without
- *  a real backup, a failed new version has nothing to roll back to:
- *  rollbackPlugin() would just report "no backup available" and the
- *  user is left with a broken, disabled plugin and no way back to
- *  the version that worked. Reported by a reviewer as exactly this
- *  edge case — swallowing the failure and updating anyway silently
- *  removes the safety net the whole backup-before-replace design is
- *  built around, for the one case (storage full/unavailable) where
- *  it matters most. */
+/** Returns whether the backup saved; callers must not update if not. */
 function saveBackup(name: string, version: string | undefined, lua: string): boolean {
   try { localStorage.setItem(backupKey(name), JSON.stringify({ version, lua } satisfies Backup)); return true; }
   catch { return false; }
@@ -119,14 +91,8 @@ export async function updatePlugin(name: string): Promise<UpdateResult> {
   const precheck = precheckNewVersion(newSource);
   if (!precheck.ok) return { ok: false, message: `update refused: ${precheck.error}` };
 
-  // Back up the CURRENTLY WORKING version before touching anything —
-  // and refuse to proceed if the backup itself didn't actually save.
-  // Updating anyway on a failed backup means a new version that fails
-  // to load has nothing to roll back to: the user ends up with a
-  // broken, disabled plugin and no way back to the one that worked,
-  // exactly the case the whole backup-before-replace design exists to
-  // prevent. Nothing has been touched yet at this point, so refusing
-  // here is a clean no-op, not a half-applied update.
+  // Back up the working version first; without a backup, stop here
+  // (nothing has changed yet).
   if (!saveBackup(name, installedVersion, p.lua ?? "")) {
     return { ok: false, message: `update refused: couldn't save a rollback backup (local storage full or unavailable) — nothing has been changed. Free up storage and try again.` };
   }
@@ -163,24 +129,8 @@ export async function updateAllPlugins(): Promise<UpdateResult[]> {
   return results;
 }
 
-/** `'plugin rollback <name>` — restores the ONE backup taken by the
- *  last update (not a full version history). Works any time after an
- *  update, not just automatically right after a failed one.
- *
- *  A real fake-success bug lived here, found auditing the update
- *  flow: this used to return ok:true unconditionally after calling
- *  addLuaPlugin(), never checking whether the RESTORED plugin
- *  actually loaded successfully — unlike updatePlugin() itself, which
- *  already correctly checks exactly this after its own
- *  addLuaPlugin() call. That made it worse than an ordinary
- *  fake-success bug: this is the SAFETY NET updatePlugin() calls
- *  automatically when a new version fails to load, reporting
- *  "automatically rolled back" — if the rollback itself also failed
- *  to load (the backed-up source is somehow also broken, a
- *  compatibility check now rejects it, anything), the person would
- *  still be told recovery succeeded while the plugin sat there
- *  broken and disabled. Fixed to check real final state, the same
- *  way updatePlugin() already does. */
+/** `'plugin rollback <name>`: restores the backup from the last update.
+ *  Reports success only if the restored plugin actually loads. */
 export async function rollbackPlugin(name: string): Promise<UpdateResult> {
   const backup = loadBackup(name);
   if (!backup) return { ok: false, message: `no backup available for ${name} — rollback only works after 'market update has run at least once` };

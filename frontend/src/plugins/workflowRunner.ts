@@ -1,38 +1,14 @@
 /**
- * workflowRunner.ts — chains tasks, commands, plugin calls, and shell
- * steps into one named, runnable workflow.
+ * workflowRunner.ts — runs named workflows declared with
+ * oxis.workflow(...) in a workspace's workflows/*.lua. Definitions are
+ * plain data once loaded; running one needs no Lua.
  *
- * Workflows are declared from a workspace's workflows/*.lua files (see
- * workspaceManager.ts), one `oxis.workflow("name", { ... }, "desc")`
- * call per workflow — the SAME oxis.* Lua API every plugin uses, not
- * a separate config format. A workflow's *definition* is plain JS data
- * (a WorkflowDef) once loaded — nothing here holds onto the Lua VM
- * that declared it, so a workflow keeps working even if the file that
- * defined it is deleted mid-session, and running one doesn't need any
- * Lua execution at all.
+ * Steps reuse existing machinery: `task` runs a registered task's
+ * command, `command` calls registry.execute() like a typed 'command,
+ * and `run` uses runScript() (awaitable via scriptRunTracker).
  *
- * Deliberately builds on what already exists instead of a second,
- * parallel execution system:
- *  - a `task` step looks up the exact command string behind an
- *    existing oxis.task()-registered task (getTaskCommand in
- *    pluginAPI.ts) and runs it the same way oxis.run() would.
- *  - a `command` step calls registry.execute() — the exact function
- *    dispatchOxisCmd in App.tsx calls for a typed '-command.
- *  - a `run` step calls the same awaitable runScript() oxis.run() has
- *    used since it became properly awaitable for this — see
- *    scriptRunTracker.ts's runAndAwait().
- *
- * ── What "parallel" actually means here ──────────────────────────
- * OXIS has exactly one real PTY shell. Two shell-touching steps
- * (`run`/`task`) sent to it at the same time is exactly the
- * corruption scriptRunTracker.ts exists to prevent (see its own
- * top-of-file comment) — so within a `parallel` group, shell-touching
- * steps still run one at a time, in the order listed. `command` steps
- * (registry.execute — synchronous, local, no PTY write) genuinely run
- * concurrently with each other and alongside whichever shell step is
- * currently running. This is documented, not hidden: claiming full
- * parallel shell execution on an architecture with one shared shell
- * would be fake.
+ * There is one shell, so inside `parallel` only `command` steps run
+ * concurrently; shell steps still run one at a time, in order.
  */
 
 import { registry } from "../terminal/commandRegistry";
@@ -100,11 +76,8 @@ function isShellStep(step: WorkflowStep): boolean {
   return !!step.task || !!step.run;
 }
 
-/** Turns a raw Lua table (from oxis.workflow's 2nd argument) into a
- *  real WorkflowDef, tolerating a malformed/partial table rather than
- *  throwing — an invalid `steps` entry is just dropped (with a
- *  warning at registration time — see register() below), not a
- *  reason to refuse the whole workflow. */
+/** Builds a WorkflowDef from oxis.workflow's table. Malformed steps are
+ *  dropped with a warning rather than rejecting the whole workflow. */
 function coerceDef(name: string, raw: LuaJSValue, description: string): { def: WorkflowDef; warnings: string[] } {
   const warnings: string[] = [];
   const obj = (raw && typeof raw === "object" && !Array.isArray(raw)) ? raw as Record<string, LuaJSValue> : {};
@@ -155,11 +128,8 @@ function coerceStep(raw: LuaJSValue, warnings: string[]): WorkflowStep | null {
   return step;
 }
 
-/** Single-quotes a value for POSIX shells (sh/bash/zsh). Single quotes
- *  are the one POSIX quoting form that disables ALL substitution —
- *  `$`, `` ` ``, `\` are all literal inside them — so the only
- *  character that needs escaping is a literal `'` itself, done by
- *  closing the quote, emitting an escaped quote, and reopening it. */
+/** POSIX single-quoting: nothing expands inside '…', so only ' itself
+ *  needs escaping. */
 function shQuote(v: string): string {
   return `'${v.replace(/'/g, `'\\''`)}'`;
 }
@@ -171,22 +141,9 @@ function psQuote(v: string): string {
   return `'${v.replace(/'/g, "''")}'`;
 }
 
-/** `KEY=value` pairs prepended to a shell command so the step's own
- *  env vars actually reach it — platform-appropriate syntax, and
- *  composes with runScript()'s own multi-line detection: prepending
- *  even one line turns a single-line command into a multi-line one,
- *  which is exactly what routes it through the temp-script path on
- *  native Windows instead of a raw single-line send.
- *
- *  Values are quoted with shQuote/psQuote (real shell-literal quoting),
- *  not JSON.stringify: JSON's escaping rules protect `"` and control
- *  characters, but leave `$`, backticks, and `$(...)` untouched — which
- *  are exactly the characters bash/PowerShell treat as "run this" inside
- *  a double-quoted string. A workflow env value containing `$(...)` (a
- *  price like "$(5)", a shell snippet being passed through as data,
- *  anything with that shape) would have been executed by the shell
- *  instead of exported as literal text. Single-quoting closes that off
- *  entirely, since single-quoted strings don't expand anything. */
+/** Env-var assignments put in front of a step's command, quoted so
+ *  values are literal ($(...) and backticks are never run). Adding a
+ *  line also routes the step through runScript's multi-line path. */
 function withEnvPrefix(cmd: string, env: Record<string, string>): string {
   const entries = Object.entries(env);
   if (entries.length === 0) return cmd;
@@ -201,22 +158,13 @@ class WorkflowRunner {
   private cancelled = false;
   private runningName: string | null = null;
 
-  /** Called by workspaceManager.ts's load()/close() — workflows are
-   *  workspace-scoped, so switching (or closing) a workspace clears
-   *  every previously-loaded one before the new workspace's
-   *  workflows/*.lua files (if any) load their own. This is what
-   *  keeps one workspace's workflows from leaking into another's —
-   *  same isolation guarantee named workspaces already give
-   *  documents/plugins/tasks. */
+  /** Workflows belong to a workspace: cleared on switch or close. */
   clear(): void {
     this.workflows.clear();
   }
 
-  /** oxis.workflow("name", { steps = {...}, env = {...} }, "desc") —
-   *  see luaRuntime.ts/pluginAPI.ts for the Lua-facing binding.
-   *  Returns any warnings about malformed parts of `def` so the
-   *  caller (pluginAPI.ts) can surface them instead of silently
-   *  dropping a broken step. */
+  /** oxis.workflow(name, def, description). Returns warnings about
+   *  malformed parts of def for the caller to print. */
   register(name: string, def: LuaJSValue, description: string | undefined): string[] {
     const { def: parsed, warnings } = coerceDef(name, def, description?.trim() || `workflow: ${name}`);
     this.workflows.set(name, parsed);
@@ -352,14 +300,7 @@ class WorkflowRunner {
     }
     if (cmd === undefined) return false;
 
-    // Same defensive shape as the step.command branch above — this
-    // branch didn't have one, for no real reason (execStep is async,
-    // so a throw here already becomes a rejection rather than a raw
-    // exception, but an UNCAUGHT rejection propagating all the way up
-    // through runOne/runSteps/run means the workflow's own "✗ workflow
-    // X failed" summary line never prints — only whatever the
-    // TOP-LEVEL caller's .catch() shows instead, a worse message for
-    // the same underlying failure).
+    // Catch here so the workflow still prints its own failure summary.
     try {
       const result = await scriptRunTracker.runAndAwait(ctx.sendToShell, withEnvPrefix(cmd, env));
       if (result.cancelled) this.cancelled = true;

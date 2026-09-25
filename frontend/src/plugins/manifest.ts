@@ -1,8 +1,7 @@
 /**
- * manifest.ts — plugin manifest parsing + semantic version comparison.
+ * manifest.ts — plugin manifests and semantic-version checks.
  *
- * A manifest is an OPTIONAL structured comment block at the top of a
- * plugin's Lua source:
+ * An optional comment block at the top of a plugin:
  *
  *   --[[@manifest
  *   version: 1.0.0
@@ -15,41 +14,19 @@
  *   dependencies: git_advanced>=1.0.0, lsp_diag^1.2.0
  *   ]]
  *
- * It's parsed with a plain line-by-line reader BEFORE the source ever
- * reaches the Lua VM — permissions/compatibility have to be known
- * ahead of running any of the plugin's own code, and a manifest
- * expressed as an oxis.manifest(...) Lua call would run too late for
- * that (Lua runs top-to-bottom; nothing stops a plugin from calling
- * oxis.fs.* above its own oxis.manifest() call).
- *
- * A plugin with NO manifest block (every plugin shipped before this)
- * is treated as "legacy": no declared permission list at all, which
- * keeps it on the exact same permission behavior it already had
- * (prompt-on-first-use via permissions.ts, every namespace reachable)
- * rather than retroactively locking it out of something it always
- * could do. See permissions.ts's declaredPermissions for where that
- * distinction actually matters.
+ * Parsed as text before any of the plugin's Lua runs, so permissions and
+ * compatibility are known up front. Plugins without one are "legacy"
+ * and keep prompt-on-first-use permissions (see permissions.ts).
  */
 
 import type { PermissionNamespace } from "./permissions";
 
-/** Kept in sync with package.json's "version" — used for min_oxis_version
- *  compatibility checks (see checkCompatibility in pluginManager.ts).
- *  Not wired up to replace every other hardcoded "1.2.1" already in
- *  App.tsx (the version banner, update-check comparison) — this is
- *  specifically for the new compatibility-gate logic, not a version
- *  string refactor. */
+/** The running OXIS version, for min_oxis_version checks. Keep in sync
+ *  with package.json. */
 export const OXIS_VERSION = "1.2.1";
 
-// Kept in sync with PermissionNamespace's own type union by hand —
-// this is what the manifest's `permissions:` field parser filters
-// against (see below), and it SILENTLY DROPS anything not in this
-// list, no error or warning to the plugin author. Found and fixed a
-// real instance of this drifting out of sync: "shell" existed as a
-// real, working permission namespace elsewhere in the codebase for a
-// while before this list was updated to match, meaning a plugin
-// manifest that declared `permissions: shell` would have had it
-// silently vanish from the parsed result the whole time.
+// Must match PermissionNamespace; unknown names in a manifest's
+// `permissions:` are dropped.
 const ALL_NAMESPACES: PermissionNamespace[] = ["fs", "process", "net", "system", "workspace", "editor", "terminal", "shell"];
 
 export interface PluginManifest {
@@ -71,12 +48,8 @@ export interface PluginManifest {
 
 const MANIFEST_RE = /--\[\[@manifest\s*([\s\S]*?)\]\]/;
 
-/** Parses one manifest block out of a plugin's raw Lua source. Returns
- *  null if there isn't one (a legacy plugin, or one that just doesn't
- *  need to declare anything beyond what oxis.command()/oxis.task()
- *  already register). Malformed lines are skipped rather than
- *  rejecting the whole manifest — a typo in one field shouldn't brick
- *  every other declared field. */
+/** Parses the manifest block from a plugin's source, or null if there
+ *  is none. Malformed lines are skipped. */
 export function parseManifest(source: string): PluginManifest | null {
   const m = MANIFEST_RE.exec(source);
   if (!m) return null;
@@ -128,10 +101,8 @@ export function parseManifest(source: string): PluginManifest | null {
 
 // ── Semantic version comparison ──────────────────────────────────
 
-/** Parses "1.2.3" (extra components/pre-release suffixes are ignored)
- *  into [major, minor, patch]. Returns null if it doesn't look like a
- *  version at all, so callers can skip comparisons they can't
- *  honestly make rather than guessing. */
+/** Parses "1.2.3" (extra parts and suffixes ignored) into
+ *  [major, minor, patch], or null if it isn't a version. */
 export function parseVersion(v: string): [number, number, number] | null {
   const m = /^(\d+)\.(\d+)\.(\d+)/.exec(v.trim());
   if (!m) return null;

@@ -9,10 +9,19 @@ import (
 	"log"
 	"os"
 	"sync"
+	"syscall"
 
 	"github.com/UserExistsError/conpty"
 	"github.com/gorilla/websocket"
 )
+
+// Whether a process ignores Ctrl+C is inherited from whatever launched
+// it, and shell sessions inherit it from OXIS. If OXIS was started with
+// Ctrl+C ignored, the \x03 the terminal sends would never interrupt
+// anything, so restore normal handling once at startup.
+func init() {
+	_, _, _ = syscall.NewLazyDLL("kernel32.dll").NewProc("SetConsoleCtrlHandler").Call(0, 0)
+}
 
 func HandleSession(conn *websocket.Conn) {
 	defer conn.Close()
@@ -49,7 +58,7 @@ func HandleSession(conn *websocket.Conn) {
 
 	go func() {
 		buf := make([]byte, 8192)
-		var pending []byte // see splitIncompleteUTF8's own doc comment in pty.go
+		var pending []byte // incomplete UTF-8 tail carried to the next read
 		for {
 			n, err := cpty.Read(buf)
 			if n > 0 {
@@ -58,7 +67,7 @@ func HandleSession(conn *websocket.Conn) {
 					chunk = append(append([]byte{}, pending...), chunk...)
 				}
 				complete, newPending := splitIncompleteUTF8(chunk)
-				pending = append([]byte{}, newPending...) // copy — chunk's backing array is buf, reused next iteration
+				pending = append([]byte{}, newPending...) // copy: buf is reused
 				data := stripCtrl(string(complete))
 				if data != "" {
 					safeSend(conn, &mu, outMsg{Type: "output", Data: data})
@@ -103,23 +112,21 @@ func HandleSession(conn *websocket.Conn) {
 }
 
 func buildShellCmd() string {
-	// Shell profile support: OXIS_SHELL, set before launching OXIS,
-	// overrides the auto-detected pwsh7 > powershell5.1 > cmd.exe
-	// chain below entirely — e.g. OXIS_SHELL="C:\Program Files\Git\bin\bash.exe"
-	// to use Git Bash, or OXIS_SHELL=wsl.exe for WSL. Passed through
-	// verbatim as the whole command line to conpty.Start() (same as
-	// the auto-detected candidates below, which quote their own path)
-	// — so quote it yourself if the path has spaces:
-	// OXIS_SHELL="\"C:\Program Files\Git\bin\bash.exe\"". Not
-	// stat-checked like the candidates below are — if it's wrong, the
-	// shell just fails to start, same as a typo in any other env var.
+	// OXIS_SHELL overrides the pwsh 7 > Windows PowerShell > cmd.exe
+	// chain. It is used verbatim as the command line, so quote paths
+	// with spaces, e.g. OXIS_SHELL="\"C:\Program Files\Git\bin\bash.exe\"".
 	if custom := os.Getenv("OXIS_SHELL"); custom != "" {
 		return custom
 	}
+	// OXIS edits the command line itself and sends it whole, so
+	// PSReadLine's in-place redrawing only garbles the echo once escape
+	// codes are stripped; unload it for this session.
+	const psFlags = `-NoLogo -NoExit -Command "Remove-Module PSReadLine -ErrorAction SilentlyContinue"`
 	for _, c := range []struct{ path, flag string }{
-		{os.Getenv("ProgramFiles") + `\PowerShell\7\pwsh.exe`, "-NoLogo"},
-		{`C:\Program Files\PowerShell\7\pwsh.exe`, "-NoLogo"},
-		{`C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`, "-NoLogo"},
+		{os.Getenv("ProgramFiles") + `\PowerShell\7\pwsh.exe`, psFlags},
+		{`C:\Program Files\PowerShell\7\pwsh.exe`, psFlags},
+		{os.Getenv("SystemRoot") + `\System32\WindowsPowerShell\v1.0\powershell.exe`, psFlags},
+		{`C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`, psFlags},
 	} {
 		if _, err := os.Stat(c.path); err == nil {
 			return `"` + c.path + `" ` + c.flag

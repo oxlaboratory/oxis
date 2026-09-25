@@ -1,25 +1,11 @@
 /**
- * pluginEncryption.ts — premium plugin package encryption.
+ * pluginEncryption.ts — AES-256-GCM (Web Crypto) for premium plugin
+ * packages, with a key derived by PBKDF2 from a per-install device ID,
+ * so a copied package won't decrypt on another install.
  *
- * See README § Premium Plugin Licensing & Encryption. Real AES-256-GCM
- * via the browser/webview's native Web Crypto API — not a toy XOR
- * cipher, not base64-as-"encryption". Important framing, stated
- * plainly rather than oversold: this protects a *distributed,
- * at-rest* file from casual copying and makes the plugin source not
- * trivially readable by opening the file in a text editor. It does
- * NOT make a plugin impossible to extract from a machine that is
- * actively, successfully running it — software executing locally can
- * always be observed by a sufficiently determined local user with
- * full control of their own machine (a debugger, a memory dump, a
- * modified runtime). No client-side scheme, from any vendor, changes
- * that; nobody should be sold on this being unbreakable DRM, and this
- * codebase doesn't claim it is.
- *
- * Key derivation: PBKDF2 over a per-install device identifier, so the
- * encrypted package only decrypts on the machine (well, the OXIS
- * install) it was licensed for — copying the raw file to another
- * computer yields ciphertext that machine can't open, which is the
- * actual, honest goal here (see README's DRM-scope note above).
+ * This stops casual copying and makes the source unreadable at rest. It
+ * can't stop someone determined from extracting a plugin their own
+ * machine is running; no client-side scheme can.
  */
 
 const ITERATIONS = 150_000;
@@ -113,11 +99,7 @@ export async function decryptPluginPackage(pkg: EncryptedPluginPackage, deviceId
   }
 }
 
-/** A stable per-install identifier — not tied to hardware serials
- *  (there's no cross-platform, permission-free way to read those from
- *  a webview) but stable across restarts of this OXIS install, which
- *  is what actually matters for "this file only opens on the install
- *  it was licensed to". Generated once, cached in localStorage. */
+/** A random per-install ID, generated once and kept in localStorage. */
 export function getDeviceId(): string {
   const KEY = "oxis-device-id-v1";
   let id = localStorage.getItem(KEY);

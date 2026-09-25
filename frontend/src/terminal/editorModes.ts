@@ -1,16 +1,7 @@
 /**
- * editorModes.ts — motion/edit logic for the built-in editor's
- * Normal/Insert/Visual modes (see README § Input Modes).
- *
- * Deliberately a small, honest subset of Vim's model rather than a
- * full clone: enough real modal editing (navigation without
- * inserting text, word/line motions, delete/yank, visual selection)
- * that Normal Mode is genuinely useful, without pretending to be a
- * complete implementation. Pure functions only — no DOM, no React —
- * so they're easy to reason about and to extend later. The Editor
- * component (App.tsx) owns wiring this to an actual <textarea> and
- * to Lua-registered per-mode keymaps (`oxis.keymap("normal", ...)`
- * etc. — see pluginAPI.ts).
+ * editorModes.ts — pure motion/edit functions for the editor's
+ * Normal/Insert/Visual modes: a small subset of Vim (motions,
+ * delete/yank, visual selection). App.tsx wires them to the textarea.
  */
 
 export type EditorMode = "normal" | "insert" | "visual";

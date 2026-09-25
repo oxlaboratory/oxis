@@ -1,17 +1,7 @@
 /**
- * pluginLicense.ts — subscription verification client.
- *
- * Talks to the OXIS Market's /verify-license endpoint (see
- * oxis-cloudflare-site/functions/verify-license.js) — the same
- * Cloudflare Pages backend that already serves index.json and
- * handles Stripe webhooks. There is no separate "licensing server";
- * this is the Market backend, consistent with README's "no separate
- * Store — use OXIS Market everywhere."
- *
- * Local licensed-email storage is deliberately simple for v1.2.2: the
- * user types the email they subscribed with once (`'market license
- * <email>`), it's cached, and every premium plugin load re-checks
- * against it. There's no separate OXIS account/password system.
+ * pluginLicense.ts — asks the Market backend (/verify-license) whether an
+ * email has an active subscription for a plugin. The email is set once
+ * with 'market license <email>; there are no OXIS accounts.
  */
 
 const MARKET_BASE = "https://oxis-market.pages.dev"; // see README § Plugin Marketplace for the live URL
@@ -48,10 +38,9 @@ function writeCache(plugin: string, result: LicenseCheckResult): void {
 }
 
 /**
- * Check whether the locally-stored licensed email currently has an
- * active subscription for `plugin`. Caches for CACHE_TTL_MS so a
- * plugin used repeatedly doesn't hit the network on every command —
- * pass `force: true` right after a checkout to skip the stale cache.
+ * Whether the stored email has an active subscription for `plugin`.
+ * Cached for CACHE_TTL_MS; `force` bypasses the cache (e.g. right after
+ * checkout).
  */
 export async function checkLicense(plugin: string, opts?: { force?: boolean }): Promise<LicenseCheckResult> {
   const email = getLicensedEmail();

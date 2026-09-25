@@ -1,18 +1,19 @@
 /**
- * App.tsx — OXIS v1.2.1
- * Complete application: terminal, editor (also used to edit plugins), home, theme editor.
+ * App.tsx — the OXIS app: terminal and global prompt, editor, Home,
+ * theme editor, command palette and the built-in commands.
  */
 
 import React, {
-  useCallback, useEffect, useMemo, useRef, useState,
+  useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState,
 } from "react";
+import { createPortal } from "react-dom";
 import { marked } from "marked";
 
 import { openPty }    from "./pty/ptyClient";
 import type { PtySession } from "./pty/ptyClient";
 
 import {
-  mkLine, bannerLines, processOutput, mergeOutput,
+  mkLine, initialLines, processOutput, mergeOutput, visibleText,
   LINE_COLORS,
   wordLeft, wordRight,
   deleteWordLeft, deleteWordRight,
@@ -34,8 +35,8 @@ import type { CommandHandler }              from "./terminal/commandRegistry";
 import { workspaceState }                   from "./terminal/workspaceState";
 import { workspaceManager }                 from "./terminal/workspaceManager";
 import { getRecentErrors, clearRecentErrors, installGlobalErrorCapture } from "./terminal/diagnostics";
-import { cwdTracker, buildCwdProbe, looksLikeDirectoryChange } from "./terminal/cwdTracker";
-import { scriptRunTracker } from "./terminal/scriptRunTracker";
+import { cwdTracker, buildCwdProbe, looksLikeDirectoryChange, isProbeLine } from "./terminal/cwdTracker";
+import { scriptRunTracker, stripStepEcho } from "./terminal/scriptRunTracker";
 import { workflowRunner } from "./plugins/workflowRunner";
 import {
   grant as grantPermission, revoke as revokePermission, grantedTo as grantedPermissions,
@@ -60,7 +61,9 @@ import { updatePlugin, updateAllPlugins, rollbackPlugin } from "./plugins/market
 import { exportSettings, importSettings, exportWorkspace, importWorkspace, exportPluginSource, createFullBackup, restoreFullBackup } from "./plugins/backup";
 import { checkPublishable, findExistingListing, prepareFreePublish, submitPaidPlugin, startConnectOnboarding, requestPluginDeletion } from "./plugins/publish";
 import { commitAll, setupRemote, unlinkRemote, getRemotes, parseGitRemote, cancelActiveCommit, type GitProvider } from "./plugins/git";
-import { readFile, writeFile, listDir, makeDir, statPath, movePath, isNativeApp, openUrl, checkForUpdate, performUpdate, quitApp, writeClipboard } from "./native";
+import { loadUserConfig } from "./terminal/userConfig";
+import { userConfigDir } from "./native";
+import { readFile, writeFile, listDir, makeDir, statPath, movePath, isNativeApp, openUrl, checkForUpdate, performUpdate, quitApp, writeClipboard, windowGetSize, windowSetSize } from "./native";
 import Titlebar from "./components/Titlebar";
 
 // ══════════════════════════════════════════════════════════════
@@ -83,17 +86,11 @@ interface ShellCtx {
   newTerminal: () => void;
 }
 
-// ── oxis.option(key[, value]) persistence ────────────────────────
-// Backs ctx.getOption/setOption in the plugin API context — used to
-// be a permanent `undefined`/no-op stub (see forwardingApiCtx above),
-// so any plugin option not already cached in that plugin's own VM
-// session never actually persisted across a reload or app restart.
+// Persisted plugin options (oxis.getOption/setOption) and settings.
 const OPTIONS_KEY = "oxis-plugin-options-v1";
-// Splits an OXIS command line into arguments, honoring "double" and
-// 'single' quotes as one argument each (with the quotes themselves
-// stripped) — e.g. 'edit "C:\Users\Admin\My Docs\file.txt" keeps that
-// whole path as one argument instead of splitting on its spaces.
-// Unquoted runs of non-whitespace still split on whitespace as before.
+
+// Splits an OXIS command line into arguments; "double" or 'single'
+// quoted runs are one argument with the quotes stripped.
 function splitCmdArgs(body: string): string[] {
   const out: string[] = [];
   const re = /"([^"]*)"|'([^']*)'|(\S+)/g;
@@ -104,40 +101,32 @@ function splitCmdArgs(body: string): string[] {
   return out;
 }
 
-// Is this file path where a currently-registered plugin's .lua source
-// actually lives? Used by the Editor's save path (see editorSave in
-// the Terminal component) so saving a plugin file reloads it live —
-// plugins are edited in the exact same Editor as any other file, not
-// a second editor with its own save button, so the Editor itself has
-// to know when "save" also means "reload this plugin".
-// Resolves relPath against baseDir purely as string logic (no filesystem
-// access — safe to check before ever touching disk) and refuses
-// anything that would escape baseDir via ".." segments, an absolute
-// path pretending to be relative, or a stray leading slash — see
-// 'workspace newfile/newdir, the one place OXIS writes into a path the
-// USER chose (their connected external project directory) rather than
-// one it manages itself, so this is the one place that actually needs
-// this check.
+// Joins a user-typed relative path onto baseDir as pure string logic and
+// returns null if the result would escape baseDir (.., absolute paths,
+// leading slashes). Used where OXIS writes into the user's own project.
 function safeJoinWithinDir(baseDir: string, relPath: string): string | null {
   if (/^[A-Za-z]:[\\/]/.test(relPath) || relPath.startsWith("/") || relPath.startsWith("\\")) return null;
   const normalizedBase = baseDir.replace(/\\/g, "/").replace(/\/+$/, "");
+  const rooted = normalizedBase.startsWith("/");
   const baseParts = normalizedBase.split("/").filter(Boolean);
   const combinedParts = `${normalizedBase}/${relPath.replace(/\\/g, "/")}`.split("/");
   const resolved: string[] = [];
   for (const part of combinedParts) {
     if (part === "" || part === ".") continue;
     if (part === "..") {
-      if (resolved.length <= baseParts.length - 1) return null; // would climb above baseDir itself
+      if (resolved.length <= baseParts.length - 1) return null;
       resolved.pop();
     } else {
       resolved.push(part);
     }
   }
   for (let i = 0; i < baseParts.length; i++) if (resolved[i] !== baseParts[i]) return null;
-  if (resolved.length <= baseParts.length) return null; // resolved to baseDir itself or above — not a valid file/dir name
-  return resolved.join("/");
+  if (resolved.length <= baseParts.length) return null;
+  return (rooted ? "/" : "") + resolved.join("/");
 }
 
+// The registered plugin whose .lua source lives at `path`, if any. The
+// editor's save uses this to reload plugins live.
 function findPluginForPath(path: string): string | null {
   for (const p of pluginManager.all()) {
     if (p.builtin || !p.lua) continue;
@@ -162,31 +151,10 @@ function writePersistedOption(key: string, value: LuaJSValue): void {
   try { localStorage.setItem(OPTIONS_KEY, JSON.stringify(all)); } catch { /* storage full/unavailable — option still works for this session via the per-plugin in-memory cache in pluginAPI.ts */ }
 }
 
-// ── Clipboard writes — mouse-drag copy-on-select, Ctrl+C-with-a-
-// selection, the scrollback context menu's Copy, and 'edit's own
-// Ctrl+C-copies-selection all funnel through here rather than each
-// calling navigator.clipboard.writeText() directly.
-//
-// Real, reported bug: every one of those call sites already wrapped
-// the JS Clipboard API call in a silent `.catch()` — evidence this
-// failure mode was already anticipated, just never actually handled.
-// navigator.clipboard.writeText() can genuinely fail inside a WebView2
-// -hosted page like this one (a clipboard-write permission that isn't
-// auto-granted to a local wails:// origin the way it would be to a
-// real https:// site, or the window not holding OS focus at the exact
-// moment the promise resolves) — when it does, the text selection
-// itself still looked right on screen, but nothing actually reached
-// the OS clipboard, so pasting elsewhere silently did nothing. That's
-// exactly "can't copy text with the mouse" from the user's side, even
-// though the selection mechanism itself was working the whole time.
-//
-// Fix: try the JS API first (instant, and works fine the rest of the
-// time), and if it rejects, fall back to App.WriteClipboard — a real
-// OS-level clipboard write in Go (see clipboard_windows.go /
-// clipboard_other.go) that doesn't depend on the webview's own
-// clipboard permission model at all. Browser mode has no Go binding
-// to fall back to, so a failure there just stays a failure — there's
-// no more-native layer underneath a browser tab to drop down to.
+// ── Clipboard ─────────────────────────────────────────────
+// navigator.clipboard can be rejected inside the WebView (permission or
+// focus), in which case the copy falls back to the native OS clipboard
+// (App.WriteClipboard). Browser mode has only the JS API.
 async function copyToClipboard(text: string): Promise<void> {
   try {
     await navigator.clipboard?.writeText(text);
@@ -199,14 +167,9 @@ async function copyToClipboard(text: string): Promise<void> {
 }
 
 // ══════════════════════════════════════════════════════════════
-// SETTINGS — 'config / 'settings. Backed by the SAME localStorage
-// option store as oxis.getOption/setOption above (keys prefixed
-// "setting." to avoid colliding with a plugin's own option names) —
-// not a second, parallel persistence mechanism. Each setting knows
-// how to actually apply itself (a real, immediate side effect, not
-// just a stored value nothing reads) — applyAllSettings() runs once
-// at startup so a setting from last session takes effect again
-// without a restart, same as changing it live does.
+// SETTINGS — 'config / 'settings. Stored in the same option store as
+// oxis.getOption (keys prefixed "setting."). Each setting applies itself
+// when changed and again at startup (applyAllSettings).
 // ══════════════════════════════════════════════════════════════
 interface SettingDef {
   key: string;
@@ -240,7 +203,7 @@ const SETTINGS: SettingDef[] = [
   {
     key: "updateCheckOnStartup", label: "Check for Updates", default: true,
     description: "Check for a newer OXIS build on startup",
-    apply: () => { /* read directly where used — see checkUpdate() in the root App component */ },
+    apply: () => { /* read by startupUpdateCheck() */ },
   },
 ];
 
@@ -286,36 +249,56 @@ function resetSetting(key: string): { ok: boolean; message: string } {
   return { ok: true, message: `${def.key} reset to ${def.default}` };
 }
 
-/** Applies every setting's persisted (or default) value — called once
- *  at startup so settings from last session take effect immediately,
- *  same as this session's changes already do live. */
+/** Applies every setting's saved (or default) value; run at startup. */
 function applyAllSettings(): void {
   for (const def of SETTINGS) def.apply(getSetting(def.key));
 }
 
+const USER_CONFIG_TEMPLATE = `-- ~/.oxis/config.lua — runs every time OXIS starts ('config reload re-runs it).
+-- Full oxis.* API: see the Lua API section of the README.
+
+-- oxis.theme("midnight")
+-- oxis.plugin.enable("docker")
+-- oxis.command("hi", function() oxis.echo("hello from config.lua") end, "say hello")
+-- oxis.task("serve", "python -m http.server 8080", "serve this folder")
+`;
+
+/** Loads ~/.oxis (themes + config.lua) and prints what happened when
+ *  asked to, or when something went wrong. */
+async function reportUserConfig(verbose: boolean): Promise<void> {
+  const print = (t: string, k?: LineKind) => _ctxRef.current?.print(t, k);
+  try {
+    const r = await loadUserConfig(forwardingApiCtx);
+    if (!r) { if (verbose) print("  ✗  ~/.oxis needs the desktop app", "err"); return; }
+    if (verbose) {
+      print(`  ✓  ${r.dir}: ${r.configLoaded ? "config.lua loaded" : "no config.lua"} · ${r.themes.length} theme file(s)`, "ok");
+    }
+    for (const p of r.problems) print(`  ✗  ~/.oxis/${p}`, "err");
+  } catch (e) {
+    print(`  ✗  ~/.oxis: ${e instanceof Error ? e.message : e}`, "err");
+  }
+}
+
 // ── init flag so we only register commands once ──────────────
 let _commandsRegistered = false;
-// Gates the background update check to once per app run (see onReady
-// below) — Terminal mounts once per tab, and there's no reason to hit
-// GitHub again for a tab opened later in the same session.
-let _updateCheckedThisRun = false;
+// One background update check per run, shared by the status bar and the
+// terminal notice. null when the check is turned off in settings.
+let _startupUpdateCheck: Promise<import("./native").NativeUpdateInfo | null> | null = null;
+function startupUpdateCheck() {
+  if (!_startupUpdateCheck) {
+    _startupUpdateCheck = getSetting("updateCheckOnStartup") === false
+      ? Promise.resolve(null)
+      : checkForUpdate().catch(() => null);
+  }
+  return _startupUpdateCheck;
+}
 // Stable ref so clear/print/send always call the latest Terminal instance
 const _ctxRef: { current: ShellCtx | null } = { current: null };
 
-// Live-forwarding plugin API context (fixes a real bug: pluginManager
-// and workspaceManager only ever get init()'d ONCE, at root mount,
-// before any shell exists — every Lua/shortcut plugin loaded at that
-// point (i.e. all of them, since plugins load before any terminal
-// tab opens) captured a snapshot of whatever ctx.sendToShell/print
-// were at load time via `{ ...this.apiCtx, pluginName }` in
-// pluginManager.load(). If that snapshot were the root's `() => {}`
-// stubs, EVERY plugin command that calls oxis.run()/oxis.echo() —
-// and every TypeScript shortcut plugin's command, like 'gs or 'nb —
-// would silently do nothing, forever, even after a real terminal
-// mounts. Fix: initPlugins()/workspaceManager.init() get this stable
-// object instead, whose methods forward to _apiCtxTarget.current —
-// so updating _apiCtxTarget.current when the real Terminal mounts
-// (below) fixes already-loaded plugins too, not just future ones.
+// Plugins and workspaces are initialised once, before the terminal
+// exists, and keep the context they were given. This forwarding context
+// always calls whatever _apiCtxTarget.current points at, so plugins
+// loaded early reach the real terminal once it mounts.
 const _apiCtxTarget: { current: import("./plugins/pluginAPI").APIContext } = {
   current: {
     sendToShell: () => {}, print: () => {}, getCwd: () => "",
@@ -337,17 +320,9 @@ const forwardingApiCtx: import("./plugins/pluginAPI").APIContext = {
 const _goHomeRef: { current: (() => void) | null } = { current: null };
 
 // ══════════════════════════════════════════════════════════════
-// COMMAND DETAILS — backs 'help <command> for the commands with a
-// real "other ways to use it" surface (subcommands): every syntax
-// variant a command actually accepts, described individually, plus
-// worked examples. Kept separate from CommandEntry.description (a
-// one-liner for the all-commands listing) rather than cramming all of
-// this into that single string — one is for scanning a big list
-// quickly, this is for "I picked this one, now show me everything it
-// can do." Simple one-verb commands ('ls, 'cat, etc.) don't need an
-// entry here; their registry description already says what they do,
-// and 'help <command> falls back to that automatically — see the
-// 'help handler below.
+// COMMAND DETAILS — 'help <command> for commands with subcommands: each
+// form, what it does, and examples. Other commands fall back to their
+// one-line registry description.
 // ══════════════════════════════════════════════════════════════
 interface CommandUsage { syntax: string; description: string }
 interface CommandDetail { summary: string; usage: CommandUsage[]; examples?: string[]; notes?: string }
@@ -443,6 +418,8 @@ const COMMAND_DETAILS: Record<string, CommandDetail> = {
       { syntax: "'config reset <key>",       description: "reset a setting to its default" },
       { syntax: "'config export [path]",     description: "export settings to a JSON file (default: oxis-config.json)" },
       { syntax: "'config import <path>",     description: "import settings from one — takes effect immediately, no restart" },
+      { syntax: "'config edit",              description: "open ~/.oxis/config.lua (created from a template if missing) — Lua that runs at every startup" },
+      { syntax: "'config reload",            description: "re-read ~/.oxis/config.lua and ~/.oxis/themes/*.json without restarting" },
     ],
     examples: [
       "'config set fontSize 15",
@@ -450,6 +427,16 @@ const COMMAND_DETAILS: Record<string, CommandDetail> = {
       "'config set updateCheckOnStartup false",
     ],
     notes: "'settings is an alias for 'config. Theme isn't a \"setting\" here — see 'theme instead, which has its own dedicated persistence.",
+  },
+  oxis: {
+    summary: "OXIS application settings. The window size is changed live and remembered for the next launch (window.json in the app folder).",
+    usage: [
+      { syntax: "'oxis resize",               description: "show the current window size and the presets" },
+      { syntax: "'oxis resize <preset>",      description: "small 800×520 · default 940×600 · medium 1100×700 · large 1280×800 · xl 1600×1000" },
+      { syntax: "'oxis resize <W>x<H>",       description: "any size from 640×400 to 3840×2160, e.g. 'oxis resize 1200x760" },
+      { syntax: "'oxis resize config",        description: "open window.json in the editor at the width line" },
+    ],
+    notes: "In a browser tab the size belongs to the browser, so 'oxis resize only reports it.",
   },
   workflow: {
     summary: "Run multi-step workflows declared in the active workspace's workflows/*.lua files.",
@@ -513,14 +500,8 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
   const sep  = ()          => _ctxRef.current?.print("  " + "─".repeat(54), "dim");
   const h    = (cmd: string, d: string) => _ctxRef.current?.print("  " + cmd.padEnd(32) + d, "info");
   const shellCmd = (winCmd: string, unixCmd: string) => isWindows() ? winCmd : unixCmd;
-  /** Batched version of the very common `message.split("\n").forEach(line
-   *  => line ? (ok?ok:err)(line) : ctx.print(""))` pattern — found
-   *  during a performance audit doing this one line ('ctx.print) at a
-   *  time, each paying addLine's own full-buffer-copy cost separately
-   *  for no reason when the whole multi-line message is already known
-   *  up front. Same ✓/✗ prefix and ok/err kind as the ok()/err()
-   *  helpers above, just for every line of a message in one state
-   *  update instead of one per line. */
+  /** Prints a multi-line message with ✓/✗ prefixes in one state
+   *  update rather than one per line. */
   const printResultLines = (message: string, succeeded: boolean) => {
     const entries: Array<[string, LineKind?]> = message.split("\n").map(line =>
       line ? [(succeeded ? "  ✓  " : "  ✗  ") + line, (succeeded ? "ok" : "err") as LineKind] : ["", undefined]);
@@ -530,17 +511,9 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
   // (ps/ok/err/dim/info/sep/h/shellCmd defined above via _ctxRef)
 
   // ── files ──────────────────────────────────────────────
-  // 'new / 'touch: always land in created-documents/ (see
-  // workspaceManager.documentsDir()'s own doc comment for why this
-  // no longer splits by whether a workspace is active — it used to,
-  // and that was reported directly as "'new doesn't create a
-  // document" when it was actually landing somewhere buried and
-  // invisible) via the native file bridge, NOT a raw shell command —
-  // the old version ran New-Item/touch through whatever the *shell's*
-  // current directory happened to be, which is why files it created
-  // were scattered wherever the user last `cd`'d rather than
-  // somewhere predictable. An absolute-looking path (drive letter,
-  // leading / or \\) is still respected as-is, same as 'edit.
+  // 'new / 'touch write into the documents folder through the native
+  // file API (not the shell), so files land in one predictable place.
+  // Absolute paths are used as given, like 'edit.
   const looksAbsolute = (p: string) => /^[A-Za-z]:[\\/]/.test(p) || p.startsWith("/") || p.startsWith("\\");
   registry.register({ name:"new",    category:"files", description:"Create a document in created-documents/",
     handler:(_,r)=>{ if(!r){err("usage: 'new <file>");return;}
@@ -663,25 +636,9 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
       }).catch(() => err("update check failed — check your connection"));
     }});
 
-  /** 'update install — actually replaces the running exe, per the
-   *  spec: real, automatic, in-place updating from SOURCE, not a
-   *  browser link and not just a downloaded prebuilt asset. Checks
-   *  first (never installs a build that isn't genuinely newer than
-   *  what's running — see Check() in update.go, which compares
-   *  against the true latest commit on the default branch). The
-   *  explicit, separate `install` subcommand IS the confirmation step
-   *  — same pattern as other destructive commands in this app
-   *  ('plugin remove --force, for one): no separate modal dialog, but
-   *  a bare 'update never does this on its own, only ever reports
-   *  what's available. Hands off to PerformUpdate for the actual work
-   *  — it clones this project's own source and builds it locally
-   *  first, falling back to checkInfo.rawBinaryUrl (a prebuilt binary,
-   *  never an installer package — see update.go's pickAsset vs
-   *  pickRawBinary) only if git/node aren't available to build with;
-   *  either way nothing here ever opens a browser or asks the person
-   *  to download anything themselves. See selfupdate.go's own doc
-   *  comment for every safety guarantee around what happens if any
-   *  step fails. */
+  /** 'update install — replaces the running app in place (see
+   *  PerformUpdate in selfupdate.go: source build first, prebuilt binary
+   *  as a fallback, rollback on failure). A bare 'update only reports. */
   function runUpdateInstall(): void {
     info("checking for a newer build...");
     checkForUpdate().then(async checkInfo => {
@@ -691,12 +648,8 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
       }
       info(`installing build ${checkInfo.latestCommit.slice(0, 7)} (currently on ${checkInfo.currentCommit ? checkInfo.currentCommit.slice(0, 7) : "unknown"})…`);
       dim("pulling latest source and building it — this rebuilds the whole app locally, so it can take a few minutes");
-      // rawBinaryUrl is ONLY the fallback for when the source build
-      // itself can't run (no git/node found) — still fully automatic
-      // either way, never a browser download. Passed through even
-      // when empty; PerformUpdate reports plainly if source build
-      // fails AND there's no fallback available, rather than the
-      // frontend trying to predict that in advance.
+      // rawBinaryUrl is only used if building from source isn't
+      // possible; PerformUpdate reports it if neither works.
       const [ok_, reason] = await performUpdate(checkInfo.rawBinaryUrl);
       if (!ok_) {
         err(`✗ update failed: ${reason} — your current install was left untouched`);
@@ -820,7 +773,7 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
       const cur = themeManager.getCurrent();
       if(!rest){ sep(); ctx.print("  Themes","accent"); sep();
         Object.keys(all).forEach(n=>ctx.print(`  ${n===cur?"●":"○"}  ${n}${n===cur?"  (active)":""}`,n===cur?"accent":"dim"));
-        sep(); dim("'theme <name>  ·  'theme new <name>  ·  'theme delete <name>"); return; }
+        sep(); dim("'theme <name>  ·  'theme new <name>  ·  'theme delete <name>  ·  'theme export <name>  ·  'theme import <file>"); return; }
       if(args[0]==="new"){
         if(!args[1]){err("usage: 'theme new <name>");return;}
         events.emit("open_theme_editor",{name:args[1]}); return; }
@@ -830,62 +783,116 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
         themeManager.removeCustom(args[1]); ok(`theme deleted: ${args[1]}`); return; }
       if(args[0]==="export"){
         const j=themeManager.export(args[1]); if(j) ctx.print(j,"dim"); else err(`not found: ${args[1]}`); return; }
+      if(args[0]==="import"){
+        if(!args[1]){err("usage: 'theme import <file.json>");return;}
+        void readFile(args[1]).then(json => {
+          const r = themeManager.import(json);
+          if(r.ok){ ok(`imported theme "${r.name}" — 'theme ${r.name} to use it`); events.emit("theme_changed",{name:themeManager.getCurrent()}); }
+          else err(`import failed: ${r.error}`);
+        }).catch(e => err(`couldn't read ${args[1]}: ${e instanceof Error ? e.message : e}`));
+        return; }
       if(themeManager.apply(rest)) ok(`theme → ${rest}`);
       else err(`not found: '${rest}' — run 'theme to list`); }});
 
-  // ── oxis (application-level settings) ────────────────────
-  // Window size is locked at compile time in internal/wailsapp/app.go
-  // (Width == MinWidth == MaxWidth, DisableResize: true — see that
-  // file's own doc comment on Run()), so there is no live native
-  // WindowSetSize call that could actually change it while OXIS is
-  // running; calling one would just be clamped straight back by the
-  // OS/webview shell to the fixed Min/Max, which is worse than doing
-  // nothing because it would look like it worked. Rather than fake a
-  // resize, 'oxis resize opens the exact Go source line for the user
-  // and tells them precisely what to change and that a rebuild is
-  // required — see the terminal-UX spec, item 8.
-  registry.register({ name:"oxis", category:"ui", description:"OXIS application settings — currently: 'oxis resize",
-    handler:(args)=>{
+  // ── oxis (application settings) ───────────────────────────
+  // 'oxis resize changes the native window size live (Go's
+  // WindowSetSize) and saves it to window.json in the app folder, which
+  // is read again on the next launch.
+  const WINDOW_PRESETS: Record<string, [number, number]> = {
+    small:   [800, 520],
+    default: [940, 600],
+    medium:  [1100, 700],
+    large:   [1280, 800],
+    xl:      [1600, 1000],
+  };
+  const parseSize = (args: string[]): [number, number] | null => {
+    const joined = args.join(" ").trim().toLowerCase();
+    if (WINDOW_PRESETS[joined]) return WINDOW_PRESETS[joined];
+    const m = /^(\d{3,4})\s*[x×*, ]\s*(\d{3,4})$/.exec(joined);
+    return m ? [parseInt(m[1], 10), parseInt(m[2], 10)] : null;
+  };
+  const presetList = () => Object.entries(WINDOW_PRESETS)
+    .map(([n, [w, h]]) => `${n} ${w}×${h}`).join("  ·  ");
+
+  // Opens window.json in the editor on its "width" line, creating it
+  // from the current size first if it doesn't exist yet.
+  const openWindowConfig = async (configPath: string, w: number, h: number) => {
+    let text: string;
+    try {
+      text = await readFile(configPath);
+    } catch {
+      text = JSON.stringify({ width: w, height: h }, null, 2) + "\n";
+      await writeFile(configPath, text);
+    }
+    const line = text.split(/\r?\n/).findIndex(l => l.includes('"width"')) + 1;
+    _ctxRef.current?.openEditor(configPath, line > 0 ? line : 1);
+    return line > 0 ? line : 1;
+  };
+
+  registry.register({ name:"oxis", category:"ui", description:"OXIS application settings — 'oxis resize",
+    handler: async (args) => {
       const sub = args[0]?.toLowerCase();
       if (sub !== "resize") {
-        sep(); ctx.print("  'oxis resize            — show current window size","accent");
-        ctx.print("  'oxis resize <W>x<H>    — open the source line to change it (e.g. 'oxis resize 1200x760)","accent");
+        sep();
+        ctx.print("  'oxis resize                 — show the window size and presets","accent");
+        ctx.print("  'oxis resize <preset>        — " + Object.keys(WINDOW_PRESETS).join(" | "),"accent");
+        ctx.print("  'oxis resize <W>x<H>         — custom size, e.g. 'oxis resize 1200x760","accent");
+        ctx.print("  'oxis resize config          — open window.json at the size setting","accent");
         sep(); return;
       }
-      // Single source of truth is the Go constant itself — mirrored
-      // here as a literal because window.runtime's WindowGetSize
-      // isn't declared anywhere in this codebase yet, and this value
-      // can ONLY ever equal what's compiled into the running binary
-      // anyway (DisableResize + Min==Max means there is no other
-      // live value it could have drifted to).
-      const CURRENT_W = 940, CURRENT_H = 600;
-      const GO_FILE = "internal/wailsapp/app.go";
-      const GO_LINE = 779; // `const winWidth, winHeight = 940, 600`
+      const rest = args.slice(1);
 
-      const sizeArg = args[1];
-      if (!sizeArg) {
-        sep(); ctx.print(`  current OXIS window size: ${CURRENT_W} × ${CURRENT_H}`,"accent");
-        dim("fixed at build time (DisableResize) — there's no live drag-resize");
-        dim(`source: ${GO_FILE}:${GO_LINE}`);
+      if (!isNativeApp()) {
         sep();
-        dim("presets — 'oxis resize 1024x680  ·  1200x760  ·  1400x900");
+        ctx.print(`  browser window: ${window.innerWidth} × ${window.innerHeight}`,"accent");
+        dim("OXIS is running in a browser tab here, so its size is the browser window's —");
+        dim("resize the browser itself. 'oxis resize controls the desktop app's window.");
+        sep(); return;
+      }
+
+      let cur;
+      try { cur = await windowGetSize(); }
+      catch (e) { err(`couldn't read the window size: ${e instanceof Error ? e.message : e}`); return; }
+
+      if (rest.length === 0) {
+        sep();
+        ctx.print(`  OXIS window: ${cur.width} × ${cur.height}`,"accent");
+        dim(`presets: ${presetList()}`);
+        dim("'oxis resize <preset>  ·  'oxis resize <W>x<H>  ·  'oxis resize config");
+        dim(`saved in ${cur.configPath}`);
+        sep(); return;
+      }
+
+      if (rest[0].toLowerCase() === "config" || rest[0].toLowerCase() === "edit") {
+        try {
+          const line = await openWindowConfig(cur.configPath, cur.width, cur.height);
+          ok(`opened ${cur.configPath} at line ${line}`);
+          dim(`change "width" and "height", save, then restart OXIS (or run 'oxis resize <W>x<H> to apply it now)`);
+        } catch (e) { err(`couldn't open ${cur.configPath}: ${e instanceof Error ? e.message : e}`); }
         return;
       }
 
-      const m = /^(\d+)\s*x\s*(\d+)$/i.exec(sizeArg.trim());
-      if (!m) { err(`usage: 'oxis resize <width>x<height>, e.g. 'oxis resize 1200x760`); return; }
-      const w = parseInt(m[1], 10), h = parseInt(m[2], 10);
-      if (w < 480 || h < 320 || w > 3840 || h > 2160) {
-        err(`${w}x${h} is outside the sane range (480x320 – 3840x2160)`); return;
-      }
+      const size = parseSize(rest);
+      if (!size) { err(`unknown size "${rest.join(" ")}" — use a preset (${Object.keys(WINDOW_PRESETS).join(", ")}) or <width>x<height>`); return; }
+      const [w, h] = size;
+      if (w < 640 || h < 400 || w > 3840 || h > 2160) { err(`${w}×${h} is outside the supported range (640×400 – 3840×2160)`); return; }
 
-      _ctxRef.current?.openEditor(GO_FILE, GO_LINE);
-      sep();
-      ctx.print(`  opening ${GO_FILE} at line ${GO_LINE}`,"accent");
-      ctx.print(`  change:  const winWidth, winHeight = ${CURRENT_W}, ${CURRENT_H}`,"dim");
-      ctx.print(`  to:      const winWidth, winHeight = ${w}, ${h}`,"ok");
-      dim("save, then rebuild (npm run build / build:msi) and relaunch OXIS — this is compiled in, not something the running app can change on its own");
-      sep();
+      try {
+        const res = await windowSetSize(w, h);
+        if (res.width === w && res.height === h) {
+          ok(`window resized to ${res.width} × ${res.height}`);
+        } else {
+          ctx.print(`  ⚠  asked for ${w} × ${h}, the window is now ${res.width} × ${res.height} (limited by the screen or window manager)`,"warn");
+        }
+        if (res.persisted) dim(`saved — OXIS will open at ${w} × ${h} next time`);
+        else dim(`couldn't save ${res.configPath}, so the size resets on restart`);
+      } catch (e) {
+        err(`resize failed: ${e instanceof Error ? e.message : e}`);
+        try {
+          const line = await openWindowConfig(cur.configPath, cur.width, cur.height);
+          dim(`opened ${cur.configPath} at line ${line} — set "width": ${w}, "height": ${h}, save, and restart OXIS`);
+        } catch { /* nothing more to offer */ }
+      }
     }});
 
   // ── plugins ───────────────────────────────────────────
@@ -1074,11 +1081,8 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
           _ctxRef.current?.openEditor(path);
           return;
         }
-        // Same register+persist+load addLuaPlugin() the old Plugin
-        // Creator's "save & load" button called — the plugin is live
-        // immediately with the template's starter code; the Editor
-        // that opens right after is just for customizing it further,
-        // exactly like opening any other file (see findPluginForPath).
+        // Register, save and load it now so it works immediately; the
+        // editor is just for customising it.
         pluginManager.addLuaPlugin(name, pluginTemplate(name, template), "plugin", "user").then(({ persisted, persistError }) => {
           if(persisted) ok(`created & loaded: ${name}`);
           else err(`created (this session only) — couldn't save to disk: ${persistError instanceof Error ? persistError.message : String(persistError ?? "unknown error")}`);
@@ -1092,15 +1096,7 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
         if(!name){err("usage: 'plugin permissions <name> [grant|revoke <fs|process|net|system|workspace|editor|terminal|shell>]");return;}
         const action = args[2]?.toLowerCase();
         const ns = args[3]?.toLowerCase() as PermissionNamespace | undefined;
-        // "shell" was missing from this list — a real bug, not a
-        // stylistic gap: it meant 'plugin permissions <name> grant
-        // shell was silently rejected as invalid usage (this list is
-        // what gates the command, separate from PermissionNamespace's
-        // own type definition), and the listing below could never
-        // show whether "shell" was actually granted to a plugin, even
-        // though it genuinely could be — via the confirm() dialog
-        // oxis.run() itself triggers. Added when "shell" was, should
-        // have been updated then rather than found later by audit.
+        // Must match PermissionNamespace in permissions.ts.
         const VALID: PermissionNamespace[] = ["fs","process","net","system","workspace","editor","terminal","shell"];
         if(action==="grant"||action==="revoke"){
           if(!ns || !VALID.includes(ns)){ err(`usage: 'plugin permissions ${name} ${action} <fs|process|net|system>`); return; }
@@ -1181,16 +1177,9 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
           if (!entry) { err(`not found in marketplace: ${name}`); return; }
           if (entry.comingSoon) { dim(`${name} isn't available yet — coming in a future update`); return; }
           if (entry.premium) {
-            // Premium install path: verify the Stripe-issued license,
-            // fetch source over HTTPS (never a public static file —
-            // see premium-plugin.js), encrypt it locally, register it.
-            // Checks `loaded` now, not just that the promise resolved
-            // — a real fake-success bug found and fixed in
-            // installPremium() itself: the package can genuinely
-            // download and encrypt successfully while the plugin still
-            // fails to actually load (a bad Lua source, a validation
-            // failure), and this used to claim "installed & unlocked"
-            // either way.
+            // Premium: verify the license, fetch the source, store it
+            // encrypted and load it. `loaded` is checked because the
+            // package can install while the plugin itself fails to load.
             market.installPremium(name)
               .then(({ loaded, loadMessage }) => {
                 if (loaded) ok(`${name} installed & unlocked — 'plugin disable ${name} to turn off`);
@@ -1201,13 +1190,8 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
           }
           market.install(name)
             .then(({ entry, persisted, persistError }) => {
-              // addLuaPlugin() (inside market.install) calls load()
-              // synchronously before the disk write, so by the time
-              // this resolves the plugin's real final state is already
-              // settled — check it instead of assuming "downloaded"
-              // means "working". A plugin that fails to execute, or
-              // fails the description-compliance check, disables itself
-              // inside load() and already printed exactly why above.
+              // load() has already run; report the plugin's real state
+              // (a failed load already printed why).
               const p = pluginManager.get(entry.name);
               if (p?.enabled) {
                 ok(`installed & enabled ${entry.name} — 'plugin disable ${entry.name} to turn off`);
@@ -1298,14 +1282,8 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
     handler:(args)=>{
       const name=args[0];
       if(!name){info("Usage: 'task <name>"); return;}
-      // "commit" is a universal built-in, not a per-workspace task
-      // file — see runCommitTask below for why (this used to be
-      // written into every workspace as an oxis.task() whose "command"
-      // was the STRING "'git-commit-dialog", which got sent to the
-      // real shell as if it were a shell command — PowerShell/bash has
-      // no idea what a leading-apostrophe OXIS command is, which is
-      // exactly the garbled "Write-Host..." output that was actually
-      // the shell trying and failing to parse it as its own syntax).
+      // "commit" is a built-in, not a workspace task (see
+      // runCommitTask), so it is always listed first.
       if(name.toLowerCase()==="commit"){
         const message = args.slice(1).join(" ").trim();
         void runCommitTask(message);
@@ -1348,13 +1326,8 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
       }
     } catch(e) {
       const msg = e instanceof Error ? e.message : String(e);
-      // Real cancellation (Ctrl+C during a commit/push — see
-      // cancelActiveCommit) surfaces here as a rejected promise from
-      // RunCommand ("... was cancelled", set on the Go side — see
-      // CancelCommand's own doc comment in app.go). Worth a distinct
-      // message: a user-initiated stop isn't the same thing as an
-      // actual failure, and reporting it as "commit failed" would be
-      // misleading about what actually happened.
+      // Ctrl+C during a commit rejects with "... was cancelled";
+      // report that as a cancellation, not a failure.
       if (/was cancelled/i.test(msg)) {
         info("commit cancelled");
       } else {
@@ -1364,13 +1337,9 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
   }
 
   // ── workspace ─────────────────────────────────────────
-  // 'workspace init "name" / list / switch / rename / delete / link /
-  // unlink — the new named, multi-workspace layer (see "Named
-  // workspaces" in workspaceManager.ts). 'workspace info/reload/close
-  // and bare 'workspace init (no name — inits at the current
-  // directory) are the original single-directory .oxis/workspace.lua
-  // flow, unchanged and still fully supported alongside it: switching
-  // to a named workspace uses that exact same loader under the hood.
+  // Named workspaces (init "name", list, switch, rename, delete, link,
+  // unlink) sit on top of the plain .oxis/workspace.lua loader that
+  // bare 'workspace init / info / reload / close use.
   registry.register({ name:"workspace", category:"workspace", description:"Manage OXIS workspaces",
     handler:(args)=>{
       const sub = args[0]?.toLowerCase();
@@ -1475,16 +1444,9 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
         const provider: GitProvider = sub;
         const repoInput = args[1];
         const force = args.includes("--force");
-        // `'workspace github unlink` / `'workspace gitlab unlink` —
-        // disconnects the origin remote (by default renaming it,
-        // never deleting it, unless --remove-remote is also given —
-        // see unlinkRemote's own doc comment in git.ts for the full
-        // reasoning) without touching the local project, the
-        // workspace, .oxis/, source files, or the .git repo itself.
-        // Both provider names do the same thing here since they both
-        // just operate on the one "origin" remote OXIS actually looks
-        // for — there's nothing GitHub- or GitLab-specific left to
-        // unlink once you're down at the remote-config level.
+        // `'workspace github unlink` (or gitlab): disconnect origin —
+        // renamed to a backup by default, removed with --remove-remote —
+        // leaving the project, workspace and .git repo untouched.
         if(repoInput === "unlink"){
           const removeCompletely = args.includes("--remove-remote");
           workspaceManager.getActiveExternalPath().then(extPath => {
@@ -1533,15 +1495,9 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
       err(`unknown: 'workspace ${sub} — try init, list, switch, rename, delete, link, unlink, newfile, newdir, move, github, gitlab, export, import, info, reload, or close`); }});
 
   // ── project ───────────────────────────────────────────
-  // 'project init/open/run/task/workflow — the project layer (see
-  // README § Project Layer). Deliberately thin: a "project" is just
-  // an external directory with a full .oxis/ setup in it
-  // (workspace.lua + project.lua + tasks/workflows/scripts/plugins/
-  // documents — see initProject in workspaceManager.ts), so these
-  // commands are wrappers around the SAME load()/task/workflow
-  // machinery 'workspace and 'workflow already use, not a second,
-  // parallel system — exactly what avoids duplicating what already
-  // exists, per how this was actually built.
+  // 'project init/open/run/task/workflow: a project is a folder with a
+  // full .oxis/ setup; these wrap the same loader, task and workflow
+  // machinery as 'workspace and 'workflow.
   registry.register({ name:"project", category:"workspace", description:"Set up and run an external project's own .oxis/ environment",
     handler:(args)=>{
       const sub = args[0]?.toLowerCase();
@@ -1581,11 +1537,8 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
       err(`unknown: 'project ${sub} — try init, open, run, task, or workflow`); }});
 
   // ── workflow ──────────────────────────────────────────
-  // 'workflow list / <name> / info <name> / cancel — see
-  // workflowRunner.ts. Workflows come from the active workspace's
-  // workflows/*.lua files (loaded by workspaceManager.ts when a
-  // workspace is switched to); with no workspace active, there are
-  // none registered ('workflow list says so rather than erroring).
+  // 'workflow list / <name> / info <name> / cancel (workflowRunner.ts).
+  // Workflows come from the active workspace's workflows/*.lua.
   registry.register({ name:"workflow", category:"workspace", description:"Run a workspace workflow",
     handler:(args)=>{
       const sub = args[0]?.toLowerCase();
@@ -1618,11 +1571,7 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
         .catch((e) => err(`workflow ${name} crashed: ${e instanceof Error ? e.message : e}`)); }});
 
   // ── config / settings ─────────────────────────────────
-  // Persisted via the same option store oxis.getOption/setOption use
-  // (see writePersistedOption above) — not a second config system.
-  // Theme has its own dedicated 'theme <n> command already (and its
-  // own persistence via themeManager) so it's deliberately not
-  // duplicated here as a "setting" — 'config list says so.
+  // Themes are managed by 'theme, not here.
   const configHandler: CommandHandler = (args) => {
     const sub = args[0]?.toLowerCase();
     if(!sub || sub==="list"){
@@ -1632,7 +1581,20 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
         info(`${def.key.padEnd(20)} = ${String(val).padEnd(10)} ${def.description}${def.choices ? `  [${def.choices.join("|")}]` : ""}`);
       }
       sep(); dim("theme is managed separately — see 'theme");
-      dim("'config set <key> <value>  ·  'config get <key>  ·  'config reset <key>"); return; }
+      dim("'config set <key> <value>  ·  'config get <key>  ·  'config reset <key>");
+      dim("'config edit  ·  'config reload   (~/.oxis/config.lua and ~/.oxis/themes/)"); return; }
+    if(sub==="reload"){
+      void reportUserConfig(true); return; }
+    if(sub==="edit"){
+      if(!isNativeApp()){ err("~/.oxis/config.lua needs the desktop app"); return; }
+      void userConfigDir().then(async dir => {
+        const path = `${dir.replace(/\\/g, "/")}/config.lua`;
+        const st = await statPath(path);
+        if(!st.exists) await writeFile(path, USER_CONFIG_TEMPLATE);
+        _ctxRef.current?.openEditor(path);
+        dim(`editing ${path} — save, then 'config reload`);
+      }).catch(e => err(`couldn't open config.lua: ${e instanceof Error ? e.message : e}`));
+      return; }
     if(sub==="get"){
       const key = args[1];
       if(!key){ err("usage: 'config get <key>"); return; }
@@ -1684,29 +1646,15 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
     handler:()=> registry.execute("version",[],"") });
 
   // ── diagnostics ────────────────────────────────────────
-  // ── diagnostics ────────────────────────────────────────
-  // Purely local — see diagnostics.ts. Nothing here is ever sent
-  // anywhere; this exists so YOU can see what's going on, not for
-  // OXIS to collect anything about you.
+  // Local only; nothing is sent anywhere.
 
   // ── git ──────────────────────────────────────────────────
-  // Committing is now 'task commit <message> directly (see the 'task
-  // registration above) — the old dialog-based flow (git-commit-
-  // dialog command + CommitDialog component) was retired: it never
-  // actually worked (see 'task's own doc comment for why), and the
-  // new direct flow doesn't need a separate command to open a UI at
-  // all — 'task commit just does the commit and reports the result.
+  // Committing is 'task commit <message> (see 'task above).
 
   registry.register({ name:"diagnostics", category:"info", description:"Local diagnostic info — version, OS, runtime, plugins, workspace, recent errors ('diagnostics clear to reset the error log)",
     handler:(args)=>{
       if(args[0]?.toLowerCase()==="clear"){
-        // clearRecentErrors() existed with no way to actually trigger
-        // it — found during a dead-code audit (an exported function
-        // with zero call sites anywhere, not even internally). The
-        // intent was clearly "let 'diagnostics clear the error log
-        // back out", just never wired to a command — completing that
-        // rather than deleting it, since the feature itself is a real,
-        // small, obviously-useful one.
+        // 'diagnostics clear empties the recorded error list.
         clearRecentErrors();
         ok("recent-errors log cleared");
         return;
@@ -1736,12 +1684,7 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
     }});
 
   // ── backup / restore ──────────────────────────────────────
-  // Format: plain JSON, not an actual .zip (no zip library available
-  // in this environment) — see backup.ts for exactly what's included
-  // (every named workspace's real files, created-documents/,
-  // created-plugins/, settings) and what's deliberately excluded
-  // (Market-installed plugins — re-fetchable with 'market install;
-  // installer build output).
+  // Plain JSON (no zip library here); see backup.ts for what's included.
   registry.register({ name:"backup", category:"system", description:"Back up settings, workspaces, documents, and your own plugins to one file",
     handler:(_,r)=>{
       const path = r || "oxis-backup.json";
@@ -1824,7 +1767,7 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
       h("'write <f> [text]","write file"); h("'append <f> <text>","append to file");
       h("'edit <f>","built-in editor"); h("'hash <f>","SHA256"); h("'size <p>","disk size"); h("'update","check for a newer release");
       info(""); h("── shell ─────────────────────────────","");
-      h("'clear","clear output (keeps the banner)"); h("'run <cmd>","raw command"); h("'env","env vars");
+      h("'clear","clear output"); h("'run <cmd>","raw command"); h("'env","env vars");
       h("'ps","processes"); h("'kill <pid|name>","kill process"); h("'ip","network");
       h("'disk","disk usage"); h("'sysinfo","system info"); h("'which <cmd>","find command");
       h("'find [pat]","search files"); h("'grep <pat> <f>","search contents");
@@ -1833,10 +1776,12 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
       info(""); h("── home screen ──────────────────────","");
       h("'hide workspace","hide the WORKSPACE panel on Home"); h("'show workspace","show it again");
       info(""); h("── oxis ──────────────────────────────","");
-      h("'oxis resize","show the current window size"); h("'oxis resize <W>x<H>","open the source line to change it");
+      h("'oxis resize","show the window size and presets"); h("'oxis resize <preset|W>x<H>","resize the window now (saved for next launch)");
+      h("'oxis resize config","open window.json at the size setting");
       info(""); h("── themes ────────────────────────────","");
       h("'theme","list themes"); h("'theme <name>","switch theme");
       h("'theme new <n>","visual theme editor"); h("'theme delete <n>","delete custom theme");
+      h("'theme export <n>","print a theme as JSON"); h("'theme import <file>","add a theme from a JSON file");
       info(""); h("── plugins ───────────────────────────","");
       h("'plugin list","all plugins + status"); h("'plugin enable <n>","enable");
       h("'plugin enable all","enable every plugin"); h("'plugin disable <n>","disable"); h("'plugin reload <n>","reload");
@@ -1895,6 +1840,7 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
       h("'config reset <key>","reset a setting to its default");
       h("'config export [path]","export settings to a JSON file (default: oxis-config.json)");
       h("'config import <path>","import settings from one — takes effect immediately");
+      h("'config edit","edit ~/.oxis/config.lua (runs at startup)"); h("'config reload","re-run config.lua, reload ~/.oxis/themes");
       h("'version","version + platform info");
       h("'diagnostics","local diagnostic info — version, OS, runtime, plugins, workspace, recent errors (never transmitted anywhere)");
       h("'backup [path]","back up settings, workspaces, documents, and your own plugins to one file");
@@ -1912,12 +1858,8 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
 interface EditorFile { path: string; content: string; dirty: boolean; loading: boolean; loadError?: string; gotoLine?: number; }
 
 // ══════════════════════════════════════════════════════════════
-// ERROR BOUNDARY — a render-time crash anywhere below this should
-// never produce a silently blank pane (see the Editor's Normal-mode
-// investigation: a blank screen with no error is much harder to
-// diagnose than one that at least shows what threw). Wraps the
-// Editor and PluginCreator, the two full-pane views most likely to
-// hit an edge case (arbitrary file content, arbitrary Lua source).
+// ERROR BOUNDARY — shows what threw instead of a blank pane if the
+// editor crashes while rendering.
 // ══════════════════════════════════════════════════════════════
 class ErrorBoundary extends React.Component<
   { children: React.ReactNode; onClose?: () => void },
@@ -1960,23 +1902,12 @@ class ErrorBoundary extends React.Component<
 }
 
 // ══════════════════════════════════════════════════════════════
-// CODE AREA — shared syntax-highlighted text area used by both the
-// Editor and the Plugin Creator (see syntaxHighlight.ts). Classic
-// "highlighted textarea" trick: a <pre> with highlighted spans sits
-// behind a real <textarea> whose text is transparent but whose caret
-// and selection stay visible, so typing/selecting/vim-motions keep
-// working exactly as before — only the paint underneath changes.
+// CODE AREA — a highlighted <pre> behind a transparent <textarea>, so
+// the caret, selection and modal keys are the textarea's own.
 // ══════════════════════════════════════════════════════════════
 // ══════════════════════════════════════════════════════════════
-// UNSAVED-CHANGE GUTTER — a real line-level diff between the last
-// SAVED content and the current one (not the original file content
-// forever — see Editor's `savedContent`, which becomes the new
-// baseline every time you save, so the gutter always reflects "what's
-// changed since the last save" the same way git's gutter decorations
-// mean "changed since the last commit", not "changed since forever").
-// A real LCS line-diff, not a naive positional compare — inserting or
-// deleting a whole line in the middle of a file doesn't make every
-// line after it look "changed".
+// UNSAVED-CHANGE GUTTER — LCS line diff against the content at the last
+// save, so inserting a line doesn't mark every line after it.
 // ══════════════════════════════════════════════════════════════
 function computeChangedLines(oldText: string, newText: string): Set<number> {
   const oldLines = oldText.split("\n");
@@ -1984,11 +1915,7 @@ function computeChangedLines(oldText: string, newText: string): Set<number> {
   const n = oldLines.length, m = newLines.length;
   const changed = new Set<number>();
 
-  // LCS DP is O(n*m) in line count — fine for typical files, but a
-  // huge one (a few thousand lines) could make that cell count
-  // balloon. Fall back to a cheap positional compare past that point
-  // — less precise about insertions/deletions shifting later lines,
-  // but still real, still useful, and never hangs the tab.
+  // The LCS table is O(n*m); past this size use a positional compare.
   if (n * m > 1_000_000) {
     for (let i = 0; i < m; i++) if (oldLines[i] !== newLines[i]) changed.add(i + 1);
     return changed;
@@ -2016,45 +1943,20 @@ const CodeArea = React.forwardRef<HTMLTextAreaElement, {
   className?: string;
   onChange?: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
   onKeyDown?: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
-  /** Line numbers (1-indexed) changed since the last save — see
-   *  computeChangedLines above and Editor's `savedContent`. Optional:
-   *  omitted entirely (not just empty) means "don't know" rather than
-   *  "nothing's changed" — the Plugin Creator's old standalone state
-   *  before it was unified into this Editor had no equivalent
-   *  concept, and callers that genuinely have no baseline to diff
-   *  against should omit this rather than pass an empty Set that
-   *  would misleadingly render as "all saved". */
+  /** 1-based line numbers changed since the last save. Omit when
+   *  there's no baseline (an empty Set would mean "nothing changed"). */
   changedLines?: Set<number>;
-  /** Passed straight through to the outer wrapper div — used by the
-   *  Editor's resizable HTML-preview split (a computed width while
-   *  resizing) and its fullscreen-preview mode (hides the code pane
-   *  entirely without unmounting/remounting it, so typed content and
-   *  undo history survive toggling fullscreen on and off). */
+  /** Style for the outer wrapper (preview split width, or hiding the
+   *  code pane in full preview without unmounting it). */
   style?: React.CSSProperties;
   hidden?: boolean;
 }>(function CodeArea({ value, lang, className, onChange, onKeyDown, changedLines, style, hidden }, ref) {
   const preRef = useRef<HTMLPreElement>(null);
   const gutterRef = useRef<HTMLDivElement>(null);
 
-  // Large-file handling: the highlighter is a single regex pass over
-  // the WHOLE file (see syntaxHighlight.ts) — O(n) in file size, not
-  // pathological, but re-running that synchronously on every single
-  // keystroke is exactly what caused real, reported freezing/lag on
-  // big files, since it blocks the render regardless of how fast the
-  // regex itself is. Two real, layered fixes, not one:
-  //  1. Below HARD_CUTOFF_CHARS, highlighting still runs, but against
-  //     a DEBOUNCED copy of the content rather than every keystroke
-  //     directly — the actual <textarea> below is never debounced (it
-  //     always reflects `value` immediately), so typing itself is
-  //     never delayed; only the color overlay can lag a beat behind
-  //     on a big file. Small files get no perceptible debounce at all
-  //     (see the length check inside the effect).
-  //  2. Above HARD_CUTOFF_CHARS, highlighting is skipped entirely —
-  //     even a debounced full-file pass on a truly huge file would
-  //     still cause a noticeable hitch each time it fires. This is an
-  //     explicit, visible trade-off (a small notice, not a silent
-  //     failure) for files large enough that it matters, not a
-  //     reduction in normal-file functionality.
+  // Highlighting a large file on every keystroke causes lag, so below
+  // HARD_CUTOFF_CHARS it runs on a debounced copy (the textarea itself
+  // is never delayed), and above it it's skipped with a notice.
   const HARD_CUTOFF_CHARS = 500_000;
   const DEBOUNCE_THRESHOLD_CHARS = 20_000;
   const isHuge = value.length > HARD_CUTOFF_CHARS;
@@ -2075,27 +1977,10 @@ const CodeArea = React.forwardRef<HTMLTextAreaElement, {
     return debouncedValue.endsWith("\n") ? h + "\n" : h;
   }, [debouncedValue, lang, isHuge]);
 
-  // Line numbers — a third layer, scrolled in sync with the other two
-  // exactly like the highlight <pre> already is (see syncScroll). Its
-  // own width is based on the actual line count so a 4-digit file
-  // doesn't clip against a gutter sized for 3, and the highlight/input
-  // layers below get that same width as a left inset so the numbers
-  // never overlap real text. Each line is its own fixed-height row
-  // (not one joined <pre> string) so a changed-line marker can be
-  // attached to the exact row it belongs to.
-  //
-  // Built from `debouncedValue`, not the live `value`: splitting the
-  // string is cheap, but `gutterLines` below mounts one React element
-  // PER LINE with no virtualization, and that is not cheap once a file
-  // runs into the thousands of lines. Deriving it from `value` directly
-  // (as this used to) meant every keystroke in a large file rebuilt and
-  // remounted the entire gutter — exactly the kind of per-keystroke cost
-  // the debounced-highlighting design above exists to avoid, just moved
-  // one layer over. Below DEBOUNCE_THRESHOLD_CHARS, debouncedValue is
-  // kept perfectly in sync with value (see the effect above), so small
-  // and medium files see no behavior change and the numbers never lag;
-  // only large files trade a ~150ms-stale line count for not re-rendering
-  // thousands of DOM nodes on every single keystroke.
+  // Line-number gutter, scrolled with the other layers and sized to the
+  // line count. One row per line so change markers can attach to rows.
+  // Built from the debounced value so large files don't rebuild it on
+  // every keystroke (small files stay in sync).
   const lineCount = useMemo(() => debouncedValue.split("\n").length, [debouncedValue]);
   const gutterWidth = useMemo(() => Math.max(2, String(lineCount).length), [lineCount]);
   const gutterLines = useMemo(() => {
@@ -2146,14 +2031,7 @@ const CodeArea = React.forwardRef<HTMLTextAreaElement, {
 });
 
 // ══════════════════════════════════════════════════════════════
-// MODAL EDITING — shared Normal/Insert/Visual mode logic (see
-// README § Input Modes), used by BOTH the file Editor and the
-// Plugin Creator. This used to live only inside Editor; the Plugin
-// Creator had its own separate, mode-less textarea handling, which
-// is why it never got Normal/Insert/Visual — it wasn't "our main
-// editor," it was a second, simpler one. Pulling this out into a
-// hook means the Plugin Creator now runs the exact same modal
-// editing as file editing, not just the same visual chrome.
+// MODAL EDITING — Normal/Insert/Visual mode logic for the editor.
 // ══════════════════════════════════════════════════════════════
 function useModalEditor(opts: {
   taRef:   React.RefObject<HTMLTextAreaElement>;
@@ -2183,20 +2061,9 @@ function useModalEditor(opts: {
   type Snapshot = { content: string; pos: number };
   const undoStack = useRef<Snapshot[]>([]);
   const redoStack = useRef<Snapshot[]>([]);
-  // Consecutive keystrokes collapse into a single undo step, same as
-  // real editors — otherwise Ctrl+Z after typing a sentence would undo
-  // one character at a time. `grouping` tracks "the next edit belongs
-  // to the same step as the last one" rather than starting a new one.
-  //
-  // Critically, a group also breaks after a pause (see GROUP_TIMEOUT_MS
-  // below) — without that, one continuous Insert-mode session, however
-  // long (a user typing an entire file without ever pressing Escape,
-  // which is completely normal for anyone not used to modal editing),
-  // would collapse into ONE undo step, so a single Ctrl+Z would wipe
-  // the whole thing back to empty. That's a real bug, not a style
-  // choice — real editors (and vim itself) only group typing that
-  // actually happens in one continuous burst, not "however long the
-  // mode happens to stay active."
+  // Consecutive keystrokes form one undo step, but a pause of
+  // GROUP_TIMEOUT_MS starts a new one, so a long Insert session isn't
+  // undone in a single Ctrl+Z.
   const grouping = useRef(false);
   const lastEditAt = useRef(0);
   const GROUP_TIMEOUT_MS = 700;
@@ -2260,12 +2127,8 @@ function useModalEditor(opts: {
     const ta = taRef.current;
     if (!ta) return;
     if (keepAnchor) {
-      // Visual mode — extend the *real* browser selection from the
-      // anchor to `pos` so the selected range is actually visible
-      // (via ::selection) instead of only being tracked invisibly in
-      // React state. `direction` records which end is the "active"
-      // side so the next motion can recover the true cursor position
-      // back out of selectionStart/selectionEnd (see below).
+      // Visual mode: extend the real selection so it's visible, and
+      // remember which end is active.
       const a = anchor ?? pos;
       if (pos >= a) {
         requestAnimationFrame(() => ta.setSelectionRange(a, Math.min(pos + 1, content.length), "forward"));
@@ -2301,11 +2164,8 @@ function useModalEditor(opts: {
     // is even called.
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     const ta = taRef.current!;
-    // In Visual mode, selectionStart/selectionEnd are a real range now
-    // (see setPos), so the "current cursor" isn't always
-    // selectionStart — it's whichever end is the active one, per
-    // selectionDirection. Outside Visual mode there's never an active
-    // range, so selectionStart alone is the caret as before.
+    // In Visual mode the caret is whichever end of the selection is
+    // active; otherwise it's selectionStart.
     const pos = mode === "visual" && ta.selectionStart !== ta.selectionEnd
       ? (ta.selectionDirection === "backward" ? ta.selectionStart : ta.selectionEnd - 1)
       : ta.selectionStart;
@@ -2381,22 +2241,15 @@ function useModalEditor(opts: {
         return;
       }
       default:
-        // Swallow ordinary characters in Normal/Visual mode — this is
-        // the whole point of the mode: typing "hello" navigates
-        // (h, then nothing bound to 'e'/'l'/'o' — a fuller
-        // implementation would map more keys) rather than inserting
-        // text. Ctrl/Alt/Meta combos and function keys pass through
-        // untouched so shortcuts like Ctrl+S below still work.
+        // Normal/Visual mode: plain characters are commands, never
+        // inserted. Modifier combos and function keys pass through.
         if (!e.ctrlKey && !e.altKey && !e.metaKey && e.key.length === 1) e.preventDefault();
         return;
     }
   }, [content, mode, anchor, onEscapeNormal, applyEdit, setPos, onEdit, taRef]);
 
   // ── Find / Find & Replace / Go to line ────────────────────────
-  // A separate DOM <input> (see FindBar below), not part of the
-  // Normal/Insert/Visual modal system above — typing a search term
-  // was never meant to be vim motions, so giving it its own real
-  // input sidesteps that entirely rather than needing a fourth mode.
+  // Uses its own <input> (FindBar), outside the modal key handling.
   const [findOpen, setFindOpen] = useState(false);
   const [findMode, setFindMode] = useState<"find" | "replace" | "goto">("find");
   const [findQuery, setFindQuery] = useState("");
@@ -2524,11 +2377,7 @@ function useModalEditor(opts: {
     if (e.ctrlKey && !e.altKey && e.key.toLowerCase() === "h") { e.preventDefault(); openFind("replace"); return; }
     if (e.ctrlKey && !e.altKey && e.key.toLowerCase() === "g") { e.preventDefault(); openFind("goto"); return; }
 
-    // Undo/Redo — standard editor bindings, work in any mode (real
-    // vim uses "u"/Ctrl+R instead, but this app already leans on
-    // Ctrl+S etc. over vim's own conventions, so Ctrl+Z/Ctrl+Y here
-    // matches that and matches what most people reach for first).
-    // Both Ctrl+Y and Ctrl+Shift+Z redo, to cover Windows and Mac muscle memory.
+    // Undo/redo in any mode: Ctrl+Z, and Ctrl+Y or Ctrl+Shift+Z.
     if (e.ctrlKey && !e.altKey && e.key.toLowerCase() === "z") {
       e.preventDefault();
       if (e.shiftKey) redo(); else undo();
@@ -2583,11 +2432,7 @@ function useModalEditor(opts: {
 }
 
 // ══════════════════════════════════════════════════════════════
-// FIND BAR — Find / Find & Replace / Go to line, shared by the
-// Editor and Plugin Creator (see useModalEditor's find state above).
-// A plain DOM input, deliberately outside the modal Normal/Insert/
-// Visual system — typing a search term was never meant to be vim
-// motions.
+// FIND BAR — Find / Find & Replace / Go to line.
 // ══════════════════════════════════════════════════════════════
 function FindBar({ findMode, findQuery, setFindQuery, replaceWith, setReplaceWith, matches, matchIndex, findInputRef, findNext, findPrev, closeFind, replaceCurrent, replaceAll, goToLine }: {
   findMode: "find" | "replace" | "goto";
@@ -2673,12 +2518,8 @@ function FindBar({ findMode, findQuery, setFindQuery, replaceWith, setReplaceWit
   );
 }
 
-/** Joins a base directory with a relative reference and normalizes
- *  `.`/`..` segments — handles both `/`- and `\`-style paths (Windows
- *  project directories use the latter). Doesn't touch absolute paths
- *  (already-rooted references pass straight through unresolved,
- *  matching how every other path-taking function in this codebase
- *  treats an absolute path as already complete). */
+/** Joins baseDir and a relative reference, normalising `.`/`..` for
+ *  both `/` and `\` paths. Absolute references are returned as-is. */
 function resolveRelativePath(baseDir: string, rel: string): string {
   const usesBackslash = baseDir.includes("\\") && !baseDir.includes("/");
   const sep = usesBackslash ? "\\" : "/";
@@ -2692,24 +2533,9 @@ function resolveRelativePath(baseDir: string, rel: string): string {
   return baseParts.join(sep);
 }
 
-/** Renders markdown as HTML styled to look like GitHub/GitLab's own
- *  README rendering — dark mode specifically (not light), to stay
- *  visually coherent with the rest of OXIS rather than dropping a
- *  bright white page into an otherwise all-dark app. Uses `marked`
- *  (a real, tested markdown parser — added as a dependency
- *  specifically for this) rather than a hand-rolled regex converter,
- *  since markdown has enough real edge cases (nested lists, tables,
- *  fenced code with a language hint, etc.) that a partial parser
- *  would look "close enough" right up until it didn't.
- *
- *  Includes Mermaid.js (loaded from a CDN inside the preview iframe
- *  itself, same as any other external resource a previewed page can
- *  reference — see inlinePreviewAssets's own doc comment on the
- *  sandbox model) specifically so a ```mermaid fenced block renders
- *  as the actual diagram, not a plain code block — this README's own
- *  Architecture/Business Model diagrams are exactly that, so a
- *  markdown preview that couldn't show them would be a visibly
- *  incomplete rendering of the most common real use of this feature. */
+/** Renders Markdown GitHub-style (dark) with `marked`. ```mermaid
+ *  blocks are rendered as diagrams by Mermaid.js, loaded from a CDN
+ *  inside the sandboxed preview iframe. */
 function renderMarkdownPreview(markdown: string): string {
   const body = marked.parse(markdown, { gfm: true, breaks: false }) as string;
   return `<!DOCTYPE html>
@@ -2754,12 +2580,8 @@ function renderMarkdownPreview(markdown: string): string {
 ${body}
 <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
 <script>
-  // Real GitHub/GitLab rendering turns a \`\`\`mermaid fence into an
-  // actual diagram, not a plain code block — matched here the same
-  // way: find every <pre><code class="language-mermaid"> marked's
-  // own output produces, and hand its raw text to Mermaid to render
-  // in place. try/catch per-block so one malformed diagram can't take
-  // the rest of the preview down with it.
+  // Render each mermaid code block in place; one bad diagram doesn't
+  // break the rest.
   (function () {
     if (typeof mermaid === "undefined") return;
     mermaid.initialize({ startOnLoad: false, theme: "dark" });
@@ -2779,21 +2601,9 @@ ${body}
 </html>`;
 }
 
-/** Inlines a preview HTML page's own local stylesheet/script
- *  references (relative `<link rel="stylesheet" href="...">` and
- *  `<script src="...">` tags) so the live preview actually looks
- *  like the real project instead of unstyled, script-less markup —
- *  a real, reported gap: `srcDoc` gives the iframe no meaningful base
- *  URL to resolve a relative `css/style.css` against, so those
- *  requests silently failed and every preview looked broken for any
- *  project split across more than one file (which is most of them).
- *  Absolute URLs (http/https/protocol-relative) and already-inline
- *  data: URIs are left completely alone — only same-project relative
- *  references are read from disk and substituted in. Best-effort: a
- *  referenced file that can't be read (typo'd path, genuinely
- *  missing) is left as a comment explaining what didn't resolve,
- *  rather than silently dropped or left as a dead link the iframe
- *  can't do anything useful with anyway. */
+/** Inlines a previewed page's relative stylesheets and scripts, since
+ *  a srcDoc iframe can't resolve relative URLs. Absolute and data: URLs
+ *  are left alone; a file that can't be read becomes an HTML comment. */
 async function inlinePreviewAssets(html: string, filePath: string): Promise<string> {
   const baseDir = filePath.replace(/[\\/][^\\/]*$/, "");
   const isRemoteOrInline = (src: string) => /^(https?:)?\/\//.test(src) || src.startsWith("data:");
@@ -2839,23 +2649,13 @@ function Editor({ file, onClose, onSave }: {
   const [dirty,   setDirty]   = useState(false);
   const taRef = useRef<HTMLTextAreaElement>(null);
 
-  // Re-sync local content when a *different* file is opened, or when
-  // the async ReadFile for the current file finishes loading. Watching
-  // only file.path would miss the load-finished transition, since the
-  // editor opens immediately with empty content while the read is
-  // still in flight (see openEditor in the root component).
+  // Re-sync when a different file opens or the current one finishes
+  // loading (the editor opens before the read completes).
   useEffect(() => { setContent(file.content); setSavedContent(file.content); setDirty(false); }, [file.path, file.loading]);
   useEffect(() => { if (!file.loading) setTimeout(() => taRef.current?.focus(), 40); }, [file.loading]);
 
-  // Jump to file.gotoLine once the real content has loaded (see
-  // ShellCtx.openEditor / 'oxis resize, the motivating caller — it
-  // points the user at the exact line of a Go source constant
-  // instead of making them search a file they may never have opened
-  // before). Places the caret at the start of that line and scrolls
-  // it to roughly the middle of the viewport. Depends on `content`
-  // (not just file.loading) because the textarea's own value —
-  // needed to compute the character offset — isn't set until the
-  // content-sync effect above has run in the same render pass.
+  // Jump to file.gotoLine once the content is in the textarea: caret at
+  // the start of that line, scrolled to the middle of the view.
   useEffect(() => {
     if (file.loading || !file.gotoLine) return;
     const ta = taRef.current;
@@ -2881,11 +2681,7 @@ function Editor({ file, onClose, onSave }: {
     setDirty(false);
   }, [file.path, content, onSave]);
 
-  // Same reasoning as CodeArea's highlight debounce (see App.tsx) —
-  // computeChangedLines is a real O(n·m) LCS diff (capped, with a
-  // fallback, but still real work), and recomputing it synchronously
-  // on every keystroke is unnecessary on a large file when the
-  // textarea itself never needs the result to stay responsive.
+  // The line diff is debounced for large files, like highlighting.
   const [debouncedContent, setDebouncedContent] = useState(content);
   useEffect(() => {
     if (content.length < 20_000) { setDebouncedContent(content); return; }
@@ -2901,21 +2697,13 @@ function Editor({ file, onClose, onSave }: {
     setContent(prev => { if (next !== prev) setDirty(true); return next; });
   }, []);
 
-  // HTML live preview — a split view (code | rendered iframe) for
-  // .html/.htm files specifically. Off by default even for an HTML
-  // file (a toggle, not automatic) — opening an editor shouldn't
-  // silently start executing whatever script tags are in the file
-  // the user just clicked on.
+  // Live preview for .html/.htm/.md. Off until toggled, so opening a
+  // file never runs its scripts.
   const isHtmlFile = /\.html?$/i.test(file.path);
   const isMarkdownFile = /\.(md|markdown)$/i.test(file.path);
   const isPreviewable = isHtmlFile || isMarkdownFile;
   const [previewOpen, setPreviewOpen] = useState(false);
-  // Debounced independently of changedLines' own debounce above (that
-  // one only kicks in past 20,000 characters; a live preview visibly
-  // flashing/reloading on every keystroke would look broken even on a
-  // small file, so this one always debounces, a short 300ms rather
-  // than that one's 200ms since a full iframe reload is a heavier,
-  // more visually disruptive operation than a diff recompute).
+  // Preview reloads are heavier than a diff, so always debounce them.
   const [previewContent, setPreviewContent] = useState(content);
   const previewRunId = useRef(0); // guards against an in-flight resolve landing after a NEWER one already started (fast typing, or a quick file switch)
   const buildPreview = useCallback((raw: string) => {
@@ -2946,12 +2734,8 @@ function Editor({ file, onClose, onSave }: {
   const [previewWidthPct, setPreviewWidthPct] = useState(50);
   const splitRef = useRef<HTMLDivElement>(null);
   const draggingRef = useRef(false);
-  // A real, rendered state (not just a ref) so the overlay below
-  // actually mounts — see its own comment for why the overlay is the
-  // real fix here, not a cosmetic addition. The ref is still needed
-  // too: it's read synchronously inside the mousemove handler itself,
-  // where a stale closure over state (even with a dependency array)
-  // could otherwise read a one-tick-old value.
+  // State (so the overlay renders) plus a ref (read synchronously in
+  // the mousemove handler).
   const [isResizing, setIsResizing] = useState(false);
   const startResize = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -2982,15 +2766,8 @@ function Editor({ file, onClose, onSave }: {
     return () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
   }, []);
 
-  // Fullscreen preview — hides the code pane entirely rather than
-  // just growing the split further (dragging can only ever reach the
-  // 20-80 clamp above; this is a distinct, deliberate "just show me
-  // the page" mode, not the extreme end of resizing). Button in the
-  // toolbar and Ctrl+Shift+Enter both toggle the same state; Escape
-  // backs out of fullscreen first if it's active, same "handle the
-  // more specific overlay first" pattern the rest of the app uses for
-  // Escape (find bar, etc.) — only falls through to the editor's own
-  // Escape-to-normal-mode/close behavior once fullscreen is off.
+  // Full preview hides the code pane (button or Ctrl+Shift+Enter). Esc
+  // leaves full preview before doing anything else.
   const [previewFullscreen, setPreviewFullscreen] = useState(false);
   useEffect(() => {
     if (!previewOpen) setPreviewFullscreen(false); // closing preview entirely also exits fullscreen, so re-opening starts split, not full
@@ -3407,26 +3184,39 @@ function ThemeEditor({ name: initName, onClose }: { name: string; onClose: () =>
 // ══════════════════════════════════════════════════════════════
 interface TermProps {
   id:          string;
+  /** true while the terminal view (not Home) is showing */
   isActive:    boolean;
+  /** Element the global prompt is portalled into — the fixed bar above
+   *  the status line, shared by every screen. */
+  promptHost:  HTMLElement | null;
   onReady:     () => void;
-  onNewTab:    () => void;
+  /** Switch to the terminal view. */
+  onShowShell: () => void;
   onCloseTab:  () => void;
-  onSwitchTab: (n: number) => void;
 }
 
 interface InputState { value: string; cursor: number; }
 
 let _pluginsInited = false;
+/** Loads plugins and workspaces once, before any built-in commands are
+ *  registered against a real terminal (built-ins win name clashes). */
+function ensurePluginsInited(): void {
+  if (_pluginsInited) return;
+  _pluginsInited = true;
+  initPlugins(forwardingApiCtx);
+  workspaceManager.init(forwardingApiCtx);
+  // Give the terminal a moment to be ready to print config.lua errors.
+  setTimeout(() => void reportUserConfig(false), 300);
+}
 
-// Clickable URLs and file paths in terminal output — a URL opens in
-// the real system browser (openUrl, native.ts); a path opens in the
-// built-in Editor (the same openEditor() 'edit uses). Deliberately
-// conservative about what counts as a "path" (must end in a real
-// extension) rather than linkifying every bare "/" or "C:\" — a
-// terminal line has plenty of those that aren't actually paths (CLI
-// flags, ratios, etc.), and a wrong guess that's clickable is worse
-// than a real path that isn't.
-const LINE_LINK_RE = /(https?:\/\/[^\s"'<>()]+)|([A-Za-z]:\\[^\s"'<>]+?\.[A-Za-z0-9]{1,8}(?=[\s"'<>)]|$))|(\/[^\s"'<>]+?\.[A-Za-z0-9]{1,8}(?=[\s"'<>)]|$))/g;
+// Clickable URLs (open in the system browser) and file paths (open in
+// the editor) in terminal output. Only paths ending in an extension
+// count, so flags and ratios don't become links.
+const LINE_LINK_RE = /(https?:\/\/[^\s"'<>()]+)|([A-Za-z]:\\[^\s"'<>]+?\.[A-Za-z0-9]{1,8}(?=[\s"'<>)]|$))|((?<=^|[\s"'(=:])\/[^\s"'<>]+?\.[A-Za-z0-9]{1,8}(?=[\s"'<>)]|$))/g;
+
+// A mouseup that finishes a text selection also fires click; don't
+// treat that as opening the link.
+const selectionActive = () => (window.getSelection?.()?.toString().length ?? 0) > 0;
 
 function renderLineWithLinks(text: string, onOpenUrl: (url: string) => void, onOpenPath: (path: string) => void): React.ReactNode {
   if (!text) return "\u00a0";
@@ -3437,9 +3227,9 @@ function renderLineWithLinks(text: string, onOpenUrl: (url: string) => void, onO
     if (m.index > last) parts.push(text.slice(last, m.index));
     const matched = m[0];
     if (m[1]) {
-      parts.push(<span key={key++} className="term-link" onClick={e => { e.stopPropagation(); onOpenUrl(matched); }} title={`open ${matched}`}>{matched}</span>);
+      parts.push(<span key={key++} className="term-link" onClick={e => { e.stopPropagation(); if (!selectionActive()) onOpenUrl(matched); }} title={`open ${matched}`}>{matched}</span>);
     } else {
-      parts.push(<span key={key++} className="term-link term-link--path" onClick={e => { e.stopPropagation(); onOpenPath(matched); }} title={`edit ${matched}`}>{matched}</span>);
+      parts.push(<span key={key++} className="term-link term-link--path" onClick={e => { e.stopPropagation(); if (!selectionActive()) onOpenPath(matched); }} title={`edit ${matched}`}>{matched}</span>);
     }
     last = LINE_LINK_RE.lastIndex;
   }
@@ -3447,35 +3237,34 @@ function renderLineWithLinks(text: string, onOpenUrl: (url: string) => void, onO
   return parts;
 }
 
-function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: TermProps) {
+function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }: TermProps) {
+  const onNewTab = onShowShell;
   // ── output state ─────────────────────────────────────────
-  const [lines,      setLines]      = useState<Line[]>(() => bannerLines());
+  const [lines,      setLines]      = useState<Line[]>(() => initialLines());
   const [ready,      setReady]      = useState(false);
+  const [partial,    setPartial]    = useState("");
   const [connErr,    setConnErr]    = useState("");
 
-  // ── input visual state ────────────────────────────────────
-  const [inputVal,    setInputVal]    = useState("");
-  const [inputCursor, setInputCursor] = useState(0);
+  // ── global prompt state ───────────────────────────────────
+  // The prompt is a real <input> (native selection, IME, clipboard,
+  // mouse positioning). A drawn caret on top of it follows the
+  // cursorStyle/cursorBlink settings.
+  const [inputVal,     setInputVal]     = useState("");
+  const [promptFocused, setPromptFocused] = useState(false);
+  const [caret, setCaret] = useState<{ left: number; ch: string; hasSel: boolean }>({ left: 0, ch: " ", hasSel: false });
+  // Programmatic cursor moves (history, Ctrl+A/E, completion) are
+  // applied after React has written the new value.
+  const [caretRequest, setCaretRequest] = useState<{ pos: number; n: number } | null>(null);
 
   // ── search state ──────────────────────────────────────────
   const [searching,    setSearching]    = useState(false);
   const [searchResult, setSearchResult] = useState<SearchResult | null>(null);
 
-  // ── right-click context menu on the output scrollback ───────
-  // Position is viewport coordinates from the triggering MouseEvent;
-  // null means closed. Only ever opened by a right-click inside
-  // .term-out (see onContextMenu below) — never for the input line,
-  // which keeps its own browser-native context menu.
-  const [outputMenu, setOutputMenu] = useState<{ x: number; y: number } | null>(null);
+  // ── right-click menu on the output (null = closed) ──────────
+  const [outputMenu, setOutputMenu] = useState<{ x: number; y: number; hasSel: boolean } | null>(null);
 
-  // ── output search (Ctrl+Shift+F — Ctrl+F alone was already taken
-  // by readline's forward-char; this used to be declared as a second,
-  // unreachable `case "f":` in the same switch as forward-char, a
-  // genuine bug the build itself caught, see the keydown handler for
-  // the fix) — distinct from the above, which is Ctrl+R's
-  // reverse-i-search through COMMAND HISTORY. This searches the
-  // actual on-screen scrollback (`lines`) instead — "did I already
-  // see X printed somewhere above". ──────────────────────────────
+  // ── find in output (Ctrl+Shift+F) — searches the scrollback, unlike
+  // Ctrl+R, which searches command history. ─────────────────────────
   const [outputSearchOpen,  setOutputSearchOpen]  = useState(false);
   const [outputSearchQuery, setOutputSearchQuery] = useState("");
   const [outputSearchIndex, setOutputSearchIndex] = useState(0);
@@ -3491,14 +3280,9 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
   // tree even with zero files open, so the keyboard-only path into
   // the editor doesn't require already knowing a file's exact path.
   useEffect(() => events.on("open_file_tree", () => setFileTreeOpen(true)), []);
-  // The file tree's root — the connected external project directory
-  // if the active workspace has one (item 2: "the editor's file tree
-  // should switch from showing an OXIS-managed workspace structure to
-  // showing the actual connected project"), or "." (the app's own
-  // directory — the normal OXIS-managed view) otherwise. Refreshed on
-  // the same events Home's connected-path display uses, so switching
-  // workspaces or linking/unlinking updates the tree immediately
-  // rather than needing it closed and reopened.
+  // File tree root: the linked project folder if the active workspace
+  // has one, otherwise the app's own folder. Updated on workspace
+  // changes.
   const [fileTreeRoot, setFileTreeRoot] = useState<{ dir: string; label: string }>({ dir: ".", label: "FILES" });
   useEffect(() => {
     const update = async () => {
@@ -3517,15 +3301,17 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
 
   // ── refs ──────────────────────────────────────────────────
   const outRef        = useRef<HTMLDivElement>(null);
-  const ghostRef      = useRef<HTMLTextAreaElement>(null);
+  const promptRef     = useRef<HTMLInputElement>(null);
+  const mirrorRef     = useRef<HTMLSpanElement>(null);
+  const isActiveRef   = useRef(isActive);
+  isActiveRef.current = isActive;
   const session       = useRef<PtySession | null>(null);
   const pending       = useRef("");
   const mounted       = useRef(false);
   const inputRef      = useRef<InputState>({ value: "", cursor: 0 });
   const userScrolled  = useRef(false);
   const ctxRef        = useRef<ShellCtx | null>(null);
-  const linesRef       = useRef<Line[]>(bannerLines());
-  const suppressOutput = useRef(false);
+  const linesRef       = useRef<Line[]>(lines);
 
   // ── restore scroll + focus when tab becomes visible ─────────
   useEffect(() => {
@@ -3533,13 +3319,13 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
       userScrolled.current = false;
       return;
     }
-    // Poll until scrollHeight > 0 (display:none → flex is async in the browser)
+    // Layout isn't ready the same frame display:none flips to flex.
     let attempts = 0;
     const tryScroll = () => {
       const el = outRef.current;
-      if (el && el.scrollHeight > 50) {
+      if (el && el.clientHeight > 0) {
         el.scrollTop = el.scrollHeight;
-        ghostRef.current?.focus({ preventScroll: true });
+        if (document.activeElement === document.body) promptRef.current?.focus({ preventScroll: true });
       } else if (attempts++ < 10) {
         requestAnimationFrame(tryScroll);
       }
@@ -3547,12 +3333,36 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
     requestAnimationFrame(tryScroll);
   }, [isActive]);
 
-  // ── input sync ────────────────────────────────────────────
+  // ── prompt sync ───────────────────────────────────────────
+  /** Positions the drawn caret over the input's real cursor. */
+  const updateCaret = useCallback(() => {
+    const el = promptRef.current, mirror = mirrorRef.current;
+    if (!el || !mirror) return;
+    const pos = el.selectionStart ?? el.value.length;
+    mirror.textContent = el.value.slice(0, pos);
+    setCaret({
+      left: mirror.offsetWidth - el.scrollLeft,
+      ch: el.value[pos] ?? " ",
+      hasSel: el.selectionStart !== el.selectionEnd,
+    });
+  }, []);
+
+  /** Sets the prompt text and cursor from code. */
   const syncInput = useCallback((val: string, cur: number) => {
     inputRef.current = { value: val, cursor: cur };
     setInputVal(val);
-    setInputCursor(cur);
+    setCaretRequest(r => ({ pos: cur, n: (r?.n ?? 0) + 1 }));
   }, []);
+
+  useLayoutEffect(() => {
+    const el = promptRef.current;
+    if (!caretRequest || !el) return;
+    const pos = Math.min(caretRequest.pos, el.value.length);
+    el.setSelectionRange(pos, pos);
+    // Keep the cursor in view in a long, horizontally scrolled command.
+    if (pos === el.value.length) el.scrollLeft = el.scrollWidth;
+    updateCaret();
+  }, [caretRequest, updateCaret]);
 
   const clearInput = useCallback(() => syncInput("", 0), [syncInput]);
 
@@ -3582,16 +3392,8 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
     scrollToBottom();
   }, [scrollToBottom]);
 
-  /** Prints several lines as ONE state update instead of one addLine
-   *  call per line — found during a performance audit. addLine's own
-   *  `[...next, newLine]` copies the whole (up to 10,000-line) buffer
-   *  on every call; a command that split a multi-line message and
-   *  called addLine/ctx.print once per line (a real, existing pattern
-   *  — 'plugin publish's own status messages, for one) paid that copy
-   *  cost once PER LINE for no reason, when one copy for the whole
-   *  batch does the same job. Each entry can carry its own kind, same
-   *  as addLine's second argument, for callers whose lines aren't all
-   *  the same color (an ok/err mix, say). */
+  /** Adds several lines in one state update (each may have its own
+   *  kind). Cheaper than one addLine per line. */
   const addLines = useCallback((entries: Array<[string, LineKind?]>) => {
     if (entries.length === 0) return;
     setLines(prev => {
@@ -3617,11 +3419,7 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
       const { path, message } = (p as { path?: string; message?: string } | undefined) ?? {};
       addLine(`  ⚠ workspace auto-reload failed: ${message ?? "unknown error"} — ${path ?? "?"}`, "warn");
     });
-    // A command handler throwing used to be caught in
-    // commandRegistry.ts and only ever logged to console.error —
-    // invisible to an actual user, who'd just see their command
-    // silently do nothing. Now it's a real event with a visible
-    // message here, same as the workspace reload notices above.
+    // Errors thrown by command handlers (see commandRegistry.ts).
     const u3 = events.on("command_error", (p) => {
       const { name, message } = (p as { name?: string; message?: string } | undefined) ?? {};
       addLine(`  ✗  '${name ?? "?"}' failed: ${message ?? "unknown error"}`, "err");
@@ -3630,22 +3428,12 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
   }, [isActive, addLine]);
 
   const clear = useCallback(() => {
-    // Keep the boot banner (the train ascii) -- only the scrollback below
-    // it gets wiped. Filtering (rather than rebuilding a fresh banner)
-    // preserves the exact same line objects/ids already tracked by the
-    // wheel-spin effect above, so the animation just keeps going
-    // uninterrupted instead of restarting or needing its ref re-pointed.
-    setLines(prev => {
-      const kept = prev.filter(l => l.kind === "banner" || l.kind === "banner-wheel");
-      linesRef.current = kept;
-      return kept;
-    });
-    pending.current      = "";
+    setPartial("");
+    pending.current = "";
+    const fresh = initialLines();
+    linesRef.current = fresh;
+    setLines(fresh);
     userScrolled.current = false;
-    // Also clear the PTY shell buffer (Ctrl+L)
-    suppressOutput.current = true;
-    setTimeout(() => { suppressOutput.current = false; }, 400);
-    session.current?.write("");
     scrollToBottom(true);
   }, [scrollToBottom]);
 
@@ -3653,8 +3441,18 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
     session.current?.write(data);
   }, []);
 
-  const focusGhost = useCallback(() => {
-    ghostRef.current?.focus({ preventScroll: true });
+  const focusPrompt = useCallback(() => {
+    promptRef.current?.focus({ preventScroll: true });
+  }, []);
+
+  /** Text selected inside the output area, or "" (selections elsewhere,
+   *  including inside the prompt, don't count). */
+  const outputSelectionText = useCallback((): string => {
+    const sel = window.getSelection?.();
+    const out = outRef.current;
+    if (!sel || sel.isCollapsed || !out) return "";
+    if (!out.contains(sel.anchorNode) && !out.contains(sel.focusNode)) return "";
+    return sel.toString();
   }, []);
 
   // Output search (Ctrl+Shift+F) — distinct from Ctrl+R's reverse-i-search
@@ -3666,6 +3464,7 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
     if (!q) return [] as number[]; // line ids
     return lines.filter(l => l.text.toLowerCase().includes(q)).map(l => l.id);
   }, [lines, outputSearchQuery]);
+  const outputSearchSet = useMemo(() => new Set(outputSearchMatches), [outputSearchMatches]);
 
   const jumpToOutputMatch = useCallback((idx: number) => {
     if (outputSearchMatches.length === 0) return;
@@ -3690,44 +3489,31 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
   }, []);
   const closeOutputSearch = useCallback(() => {
     setOutputSearchOpen(false);
-    setTimeout(() => focusGhost(), 20);
-  }, [focusGhost]);
+    setOutputSearchQuery("");
+    setTimeout(() => focusPrompt(), 20);
+  }, [focusPrompt]);
 
-  // Refocus the hidden input on a plain click anywhere in the terminal
-  // (output scrollback included) — but not when the mousedown/up was
-  // actually a text-selection drag, so copy still works normally.
-  // Also copy-on-select: a real terminal-emulator convention (X11
-  // PRIMARY-selection-style) — finishing a drag-select copies it to
-  // the clipboard immediately, no separate Ctrl+C needed. Ctrl+C
-  // still works too (see the window-level Ctrl+C handler elsewhere),
-  // for anyone used to that instead.
-  const refocusUnlessSelecting = useCallback(() => {
-    const sel = window.getSelection?.();
-    const text = sel?.toString() ?? "";
-    if (text.length > 0) {
-      void copyToClipboard(text);
-      return;
-    }
-    focusGhost();
-  }, [focusGhost]);
+  // A plain click in the output focuses the prompt; a drag that selected
+  // text leaves the selection (and focus) alone so it can be copied.
+  const focusUnlessSelecting = useCallback(() => {
+    if (window.getSelection?.()?.toString()) return;
+    focusPrompt();
+  }, [focusPrompt]);
 
-  // ── right-click context menu on scrollback output ────────────
-  // Right-clicking inside .term-out opens a small menu (Copy / Select
-  // All / Clear Selection) instead of the browser's own context menu
-  // — a VS Code-terminal-style convention. Left as three explicit
-  // actions rather than trying to guess intent from whether text
-  // happens to be selected at the moment of the click.
+  // ── right-click menu on the output (Copy / Select All / Clear) ──
   const openOutputMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
-    setOutputMenu({ x: e.clientX, y: e.clientY });
-  }, []);
+    // Keep the menu inside the window.
+    const x = Math.min(e.clientX, window.innerWidth - 170);
+    const y = Math.min(e.clientY, window.innerHeight - 110);
+    setOutputMenu({ x, y, hasSel: outputSelectionText().length > 0 });
+  }, [outputSelectionText]);
 
   const copyOutputSelection = useCallback(() => {
-    const sel = window.getSelection?.();
-    const text = sel?.toString() ?? "";
+    const text = outputSelectionText();
     if (text) void copyToClipboard(text);
     setOutputMenu(null);
-  }, []);
+  }, [outputSelectionText]);
 
   const selectAllOutput = useCallback(() => {
     const el = outRef.current;
@@ -3746,10 +3532,7 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
     setOutputMenu(null);
   }, []);
 
-  // Close the menu on any click elsewhere, or Escape — standard
-  // context-menu dismissal, not tied to the ghost input's own
-  // Escape handling (that sends \x1b to the shell; this just closes
-  // a piece of UI and must not also interrupt anything running).
+  // Close the menu on any click elsewhere or Escape.
   useEffect(() => {
     if (!outputMenu) return;
     const onDocClick = () => setOutputMenu(null);
@@ -3762,51 +3545,77 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
     };
   }, [outputMenu]);
 
-  // Restore focus to the input when the OS window regains focus
-  // (alt-tab back in, click on the window from the taskbar) — without
-  // this, the window can appear active but typing goes nowhere until
-  // the terminal itself is clicked.
+  // When the OS window regains focus with nothing focused inside it,
+  // put the cursor back in the prompt.
   useEffect(() => {
-    if (!isActive) return;
     const onWindowFocus = () => {
-      if (editorFiles.length === 0) {
-        setTimeout(() => ghostRef.current?.focus({ preventScroll: true }), 30);
-      }
+      setTimeout(() => {
+        if (document.activeElement === document.body && editorFiles.length === 0) focusPrompt();
+      }, 30);
     };
     window.addEventListener("focus", onWindowFocus);
     return () => window.removeEventListener("focus", onWindowFocus);
-  }, [isActive, editorFiles.length]);
+  }, [editorFiles.length, focusPrompt]);
 
-  // Ctrl+C safety net — it MUST always be able to interrupt whatever's
-  // running in the shell (e.g. 'task watch-mem's infinite polling
-  // loop), which normally goes through the hidden input's own key
-  // handler below. But continuous/rapid PTY output while a foreground
-  // loop is running can end up stealing focus off that hidden input
-  // (scrollback re-rendering, etc.) — the reported "no way to stop
-  // watch-mem" — after which Ctrl+C just does the browser's default
-  // (nothing, or copy) instead of ever reaching sendToShell. Catch it
-  // at the window level too as a fallback, but bow out if focus is in
-  // some OTHER real text field (plugin name box, search box, the file
-  // Editor/Plugin Creator's own textarea — closed here anyway) or
-  // there's an actual text selection, so normal copy and that field's
-  // own Ctrl+Z/undo still work as expected.
+  // Keep the prompt ready without stealing focus: Ctrl+I jumps to it,
+  // and typing while nothing editable is focused (after clicking the
+  // output or Home, say) goes into it.
   useEffect(() => {
-    if (!isActive || editorFiles.length > 0) return;
+    const isEditable = (el: Element | null) =>
+      el instanceof HTMLElement && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable);
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return;
+      if (e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "i") {
+        e.preventDefault();
+        focusPrompt();
+        return;
+      }
+      if (e.ctrlKey || e.metaKey || e.altKey || e.key.length !== 1) return;
+      if (isEditable(document.activeElement)) return;
+      if (document.querySelector(".overlay, .cmdp-backdrop")) return;
+      focusPrompt(); // the character then lands in the prompt
+    };
+    const onFocusRequest = () => focusPrompt();
+    window.addEventListener("keydown", onKeyDown);
+    const off = events.on("focus_prompt", onFocusRequest);
+    return () => { window.removeEventListener("keydown", onKeyDown); off(); };
+  }, [focusPrompt]);
+
+  useEffect(() => events.on("clear_terminal", () => clear()), [clear]);
+
+  /** Ctrl+C with nothing selected: interrupt whatever the shell runs. */
+  const interrupt = useCallback(() => {
+    sendToShell("\x03");
+    clearInput();
+    history.resetNav();
+    scriptRunTracker.cancel();
+    void cancelActiveCommit();
+  }, [sendToShell, clearInput]);
+
+  // Ctrl+C / Ctrl+Shift+C / Cmd+C when focus is outside the prompt (the
+  // prompt handles its own keys): selected output is copied, never
+  // interrupting anything. With no selection and focus on the terminal
+  // itself (not another field or the editor), plain Ctrl+C interrupts.
+  useEffect(() => {
     const onWindowKeyDown = (e: KeyboardEvent) => {
-      if (!e.ctrlKey || e.metaKey || e.altKey || e.key.toLowerCase() !== "c") return;
+      if (!(e.ctrlKey || e.metaKey) || e.altKey || e.key.toLowerCase() !== "c") return;
       const active = document.activeElement;
-      if (active instanceof HTMLElement && active !== ghostRef.current
-          && (active.tagName === "INPUT" || active.tagName === "TEXTAREA")) return;
-      const sel = window.getSelection?.();
-      if (sel && sel.toString().length > 0) return; // let the browser copy the selection instead
+      if (active === promptRef.current) return;
+      const selected = outputSelectionText();
+      if (selected) {
+        e.preventDefault();
+        void copyToClipboard(selected);
+        return;
+      }
+      if (active instanceof HTMLElement && active !== document.body && !outRef.current?.contains(active)) return;
+      if (e.metaKey || e.shiftKey || !isActiveRef.current || editorFiles.length > 0) return;
       e.preventDefault();
-      sendToShell("\x03");
-      scriptRunTracker.cancel();
-      focusGhost();
+      interrupt();
+      focusPrompt();
     };
     window.addEventListener("keydown", onWindowKeyDown);
     return () => window.removeEventListener("keydown", onWindowKeyDown);
-  }, [isActive, editorFiles.length, sendToShell, focusGhost]);
+  }, [editorFiles.length, interrupt, focusPrompt, outputSelectionText]);
 
   // Ctrl+B toggles the file tree — only wired up while the Editor is
   // actually showing (editorFiles.length > 0); harmless to bind
@@ -3824,15 +3633,27 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
 
   // ── PTY output ────────────────────────────────────────────
   const onOutput = useCallback((raw: string) => {
-    // Always strip the cwd probe marker first — see cwdTracker.ts —
-    // so it happens even during a suppressOutput window (startup
-    // noise) instead of just being silently thrown away with it.
     raw = cwdTracker.consume(raw);
     raw = scriptRunTracker.consume(raw);
-    if (suppressOutput.current) { pending.current = ""; return; }
     if (!raw) return;
-    const { completedLines, newPending } = processOutput(raw, pending.current);
-    pending.current = newPending;
+    const processed = processOutput(raw, pending.current);
+    pending.current = processed.newPending;
+    // The unfinished last line (the shell prompt, or a program asking
+    // for input) is shown live below the completed lines.
+    setPartial(isProbeLine(processed.newPending) ? "" : stripStepEcho(visibleText(processed.newPending)));
+    // Drop probe echoes, and collapse runs of blank lines (the shell's
+    // screen repaints turn into many of them once cursor moves are
+    // stripped).
+    const completedLines: string[] = [];
+    let prevBlank = (linesRef.current[linesRef.current.length - 1]?.text ?? "x").trim() === "";
+    for (const raw of processed.completedLines) {
+      if (isProbeLine(raw)) continue;
+      const l = stripStepEcho(raw);
+      const blank = l.trim() === "";
+      if (blank && prevBlank) continue;
+      completedLines.push(l);
+      prevBlank = blank;
+    }
     if (!completedLines.length) return;
     setLines(prev => {
       const next = mergeOutput(prev, completedLines);
@@ -3851,14 +3672,8 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
 
     if (!body) { addLine("  OXIS · type 'help for commands", "accent"); return true; }
 
-    // A previous '-command's oxis.run() script may still be running —
-    // possibly blocked on its own Read-Host prompt waiting for real
-    // keystrokes. Launching a second one on top of it would send this
-    // command's own launch line into that pending prompt instead of
-    // running it, corrupting both (see scriptRunTracker.ts for the
-    // full story — this is the "'tail right after 'healthcheck"
-    // bug). Refuse instead: answer the prompt (or Ctrl+C to cancel
-    // it) first.
+    // An earlier command may still be running or waiting at a
+    // Read-Host prompt; starting another would type into that prompt.
     if (scriptRunTracker.isBusy()) {
       addLine("  ⚠  a previous command is still running (possibly waiting for input) — answer its prompt or press Ctrl+C first", "err");
       return true;
@@ -3878,27 +3693,15 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
     return registry.execute(verb, args, rest);
   }, [addLine, sendToShell, clear]);
 
-  // ── Run one command line through the same dispatch that real typed
-  // Enter uses: checks for the "'"/"oxi" OXIS-command prefix and
-  // routes to dispatchOxisCmd (with the same echo line), otherwise
-  // forwards to the actual PTY shell. Shared by submit() (below) and
-  // by ShellCtx.runLine, which is what the Home screen's command bar
-  // now calls — it used to call ctxRef.current.send() directly, which
-  // is the RAW PTY-write path with no OXIS-prefix handling at all, so
-  // typing e.g. `'help` on the home screen sent the literal text
-  // `'help` to the real OS shell (which has no idea what that means)
-  // Send an invisible cwd probe (see cwdTracker.ts) and briefly
-  // suppress rendered output so the probe's own echoed input line
-  // doesn't show up in the scrollback. onOutput strips the marker
-  // *before* checking suppressOutput, so the probe's actual answer
-  // still gets through even during this window.
+  // Asks the shell for its cwd (cwdTracker.ts); the probe's echo and
+  // answer are filtered out of the output.
   const probeCwd = useCallback(() => {
-    suppressOutput.current = true;
     sendToShell(buildCwdProbe(isWindows()) + "\r");
-    setTimeout(() => { suppressOutput.current = false; }, 250);
   }, [sendToShell]);
 
-  // instead of running the built-in help command.
+  // Runs one command line: 'commands (or "oxi ...") go to the OXIS
+  // registry, everything else to the shell. Used by the prompt and by
+  // ShellCtx.runLine (command palette, plugins).
   const runLine = useCallback((raw: string) => {
     const cmd = raw.trim();
     if (!cmd) { sendToShell("\r"); return; }
@@ -3913,16 +3716,34 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
       if (!dispatchOxisCmd(cmd)) addLine("  ✗  unknown command — type 'help", "err");
     } else {
       sendToShell(cmd + "\r");
-      // Re-probe cwd after anything that plausibly changed it (cd,
-      // Set-Location, pushd/popd, z…) — see README § Workspace System,
-      // "OXIS must automatically detect and load a workspace when
-      // entering/opening a project". A short delay lets the shell
-      // actually finish the directory change first.
+      // Re-probe the cwd after a likely directory change so the
+      // workspace there is detected; wait for the cd to finish first.
       if (looksLikeDirectoryChange(cmd)) setTimeout(probeCwd, 400);
     }
     scrollToBottom(true);
   }, [sendToShell, addLine, dispatchOxisCmd, scrollToBottom, probeCwd]);
 
+
+  // PTY size from .app-body, which the terminal fills and which stays
+  // measurable while Home is showing. Getting it right before the
+  // terminal is first shown avoids the shell repainting (and so
+  // duplicating) its screen on a late resize.
+  const measurePtySize = useCallback((): { cols: number; rows: number } | null => {
+    const el = outRef.current;
+    const host = (el?.closest(".app-body") as HTMLElement | null) ?? el;
+    if (!el || !host || host.clientWidth === 0 || host.clientHeight === 0) return null;
+    const style = getComputedStyle(el);
+    const g = document.createElement("canvas").getContext("2d");
+    let charW = 7.8;
+    if (g) { g.font = `${style.fontSize} ${style.fontFamily}`; charW = g.measureText("MMMMMMMMMM").width / 10 || charW; }
+    const lineH = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--lh")) || 20;
+    const padX = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight);
+    const padY = parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
+    return {
+      cols: Math.max(20, Math.floor((host.clientWidth - padX) / charW)),
+      rows: Math.max(5,  Math.floor((host.clientHeight - padY) / lineH)),
+    };
+  }, []);
 
   // ── PTY connect ───────────────────────────────────────────
   useEffect(() => {
@@ -3930,35 +3751,26 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
     mounted.current = true;
 
     session.current = openPty({
-      cols: 220, rows: 50, onOutput,
+      ...(measurePtySize() ?? { cols: 120, rows: 30 }),
+      onOutput,
       onReady: () => {
-        pending.current = "";
-        suppressOutput.current = true;
-        setTimeout(() => { suppressOutput.current = false; }, 300);
         setReady(true);
         onReady();
-        setTimeout(focusGhost, 60);
+        setTimeout(focusPrompt, 60);
         events.emit("shell_started", { id });
         // Initial cwd probe — this is what makes automatic workspace
         // detection on launch actually automatic instead of requiring
         // the user to run 'workspace reload by hand.
         setTimeout(probeCwd, 500);
 
-        // Background update check — once per app run, well after
-        // startup (see _updateCheckedThisRun) so a slow/offline
-        // network never delays the shell becoming usable. Silent
-        // when up to date; a single line (not a popup) when not, same
-        // as every other passive notice in this terminal.
-        if (!_updateCheckedThisRun) {
-          _updateCheckedThisRun = true;
-          setTimeout(() => {
-            checkForUpdate().then(info => {
-              if (info.available) {
-                addLine(`  ↑  a newer OXIS build (${info.latestCommit.slice(0, 7)}) is available${info.currentCommit ? ` (you're on ${info.currentCommit.slice(0, 7)})` : ""} — run 'update to open it`, "info");
-              }
-            }).catch(() => {}); // silent — a background check should never surface as an error
-          }, 2000);
-        }
+        // A newer build is announced once, as a single line.
+        setTimeout(() => {
+          void startupUpdateCheck().then(info => {
+            if (info?.available) {
+              addLine(`  ↑  a newer OXIS build (${info.latestCommit.slice(0, 7)}) is available${info.currentCommit ? ` (you're on ${info.currentCommit.slice(0, 7)})` : ""} — 'update install to install it`, "info");
+            }
+          });
+        }, 2000);
       },
       onExit: code => {
         if (code !== -1) setConnErr(`shell exited (code ${code})`);
@@ -3974,12 +3786,17 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
   useEffect(() => {
     const el = outRef.current;
     if (!el) return;
+    const host = (el.closest(".app-body") as HTMLElement | null) ?? el;
+    let last = "";
     const ro = new ResizeObserver(() => {
-      const cols = Math.max(10, Math.floor(el.clientWidth  / 7.8));
-      const rows = Math.max(5,  Math.floor(el.clientHeight / 20));
-      session.current?.resize(cols, rows);
+      const size = measurePtySize();
+      if (!size) return;
+      const key = `${size.cols}x${size.rows}`;
+      if (key === last) return;
+      last = key;
+      session.current?.resize(size.cols, size.rows);
     });
-    ro.observe(el);
+    ro.observe(host);
     return () => ro.disconnect();
   }, []);
 
@@ -4004,6 +3821,7 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
           return [...files, { path, content: "", dirty: false, loading: true, gotoLine: line }];
         });
         setActiveEditorPath(path);
+        events.emit("editor_opened", { path });
         readFile(path)
           .then(content => setEditorFiles(files => files.map(f => f.path === path ? { ...f, content, loading: false } : f)))
           .catch(e => setEditorFiles(files => files.map(f => f.path === path
@@ -4014,11 +3832,8 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
     };
     _ctxRef.current = ctxRef.current;
 
-    // Point the live-forwarding plugin API context at this real shell
-    // (see forwardingApiCtx's comment above) — this is what actually
-    // makes oxis.run()/oxis.echo() and every shortcut plugin's
-    // commands work, for plugins that were already loaded before this
-    // Terminal existed, not just ones loaded from here on.
+    // Point the forwarding plugin context at this terminal (see
+    // forwardingApiCtx), including for plugins that loaded earlier.
     _apiCtxTarget.current = {
       sendToShell: sendToShell,
       print:       addLine,
@@ -4029,7 +3844,7 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
       pluginName:  "__core__",
     };
 
-    // Re-register commands with real ctx now that shell is live
+    ensurePluginsInited();
     _commandsRegistered = false;
     registerBuiltinCommands(ctxRef.current);
 
@@ -4055,12 +3870,18 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
   }, []);
 
   // ── Submit ────────────────────────────────────────────────
+  // From Home, Enter switches to the terminal first so the output is
+  // visible; an empty Enter on Home just opens the terminal.
   const submit = useCallback(() => {
     const cmd = inputRef.current.value.trim();
     clearInput();
     history.resetNav();
+    if (!isActiveRef.current) {
+      onShowShell();
+      if (!cmd) return;
+    }
     runLine(cmd);
-  }, [clearInput, runLine]);
+  }, [clearInput, runLine, onShowShell]);
 
   // ── Search helpers ────────────────────────────────────────
   const enterSearch = useCallback(() => {
@@ -4072,22 +3893,55 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
   const exitSearch = useCallback((commit: boolean) => {
     if (commit && searchResult) {
       syncInput(searchResult.match, searchResult.match.length);
+      inputRef.current = { value: searchResult.match, cursor: searchResult.match.length };
     }
     history.exitSearch();
     setSearching(false);
     setSearchResult(null);
   }, [searchResult, syncInput]);
 
+  /** Mirrors a native edit of the prompt into inputRef and the caret. */
+  const onPromptChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    inputRef.current = { value, cursor: e.target.selectionStart ?? value.length };
+    setInputVal(value);
+    history.setDraft(value);
+    requestAnimationFrame(updateCaret);
+  }, [updateCaret]);
+
   // ══════════════════════════════════════════════════════════
-  // KEYBOARD ENGINE
-  // Complete readline/bash/Emacs keybinding set
+  // KEYBOARD — readline/Emacs bindings on top of a native input.
+  // Plain typing, Backspace/Delete, arrows, Home/End and Shift/mouse
+  // selection are left to the browser.
   // ══════════════════════════════════════════════════════════
-  const onKey = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+  const onKey = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
     e.stopPropagation();
+    if (e.nativeEvent.isComposing) return; // IME composition owns the keys
     const k    = e.key;
     const ctrl = e.ctrlKey  && !e.altKey;
     const alt  = e.altKey   && !e.ctrlKey;
-    const { value: val, cursor: cur } = inputRef.current;
+    const el   = e.currentTarget;
+    const val  = el.value;
+    const cur  = el.selectionStart ?? val.length;
+    const hasPromptSel = el.selectionStart !== el.selectionEnd;
+    inputRef.current = { value: val, cursor: cur };
+
+    // ── COPY: Ctrl+C / Ctrl+Shift+C / Cmd+C copy a selection first ──
+    // Prompt selection, then output selection. Only a plain Ctrl+C with
+    // nothing selected interrupts the running process.
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && k.toLowerCase() === "c") {
+      e.preventDefault();
+      if (hasPromptSel) {
+        void copyToClipboard(val.slice(el.selectionStart ?? 0, el.selectionEnd ?? 0));
+        return;
+      }
+      const selected = outputSelectionText();
+      if (selected) { void copyToClipboard(selected); return; }
+      if (e.shiftKey || e.metaKey) return; // explicit copy never interrupts
+      if (searching) exitSearch(false);
+      interrupt();
+      return;
+    }
 
     // ── REVERSE SEARCH MODE ──────────────────────────────
     if (searching) {
@@ -4096,51 +3950,32 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
       if (k === "Enter")                                        { exitSearch(true); submit(); return; }
       if (ctrl && k.toLowerCase() === "r")                     { const r = history.searchOlder(); if (r) setSearchResult(r); return; }
       if (k === "Backspace")  { setSearchResult(history.searchBackspace()); return; }
-      if (k.length === 1)     { setSearchResult(history.searchAppend(k));   return; }
+      if (k.length === 1 && !ctrl && !e.metaKey) { setSearchResult(history.searchAppend(k)); return; }
       return;
     }
 
-    // ── TAB SWITCHING (global — works in any mode) ────────
-    if (ctrl && k === "t") { e.preventDefault(); onNewTab();   return; }
-    if (ctrl && k === "w") { e.preventDefault(); onCloseTab(); return; }
-    if (ctrl && k >= "1" && k <= "9") { e.preventDefault(); onSwitchTab(+k - 1); return; }
+    // ── VIEW / TAB SHORTCUTS ─────────────────────────────
+    if (ctrl && !e.shiftKey && k === "t") { e.preventDefault(); onNewTab();   return; }
+    if (ctrl && !e.shiftKey && k === "w") { e.preventDefault(); onCloseTab(); return; }
 
-    // ── TERMINAL ZOOM — Ctrl+= / Ctrl+- / Ctrl+0, the same keys every
-    // browser already uses for page zoom, so it's muscle memory
-    // instead of a new thing to learn. Reuses the real fontSize
-    // setting ('config set fontSize <n>) rather than a separate
-    // zoom-only mechanism, so the effect persists across restarts
-    // exactly like setting it directly would, and 'config get
-    // fontSize always reflects what zoom last left it at.
+    // ── ZOOM (Ctrl+= / Ctrl+- / Ctrl+0) — stored as the fontSize setting ──
     if (ctrl && (k === "=" || k === "+")) {
       e.preventDefault();
-      const cur = Number(getSetting("fontSize")) || 13;
-      setSetting("fontSize", String(Math.min(28, cur + 1)));
+      const size = Number(getSetting("fontSize")) || 13;
+      setSetting("fontSize", String(Math.min(28, size + 1)));
       return;
     }
     if (ctrl && k === "-") {
       e.preventDefault();
-      const cur = Number(getSetting("fontSize")) || 13;
-      setSetting("fontSize", String(Math.max(9, cur - 1)));
+      const size = Number(getSetting("fontSize")) || 13;
+      setSetting("fontSize", String(Math.max(9, size - 1)));
       return;
     }
-    if (ctrl && k === "0") {
-      e.preventDefault();
-      resetSetting("fontSize");
-      return;
-    }
+    if (ctrl && k === "0") { e.preventDefault(); resetSetting("fontSize"); return; }
 
-    // ── PASSTHROUGH when input empty (program is running) ─
-    // ArrowUp/ArrowDown/PageUp/PageDown are deliberately NOT in this
-    // table (unlike ArrowLeft/ArrowRight/Home/End/Delete/Tab/Escape/
-    // F-keys, which stay passed straight to the shell): those four
-    // are OXIS's own command-history / scrollback navigation keys,
-    // handled by a later block below. Passing them through here made
-    // that later handler permanently unreachable at an idle prompt —
-    // the reported "arrow keys for previous commands do not work"
-    // bug — since this earlier, broader check ran first and always
-    // won for any key present in passSeq.
-    if (!val) {
+    // ── PASSTHROUGH with an empty prompt (a program is reading keys) ──
+    // Up/Down/PageUp/PageDown stay OXIS's history and scroll keys.
+    if (!val && !e.metaKey) {
       const passSeq: Record<string, string> = {
         ArrowRight:"\x1b[C", ArrowLeft:"\x1b[D",
         Home:"\x1b[H", End:"\x1b[F",
@@ -4150,36 +3985,23 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
         F5:"\x1b[15~",F6:"\x1b[17~",F7:"\x1b[18~",F8:"\x1b[19~",
         F9:"\x1b[20~",F10:"\x1b[21~",F11:"\x1b[23~",F12:"\x1b[24~",
       };
-      if (passSeq[k]) { e.preventDefault(); sendToShell(passSeq[k]); return; }
+      if (passSeq[k] && !ctrl && !alt && !e.shiftKey) { e.preventDefault(); sendToShell(passSeq[k]); return; }
     }
 
     // ── TAB COMPLETION ─────────────────────────────────────
-    // A "'command <tab>" completes against the REAL command registry
-    // (registry.all()) — every name it offers is one that actually
-    // works, not a hardcoded guess list. Scoped to just the verb (the
-    // first word after '), not subcommands like 'workspace <tab> ->
-    // init/list/switch/... — those aren't their own registry entries
-    // (they're just strings matched inside each command's own
-    // handler), so faking a subcommand list here would be exactly the
-    // "autocomplete disconnected from the real registry" this is
-    // meant to avoid. Anything NOT starting with ' (an ordinary shell
-    // command) passes a real \t through to the shell instead, so
-    // PowerShell/bash's own native completion still works exactly as
-    // it always has — this only ever intercepts Tab for OXIS's own
-    // '-commands, never shell ones.
+    // 'commands complete against the real command registry (verb
+    // only); anything else sends Tab to the shell's own completion.
     if (!ctrl && !alt && k === "Tab") {
       e.preventDefault();
       if (!val.startsWith("'")) { sendToShell("\t"); return; }
       const body = val.slice(1);
-      if (body.includes(" ")) return; // past the verb — nothing to complete yet
+      if (body.includes(" ")) return;
       const prefix = body.toLowerCase();
       const names = [...new Set(registry.all().map(c => c.name).filter(n => !n.includes(":")))].sort();
       const matches = prefix ? names.filter(n => n.toLowerCase().startsWith(prefix)) : names;
       if (matches.length === 1) {
         syncInput(`'${matches[0]} `, matches[0].length + 2);
       } else if (matches.length > 1) {
-        // Extend as far as unambiguous (like bash), same as pressing
-        // Tab again with more matches than fit on one line still does.
         let common = matches[0];
         for (const m of matches.slice(1)) {
           while (!m.toLowerCase().startsWith(common.toLowerCase())) common = common.slice(0, -1);
@@ -4190,112 +4012,62 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
       return;
     }
 
-    // ── CTRL BINDINGS ─────────────────────────────────────
-    if (ctrl) {
+    // ── CTRL BINDINGS (readline) ──────────────────────────
+    if (ctrl && !e.shiftKey) {
       switch (k.toLowerCase()) {
-        // Interrupt / EOF / suspend — but if the user has scrollback
-        // text selected (e.g. copying an error message), Ctrl+C here
-        // must copy it instead of killing whatever's running, same as
-        // the window-level fallback above. Without this check, the
-        // ghost input being focused (its normal state) always won the
-        // race against the selection guard, so copying an error while
-        // a build/watch task was running silently killed the task.
-        case "c": {
-          e.preventDefault();
-          const sel = window.getSelection?.();
-          const selText = sel?.toString() ?? "";
-          if (selText.length > 0) {
-            void copyToClipboard(selText);
-            return;
-          }
-          sendToShell("\x03"); clearInput(); history.resetNav(); scriptRunTracker.cancel(); void cancelActiveCommit();
-          return;
-        }
         case "d": e.preventDefault(); sendToShell("\x04"); return;
         case "z": e.preventDefault(); sendToShell("\x1a"); return;
         case "\\": e.preventDefault(); sendToShell("\x1c"); return;
 
-        // Line editing
-        case "a": e.preventDefault(); syncInput(val, 0);          return; // BOL
-        case "e": e.preventDefault(); syncInput(val, val.length); return; // EOL
-        case "f": e.preventDefault();
-          // Ctrl+F alone was already bound (forward-char, readline
-          // convention) — the SEPARATE Ctrl+Shift+F case below this
-          // switch (openOutputSearch, on-screen SCROLLBACK search)
-          // was declared as a second `case "f":` in this exact same
-          // switch, which JS/TS can only ever match on the first
-          // occurrence — the build itself caught this ("this case
-          // clause will never be evaluated because it duplicates an
-          // earlier case clause"), meaning output search had been
-          // completely unreachable via its own keybinding. Folded
-          // both into this one case, branching on e.shiftKey, rather
-          // than two cases matching the same key string.
-          if (e.shiftKey) { openOutputSearch(); return; } // Ctrl+Shift+F — output search (on-screen SCROLLBACK)
-          syncInput(val, Math.min(val.length, cur + 1)); return; // Ctrl+F — fwd char
-        case "b": e.preventDefault(); syncInput(val, Math.max(0, cur - 1));          return; // back char
-        case "h": e.preventDefault(); // Ctrl+H = Backspace
+        case "a": e.preventDefault(); syncInput(val, 0);          return; // start of line
+        case "e": e.preventDefault(); syncInput(val, val.length); return; // end of line
+        case "f": e.preventDefault(); syncInput(val, Math.min(val.length, cur + 1)); return;
+        case "b": e.preventDefault(); syncInput(val, Math.max(0, cur - 1));          return;
+        case "h": e.preventDefault();
           if (cur > 0) syncInput(val.slice(0, cur - 1) + val.slice(cur), cur - 1);
           return;
 
-        case "k": { // kill to end of line — save to yank buf
+        case "k": { // kill to end of line
           e.preventDefault();
           const r = deleteToLineEnd(val, cur);
           setYankBuf(val.slice(cur));
           syncInput(r.text, r.pos);
           return;
         }
-        case "u": { // kill to start of line — save to yank buf
+        case "u": { // kill to start of line
           e.preventDefault();
           const r = deleteToLineStart(val, cur);
           setYankBuf(val.slice(0, cur));
           syncInput(r.text, r.pos);
           return;
         }
-        case "w": { // delete word left — save to yank buf
-          e.preventDefault();
-          const r = deleteWordLeft(val, cur);
-          setYankBuf(val.slice(wordLeft(val, cur), cur));
-          syncInput(r.text, r.pos);
-          return;
-        }
-        case "y": { // yank (paste from kill buffer)
+        case "y": { // yank
           e.preventDefault();
           const yank = getYankBuf();
-          if (!yank) return;
-          syncInput(val.slice(0, cur) + yank + val.slice(cur), cur + yank.length);
+          if (yank) syncInput(val.slice(0, cur) + yank + val.slice(cur), cur + yank.length);
           return;
         }
-        case "t": { // transpose chars
-          e.preventDefault();
-          const r = transposeChars(val, cur);
-          syncInput(r.text, r.pos);
-          return;
-        }
-        case "l": e.preventDefault(); clear(); return; // clear screen
-
-        case "r": e.preventDefault(); enterSearch(); return; // reverse search (command HISTORY)
-
-        case "p": // previous history (like up arrow)
-          e.preventDefault();
-          { const p = history.prev(val); syncInput(p, p.length); return; }
-        case "n": // next history (like down arrow)
-          e.preventDefault();
-          { const n = history.next(); syncInput(n, n.length); return; }
-
-        case "v": return; // allow paste passthrough
+        case "l": e.preventDefault(); clear(); return;
+        case "r": e.preventDefault(); enterSearch(); return;
+        case "p": e.preventDefault(); { const p = history.prev(val); syncInput(p, p.length); return; }
+        case "n": e.preventDefault(); { const n = history.next(); syncInput(n, n.length); return; }
       }
+      // Anything else (Ctrl+V paste, Ctrl+X cut, Ctrl+Arrow word moves,
+      // Ctrl+Backspace) is native input behaviour.
       return;
     }
+    if (ctrl && e.shiftKey && k.toLowerCase() === "f") { e.preventDefault(); openOutputSearch(); return; }
+    if (ctrl) return;
 
-    // ── ALT BINDINGS (word movement) ──────────────────────
+    // ── ALT BINDINGS (word movement / case) ───────────────
     if (alt) {
       switch (k.toLowerCase()) {
         case "f":         e.preventDefault(); syncInput(val, wordRight(val, cur)); return;
         case "b":         e.preventDefault(); syncInput(val, wordLeft(val, cur));  return;
         case "d":         e.preventDefault(); { const r = deleteWordRight(val, cur); setYankBuf(val.slice(cur, wordRight(val, cur))); syncInput(r.text, r.pos); return; }
         case "backspace": e.preventDefault(); { const r = deleteWordLeft(val, cur);  setYankBuf(val.slice(wordLeft(val, cur), cur)); syncInput(r.text, r.pos); return; }
-        case "<":         e.preventDefault(); syncInput(val, 0);          return; // BOF
-        case ">":         e.preventDefault(); syncInput(val, val.length); return; // EOF
+        case "<":         e.preventDefault(); syncInput(val, 0);          return;
+        case ">":         e.preventDefault(); syncInput(val, val.length); return;
         case "t": { // transpose words
           e.preventDefault();
           const ls = wordLeft(val, cur);
@@ -4305,23 +4077,12 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
           if (ls === rs) return;
           const w1 = val.slice(ls, le);
           const w2 = val.slice(rs, re);
-          const next = val.slice(0, ls) + w2 + val.slice(le, rs) + w1 + val.slice(re);
-          syncInput(next, re - (w1.length - w2.length));
+          syncInput(val.slice(0, ls) + w2 + val.slice(le, rs) + w1 + val.slice(re), re - (w1.length - w2.length));
           return;
         }
-        case "u": { // uppercase word
-          e.preventDefault();
-          const end = wordRight(val, cur);
-          syncInput(val.slice(0, cur) + val.slice(cur, end).toUpperCase() + val.slice(end), end);
-          return;
-        }
-        case "l": { // lowercase word
-          e.preventDefault();
-          const end = wordRight(val, cur);
-          syncInput(val.slice(0, cur) + val.slice(cur, end).toLowerCase() + val.slice(end), end);
-          return;
-        }
-        case "c": { // capitalise word
+        case "u": { e.preventDefault(); const end = wordRight(val, cur); syncInput(val.slice(0, cur) + val.slice(cur, end).toUpperCase() + val.slice(end), end); return; }
+        case "l": { e.preventDefault(); const end = wordRight(val, cur); syncInput(val.slice(0, cur) + val.slice(cur, end).toLowerCase() + val.slice(end), end); return; }
+        case "c": {
           e.preventDefault();
           const end = wordRight(val, cur);
           const word = val.slice(cur, end);
@@ -4332,108 +4093,60 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
       return;
     }
 
-    // ── NAVIGATION KEYS ───────────────────────────────────
-    if (k === "ArrowLeft") {
-      e.preventDefault();
-      syncInput(val, e.ctrlKey ? wordLeft(val, cur) : Math.max(0, cur - 1));
-      return;
-    }
-    if (k === "ArrowRight") {
-      e.preventDefault();
-      syncInput(val, e.ctrlKey ? wordRight(val, cur) : Math.min(val.length, cur + 1));
-      return;
-    }
-    if (k === "ArrowUp") {
+    // ── HISTORY / SCROLL / SUBMIT ─────────────────────────
+    if (k === "ArrowUp" && !e.shiftKey) {
       e.preventDefault();
       const p = history.prev(val);
       syncInput(p, p.length);
       return;
     }
-    if (k === "ArrowDown") {
+    if (k === "ArrowDown" && !e.shiftKey) {
       e.preventDefault();
       const n = history.next();
       syncInput(n, n.length);
       return;
     }
-    if (k === "Home")   { e.preventDefault(); syncInput(val, 0);          return; }
-    if (k === "End")    { e.preventDefault(); syncInput(val, val.length); return; }
-    if (k === "Delete") {
+    if (k === "PageUp")   { e.preventDefault(); outRef.current?.scrollBy(0, -(outRef.current.clientHeight - 40)); return; }
+    if (k === "PageDown") { e.preventDefault(); outRef.current?.scrollBy(0,   outRef.current.clientHeight - 40);  return; }
+    if (k === "Enter")    { e.preventDefault(); submit(); return; }
+    if (k === "Escape")   {
       e.preventDefault();
-      if (cur < val.length) syncInput(val.slice(0, cur) + val.slice(cur + 1), cur);
-      return;
-    }
-    if (k === "PageUp")   { e.preventDefault(); outRef.current?.scrollBy(0, -300); return; }
-    if (k === "PageDown") { e.preventDefault(); outRef.current?.scrollBy(0,  300); return; }
-
-    // NOTE: Tab is fully handled above (── TAB COMPLETION ── block) —
-    // '-commands complete against the real registry, anything else
-    // passes a real \t through to the shell so its own native
-    // completion (directories included) runs, exactly like a real
-    // terminal. A second, later "Tab" case used to live here that
-    // inserted two literal spaces instead — it could never actually
-    // run (the earlier block already returns unconditionally for
-    // every plain Tab press), but it directly contradicted real
-    // completion if it ever had, so it's gone rather than left as
-    // confusing dead code.
-
-    if (k === "Enter") {
-      e.preventDefault();
-      submit();
-      return;
-    }
-
-    if (k === "Escape") {
-      e.preventDefault();
+      if (hasPromptSel) { el.setSelectionRange(cur, cur); updateCaret(); return; }
       sendToShell("\x1b");
       return;
     }
+    // Everything else is native editing; the caret follows via onSelect.
+  }, [
+    searching, exitSearch, enterSearch, submit, interrupt, outputSelectionText,
+    syncInput, sendToShell, addLine, clear, updateCaret,
+    onNewTab, onCloseTab, openOutputSearch,
+  ]);
 
-    if (k === "Backspace") {
-      e.preventDefault();
-      if (cur > 0) {
-        const next = val.slice(0, cur - 1) + val.slice(cur);
-        syncInput(next, cur - 1);
-        history.setDraft(next);
+  // ── Paste ─────────────────────────────────────────────────
+  // One line goes into the prompt natively; several lines go straight
+  // to the shell (after confirming).
+  const handlePaste = useCallback((e: React.ClipboardEvent<HTMLInputElement>) => {
+    const text = e.clipboardData.getData("text");
+    if (!text || !/[\r\n]/.test(text.replace(/[\r\n]+$/, ""))) {
+      if (/[\r\n]$/.test(text)) {
+        // A single line copied with its newline: paste without it.
+        e.preventDefault();
+        const el = e.currentTarget;
+        const start = el.selectionStart ?? el.value.length, end = el.selectionEnd ?? start;
+        const clean = text.replace(/[\r\n]+$/, "");
+        syncInput(el.value.slice(0, start) + clean + el.value.slice(end), start + clean.length);
       }
       return;
     }
-
-    // ── PRINTABLE ─────────────────────────────────────────
-    if (k.length === 1 && !e.ctrlKey && !e.metaKey) {
-      const next = val.slice(0, cur) + k + val.slice(cur);
-      syncInput(next, cur + 1);
-      history.setDraft(next);
-    }
-  }, [
-    searching, searchResult, exitSearch, enterSearch, submit,
-    syncInput, clearInput, sendToShell, addLine, clear,
-    onNewTab, onCloseTab, onSwitchTab, scrollToBottom,
-  ]);
-
-  // ── Paste handler ─────────────────────────────────────────
-  const handlePaste = useCallback((e: React.ClipboardEvent) => {
     e.preventDefault();
-    const text = e.clipboardData.getData("text");
-    if (!text) return;
-    if (text.includes("\n")) {
-      const lns = text.split(/\r?\n/).filter(Boolean);
-      if (lns.length > 1 && !window.confirm(`Paste ${lns.length} lines to shell?`)) return;
-      clearInput();
-      sendToShell(text);
-      return;
-    }
-    const { value: val, cursor: cur } = inputRef.current;
-    const next = val.slice(0, cur) + text + val.slice(cur);
-    syncInput(next, cur + text.length);
+    const lns = text.split(/\r?\n/).filter(Boolean);
+    if (lns.length > 1 && !window.confirm(`Paste ${lns.length} lines to the shell?`)) return;
+    clearInput();
+    sendToShell(text.replace(/\r?\n/g, "\r"));
   }, [syncInput, clearInput, sendToShell]);
 
-  // ── Editor save — native file write, no PTY round-trip. Plugin-aware:
-  // a file that's actually a registered plugin's source saves (and
-  // reloads live) through pluginManager.saveLuaPlugin instead of a
-  // plain write — see findPluginForPath. This is what makes plugin
-  // editing "the same Editor as any file" instead of a second one:
-  // the Editor itself doesn't know or care it's a plugin, only this
-  // save path does.
+  // ── Editor save — written natively. A plugin's own source file is
+  // saved through pluginManager so it reloads (findPluginForPath).
   const editorSave = useCallback(async (path: string, content: string): Promise<boolean> => {
     const pluginName = findPluginForPath(path);
     if (pluginName) {
@@ -4474,8 +4187,8 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
     const f = editorFiles.find(e => e.path === path);
     if (f?.dirty && !confirm(`Discard unsaved changes to ${path}?`)) return;
     closeEditorTab(path);
-    if (editorFiles.length <= 1) setTimeout(focusGhost, 50);
-  }, [editorFiles, closeEditorTab, focusGhost]);
+    if (editorFiles.length <= 1) setTimeout(focusPrompt, 50);
+  }, [editorFiles, closeEditorTab, focusPrompt]);
 
   const saveAllEditorTabs = useCallback(() => {
     const dirty = editorFiles.filter(f => f.dirty && !f.loading);
@@ -4488,22 +4201,106 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
   }, [editorFiles, editorSave, addLine]);
 
   // ── Render ────────────────────────────────────────────────
-  // bannerEnd MUST be computed unconditionally, before the editor
-  // early return below — it's a hook, and calling it only on the
-  // "normal" render path (skipped whenever editorFiles is non-empty)
-  // violates the Rules of Hooks: React sees a different hook count
-  // between renders and throws, which is what was producing the blank
-  // screen when opening 'edit.
-  const bannerEnd = useMemo(() => {
-    let i = 0;
-    while (i < lines.length && (lines[i].kind === "banner" || lines[i].kind === "banner-wheel")) i++;
-    return i;
-  }, [lines]);
+  // The prompt is rendered into the app-level bar (promptHost), so it
+  // is the same element on Home, the terminal and the editor, and it
+  // never scrolls with the output.
+  const promptBar = (
+    <div className="term-prompt-bar">
+      {searching && (
+        <div className="term-search-bar">
+          <span className="term-search-label">reverse-i-search</span>
+          <span className="term-search-sep">›</span>
+          <span className="term-search-query">
+            {history.getSearchQuery() || <span className="term-search-ph">type to search…</span>}
+          </span>
+          {searchResult && (
+            <>
+              <span className="term-search-sep">›</span>
+              <span className="term-search-match">{searchResult.match}</span>
+              <span className="term-search-count">{searchResult.rank}/{searchResult.total}</span>
+            </>
+          )}
+          <span className="term-search-hint">Enter run · Esc cancel · Ctrl+R older</span>
+        </div>
+      )}
+
+      {outputSearchOpen && (
+        <div className="term-search-bar term-search-bar--output">
+          <span className="term-search-label">find in output</span>
+          <span className="term-search-sep">›</span>
+          <input
+            ref={outputSearchInputRef}
+            className="term-search-input"
+            value={outputSearchQuery}
+            onChange={e => setOutputSearchQuery(e.target.value)}
+            placeholder="type to search…"
+            onKeyDown={e => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                const next = e.shiftKey ? outputSearchIndex - 1 : outputSearchIndex + 1;
+                setOutputSearchIndex(next);
+                jumpToOutputMatch(next);
+              }
+              if (e.key === "Escape") { e.preventDefault(); closeOutputSearch(); }
+            }}
+          />
+          <span className="term-search-count">
+            {outputSearchQuery ? (outputSearchMatches.length > 0
+              ? `${((outputSearchIndex % outputSearchMatches.length) + outputSearchMatches.length) % outputSearchMatches.length + 1}/${outputSearchMatches.length}`
+              : "0/0") : ""}
+          </span>
+          <span className="term-search-hint">Enter next · Shift+Enter prev · Esc close</span>
+        </div>
+      )}
+
+      <div
+        className="term-input-row"
+        onMouseDown={e => { if (e.target !== promptRef.current) { e.preventDefault(); focusPrompt(); } }}
+      >
+        <span className="term-prompt" aria-hidden="true">OXIS&nbsp;❯</span>
+        <div className="term-input-wrap">
+          <input
+            ref={promptRef}
+            className="term-prompt-input"
+            value={inputVal}
+            onChange={onPromptChange}
+            onBeforeInput={e => {
+              // Text that arrives without a keydown (IME, dictation) goes
+              // to the reverse-i-search query while it's open.
+              if (!searching) return;
+              e.preventDefault();
+              const data = (e.nativeEvent as InputEvent).data;
+              if (data) setSearchResult(history.searchAppend(data));
+            }}
+            onKeyDown={onKey}
+            onKeyUp={updateCaret}
+            onSelect={updateCaret}
+            onScroll={updateCaret}
+            onPaste={handlePaste}
+            onFocus={() => { setPromptFocused(true); updateCaret(); }}
+            onBlur={() => setPromptFocused(false)}
+            spellCheck={false} autoComplete="off" autoCorrect="off" autoCapitalize="off"
+            aria-label="OXIS command prompt"
+          />
+          <span ref={mirrorRef} className="term-input-mirror" aria-hidden="true" />
+          {!caret.hasSel && (
+            <span
+              className={`term-caret ${ready && promptFocused ? "term-caret--on" : "term-caret--off"}`}
+              style={{ left: caret.left }}
+              aria-hidden="true"
+            >{caret.ch === " " ? " " : caret.ch}</span>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+  const promptPortal = promptHost ? createPortal(promptBar, promptHost) : null;
 
   if (editorFiles.length > 0 || fileTreeOpen) {
     const activeFile = editorFiles.find(f => f.path === activeEditorPath) ?? editorFiles[0];
     return (
       <div className="app-pane app-pane--editor">
+        {promptPortal}
         <div className="filetree-rail">
           <button className="filetree-toggle" onClick={() => setFileTreeOpen(o => !o)} title="Toggle file tree (Ctrl+B)">☰</button>
         </div>
@@ -4513,11 +4310,8 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
             rootLabel={fileTreeRoot.label}
             onOpenFile={path => ctxRef.current?.openEditor(path)}
             onMoveFile={(srcPath, destDirPath) => {
-              // Unlike 'workspace move (which parses raw user-typed
-              // text and genuinely needs safeJoinWithinDir), srcPath/
-              // destDirPath here are real, already-resolved paths the
-              // tree itself produced from an actual directory listing
-              // — there's no user-controlled string to validate.
+              // These paths come from the tree's own listing, not typed
+              // text, so they don't need safeJoinWithinDir.
               const baseName = srcPath.split(/[\\/]/).pop();
               const finalDst = `${destDirPath}/${baseName}`;
               statPath(finalDst).then(stat => {
@@ -4576,143 +4370,46 @@ function Terminal({ id, isActive, onReady, onNewTab, onCloseTab, onSwitchTab }: 
     );
   }
 
-  const beforeCursor = inputVal.slice(0, inputCursor);
-  const atCursor     = inputVal[inputCursor] ?? "";
-  const afterCursor  = inputVal.slice(inputCursor + (atCursor ? 1 : 0));
-  const cursorChar   = atCursor || "\u00a0";
-
-  // Boot banner (if 'clear hasn't wiped it) is always a contiguous
-  // run at the very start of `lines` — see bannerLines()/clear().
-  // It's split out into its own .term-banner-block wrapper (fit-content
-  // width, so the centered rows don't stretch full-width) rather than
-  // rendering directly in .term-out — see .oxis-chimney in index.css
-  // for how the smoke itself anchors (to the "[]" glyph, not this
-  // wrapper).
-  const bannerPart = bannerEnd > 0 ? lines.slice(0, bannerEnd) : null;
-  const restPart    = bannerEnd > 0 ? lines.slice(bannerEnd) : lines;
-
   return (
-    <div className="term" onMouseUp={refocusUnlessSelecting}>
+    <div className="term">
+      {promptPortal}
       {connErr && <div className="term-error">⚠ {connErr}</div>}
-      {/* Top-right "OXIS" corner mark — replaces the old ASCII train
-          that used to open every shell tab. No animation, no ASCII
-          art block; just a small fixed label so the screen still
-          reads as OXIS at a glance. */}
       <div className="term-corner-mark" aria-hidden="true">OXIS</div>
 
-      <div className="term-out" ref={outRef} onScroll={handleScroll} onContextMenu={openOutputMenu} tabIndex={-1}>
-        {bannerPart && (
-          <div className="term-banner-block">
-            {bannerPart.map(line => (
-              <div key={line.id} className="term-line term-line--banner"
-                style={{ color: line.kind ? LINE_COLORS[line.kind] : undefined }}>
-                {line.text || " "}
-              </div>
-            ))}
-          </div>
-        )}
-        {restPart.map(line => (
+      <div
+        className="term-out"
+        ref={outRef}
+        onScroll={handleScroll}
+        onMouseUp={e => { if (e.button === 0) focusUnlessSelecting(); }}
+        onContextMenu={openOutputMenu}
+        tabIndex={-1}
+      >
+        {lines.map(line => (
           <div key={line.id}
             data-line-id={line.id}
-            className={`term-line${outputSearchMatches.includes(line.id) ? " term-line--match" : ""}`}
+            className={`term-line${outputSearchSet.has(line.id) ? " term-line--match" : ""}`}
             style={{ color: line.kind ? LINE_COLORS[line.kind] : undefined }}>
             {renderLineWithLinks(line.text, u => void openUrl(u), p => _ctxRef.current?.openEditor(p))}
           </div>
         ))}
-      </div>
-
-      <div className="term-prompt-bar">
-        {searching && (
-          <div className="term-search-bar">
-            <span className="term-search-label">reverse-i-search</span>
-            <span className="term-search-sep">›</span>
-            <span className="term-search-query">
-              {history.getSearchQuery() || <span className="term-search-ph">type to search…</span>}
-            </span>
-            {searchResult && (
-              <>
-                <span className="term-search-sep">›</span>
-                <span className="term-search-match">{searchResult.match}</span>
-                <span className="term-search-count">{searchResult.rank}/{searchResult.total}</span>
-              </>
-            )}
-            <span className="term-search-hint">Enter ·  Esc cancel · Ctrl+R older</span>
-          </div>
-        )}
-
-        {outputSearchOpen && (
-          <div className="term-search-bar term-search-bar--output">
-            <span className="term-search-label">find in output</span>
-            <span className="term-search-sep">›</span>
-            <input
-              ref={outputSearchInputRef}
-              className="term-search-input"
-              value={outputSearchQuery}
-              onChange={e => setOutputSearchQuery(e.target.value)}
-              placeholder="type to search…"
-              onKeyDown={e => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  const next = e.shiftKey ? outputSearchIndex - 1 : outputSearchIndex + 1;
-                  setOutputSearchIndex(next);
-                  jumpToOutputMatch(next);
-                }
-                if (e.key === "Escape") { e.preventDefault(); closeOutputSearch(); }
-              }}
-            />
-            <span className="term-search-count">
-              {outputSearchQuery ? (outputSearchMatches.length > 0
-                ? `${((outputSearchIndex % outputSearchMatches.length) + outputSearchMatches.length) % outputSearchMatches.length + 1}/${outputSearchMatches.length}`
-                : "0/0") : ""}
-            </span>
-            <span className="term-search-hint">Enter next · Shift+Enter prev · Esc close</span>
-          </div>
-        )}
-
-        {!searching && (
-          <div className="term-input-row">
-            <span className="term-prompt">❯{"\u00a0"}</span>
-            <span className="term-input-pre">{beforeCursor}</span>
-            <span className={`term-caret ${ready ? "term-caret--on" : "term-caret--off"}`}>{cursorChar}</span>
-            <span className="term-input-post">{afterCursor}</span>
-          </div>
-        )}
+        {partial && <div className="term-line">{partial}</div>}
       </div>
 
       {outputMenu && (
         <div
           className="term-ctx-menu"
           style={{ left: outputMenu.x, top: outputMenu.y }}
-          // Stop the mousedown-to-close document listener above from
-          // firing for a click that's actually ON the menu itself —
-          // otherwise every item click would close the menu via the
-          // document handler before its own onClick ever ran.
-          onMouseDown={e => e.stopPropagation()}
+          // Keep the document mousedown listener from closing the menu
+          // before an item's click runs.
+          onMouseDown={e => { e.stopPropagation(); e.preventDefault(); }}
         >
-          <button className="term-ctx-item" onClick={copyOutputSelection}>Copy</button>
+          <button className="term-ctx-item" onClick={copyOutputSelection} disabled={!outputMenu.hasSel}>
+            <span>Copy</span><span className="term-ctx-key">Ctrl+C</span>
+          </button>
           <button className="term-ctx-item" onClick={selectAllOutput}>Select All</button>
-          <button className="term-ctx-item" onClick={clearOutputSelectionAction}>Clear Selection</button>
+          <button className="term-ctx-item" onClick={clearOutputSelectionAction} disabled={!outputMenu.hasSel}>Clear Selection</button>
         </div>
       )}
-
-      <textarea ref={ghostRef} className="term-ghost"
-        value={inputVal} onChange={() => {}}
-        onKeyDown={onKey} onPaste={handlePaste}
-        spellCheck={false} autoComplete="off" autoCorrect="off" autoCapitalize="off"
-        rows={1} tabIndex={0} aria-label="terminal input"
-        onFocus={() => { /* keep ghost focused */ }}
-        onBlur={e => {
-          // An overlay (editor) legitimately owns focus — this
-          // component isn't even rendering the ghost in that case, but
-          // guard anyway in case of a same-render toggle.
-          if (editorFiles.length > 0) return;
-          const next = e.relatedTarget as HTMLElement | null;
-          // Don't steal focus from something the user deliberately
-          // clicked into elsewhere (a real input/textarea/select/button —
-          // e.g. the theme editor, plugin search box, titlebar controls).
-          if (next && /^(INPUT|TEXTAREA|SELECT|BUTTON)$/.test(next.tagName)) return;
-          setTimeout(() => ghostRef.current?.focus({ preventScroll: true }), 50);
-        }} />
     </div>
   );
 }
@@ -4773,12 +4470,6 @@ const MOON_ASCII: string[][] = [
 
 const MOON_FULL = ["  _  ", " ( ) ", "  -  "];
 
-// The old startup splash (a full-screen ASCII train animation shown
-// for up to 16s on every launch, dismissible by click) was removed
-// per the terminal-UX pass: OXIS now launches straight into the
-// usable app. Deliberately not replaced with a smaller ASCII
-// animation of any kind — see the terminal's own .term-corner-mark
-// ("OXIS" top-right) for where the wordmark now lives instead.
 
 // Cloud glyph variants (day) — picked from randomly per cloud, not
 // hand-assigned one-per-slot, so the mix looks different across
@@ -4797,18 +4488,8 @@ function rand(min: number, max: number): number { return min + Math.random() * (
 
 interface CloudLayout { glyph: string; top: number; left: number; fontSize: number; opacity: number; duration: number; delay: number; zIndex: number }
 
-/** Stratified, not pure-uniform, random layout — pure `rand()` for
- *  every cloud independently is exactly what produced the actual bug
- *  reported (clouds landing on top of each other and drifting in
- *  near-lockstep): with only a handful of clouds in a small area,
- *  independent uniform randomness clumps by chance far more often
- *  than it spreads out. Instead: divide the available width into
- *  `count` equal bands and place one cloud per band (with jitter
- *  inside its own band) — this GUARANTEES minimum horizontal spacing
- *  rather than hoping for it. Same idea for timing: divide the drift
- *  cycle into `count` equal phase offsets so clouds are mechanically
- *  spread across different points of their drift instead of
- *  independently-random delays coincidentally landing close together. */
+/** One cloud per equal-width band (jittered), with evenly spread
+ *  animation phases, so clouds don't clump or move in lockstep. */
 function layoutClouds(count: number, widthPx: number): CloudLayout[] {
   const band = widthPx / count;
   const out: CloudLayout[] = [];
@@ -4843,10 +4524,7 @@ const STAR_GLYPHS = ["*", "."];
 
 interface StarLayout { glyph: string; top: number; left: number; fontSize: number; delay: number }
 
-/** Same stratified-spacing idea as layoutClouds — bands guarantee
- *  minimum spacing instead of hoping independent randomness spreads
- *  out on its own (see layoutClouds's doc comment for why that
- *  matters; it was a real, reported bug there before this fix). */
+/** Same banded layout as layoutClouds, for stars. */
 function layoutStars(count: number, widthPx: number): StarLayout[] {
   const band = widthPx / count;
   const out: StarLayout[] = [];
@@ -4874,13 +4552,7 @@ function SkyWidget() {
   const isDay = hour >= 6 && hour < 18;
   const moonPhase = getMoonPhase(now);
 
-  // Randomized once per mount (empty deps), not on every 30s clock
-  // tick — a cloud silently teleporting to a new random spot every
-  // half-minute would look broken, not natural. Uses nearly the FULL
-  // widget width (not just a half reserved for the sun) — a cloud
-  // passing near the sun during its drift is a brief, decorative
-  // moment, not a real collision; leaving half the space empty was
-  // itself part of why the remaining clouds looked cramped together.
+  // Laid out once per mount so clouds don't jump on each clock tick.
   const clouds = useMemo(() => layoutClouds(Math.floor(rand(4, 6)), SKY_WIDGET_WIDTH - 20), []);
   // Same reasoning/count-range as clouds — see layoutStars above.
   const stars = useMemo(() => layoutStars(Math.floor(rand(5, 8)), SKY_WIDGET_WIDTH - 20), []);
@@ -4913,98 +4585,48 @@ function SkyWidget() {
   );
 }
 
-// ── Persistent command line — defined OUTSIDE Home so it never remounts ──
-// Styled like a real shell prompt now: a plain prompt glyph and a
-// cursor, not a label explaining what mode you're in — a real terminal
-// doesn't caption itself "<command-mode>", it just sits there blinking.
-// The old "Type Here or Ctrl+I" placeholder text is gone; in its place,
-// a small dim "Ctrl+I" hint (oxis-cmdline-hint) sits right after the
-// prompt whenever the box is both empty AND not focused — i.e. exactly
-// the idle state where someone new to Home wouldn't otherwise know
-// that shortcut jumps here from anywhere (see the Ctrl+I handler
-// below). It disappears the moment either stops being true (focus or a
-// keystroke), same handoff-to-the-real-caret behavior the box cursor
-// this replaced had.
-const HomeCmdLine = React.memo(function HomeCmdLine({
-  value, onChange, onKeyDown, inputRef,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;
-  inputRef: React.RefObject<HTMLInputElement>;
+function Home({ currentTheme, onTheme, onOpenThemeEditor, onOpenPluginCreator }: {
+  currentTheme: string; onTheme: (n: string) => void;
+  onOpenThemeEditor: (n: string) => void; onOpenPluginCreator: () => void;
 }) {
-  const [focused, setFocused] = useState(false);
-  const idle = !focused && !value;
-  return (
-    <div className="oxis-cmdline">
-      <span className="oxis-cmdline-prompt" aria-hidden="true">❯</span>
-      {idle && <span className="oxis-cmdline-hint" aria-hidden="true">Ctrl+I</span>}
-      <input
-        ref={inputRef}
-        className="oxis-cmdline-input"
-        value={value}
-        onChange={e => onChange(e.target.value)}
-        onKeyDown={onKeyDown}
-        onFocus={() => setFocused(true)}
-        onBlur={() => setFocused(false)}
-        placeholder=""
-        aria-label="Command input"
-        spellCheck={false}
-        autoComplete="off"
-      />
-    </div>
-  );
-});
-
-function Home({ onNew, currentTheme, onTheme, onOpenThemeEditor, onOpenPluginCreator, onCommand }: {
-  onNew: () => void; currentTheme: string; onTheme: (n: string) => void;
-  onOpenThemeEditor: (n: string) => void; onOpenPluginCreator: () => void; onCommand: (cmd: string) => void;
-}) {
-  const [input, setInput] = useState("");
   const [view, setView] = useState<"home" | "themes" | "plugins">("home");
   const [plugins, setPlugins] = useState(() => pluginManager.all());
   const [psearch, setPsearch] = useState("");
   const [ws, setWs] = useState(() => workspaceState.get());
   const [activeWorkspace, setActiveWorkspace] = useState<string | null>(() => workspaceManager.getActiveNamed());
   const [activeWorkspacePath, setActiveWorkspacePath] = useState<string | null>(null);
-  // 'hide workspace / 'show workspace — see the command handlers
-  // (search this file for "hideHandler"/"showHandler"). Persisted via
-  // the same option store 'config/oxis.getOption use, under its own
-  // key rather than a formal SETTINGS entry, since this is a small,
-  // dedicated toggle rather than a general setting.
+  // 'hide workspace / 'show workspace, persisted in the option store.
   const [workspacePanelHidden, setWorkspacePanelHidden] = useState(() => !!readPersistedOption("ui.hideWorkspacePanel"));
+  // oxis.dashboard({ header, theme, shortcuts }) from a plugin or config.lua.
+  const [dashboard, setDashboard] = useState<{ header?: string; shortcuts?: string[] }>({});
+  useEffect(() => events.on("dashboard_config", (p) => {
+    const c = ((p as { config?: Record<string, unknown> } | undefined)?.config ?? {}) as Record<string, unknown>;
+    if (typeof c.theme === "string" && themeManager.apply(c.theme)) onTheme(c.theme);
+    const shortcuts = Array.isArray(c.shortcuts) ? c.shortcuts.map(String)
+      : c.shortcuts && typeof c.shortcuts === "object" ? Object.values(c.shortcuts as Record<string, unknown>).map(String)
+      : undefined;
+    setDashboard({ header: typeof c.header === "string" ? c.header : undefined, shortcuts });
+  }), [onTheme]);
   useEffect(() => events.on("ui_workspace_panel_visibility_changed", (p) => {
     setWorkspacePanelHidden(!!(p as { hidden?: boolean } | undefined)?.hidden);
   }), []);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  // Home is always mounted (see root App — it's hidden, not unmounted,
-  // when the shell is active), so 'support (and anything else that
-  // wants to jump straight to one of Home's internal panels) reaches
-  // it via this event instead of a prop, regardless of whether Home
-  // happens to be the visible view right now.
+  // Home stays mounted while hidden, so other code opens its panels
+  // through this event.
   useEffect(() => events.on("home_view_request", (p) => {
     const v = (p as { view?: string })?.view;
     if (v === "home" || v === "themes" || v === "plugins") setView(v);
   }), []);
 
   useEffect(() => workspaceState.subscribe(setWs), []);
-  // workspaceState's own projectName is derived from whatever path
-  // .oxis/workspace.lua loaded from — correct for a NAMED workspace
-  // (switchNamed loads "workspaces/<name>", so the last path segment
-  // IS the name) but not distinguishable there from an ad-hoc
-  // directory-based workspace with no name at all. Track the
-  // authoritative named-workspace state directly instead, so the
-  // "workspace" row below is always right regardless of that.
+  // Track the named workspace directly: projectName alone can't tell a
+  // named workspace from an ad-hoc .oxis folder.
   useEffect(() => {
     const update = () => {
       const name = workspaceManager.getActiveNamed();
       setActiveWorkspace(name);
       if (!name) { setActiveWorkspacePath(null); return; }
-      // The external link (see 'workspace link) is per-entry in the
-      // named-workspace registry, not something workspace_loaded's
-      // payload carries — look it up explicitly so the Home card can
-      // show it (see item 5: "Connected: <path>" on the card).
+      // The linked folder lives in the registry, not in the
+      // workspace_loaded payload, so look it up for the Home card.
       workspaceManager.listNamed().then(list => {
         setActiveWorkspacePath(list.find(w => w.name === name)?.externalPath ?? null);
       });
@@ -5020,63 +4642,10 @@ function Home({ onNew, currentTheme, onTheme, onOpenThemeEditor, onOpenPluginCre
     return () => { u1(); u2(); u3(); u4(); };
   }, []);
 
-  // Keep focus on the input — retried twice (40ms, then 250ms) since
-  // a single attempt could lose a race with something else mounting
-  // right after view changes (the banner animation, a panel
-  // re-rendering) that steals it back. Skips stealing focus from
-  // another REAL input the user is actively using (e.g. the plugin
-  // search box) rather than unconditionally grabbing it every time.
-  useEffect(() => {
-    const focusIfIdle = () => {
-      const active = document.activeElement;
-      if (active && active !== document.body && active !== inputRef.current
-          && (active.tagName === "INPUT" || active.tagName === "TEXTAREA")) return;
-      inputRef.current?.focus();
-    };
-    const t1 = setTimeout(focusIfIdle, 40);
-    const t2 = setTimeout(focusIfIdle, 250);
-    return () => { clearTimeout(t1); clearTimeout(t2); };
-  }, [view]);
-
-  // Ctrl+I — jumps to the command line from anywhere on Home,
-  // regardless of whether the auto-focus above happened to stick.
-  // Shown right in the input's own placeholder ("Type Here or
-  // Ctrl+I") so it's discoverable without needing to already know it.
-  // Guarded by offsetParent (null when display:none) rather than a
-  // visibility prop — Home is always mounted, just hidden via CSS
-  // when the shell is active (see the root component), so without
-  // this check Ctrl+I would leak into the terminal too, where it's
-  // the literal byte for Tab and would break tab-completion there.
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "i") {
-        if (inputRef.current?.offsetParent === null) return; // Home isn't the visible screen right now
-        e.preventDefault();
-        inputRef.current?.focus();
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
-
   const refresh = () => setPlugins(pluginManager.all());
   useEffect(() => { if (view === "plugins") refresh(); }, [view]);
 
-  // Keep the plugin count/list live instead of a one-time snapshot —
-  // useState(() => pluginManager.all()) above only ever reflects
-  // whatever was registered at the exact instant Home first rendered,
-  // which is BEFORE initPlugins()'s effect in the root App component
-  // has run at all (state initializers run during render; plugin
-  // registration happens in an effect, which fires after). That's why
-  // the workspace panel always showed "0 plugins" — every plugin,
-  // built-in or market-installed, finishes registering strictly after
-  // this snapshot was taken, and nothing ever told this component to
-  // look again unless the user happened to open the Plugins tab (see
-  // the effect above). plugin_loaded/plugin_unloaded (emitted by
-  // pluginManager.load()/unload() — see pluginManager.ts) fire for
-  // every one of those registrations, on startup and later, so
-  // subscribing here keeps this accurate everywhere it's shown, not
-  // just inside the Plugins tab.
+  // Plugins register after Home first renders, so keep the list live.
   useEffect(() => {
     const u1 = events.on("plugin_loaded", refresh);
     const u2 = events.on("plugin_unloaded", refresh);
@@ -5093,43 +4662,6 @@ function Home({ onNew, currentTheme, onTheme, onOpenThemeEditor, onOpenPluginCre
   const ec = plugins.filter(p => p.enabled).length;
   const tog = (name: string, en: boolean) => { if (en) pluginManager.enable(name); else pluginManager.disable(name); refresh(); };
 
-  // Up/Down history recall — Home's prompt used to be a dead end for
-  // this (no history navigation at all, unlike the shell's own input),
-  // even though every command run from here already lands in the same
-  // shared `history` singleton via runLine()'s history.push(). Reuses
-  // the identical prev()/next()/setDraft() API the terminal uses, so
-  // browsing history from Home and from the shell tab is genuinely
-  // the same underlying list, not a separate copy.
-  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Escape") { setInput(""); history.resetNav(); return; }
-    if (e.key === "ArrowUp")   { e.preventDefault(); setInput(history.prev(input)); return; }
-    if (e.key === "ArrowDown") { e.preventDefault(); setInput(history.next()); return; }
-    if (e.key === "Enter") {
-      const cmd = input.trim();
-      setInput("");
-      history.resetNav();
-      if (!cmd) { onNew(); return; }
-      onCommand(cmd);
-    }
-  }, [input, onNew, onCommand]);
-
-  const handleChange = useCallback((v: string) => {
-    setInput(v);
-    history.setDraft(v);
-    if (v === "t") { setView("themes"); setInput(""); }
-    if (v === "p") { setView("plugins"); setInput(""); }
-    if (v === "n") { setInput(""); onNew(); }
-  }, [onNew]);
-
-  // The scrollable per-view content only — the command line itself is
-  // rendered ONCE, below, in a bar pinned to the bottom of `.home`
-  // (mirroring the terminal's own `.term-prompt-bar`, added when that
-  // prompt was fixed to never scroll off-screen). It used to be a
-  // third copy of <HomeCmdLine> inline at the bottom of each view's
-  // own scrolling content — same bug the terminal had (scroll up and
-  // it went with the content), plus three separate mounted instances
-  // of the same input instead of one, which is what "available
-  // throughout OXIS, no duplication" actually calls for.
   let body: React.ReactNode;
 
   if (view === "themes") {
@@ -5200,25 +4732,32 @@ function Home({ onNew, currentTheme, onTheme, onOpenThemeEditor, onOpenPluginCre
             <button className="oxis-github-btn" onClick={() => void openUrl("https://github.com/oxlaboratory/oxis")}
               title="Open the OXIS repository on GitHub">GitHub ↗</button>
           </div>
+          {dashboard.header && <div className="oxis-dash-header">{dashboard.header}</div>}
           {!workspacePanelHidden && <WorkspacePanel ws={ws} plugins={plugins} activeWorkspace={activeWorkspace} activeWorkspacePath={activeWorkspacePath} />}
           <div className="oxis-box oxis-help-box">
-            <div className="oxis-help-row"><span className="oht">Type</span> <span className="ohc">&apos;help</span><span className="ohr"> if you need some help</span></div>
+            <div className="oxis-help-row"><span className="oht">Type</span> <span className="ohc">&apos;help</span><span className="ohr"> in the prompt below for every command</span></div>
             <div className="oxis-help-row"><span className="oht">Type</span> <span className="ohc">&apos;edit</span> <span className="oha">&lt;file&gt;</span><span className="ohr"> to open the built-in editor</span></div>
             <div className="oxis-help-row"><span className="oht">Type</span> <span className="ohc">&apos;market list</span><span className="ohr"> to browse plugins you can install</span></div>
             <div className="oxis-help-row"><span className="oht">Press</span> <span className="ohc">Ctrl+Shift+P</span><span className="ohr"> to open the command palette</span></div>
             <div className="oxis-help-row"><span className="oht">Press</span> <span className="ohc">Ctrl+Shift+M</span><span className="ohr"> to open the OXIS Market website in your browser</span></div>
+            {dashboard.shortcuts?.map(sc => (
+              <div key={sc} className="oxis-help-row"><span className="oht">Try</span> <span className="ohc">{sc}</span></div>
+            ))}
           </div>
         </div>
       </>
     );
   }
 
+  // Clicking empty space on Home puts the cursor in the global prompt.
   return (
-    <div className="home" onMouseDown={e => { if (e.target === e.currentTarget) inputRef.current?.focus(); }}>
+    <div className="home" onMouseDown={e => {
+      if (e.target === e.currentTarget || (e.target as HTMLElement).classList?.contains("home-scroll")) {
+        e.preventDefault();
+        events.emit("focus_prompt");
+      }
+    }}>
       <div className="home-scroll">{body}</div>
-      <div className="home-cmdline-bar">
-        <HomeCmdLine value={input} onChange={handleChange} onKeyDown={handleKeyDown} inputRef={inputRef} />
-      </div>
     </div>
   );
 }
@@ -5230,33 +4769,16 @@ function Home({ onNew, currentTheme, onTheme, onOpenThemeEditor, onOpenPluginCre
 function WorkspacePanel({ ws, plugins, activeWorkspace, activeWorkspacePath }: {
   ws: ReturnType<typeof workspaceState.get>;
   plugins: ReturnType<typeof pluginManager.all>;
-  /** The active NAMED workspace ('workspace switch <name>), or null
-   *  for the shared default context — see workspaceManager.ts's
-   *  getActiveNamed(). Distinct from ws.projectName (an ad-hoc
-   *  directory's .oxis/workspace.lua can be loaded with no name at
-   *  all) — shown as its own row so it's never ambiguous which one
-   *  is active, especially once more than one named workspace exists. */
+  /** The active named workspace, or null for the default context. */
   activeWorkspace: string | null;
-  /** The EXTERNAL project directory the active named workspace is
-   *  linked to via 'workspace link (see workspaceManager.ts's
-   *  externalPath) — null if it isn't linked to one. Distinct from
-   *  ws.projectPath, which is where THIS workspace's own
-   *  .oxis/workspace.lua lives (inside dist/workspaces/<name>/), not
-   *  the external project it points at. */
+  /** The project folder linked to the active named workspace, if any
+   *  (not where the workspace's own files live). */
   activeWorkspacePath: string | null;
 }) {
   const active = plugins.filter(p => p.enabled);
   const tasks = workspaceState.taskNames();
-  // Real git connection info — GitHub/GitLab + repo — replacing the
-  // old "project" row (just ws.projectName, which duplicated the
-  // "workspace" row above it in the common case and told you nothing
-  // about whether the connected project is actually hooked up to a
-  // remote anywhere). Fetched fresh whenever the connected external
-  // path changes; genuinely queries `git remote -v` rather than
-  // inferring anything from the workspace's own metadata, since a
-  // project can be connected to OXIS without (yet) having a remote,
-  // or could have one OXIS was never told about via
-  // 'workspace github/gitlab.
+  // Git remote of the linked project, read from `git remote -v` so it
+  // also shows remotes OXIS didn't set up.
   const [gitInfo, setGitInfo] = useState<{ provider: GitProvider; repo: string } | null | undefined>(undefined); // undefined = "haven't checked yet", null = "checked, not connected"
   useEffect(() => {
     if (!activeWorkspacePath) { setGitInfo(null); return; }
@@ -5339,32 +4861,13 @@ function StatusBar({ mode, count, idx, ready, theme, project, updateMsg }: {
 }
 
 // ══════════════════════════════════════════════════════════════
-// ROOT APP — inside the native Wails window (frameless), <Titlebar>
-// draws the custom draggable titlebar + window controls. OXIS can
-// also be opened directly in a plain browser at http://127.0.0.1:1420
-// (see server.Listen in internal/server/server.go) — there's no
-// native frameless window to control there, just an ordinary browser
-// tab with its own chrome, so the custom titlebar has nothing to do
-// and is skipped entirely (isNativeApp() — see native.ts).
+// COMMAND PALETTE — Ctrl+Shift+P. Searches the command registry (the
+// same list dispatch and Tab completion use) and runs the choice
+// through runLine.
 // ══════════════════════════════════════════════════════════════
 // ══════════════════════════════════════════════════════════════
-// COMMAND PALETTE — Ctrl+Shift+P. Searches the REAL command registry
-// (registry.all()) — the exact same one dispatchOxisCmd looks up
-// every typed '-command against, and the same one Tab completion
-// reads from (see the terminal's onKey) — not a second, hand-curated
-// action list that could list something that doesn't actually work.
-// Selecting an entry opens the shell (if needed) and runs it through
-// the same runLine() path Home's own buttons already use.
-// ══════════════════════════════════════════════════════════════
-// ══════════════════════════════════════════════════════════════
-// FILE TREE — Ctrl+B toggles it, or the ☰ button pinned over the
-// editor. Browses from the app's own directory (".", same root
-// created-documents/created-plugins/workspaces/plugins resolve
-// against — see resolvePath in internal/wailsapp/app.go), via the
-// generic listDir() native call — lazily: a folder's contents are
-// only fetched the first time it's expanded, not the whole tree
-// upfront. Clicking a file opens it in the Editor via openEditor(),
-// the exact same call 'edit and 'plugin new use.
+// FILE TREE — Ctrl+B or the ☰ button. Lists folders lazily with the
+// native listDir; clicking a file opens it in the editor.
 // ══════════════════════════════════════════════════════════════
 interface FileTreeEntry { name: string; path: string; isDir: boolean }
 
@@ -5400,10 +4903,8 @@ function FileTree({ rootDir, rootLabel, onOpenFile, onMoveFile, onClose }: { roo
     for (const dir of expanded) load(dir);
   }, [load, rootDir, expanded]);
 
-  // Reload from scratch whenever the root itself changes (connecting/
-  // disconnecting an external project switches this — see item 2:
-  // "when the workspace is disconnected, restore the normal OXIS
-  // workspace file-tree behavior"), not just on first mount.
+  // Start over whenever the root changes (linking or unlinking a
+  // project), not just on first mount.
   useEffect(() => {
     setChildrenOf(new Map());
     setExpanded(new Set());
@@ -5416,12 +4917,8 @@ function FileTree({ rootDir, rootLabel, onOpenFile, onMoveFile, onClose }: { roo
   // drive it entirely from the keyboard from there, no mouse required.
   useEffect(() => { setTimeout(() => treeRef.current?.focus(), 20); }, []);
 
-  // Auto-refresh after OXIS's own operations that change the
-  // filesystem (newfile/newdir/git commit) — see item 2's "refresh
-  // when files/directories are created, deleted, or changed". This
-  // isn't a filesystem watcher (no such API here) — it's every place
-  // OXIS itself writes into the connected project telling the tree to
-  // re-check what it's already showing.
+  // Refresh after OXIS itself changes files (newfile, newdir, commit);
+  // there's no filesystem watcher.
   useEffect(() => events.on("filetree_refresh", reloadExpanded), [reloadExpanded]);
 
   const toggleDir = useCallback((path: string, forceExpand?: boolean) => {
@@ -5599,33 +5096,14 @@ function CommandPalette({ onRun, onClose }: { onRun: (cmd: string) => void; onCl
 
   useEffect(() => { setSelected(0); }, [query]);
 
-  // The actual fix for "arrow keys navigate but the list doesn't
-  // scroll" — reported directly, and a real gap: selected only ever
-  // moved a highlight class, nothing ever brought that element back
-  // into view once arrowing past whatever's currently visible.
-  // "nearest" (not "center"/"start") specifically so it doesn't yank
-  // the list around on every keystroke once the selection is already
-  // in view — it only scrolls the minimum needed to bring an
-  // off-screen item back on-screen.
+  // Keep the selected item in view while arrowing ("nearest" scrolls
+  // only as far as needed).
   useEffect(() => {
     selectedItemRef.current?.scrollIntoView({ block: "nearest" });
   }, [selected]);
 
-  // Escape not closing the palette was also reported directly. The
-  // input's own onKeyDown below already has a correct Escape case —
-  // arrow keys and Enter through that same handler DO work, which
-  // means the input genuinely has focus and IS receiving keydown
-  // events, so something is specifically intercepting Escape rather
-  // than blocking keys generally. Rather than keep hunting for
-  // exactly which of this app's several other Escape handlers (Find
-  // bars, output search, the theme editor, reverse-search) it is,
-  // this uses the same robust pattern already proven for the live
-  // preview's own fullscreen Escape handling: a dedicated,
-  // capture-phase, window-level listener scoped to whenever this
-  // palette is mounted, independent of DOM focus or React's own
-  // synthetic event bubbling — guaranteed to fire and close the
-  // palette regardless of what else in the app might otherwise catch
-  // the keypress first.
+  // Close on Escape via a capture-phase window listener, so no other
+  // Escape handler can swallow it first.
   useEffect(() => {
     const onWindowEscape = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
@@ -5697,106 +5175,48 @@ export default function App() {
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [activeProject, setActiveProject] = useState(() => workspaceState.get().projectName);
   const [updateMsg,     setUpdateMsg]     = useState("");
-  const pendingHomeCmd = useRef<string>("");
-  const shellMounted   = useRef(false); // shell only ever mounts once, then stays alive forever
+  const pendingCmd = useRef<string>("");
+  // The global prompt bar the terminal portals its input into.
+  const [promptHost, setPromptHost] = useState<HTMLDivElement | null>(null);
 
-  // activeProject used to be dead state — declared, passed to <StatusBar>,
-  // but nothing ever called setActiveProject. workspaceState is the thing
-  // that actually listens for oxis.workspace(path)/"workspace_loaded" (see
-  // workspaceState.ts + the Home screen's Workspace panel).
+  // The project name shown in the status bar (workspaceState tracks it).
   useEffect(() => workspaceState.subscribe((s) => setActiveProject(s.projectName)), []);
 
-  // Init on mount — apply theme, init plugins immediately (before any terminal opens)
+  // Startup: theme, persisted settings, error capture, workspace
+  // migration, update check, plugins.
   useEffect(() => {
     themeManager.apply(curTheme);
-    applyAllSettings(); // font size, cursor style/blink — persisted from last session, same as changing them live
-    installGlobalErrorCapture(); // 'diagnostics — captures uncaught JS exceptions too, not just recordError() call sites
-    void workspaceManager.runAutoUpdateIfNeeded(); // brings existing workspaces' folder layout up to date whenever OXIS itself has been updated since the last launch — see README § Workspace Auto-Update
-    const checkUpdate = async () => {
-      if (getSetting("updateCheckOnStartup") === false) return; // 'config set updateCheckOnStartup false
-      // This used to be a SEPARATE, already-broken implementation —
-      // a raw fetch() straight to GitLab's API with a literal
-      // "YOUR_PROJECT_ID" placeholder that was never filled in,
-      // silently doing nothing on every single launch (the catch
-      // swallowed the resulting fetch failure). Replaced with the
-      // real, working mechanism — the same commit-based check
-      // 'update itself uses (see internal/update/update.go) — so
-      // this setting actually does something now.
-      try {
-        const info = await checkForUpdate();
-        if (info.available && info.latestCommit) setUpdateMsg(`build ${info.latestCommit.slice(0, 7)} available`);
-      } catch { /* offline, or checkForUpdate itself isn't available (browser mode) — silent is correct here, this is a passive background check, not something the user asked for right now */ }
-    };
-    checkUpdate();
+    applyAllSettings();
+    installGlobalErrorCapture();
+    void workspaceManager.runAutoUpdateIfNeeded();
+    void startupUpdateCheck().then(info => {
+      if (info?.available && info.latestCommit) setUpdateMsg(`build ${info.latestCommit.slice(0, 7)} available`);
+    });
 
-    // Init plugins at root level so they show up in Home before any shell opens
-    if (!_pluginsInited) {
-      _pluginsInited = true;
-      const stubCtx: ShellCtx = {
-        send:        () => {},
-        runLine:     () => {},
-        print:       (t, _k) => console.log("[oxis]", t),
-        printLines:  entries => entries.forEach(([t]) => console.log("[oxis]", t)),
-        clear:       () => {},
-        openEditor:  () => {},
-        newTerminal: () => {},
-      };
-      _ctxRef.current = stubCtx;
-      initPlugins(forwardingApiCtx);
-      workspaceManager.init(forwardingApiCtx);
-      registerBuiltinCommands(stubCtx);
-    }
+    ensurePluginsInited();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Event listeners
-  // Note: plugins are edited through the exact same Editor as any
-  // other file now (see findPluginForPath in the Terminal component's
-  // editorSave) — there's no separate "open_plugin_creator" event or
-  // component to listen for here anymore. 'plugin new writes the
-  // template file, registers it live, then calls ctx.openEditor() on
-  // it directly, the same path 'edit uses.
   useEffect(() => {
     const u1 = events.on("open_theme_editor", p => { if (p?.name) setThemeEditorName(String(p.name)); });
     const u2 = events.on("theme_changed",     p => { if (p?.name) setCurTheme(String(p.name)); });
     return () => { u1(); u2(); };
   }, []);
 
-  // (sessionManager — used to persist minimal session state here on
-  // every theme/view change — was found to be entirely dead code and
-  // removed: `load()` was never called anywhere in the codebase, and
-  // `sessionManager.clear()` ran at every startup BEFORE any load
-  // could have happened anyway, so the round-trip was meaningless —
-  // save something, wipe it on next launch, never read it in
-  // between. Theme persistence already happens correctly and
-  // independently via themeManager's own "oxis-theme" localStorage
-  // key, so nothing was actually lost by removing this; it was only
-  // ever doing pointless localStorage writes on every single theme
-  // change or Home/Shell switch. sessionManager.ts deleted.)
 
   // "go home" — wired to the 'home command via _goHomeRef
   const goHome = useCallback(() => setView("home"), []);
   useEffect(() => { _goHomeRef.current = goHome; }, [goHome]);
 
-  // Open shell — either from home's typed command, or Ctrl+T
-  const openShell = useCallback(() => {
-    shellMounted.current = true;
-    setView("shell");
-  }, []);
+  const openShell = useCallback(() => setView("shell"), []);
 
-  // Opens the shell (if needed) and runs a command line through it —
-  // shared by Home's "+ new" button, its onCommand prop, and the
-  // Command Palette, so there's exactly one "run this for the user"
-  // path instead of three copies of the same ready/pendingHomeCmd
-  // dance drifting apart from each other.
-  const runHomeCommand = useCallback((cmd: string) => {
-    if (ready) {
-      openShell();
-      setTimeout(() => _ctxRef.current?.runLine(cmd), 60);
-    } else {
-      pendingHomeCmd.current = cmd;
-      openShell();
-    }
+  // Runs a command line for the user (command palette, Home buttons),
+  // queuing it until the shell is connected.
+  const runCommand = useCallback((cmd: string) => {
+    openShell();
+    if (ready) setTimeout(() => _ctxRef.current?.runLine(cmd), 0);
+    else pendingCmd.current = cmd;
   }, [ready, openShell]);
 
   // Command Palette — Ctrl+Shift+P (Cmd+Shift+P on Mac), from
@@ -5817,40 +5237,33 @@ export default function App() {
   useEffect(() => {
     registerCoreKeybinds({
       newTab:        openShell,
-      closeTab:      () => { if (view === "shell") setView("home"); },
+      closeTab:      () => setView("home"),
       switchTab:     () => {},
       clearTerminal: () => events.emit("clear_terminal"),
       openMarket:    () => { void openUrl(market.MARKET_BASE); },
     });
-    const handler = (e: KeyboardEvent) => keybinds.handle(e);
+    // App shortcuts don't fire while typing in another field (the
+    // editor, a search box); the global prompt handles its own.
+    const inOtherField = () => {
+      const el = document.activeElement;
+      return el instanceof HTMLElement && !el.classList.contains("term-prompt-input")
+        && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
+    };
+    const handler = (e: KeyboardEvent) => keybinds.handle(e, { skipCore: inOtherField() });
     window.addEventListener("keydown", handler, true);
-    // Steals Ctrl+R/L/W/T/F/N away from the OS chrome and redirects
-    // them to OXIS's own terminal shortcuts. That's the right thing to
-    // do inside the native frameless window (there's no address bar,
-    // no tab strip — none of those shortcuts have anywhere else useful
-    // to go), but genuinely hostile in a plain browser tab (see
-    // isNativeApp() in native.ts): trapping Ctrl+W so the user can't
-    // close the tab, or Ctrl+R so they can't refresh, isn't something
-    // OXIS should be doing to someone's ordinary browser session just
-    // because they pointed it at http://127.0.0.1:1420.
+    // In the native window, stop WebView accelerators (reload, find,
+    // new window) from firing on Ctrl+R/F/N/P etc. The key still reaches
+    // whatever is focused. Plain browser tabs keep their own shortcuts.
     const blockBrowser = (e: KeyboardEvent) => {
-      if (!isNativeApp()) return;
-      if (!e.ctrlKey) return;
-      const k = e.key.toLowerCase();
-      if (["r","l","w","t","f","n"].includes(k)) {
-        e.preventDefault(); e.stopPropagation();
-        const ghost = document.querySelector(".term-ghost") as HTMLTextAreaElement | null;
-        if (ghost) ghost.dispatchEvent(new KeyboardEvent("keydown", {
-          key: e.key, ctrlKey: true, shiftKey: e.shiftKey, altKey: e.altKey, bubbles: true, cancelable: true,
-        }));
-      }
+      if (!isNativeApp() || !e.ctrlKey || e.altKey) return;
+      if (["r","l","w","t","f","n","p","g","j","u"].includes(e.key.toLowerCase())) e.preventDefault();
     };
     window.addEventListener("keydown", blockBrowser, true);
     return () => {
       window.removeEventListener("keydown", handler, true);
       window.removeEventListener("keydown", blockBrowser, true);
     };
-  }, [openShell, view]);
+  }, [openShell]);
 
   const isHome = view === "home";
 
@@ -5867,45 +5280,38 @@ export default function App() {
         )}
         {commandPaletteOpen && (
           <CommandPalette
-            onRun={cmd => { setCommandPaletteOpen(false); runHomeCommand(cmd); }}
+            onRun={cmd => { setCommandPaletteOpen(false); runCommand(cmd); }}
             onClose={() => setCommandPaletteOpen(false)}
           />
         )}
-        {/* Home page — hidden (not unmounted) when shell active */}
+        {/* Home and the terminal both stay mounted; only one is shown. */}
         <div style={{ display: isHome ? "flex" : "none", flex: 1, minHeight: 0, overflow: "hidden" }}>
           <Home
-            onNew={openShell}
             currentTheme={curTheme}
             onTheme={n => { themeManager.apply(n); setCurTheme(n); }}
             onOpenThemeEditor={n => setThemeEditorName(n)}
-            // Routed through the shell's own "plugin new <name>" command
-            // (same as typing it), which writes the file, registers it
-            // live, and opens it in the exact same Editor 'edit uses —
-            // not a separate overlay/component.
-            onOpenPluginCreator={() => runHomeCommand("plugin new myplugin")}
-            onCommand={runHomeCommand}
+            onOpenPluginCreator={() => runCommand("'plugin new myplugin")}
           />
         </div>
 
-        {/* Single persistent shell session — mounts once, never unmounts */}
-        {shellMounted.current && (
-          <div className="app-pane" style={{ display: !isHome ? "flex" : "none" }}>
-            <Terminal
-              id="main"
-              isActive={!isHome}
-              onReady={() => {
-                setReady(true);
-                const cmd = pendingHomeCmd.current;
-                if (cmd) { pendingHomeCmd.current = ""; setTimeout(() => _ctxRef.current?.runLine(cmd), 400); }
-              }}
-              onNewTab={openShell}
-              onCloseTab={() => setView("home")}
-              onSwitchTab={() => {}}
-              
-            />
-          </div>
-        )}
+        <div className="app-pane" style={{ display: !isHome ? "flex" : "none" }}>
+          <Terminal
+            id="main"
+            isActive={!isHome}
+            promptHost={promptHost}
+            onReady={() => {
+              setReady(true);
+              const cmd = pendingCmd.current;
+              if (cmd) { pendingCmd.current = ""; setTimeout(() => _ctxRef.current?.runLine(cmd), 300); }
+            }}
+            onShowShell={openShell}
+            onCloseTab={() => setView("home")}
+          />
+        </div>
       </div>
+
+      {/* The one global command prompt, fixed above the status line. */}
+      <div className="global-prompt" ref={setPromptHost} />
 
       <StatusBar mode={isHome ? "home" : "shell"}
         count={0} idx={0}

@@ -1,40 +1,13 @@
 /**
- * luaRuntime.ts — OXIS Lua execution environment
+ * luaRuntime.ts — runs plugin Lua (5.3) with fengari.
  *
- * Runs real Lua 5.3 via fengari (a pure-JS Lua VM) — this is a genuine
- * interpreter, not a regex-based JS transpiler. Earlier versions of
- * this file *were* a transpiler (pattern-replace Lua syntax into JS,
- * then `new Function(...)` it) that silently mishandled a lot of real
- * Lua — that's why installed plugins would register successfully but
- * do nothing (or the wrong thing) when actually invoked.
+ * The `oxis` table is built by hand from lua_pushcfunction functions
+ * that read their arguments straight off the Lua stack. fengari-interop's
+ * generic bridge isn't used: its __call treats the first argument as
+ * `this`, which breaks plain dot calls like oxis.command("name", fn).
  *
- * fengari-interop (the "call arbitrary JS objects/functions from Lua"
- * bridge fengari ships with) has its own sharp edge worth documenting:
- * its generic `__call` metamethod treats the FIRST Lua argument as a
- * JS `this` for `Function.prototype.apply`, unconditionally — that's
- * correct for Lua's `obj:method(a, b)` colon-call convention (which
- * really does pass `obj` as an implicit first arg), but plugins here
- * use plain dot-calls (`oxis.command("name", fn, "desc")`), which Lua
- * passes as three REAL arguments with no implicit self at all. Run
- * through `__call`, that shifts everything: the JS function ends up
- * receiving (fn, "desc") as its first two arguments and drops the
- * name string entirely. Confirmed by direct testing — not a guess.
- *
- * The fix is to not use fengari-interop's generic object bridge for
- * the `oxis` API surface at all. Instead, buildOxisTable() constructs
- * the `oxis` table by hand with lua_pushcfunction — real Lua C
- * functions that read arguments directly off the Lua stack. That's
- * the same mechanism Lua's own standard library uses, so there's no
- * calling-convention mismatch to work around.
- *
- * Each plugin gets its own lua_State, kept alive for the plugin's
- * lifetime (not just during the initial load) so that command
- * handlers — real Lua functions, registered via oxis.command() and
- * held by a registry ref — can be invoked later, whenever the user
- * actually runs the command. dispose() closes that state; call it
- * when a plugin is unloaded/reloaded/disabled, or its Lua functions
- * (and the memory fengari allocated for them) leak for the rest of
- * the session.
+ * Each plugin gets its own lua_State, kept alive while the plugin is
+ * loaded so its command handlers can run later. dispose() closes it.
  */
 
 import { lua, lauxlib, lualib, to_luastring } from "fengari";
@@ -53,12 +26,7 @@ export interface OxisBindings {
   command(name: string, invoke: (args: string[], rest: string) => void, desc: string | undefined): void;
   task(name: string, cmd: string, desc: string | undefined): void;
   echo(text: string): void;
-  // Typed as returning a promise (not void) because it genuinely does
-  // — buildLuaAPI's real implementation (runScript) always has, this
-  // just wasn't reflected here before. Lua itself never sees this
-  // promise (oxis.run has no callback argument, fire-and-forget by
-  // design), but luaRuntime.ts's own binding needs to .catch() it —
-  // see its doc comment for why that's not optional.
+  // Returns a promise; Lua never sees it, but the binding catches it.
   run(cmd: string): Promise<{ ok: boolean }>;
   theme(name: string): void;
   cwd(): string;
@@ -82,11 +50,9 @@ export interface OxisBindings {
    *  See README § Core System APIs. */
   platform: string;
 
-  // ── Core System APIs — see README § Core System APIs ─────────
-  // All async (real file/process/network I/O can't be synchronous),
-  // so the Lua side is callback-style: oxis.fs.read(path, function(err, content) ... end).
-  // Each rejects with a permission-gate error if the plugin hasn't
-  // been granted that namespace — see permissions.ts.
+  // ── Core system APIs — async, callback-style on the Lua side:
+  // oxis.fs.read(path, function(err, content) ... end). Each rejects if
+  // the plugin lacks the permission (permissions.ts).
   fsRead(path: string): Promise<string>;
   fsWrite(path: string, content: string): Promise<void>;
   fsList(path: string): Promise<LuaJSValue[]>;
@@ -125,36 +91,10 @@ function luaToJS(L: LuaState, idx: number): LuaJSValue {
     case lua.LUA_TSTRING:
       return lua.lua_tojsstring(L, idx);
     case lua.LUA_TTABLE: {
-      // A REAL, CONFIRMED BUG lived here — found by testing against
-      // fengari directly, not by inspection alone: lua_next does NOT
-      // guarantee any particular iteration order, even for a table
-      // as simple as `{10, 20, 30}` — fengari was directly observed
-      // iterating that table's keys as 3, 2, 1 (reverse), not 1, 2, 3.
-      // The old logic decided array-vs-object by checking whether
-      // each key, AS ENCOUNTERED, equalled an incrementing counter —
-      // which assumed sequential iteration order. Reversed order broke
-      // it completely: key 3 arrived first, didn't match counter 1,
-      // flipped isArray to false permanently, and the values already
-      // pushed into the array-in-progress (including a real value,
-      // 20, for key 2) were silently discarded when the function
-      // returned the object instead. `{10, 20, 30}` — the single most
-      // ordinary way to write a Lua array literal — converted to
-      // `{"1":10,"3":30}`, silently dropping 20 entirely. This isn't
-      // a rare edge case; it's the common case for reasonably-sized
-      // tables, since fengari (like real Lua) doesn't store a table's
-      // array part in a way that guarantees forward iteration.
-      //
-      // Fixed by collecting every entry first, then deciding
-      // array-ness from the resulting KEY SET (is it exactly
-      // {1..maxKey}, with no gaps) rather than from the order entries
-      // happened to arrive in. Verified against fengari directly:
-      // plain sequential literals, keys assigned out of order, a
-      // table with a value removed and reassigned, sparse tables
-      // (correctly stay objects), plain string-keyed tables, and an
-      // empty table (kept converting to `[]`, matching this
-      // function's own prior behavior for that one specific case,
-      // since Lua doesn't distinguish an empty array from an empty
-      // object and there's no reason to change that here).
+      // lua_next doesn't iterate in key order (fengari returns
+      // {10, 20, 30} as 3, 2, 1), so collect every entry first and treat
+      // the table as an array only if its keys are exactly 1..n. An empty
+      // table becomes [].
       const entries: { key: string | number; isNumber: boolean; value: LuaJSValue }[] = [];
       let maxIntKey = 0;
       let intKeyCount = 0;
@@ -210,12 +150,9 @@ function argString(L: LuaState, i: number): string | undefined {
   return lua.lua_isstring(L, i) ? lua.lua_tojsstring(L, i) : undefined;
 }
 
-/** Wraps a Lua function value already ON TOP OF THE STACK at `idx` into a
- *  plain JS closure that, when called, invokes it via lua_pcall. Pops
- *  nothing itself — caller owns the stack. The function is kept alive
- *  in the Lua registry (luaL_ref) for as long as the closure exists;
- *  there's no explicit unref, since these live for the plugin's whole
- *  lifetime and get reclaimed wholesale when dispose() closes the state. */
+/** Wraps the Lua function at `idx` in a JS closure that calls it with
+ *  lua_pcall. The function stays referenced in the registry until the
+ *  state is closed. */
 function makeInvoker(L: LuaState, valueIdx: number): () => void {
   lua.lua_pushvalue(L, valueIdx);
   const ref = lauxlib.luaL_ref(L, lua.LUA_REGISTRYINDEX);
@@ -230,14 +167,8 @@ function makeInvoker(L: LuaState, valueIdx: number): () => void {
   };
 }
 
-/** Like makeInvoker, but the returned closure can pass arguments back
- *  into Lua (used for async callback-style bindings — see
- *  buildOxisTable's fs/process/net/system tables). `closedRef` guards
- *  against calling back into a lua_State that's already been
- *  dispose()'d by the time the async operation finishes (e.g. the
- *  plugin was disabled/reloaded mid-request) — fengari doesn't crash
- *  on this, but it's not meaningful to run Lua on a state whose owner
- *  considers it gone, and it can wedge should the state be reused. */
+/** Like makeInvoker, but passes arguments to Lua (async callbacks).
+ *  Does nothing once the plugin's state has been disposed. */
 function makeInvokerWithArgs(L: LuaState, valueIdx: number, closedRef: { closed: boolean }): (...args: LuaJSValue[]) => void {
   lua.lua_pushvalue(L, valueIdx);
   const ref = lauxlib.luaL_ref(L, lua.LUA_REGISTRYINDEX);
@@ -268,13 +199,7 @@ function buildOxisTable(L: LuaState, b: OxisBindings, closedRef: { closed: boole
 
   setfn("command", (L) => {
     const name = lua.lua_tojsstring(L, 1);
-    // Was makeInvoker (zero-arg) — every Lua plugin command was
-    // silently unable to receive arguments at all, forcing plugins
-    // that needed input to fall back to shell Read-Host/read prompts
-    // instead of `'command arg1 arg2` like TypeScript-registered
-    // commands ('market install <n>, 'plugin enable <n>) already
-    // support. Real fix: forward (args, rest) as (Lua table, Lua
-    // string) — invoke() -> function(args, rest) on the Lua side.
+    // Handlers receive (args, rest): a table of words and the raw text.
     const invoke = makeInvokerWithArgs(L, 2, closedRef);
     b.command(name, (args, rest) => invoke(args, rest), argString(L, 3));
     return 0;
@@ -288,13 +213,8 @@ function buildOxisTable(L: LuaState, b: OxisBindings, closedRef: { closed: boole
   });
 
   setfn("echo", (L) => { b.echo(lua.lua_tojsstring(L, 1)); return 0; });
-  // oxis.run() is fire-and-forget from Lua's side — no callback
-  // argument, unlike fs/process/net/system — so there's no Lua-visible
-  // way to report a failure back. The .catch() here isn't decorative:
-  // without it, a permission denial (or any other rejection) becomes
-  // an "unhandled promise rejection" at best; b.run() itself now
-  // guarantees it never throws synchronously (see runScript's own doc
-  // comment), so this closes the loop on both sides of that boundary.
+  // oxis.run() has no Lua callback, so log failures (a denied
+  // permission, for example) here.
   setfn("run",  (L) => {
     b.run(lua.lua_tojsstring(L, 1)).catch((e) => {
       console.warn("[oxis:lua] oxis.run() failed:", e instanceof Error ? e.message : e);
@@ -430,12 +350,8 @@ function buildOxisTable(L: LuaState, b: OxisBindings, closedRef: { closed: boole
   lua.lua_setglobal(L, to_luastring("oxis"));
 }
 
-/** Loads and runs Lua source (its top-level body — this is where
- *  oxis.command()/oxis.task()/etc calls actually register things) in
- *  a fresh, dedicated lua_State. On success, the returned plugin's
- *  registered command closures stay callable for as long as it isn't
- *  disposed. On failure, the state is already closed — nothing to
- *  clean up. */
+/** Runs Lua source in a new lua_State (its top level registers the
+ *  commands, tasks, etc.). On failure the state is already closed. */
 export function loadLuaPlugin(source: string, bindings: OxisBindings): LuaLoadResult {
   const L = lauxlib.luaL_newstate();
   lualib.luaL_openlibs(L);
@@ -456,16 +372,8 @@ export function loadLuaPlugin(source: string, bindings: OxisBindings): LuaLoadRe
   };
 }
 
-/** Compiles (but never runs) a plugin's Lua source — catches syntax
- *  errors with zero side effects, unlike loadLuaPlugin() which is a
- *  real execution (registers commands, can run arbitrary top-level
- *  code). Used by 'plugin validate, which is specifically supposed to
- *  be safe to run on an already-loaded, currently-in-use plugin
- *  without duplicating its registered commands or re-triggering
- *  whatever it does at load time. luaL_loadstring alone (no
- *  luaL_openlibs, no lua_pcall) compiles the chunk onto the stack and
- *  reports a syntax error if there is one, without ever executing a
- *  single instruction of it. */
+/** Compiles Lua source without running it, to report syntax errors
+ *  with no side effects ('plugin validate). */
 export function checkLuaSyntax(source: string): { ok: true } | { ok: false; error: string } {
   const L = lauxlib.luaL_newstate();
   const status = lauxlib.luaL_loadstring(L, to_luastring(source));
@@ -478,11 +386,7 @@ export function checkLuaSyntax(source: string): { ok: true } | { ok: false; erro
   return { ok: true };
 }
 
-/** True — a real Lua VM is always available now (fengari is a pure-JS
- *  dependency, bundled at build time, not loaded at runtime). Kept as
- *  a function (not a constant) since pluginManager.ts checks it as
- *  one; some earlier code paths guarded on this before falling back
- *  to the old transpiler, which no longer exists. */
+/** Always true: fengari is bundled. */
 export function isAvailable(): boolean {
   return true;
 }

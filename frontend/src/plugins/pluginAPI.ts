@@ -1,39 +1,15 @@
 /**
- * pluginAPI.ts — OXIS Lua API surface
+ * pluginAPI.ts — what each oxis.* call does (luaRuntime.ts handles the
+ * Lua/JS boundary).
  *
- * Implements OxisBindings (see luaRuntime.ts) — everything a Lua
- * plugin can call via oxis.*. This file owns what each call actually
- * DOES inside OXIS; luaRuntime.ts owns getting the arguments there
- * correctly across the Lua<->JS boundary.
+ * oxis.command(name, fn, description), oxis.task(name, cmd, description),
+ * oxis.run, echo, cwd, theme, option, keymap, autocmd, plugin.enable/
+ * disable, workspace, dashboard, workflow, newTerminal, and the fs,
+ * process, net and system tables.
  *
- * oxis.command(name, fn, description)   -- description is REQUIRED, see below
- * oxis.keymap(mode, key, fn)
- * oxis.theme(name)
- * oxis.run(cmd)
- * oxis.echo(text)
- * oxis.cwd()
- * oxis.option(key, value)
- * oxis.autocmd(event, fn)
- * oxis.plugin.enable(name)
- * oxis.plugin.disable(name)
- * oxis.workspace(path)
- * oxis.dashboard({ ... })
- * oxis.task(name, cmd)
- * oxis.newTerminal()
- *
- * ── Documentation requirement ───────────────────────────────
- * Every oxis.command()/oxis.task() call is supposed to pass a real,
- * non-empty third argument describing what it does — this is what
- * powers `'help <plugin>` (see App.tsx). A call without one gets
- * tagged with the UNDOCUMENTED_SENTINEL description below.
- * pluginManager.load() scans for that sentinel right after a plugin
- * finishes executing; anything still carrying it gets a short
- * auto-generated fallback description instead (rather than disabling
- * the whole plugin — see the note in pluginManager.ts on why that
- * changed), plus a loud one-time warning telling the author to add a
- * real one. "Some commands are documented" is functionally the same
- * failure mode as "none are" for 'help, so this is still enforced,
- * just no longer by taking a working plugin's commands away.
+ * Commands and tasks should have a description (it powers 'help). One
+ * without gets UNDOCUMENTED_SENTINEL, which pluginManager replaces with
+ * a generated description and a warning.
  */
 
 import { registry } from "../terminal/commandRegistry";
@@ -71,114 +47,69 @@ export interface APIContext {
   setOption: (key: string, value: LuaJSValue) => void;
   /** Plugin name (set per-plugin) */
   pluginName: string;
-  /** Skips the shell-execution permission gate below (see
-   *  requireShellPermission in permissions.ts) — set for built-in
-   *  plugins (pluginManager.ts's load()) and for OXIS's own
-   *  workspace/task/workflow loading (workspaceManager.ts), neither
-   *  of which is third-party code a user needs to be asked about.
-   *  Every OTHER caller of buildLuaAPI (market/user plugins) leaves
-   *  this false/undefined and goes through the real one-time prompt. */
+  /** Skip the shell permission prompt: built-in plugins and the user's
+   *  own workspace, task, workflow and config files. */
   isTrusted?: boolean;
 }
 
+/** `a && b && c` → `a; if ($?) { b; if ($?) { c } }` for Windows
+ *  PowerShell 5.1, which has no `&&` (PowerShell 7 accepts both). Only
+ *  `&&` outside quotes is rewritten. */
+export function toPowerShellChain(cmd: string): string {
+  const parts: string[] = [];
+  let quote = "", start = 0;
+  for (let i = 0; i < cmd.length; i++) {
+    const c = cmd[i];
+    if (quote) { if (c === quote) quote = ""; continue; }
+    if (c === '"' || c === "'") { quote = c; continue; }
+    if (c === "&" && cmd[i + 1] === "&") { parts.push(cmd.slice(start, i).trim()); start = i + 2; i++; }
+  }
+  if (parts.length === 0) return cmd;
+  parts.push(cmd.slice(start).trim());
+  return parts.reduceRight((rest, part) => rest ? `${part}; if ($?) { ${rest} }` : part, "");
+}
+
 /**
- * Backs oxis.run() — used by nearly every builtin/market Lua plugin
- * for anything beyond a single command (session_notes, ssh_manager,
- * system_health, http, fuzzy, file_ops, env_manager, benchmark,
- * project_init, clipboard, docker_compose, snippets, process_manager…
- * — see frontend/src/plugins/builtins/*.lua).
+ * oxis.run(): runs a command in the shared shell and resolves when it
+ * has finished (scriptRunTracker), so workflows can await it and a
+ * second command can't be typed into a prompt the first is still
+ * showing.
  *
- * A single-line command is sent to the PTY exactly as always:
- * ctx.sendToShell(cmd + "\r") — fast, no filesystem I/O, nothing to
- * clean up. A MULTI-line command used to be sent the exact same way —
- * one PTY write whose string just happens to contain embedded
- * newlines — and that's where "'command spills the raw PowerShell
- * into the terminal instead of running it" came from: a PTY write
- * with embedded \n characters types each line into the LIVE
- * interactive shell as its own keystroke-then-Enter, not as one
- * parsed script. Anything with control flow (if/while, a `{ ... }`
- * block spanning lines) or an interactive Read-Host prompt gets its
- * lines fed out of step with the shell's own prompt state — a
- * Read-Host prompt ends up receiving the NEXT script line as its
- * typed answer instead of real input, producing exactly the
- * reordered/garbled ">>" continuation-prompt output this was reported
- * against, for effectively every plugin with a multi-line oxis.run().
- *
- * Fix: write the whole script to a real temp .ps1 file (native OS
- * temp dir — see WriteTempScript in internal/wailsapp/app.go) and
- * tell the shell to run THAT file, then delete it — all as one
- * single-line PTY write. It's PowerShell's own script-file parser
- * reading it then, not our raw keystrokes, so control flow and
- * Read-Host inside the script behave exactly like running any other
- * .ps1: Read-Host waits for genuine keystrokes typed into the live
- * PTY session, same as if the user had run the file themselves.
- *
- * Falls back to the old single-write behavior in browser mode (no
- * native filesystem to write a temp file to) and on non-Windows —
- * every shipped plugin script is PowerShell-specific (Get-ChildItem,
- * $env:USERPROFILE, Write-Host), so there's no cross-platform script
- * to run there either way; a plain write is no worse than before.
+ * Multi-line scripts on Windows are written to a temp .ps1 and run as
+ * one line; pasting them line by line would feed later lines into any
+ * Read-Host prompt earlier in the script.
  */
 export function runScript(ctx: APIContext, cmd: string): Promise<{ ok: boolean }> {
-  // requireShellPermission can throw synchronously (PluginPermissionError)
-  // — caught and converted into a rejected promise here rather than
-  // letting it escape as a raw synchronous exception. Every OTHER
-  // permission-gated binding (fsRead, etc.) is declared `async`, so
-  // the exact same kind of throw from requirePermission() is
-  // automatically turned into a promise rejection by JS's own async-
-  // function semantics; this function isn't `async` (it has multiple
-  // early returns of already-existing promises further down, and
-  // converting the whole thing risked changing that control flow), so
-  // the same protection has to be added explicitly instead. Without
-  // this, a denied oxis.run() call would throw synchronously from
-  // inside the native function fengari calls via lua_pushcfunction —
-  // an uncaught JS exception crossing that boundary, not a clean,
-  // catchable rejection the "run" Lua binding can handle the same way
-  // asyncCb already handles every other binding's rejections.
+  // Not an async function, so turn a synchronous permission denial into
+  // a rejection explicitly (the Lua binding only handles rejections).
   try {
     requireShellPermission(ctx.pluginName, !!ctx.isTrusted);
   } catch (e) {
     return Promise.reject(e);
   }
-  const native = isNativeApp() && isWindows();
+  const windows = isWindows();
   const send = (line: string) => ctx.sendToShell(line);
+  const done = (r: { cancelled: boolean; timedOut: boolean }) => ({ ok: !r.cancelled && !r.timedOut });
 
-  if (!cmd.includes("\n") || !native) {
-    // Single-line command, or browser-mode/non-Windows fallback. Every
-    // shipped Read-Host lives inside a multi-line (heredoc) script, so
-    // this branch was never the one that could block on interactive
-    // input — but it's routed through the same runAndAwait() as the
-    // multiline path below anyway now, so oxis.run() is properly
-    // awaitable everywhere (see workflowRunner.ts, the reason this
-    // changed from a fire-and-forget void function), and a second
-    // '-command dispatched immediately after a still-running one-liner
-    // gets the same "still busy" protection multi-line scripts already
-    // had, instead of none at all.
-    return scriptRunTracker.runAndAwait(send, cmd).then((r) => ({ ok: !r.cancelled && !r.timedOut }));
+  if (!cmd.includes("\n") || !windows || !isNativeApp()) {
+    return scriptRunTracker.runAndAwait(send, windows ? toPowerShellChain(cmd) : cmd).then(done);
   }
 
-  // Read-Host inside the script blocks the shell on real keystrokes
-  // exactly like running the .ps1 by hand, and runAndAwait()'s marker
-  // only prints once that's genuinely finished (see scriptRunTracker.ts)
-  // — that's what lets a second '-command refuse to stomp on a prompt
-  // this one is still waiting on, instead of silently corrupting it.
   return writeTempScript(".ps1", cmd)
-    .then((path) => {
-      // -ErrorAction SilentlyContinue on the cleanup only — a delete
-      // that fails (e.g. antivirus briefly holding the file open)
-      // shouldn't surface as a scary error tacked onto the script's
-      // own output.
-      const launch = `& "${path}"; Remove-Item "${path}" -Force -ErrorAction SilentlyContinue`;
-      return scriptRunTracker.runAndAwait(send, launch);
-    })
-    .catch(() => {
-      // Couldn't write the temp file (disk full, permissions, etc.) —
-      // fall back to a raw single-line send, still awaited, rather
-      // than silently doing nothing.
-      return scriptRunTracker.runAndAwait(send, cmd);
-    })
-    .then((r) => ({ ok: !r.cancelled && !r.timedOut }));
+    .then((path) => scriptRunTracker.runAndAwait(send,
+      `& "${path}"; Remove-Item "${path}" -Force -ErrorAction SilentlyContinue`))
+    // Couldn't write the temp file: send it as-is rather than do nothing.
+    .catch(() => scriptRunTracker.runAndAwait(send, cmd))
+    .then(done);
 }
+
+/** autocmd names that don't match an internal event name directly. */
+const AUTOCMD_ALIASES: Record<string, string> = {
+  shell_open: "shell_started",
+  terminal_open: "shell_started",
+  shell_exit: "shell_exited",
+  terminal_close: "shell_exited",
+};
 
 export function buildLuaAPI(ctx: APIContext): OxisBindings {
   const options: Record<string, LuaJSValue> = {};
@@ -210,20 +141,8 @@ export function buildLuaAPI(ctx: APIContext): OxisBindings {
         description: hasDesc ? description!.trim() : UNDOCUMENTED_SENTINEL,
         category: "task",
         fromPlugin: ctx.pluginName,
-        // Routed through runScript() (same as oxis.run()), not a
-        // direct ctx.sendToShell(cmd + "\r") — a task's command is
-        // just as much "this plugin running an arbitrary shell
-        // command" as oxis.run() is, captured at registration time
-        // and executed later, and was a complete bypass of the
-        // permission gate above until this: a task's command never
-        // went through runScript at all, so it was defined once with
-        // no check and then ran forever with no check, regardless of
-        // what oxis.run() itself required.
-        // .catch() isn't decorative — requireShellPermission() inside
-        // runScript can reject this (see runScript's own doc comment
-        // on why that's a rejection now, not a synchronous throw);
-        // without a handler here, a denied task would surface as an
-        // unhandled promise rejection instead of a clean message.
+        // Tasks run through runScript like oxis.run(), so they get
+        // the same permission check; a denial becomes a message.
         handler: () => { void runScript(ctx, cmd).catch((e) => ctx.print(`  ✗  ${name}: ${e instanceof Error ? e.message : e}`, "err")); },
       });
     },
@@ -238,18 +157,16 @@ export function buildLuaAPI(ctx: APIContext): OxisBindings {
     getOption: (key) => (options[key] ?? ctx.getOption(key)),
     setOption: (key, value) => { options[key] = value; ctx.setOption(key, value); },
 
-    // oxis.autocmd("TerminalOpen", fn) — maps Lua PascalCase event
-    // names to internal snake_case.
+    // oxis.autocmd("WorkspaceLoaded", fn) — PascalCase Lua names map to
+    // the internal snake_case events, plus a few friendlier aliases.
     autocmd: (event, invoke) => {
-      const mapped = event.replace(/([A-Z])/g, "_$1").toLowerCase().replace(/^_/, "");
+      const snake = event.replace(/([A-Z])/g, "_$1").toLowerCase().replace(/^_/, "");
+      const mapped = AUTOCMD_ALIASES[snake] ?? snake;
       events.on(mapped, () => { try { invoke(); } catch { /* noop */ } });
     },
 
-    // oxis.keymap("normal", "<C-t>", fn) — mode is one of "normal" /
-    // "insert" / "visual" (see README § Input Modes); the bind only
-    // fires while that mode is active (see keybinds.ts's activeMode,
-    // set by the built-in editor). Pass "" / "global" for a bind that
-    // should fire regardless of mode, same as before this existed.
+    // Mode is "normal" / "insert" / "visual" (editor modes; the bind
+    // only fires in that mode) or "" / "global" for always.
     keymap: (mode, combo, invoke) => {
       const ctrl  = combo.includes("<C-");
       const alt   = combo.includes("<A-");
@@ -267,12 +184,8 @@ export function buildLuaAPI(ctx: APIContext): OxisBindings {
     pluginEnable:  (name) => events.emit("plugin_enable_request",  { name }),
     pluginDisable: (name) => events.emit("plugin_disable_request", { name }),
 
-    // Gated (unlike pluginEnable/Disable/dashboard above, which are
-    // low-stakes UI events) because these change what the user is
-    // looking at / where OXIS's configuration comes from — a plugin
-    // silently switching workspaces or popping open new terminal tabs
-    // is the kind of thing worth a one-time confirmation, same as
-    // fs/process/net/system already get.
+    // Permission-gated: these change what the user sees or which
+    // configuration is active.
     workspace: (path) => { requirePermission(ctx.pluginName, "workspace"); events.emit("workspace_loaded", { path }); },
     dashboard: (config) => events.emit("dashboard_config", { config }),
     workflow: (name, def, description) => {
@@ -280,13 +193,8 @@ export function buildLuaAPI(ctx: APIContext): OxisBindings {
       for (const w of warnings) ctx.print(`  ⚠  workflow ${name}: ${w}`, "dim");
     },
 
-    // ── Core System APIs — see README § Core System APIs ─────────
-    // Every one of these is gated by requestPermission() first: a
-    // plugin has to be granted "fs"/"process"/"net"/"system" before
-    // it reaches the real native call at all (see permissions.ts).
-    // fs/process/system additionally require the native app (real
-    // Wails Go bindings) — there's no browser-mode equivalent, same
-    // constraint the editor's readFile/writeFile already have.
+    // ── Core system APIs — each checks its permission first. fs,
+    // process and system need the native app. ──
     fsRead: async (path) => {
       requirePermission(ctx.pluginName, "fs");
       if (!isNativeApp()) throw new Error("oxis.fs needs the native OXIS app (no filesystem access in browser mode)");
@@ -333,11 +241,7 @@ export function buildLuaAPI(ctx: APIContext): OxisBindings {
     },
 
     // oxis.net.request({ url=..., method="GET", headers={...}, body=... })
-    // Plain fetch() — works in both native (webview) and browser mode.
-    // Real network access, gated the same as fs/process; NOT routed
-    // through any OXIS-owned proxy or given special credentials, so a
-    // plugin like AI DevOps (see README § AI DevOps) has no more
-    // access than any third-party plugin could ask a user to grant.
+    // Plain fetch() with no special credentials.
     netRequest: async (opts) => {
       requirePermission(ctx.pluginName, "net");
       const o = (opts ?? {}) as { url?: string; method?: string; headers?: Record<string, string>; body?: string };

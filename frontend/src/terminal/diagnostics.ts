@@ -1,21 +1,10 @@
 /**
- * diagnostics.ts — recent-errors ring buffer backing 'diagnostics.
+ * diagnostics.ts — the recent-errors list behind 'diagnostics. Local
+ * only; nothing is sent anywhere.
  *
- * Purely local, in-memory, never transmitted anywhere — 'diagnostics
- * exists to show YOU what's going on, not to phone home. There's no
- * telemetry in OXIS at all; this file doesn't add any.
- *
- * Two sources feed the same buffer:
- *  - recordError() — called explicitly from the few places that
- *    already produce a real, actionable error message (plugin load
- *    failures, permission denials — see pluginManager.ts), so
- *    'diagnostics shows the SAME text you'd have already seen printed
- *    to the terminal, not a paraphrase of it.
- *  - a window "error"/"unhandledrejection" listener (installed once,
- *    see installGlobalErrorCapture below), which catches genuinely
- *    uncaught JS exceptions — the ones that would otherwise only ever
- *    show up in the browser devtools console, invisible to a user who
- *    doesn't have that open.
+ * Fed by recordError() (plugin failures, permission denials, command
+ * errors) and by window error/unhandledrejection listeners
+ * (installGlobalErrorCapture).
  */
 
 export interface DiagnosticError {

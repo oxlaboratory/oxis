@@ -24,16 +24,9 @@ type outMsg struct {
 	Message string `json:"message,omitempty"`
 }
 
-// stripCtrl removes all ANSI/VT escape sequences from PTY output.
-// We pass NOTHING through — no colors, no SGR, no OSC title-set, no
-// bracketed-paste mode toggles, nothing. The frontend renders its own
-// theme-driven colors and doesn't need (or want) raw terminal escapes;
-// leaving them in corrupts the display with visible garbage like
-// "[?2004h" or the raw OSC window-title sequence.
-//
-// Shared by both pty_windows.go (ConPTY) and pty_unix.go (creack/pty) so
-// output is identical across platforms — this used to only run on
-// Windows, which meant Linux/macOS builds leaked raw escape codes.
+// ansiRe matches every ANSI/VT escape sequence. The frontend renders its
+// own theme colours, so all escapes are stripped from PTY output on
+// every platform.
 var ansiRe = regexp.MustCompile(
 	// OSC sequences: ESC ] ... ST
 	`\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)` +
@@ -45,27 +38,18 @@ var ansiRe = regexp.MustCompile(
 		`|\x1b`,
 )
 
+// rowStartRe matches "move the cursor to column 1 of row N". ConPTY uses
+// it instead of CRLF when it repaints, so it has to become a line break
+// or consecutive rows run together once escapes are stripped.
+var rowStartRe = regexp.MustCompile(`\x1b\[\d+;1H`)
+
 func stripCtrl(s string) string {
-	return ansiRe.ReplaceAllString(s, "")
+	return ansiRe.ReplaceAllString(rowStartRe.ReplaceAllString(s, "\n"), "")
 }
 
-// splitIncompleteUTF8 returns (complete, pending): pending is any
-// trailing bytes at the end of data that start a multi-byte UTF-8
-// sequence but don't yet have all their continuation bytes present.
-// Shared by both pty_unix.go and pty_windows.go's read loops — each
-// PTY read is converted to a Go string directly (string(buf[:n])),
-// and if a real multi-byte character (an emoji, a non-English
-// filename, accented characters, CJK output from a tool that prints
-// them) happens to land exactly across the read buffer's boundary,
-// converting each half separately corrupts it: json.Marshal replaces
-// each invalid half with one or more U+FFFD replacement characters
-// BEFORE the two chunks ever reach the frontend to be concatenated —
-// by the time the browser sees them, the character is already gone,
-// not just split. A real, reproduced bug: "hello 🎉 world" split
-// mid-emoji became "hello ���� world" on the wire. The fix: hold back
-// an incomplete trailing sequence and prepend it to the NEXT read
-// before converting anything to a string, so a chunk is only ever
-// turned into a string once it can't possibly be cut mid-character.
+// splitIncompleteUTF8 splits off a trailing, incomplete multi-byte UTF-8
+// sequence so it can be prepended to the next PTY read instead of being
+// turned into U+FFFD when the chunk is converted to a string.
 func splitIncompleteUTF8(data []byte) (complete []byte, pending []byte) {
 	n := len(data)
 	if n == 0 {
@@ -76,7 +60,7 @@ func splitIncompleteUTF8(data []byte) (complete []byte, pending []byte) {
 	for back := 1; back <= 3 && back <= n; back++ {
 		b := data[n-back]
 		if b&0xC0 == 0x80 {
-			continue // a continuation byte — keep looking further back for the lead byte
+			continue // continuation byte
 		}
 		var seqLen int
 		switch {
@@ -89,12 +73,12 @@ func splitIncompleteUTF8(data []byte) (complete []byte, pending []byte) {
 		case b&0xF8 == 0xF0:
 			seqLen = 4
 		default:
-			seqLen = 1 // not a valid lead byte at all — genuinely invalid input, not an incomplete-read artifact; leave it for stripCtrl/json.Marshal to handle as they already do
+			seqLen = 1 // invalid lead byte; pass it through
 		}
 		if seqLen > back {
 			return data[:n-back], data[n-back:]
 		}
-		break // this lead byte already has all its continuation bytes (or is ASCII) — nothing incomplete
+		break
 	}
 	return data, nil
 }

@@ -1,14 +1,12 @@
 /**
- * commandRegistry.ts — OXIS unified command registry
- *
- * All built-in and Lua plugin commands register here.
- * Lua uses oxis.command("name", fn) which calls registerCommand internally.
+ * commandRegistry.ts — the single registry for built-in and plugin
+ * commands (oxis.command registers here).
  */
 
 import { events } from "./events";
 import { recordError } from "./diagnostics";
 
-export type CommandHandler = (args: string[], rest: string) => void;
+export type CommandHandler = (args: string[], rest: string) => unknown;
 
 export interface CommandEntry {
   name: string;
@@ -61,27 +59,21 @@ class CommandRegistry {
   execute(name: string, args: string[], rest: string): boolean {
     const cmd = this.commands.get(name.toLowerCase());
     if (!cmd) return false;
-    try {
-      cmd.handler(args, rest);
-      events.emit("command_executed", { name, args });
-    } catch (e) {
-      // Found doing a broad audit: a command handler throwing here
-      // used to be caught and then only ever logged to
-      // console.error — completely invisible to an actual user, who
-      // would just see their command silently do nothing, with zero
-      // feedback that anything went wrong at all. Because this is a
-      // caught exception, not an uncaught one, it also never reached
-      // installGlobalErrorCapture()'s own window-level listener, so
-      // it wouldn't have shown up in 'diagnostics' recent errors
-      // either — a buggy command was invisible from every angle a
-      // real user could actually check. Now recorded properly (same
-      // 'diagnostics list every other app-level error uses) and
-      // emitted as its own event so the active terminal can print
-      // something the user actually sees, instead of dead silence.
+    // Errors are recorded for 'diagnostics and surfaced in the terminal
+    // (command_error) rather than only logged to the console. Async
+    // handlers are covered too.
+    const fail = (e: unknown) => {
       const message = e instanceof Error ? e.message : String(e);
       console.error(`[oxis:cmd] ${name}`, e);
       recordError(`command '${name}' failed: ${message}`, "app");
       events.emit("command_error", { name, message });
+    };
+    try {
+      const result = cmd.handler(args, rest);
+      if (result instanceof Promise) result.catch(fail);
+      events.emit("command_executed", { name, args });
+    } catch (e) {
+      fail(e);
     }
     return true;
   }

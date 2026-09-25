@@ -1,21 +1,9 @@
 /**
- * git.ts — real git integration backing 'workspace github/gitlab and
- * `task commit`. Runs actual `git` via runCommand() (native.ts) —
- * argv-based, never a shell-interpreted string, so a commit message
- * or branch name can't break out into a second command the way
- * string-concatenated shell input could.
- *
- * commitAll() also pushes to `origin` after a successful commit, if
- * one is configured — this used to be explicitly out of scope (an
- * earlier version of this comment said so directly), which turned
- * out to be a real, reported gap: a "successful" `'task commit` that
- * never actually reached GitHub/GitLab wasn't doing what anyone
- * running that command would expect. Pushing relies on whatever
- * credentials (SSH key or a credential helper) are already set up on
- * the machine — this still doesn't manage authentication itself, it
- * just surfaces a clear, classified error (see pushCurrentBranch)
- * when there isn't a working one, rather than pretending to push
- * successfully or leaving the failure as opaque git stderr.
+ * git.ts — git for 'workspace github/gitlab and 'task commit, run as
+ * real `git` processes via runCommand() (argv only, never a shell
+ * string). commitAll() pushes to origin when there is one, using the
+ * machine's existing SSH key or credential helper, and classifies push
+ * failures.
  */
 
 import { runCommand, cancelCommand } from "../native";
@@ -24,21 +12,8 @@ export interface GitFileChange { path: string; status: string } // status: git's
 export interface GitStatus { isRepo: true; branch: string; files: GitFileChange[]; clean: boolean }
 export interface GitNotARepo { isRepo: false }
 
-// Tracks whichever git() call is CURRENTLY in flight (from
-// commitAll's own sequence of add/commit/push, specifically — see
-// cancelActiveCommit below), so a Ctrl+C during 'task commit can
-// cancel whatever step is actually running right now, not just stop
-// waiting on it client-side. Real cancellation — see CancelCommand in
-// internal/wailsapp/app.go — was a genuine gap found while building
-// this: there was previously no way to interrupt an in-flight
-// RunCommand call at all, only a fixed timeout to wait out, which
-// (now that commitAll can push, a real network operation) had to grow
-// from 30s to several minutes to not falsely kill a legitimately slow
-// push — making the lack of real cancellation matter a lot more than
-// it used to. Module-level rather than passed through every call
-// specifically so cancelActiveCommit() can be called from anywhere
-// (App.tsx's Ctrl+C handling) without threading a cancellation token
-// through the whole commitAll/pushCurrentBranch call chain.
+// The git call currently running for 'task commit, so Ctrl+C can
+// cancel it (killing the process) from anywhere.
 let activeRequestId: string | null = null;
 
 async function git(dir: string, args: string[]) {
@@ -51,13 +26,7 @@ async function git(dir: string, args: string[]) {
   }
 }
 
-/** Cancels whichever git() call is currently active (add/commit/push,
- *  whichever step 'task commit happens to be on right now) — real
- *  cancellation, not just giving up on waiting for it; see
- *  CancelCommand's own doc comment in app.go for what actually
- *  happens on the Go side (the real child process gets killed).
- *  Returns false (not an error) if nothing is currently active —
- *  nothing to cancel, not a failure. */
+/** Cancels the running 'task commit step. false if none is running. */
 export async function cancelActiveCommit(): Promise<boolean> {
   if (!activeRequestId) return false;
   return cancelCommand(activeRequestId);
@@ -103,23 +72,9 @@ export async function getStatus(dir: string): Promise<GitStatus | GitNotARepo> {
 
 export interface CommitResult { ok: boolean; message: string; hash?: string; pushed?: boolean }
 
-/** Stages everything in `dir` (and only `dir` — git itself already
- *  scopes `add -A` to the repo it's run in via cwd, so this can't
- *  reach outside the connected project) and commits with the given
- *  message. Real argv (`-m`, message), not a shell string — a message
- *  containing quotes, `;`, backticks, etc. is just message text here,
- *  never a way to run something else.
- *
- *  Pushes to `origin` afterward IF one is configured — this used to
- *  be explicitly out of scope (an earlier design note here said so
- *  directly), which was a real, reported gap: a "successful" commit
- *  task that never actually reached GitHub/GitLab wasn't doing what
- *  anyone asking for `'task commit` would expect. A commit with no
- *  remote configured is NOT an error — `pushed: false` with no error
- *  message, since committing locally-only is a completely normal,
- *  valid thing to do; the caller (App.tsx's runCommitTask) is what
- *  decides how to phrase "committed, nothing to push" vs "committed
- *  and pushed" vs "committed, but the push failed" for the user. */
+/** `git add -A` and `git commit -m <message>` in `dir`, then a push to
+ *  origin if one is configured. No remote isn't an error (pushed: false);
+ *  the caller words the result. */
 export async function commitAll(dir: string, message: string, onProgress?: (step: string) => void): Promise<CommitResult> {
   if (!message.trim()) return { ok: false, message: "commit message can't be empty" };
   const status = await getStatus(dir);
@@ -148,24 +103,15 @@ export async function commitAll(dir: string, message: string, onProgress?: (step
   onProgress?.("pushing to origin…");
   const pushResult = await pushCurrentBranch(dir);
   if (!pushResult.ok) {
-    // The COMMIT itself succeeded — only report the push half as
-    // failed, don't roll back or claim the whole operation failed.
-    // ok stays true (the commit is real and permanent either way);
-    // pushed:false plus a real error message is how the caller tells
-    // "committed but not pushed" apart from "commit itself failed".
+    // The commit stands; report only the push as failed.
     return { ok: true, message: `${commitMessage}\n\ncommitted locally, but push failed: ${pushResult.message}`, hash, pushed: false };
   }
   return { ok: true, message: `${commitMessage}\n\npushed to origin`, hash, pushed: true };
 }
 
-/** Pushes the current branch to `origin`, classifying the specific
- *  failure rather than just surfacing raw stderr — auth failures,
- *  a missing/misconfigured remote, and diverged-history rejections
- *  all look different to a user and (per this file's own design
- *  brief) OXIS deliberately does NOT attempt an automatic merge/
- *  rebase to resolve a diverged push itself; that's a real decision
- *  a person should make, not something a "commit" task should guess
- *  at silently. */
+/** Pushes the current branch to origin and classifies failures
+ *  (authentication, missing remote, rejected). Never merges or rebases
+ *  on its own. */
 async function pushCurrentBranch(dir: string): Promise<{ ok: boolean; message: string }> {
   const branchRes = await git(dir, ["rev-parse", "--abbrev-ref", "HEAD"]);
   const branch = branchRes.stdout.trim();
@@ -207,30 +153,10 @@ export async function getRemotes(dir: string): Promise<GitRemote[]> {
 
 export interface UnlinkRemoteResult { ok: boolean; message: string; removedCompletely: boolean }
 
-/** Backs `'workspace github unlink` / `'workspace gitlab unlink` —
- *  disconnects the workspace's GitHub/GitLab integration without
- *  deleting the local project, the workspace, `.oxis/`, source
- *  files, or the local `.git` repository itself: none of those are
- *  touched here at all, only the `origin` remote configuration.
- *
- *  By default, RENAMES `origin` to a timestamped backup name (`git
- *  remote rename`) rather than deleting it — this is what actually
- *  satisfies the specific requirement that unlinking must NOT
- *  remove the real git remote unless explicitly asked to: OXIS has
- *  no separate "which provider is this connected to" bookkeeping of
- *  its own, it just looks for a remote literally named `origin`
- *  (see getRemotes/setupRemote) to decide whether a workspace is
- *  connected — renaming it away is what makes OXIS treat the
- *  project as unlinked while the remote's own URL is fully preserved
- *  (visible with `git remote -v`, and restorable by renaming it back
- *  through git directly), not silently discarded. `removeCompletely`
- *  runs an actual `git remote remove` instead, for someone who
- *  explicitly wants the remote gone, not just hidden from OXIS.
- *
- *  Either way, `origin` is free again afterward, so `'workspace
- *  github`/`gitlab` can connect the same workspace to a different
- *  repository right after — the one other explicit requirement this
- *  needs to satisfy. */
+/** `'workspace github unlink`: disconnects origin without touching the
+ *  project, workspace or .git. By default origin is renamed to a
+ *  timestamped backup (restorable with git); removeCompletely deletes
+ *  it. Either way origin is free for a new remote. */
 export async function unlinkRemote(dir: string, removeCompletely = false): Promise<UnlinkRemoteResult> {
   const remotes = await getRemotes(dir);
   const origin = remotes.find(r => r.name === "origin");
@@ -265,14 +191,8 @@ export function normalizeRemoteUrl(provider: GitProvider, input: string): string
   return `https://${host}/${cleaned}.git`;
 }
 
-/** The reverse of normalizeRemoteUrl — given whatever's actually
- *  configured as `origin` (HTTPS or SSH form, github.com or
- *  gitlab.com), extracts which provider it is and the `owner/repo`
- *  path. Used by Home's WORKSPACE panel to show real git connection
- *  status instead of just "connected: <path>" — see WorkspacePanel in
- *  App.tsx. Returns null for anything that isn't recognizably one of
- *  the two (a different host entirely, or a malformed URL) rather
- *  than guessing. */
+/** Provider and owner/repo from an origin URL (HTTPS or SSH, GitHub or
+ *  GitLab), for Home's workspace panel. null if unrecognised. */
 export function parseGitRemote(url: string): { provider: GitProvider; repo: string } | null {
   const m = url.match(/(?:github\.com[:/]|gitlab\.com[:/])([^/]+\/[^/]+?)(?:\.git)?\/?$/i);
   if (!m) return null;
@@ -282,13 +202,8 @@ export function parseGitRemote(url: string): { provider: GitProvider; repo: stri
 
 export interface SetupRemoteResult { ok: boolean; message: string; needsConfirmation?: { existingUrl: string } }
 
-/** `'workspace github`/`'workspace gitlab`'s actual work: makes sure
- *  `dir` is a real git repo (initializing one if it isn't — a fresh
- *  project connected to OXIS is a completely normal case to start
- *  from), then configures the `origin` remote. Refuses to silently
- *  overwrite an existing DIFFERENT origin — returns needsConfirmation
- *  instead of just doing it, so the caller (the command handler) can
- *  ask before calling this again with force:true. */
+/** `'workspace github/gitlab`: init a repo if needed, then set origin.
+ *  A different existing origin needs force (returns needsConfirmation). */
 export async function setupRemote(dir: string, provider: GitProvider, repoInput: string, force = false): Promise<SetupRemoteResult> {
   if (!(await isGitRepo(dir))) {
     const init = await initRepo(dir);

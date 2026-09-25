@@ -1,13 +1,10 @@
 /**
- * terminal.ts — OXIS terminal core
- * Line model · ANSI · output processing · word ops · virtual scroll
- * Zero React. Zero PTY. Zero UI.
+ * terminal.ts — terminal output model: lines, escape stripping, output
+ * processing, and readline word operations. No React, no PTY.
  */
 
 // ─────────────────────────────────────────────────────────────
-// ANSI / VT STRIPPER
-// Full VT100 / VT220 / xterm / ANSI SGR coverage.
-// Strips everything the Go backend missed (double-pass safety).
+// ANSI / VT STRIPPER (the Go side already strips; this is a second pass)
 // ─────────────────────────────────────────────────────────────
 const ANSI_RE = new RegExp(
   [
@@ -29,10 +26,18 @@ const ANSI_RE = new RegExp(
 
 export function stripAnsi(s: string): string {
   return s
-    .replace(ANSI_RE, "")          // remove escape sequences
-    .replace(/\r\n/g, "\n")        // normalise CRLF → LF
-    .replace(/\r(?!\n)/g, "\n")    // bare CR → LF
-    .replace(/[\x00\x07\x08]/g, ""); // NUL / BEL / BS
+    .replace(ANSI_RE, "")               // remove escape sequences
+    .replace(/[\x00\x07\x08]/g, "");   // NUL / BEL / BS
+}
+
+/** What a line with carriage returns shows: each bare \r returns to the
+ *  start of the line, so progress output ("4%\r8%\r12%") collapses to
+ *  its last state. */
+export function visibleText(line: string): string {
+  if (!line.includes("\r")) return line;
+  const parts = line.split("\r");
+  for (let i = parts.length - 1; i >= 0; i--) if (parts[i] !== "") return parts[i];
+  return "";
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -40,7 +45,7 @@ export function stripAnsi(s: string): string {
 // ─────────────────────────────────────────────────────────────
 export type LineKind =
   | "ok" | "err" | "warn" | "info" | "dim" | "accent"
-  | "cmd" | "shell" | "banner" | "banner-wheel" | "search";
+  | "cmd" | "shell" | "search";
 
 export interface Line {
   id:    number;
@@ -61,110 +66,36 @@ export const LINE_COLORS: Record<string, string> = {
   accent: "var(--purple)",
   cmd:    "var(--purple3)",
   shell:  "var(--text)",
-  banner: "var(--purple)",
-  "banner-wheel": "var(--purple)",
   search: "var(--purple2)",
 };
 
-// ─────────────────────────────────────────────────────────────
-// BANNER — the OXIS train
-//
-// Same art used on the home screen (App.tsx), shared from here so
-// the two never drift apart. The body rows are static; the wheel row
-// is a template with placeholder wheel glyphs that gets re-rendered
-// through a few frames (see TRAIN_WHEEL_FRAME_CHARS / trainWheelFrame)
-// to fake a spinning-wheel "the train is moving" effect on boot. The
-// home screen renders the same template but never advances the
-// frame, so it reads as parked.
-//
-// IMPORTANT — width padding:
-// Both render sites (shell boot banner, startup splash) lay the
-// banner out as one <div> per row inside a `text-align: center`
-// container. CSS centers each row INDEPENDENTLY based on that row's
-// own width. The raw art rows are NOT equal length (the train's
-// silhouette is naturally uneven — roof vs. wheels vs. carriages), so
-// centering them independently would shift each row by a different
-// amount and visibly warp the train left/right, row to row.
-// Padding every row to the same fixed width up front means
-// independent-per-row centering produces the exact same result as
-// centering the whole block once — the shape's internal alignment is
-// preserved. Do this here, once, at the source, so every consumer
-// (shell banner, startup splash) is correct automatically and can't
-// regress by rendering the raw arrays directly.
-// ─────────────────────────────────────────────────────────────
-// The old boot banner rendered a multi-row ASCII train (plus a
-// spinning-wheel animation frame) at the top of every new shell tab.
-// Removed per the terminal-UX pass: it ate vertical space, delayed
-// the shell feeling "live" while it printed, and had nothing to do
-// with the actual terminal session starting. Replaced with a single
-// plain line — no ASCII art, no animation to replace it with (the
-// "OXIS" wordmark now lives in the terminal's own top-right corner
-// instead, rendered once in the Terminal component's JSX, not as
-// scrollback text).
-export function bannerLines(): Line[] {
-  return [
-    mkLine("  OXIS · type 'help for commands · shell is live", "banner"),
-    mkLine("", "banner"),
-  ];
+/** What a fresh or cleared terminal shows: one short hint line. */
+export function initialLines(): Line[] {
+  return [mkLine("  type 'help for OXIS commands — anything else runs in your shell", "dim")];
 }
-
-// The banner occupies exactly this many lines.
-// Output from the shell is NEVER merged into a banner line.
-export const BANNER_LINE_COUNT = 2;
 
 // ─────────────────────────────────────────────────────────────
 // OUTPUT PROCESSOR
 //
-// Rules:
-//   1. Strip ANSI.
-//   2. Normalise line endings.
-//   3. Split into completed lines + a trailing pending fragment.
-//   4. The first completed line is appended to the last output
-//      line ONLY if that line is a "shell" kind AND the buffer
-//      is past the banner section — never merged into banner.
+// Strips ANSI, normalises line endings and splits into completed
+// lines plus a trailing partial line carried to the next chunk.
 // ─────────────────────────────────────────────────────────────
 export function processOutput(
   raw: string,
   pending: string,
 ): { completedLines: string[]; newPending: string } {
-  const clean    = stripAnsi(raw);
-  const combined = pending + clean;
-  const norm     = combined.replace(/\r\n/g, "\n").replace(/\r(?!\n)/g, "\n");
-  const parts    = norm.split("\n");
+  // A trailing \r is kept in `pending` so a CRLF split across two
+  // chunks still reads as one line break.
+  const parts = (pending + stripAnsi(raw)).replace(/\r\n/g, "\n").split("\n");
   const newPending = parts.pop() ?? "";
-  return { completedLines: parts, newPending };
+  return { completedLines: parts.map(visibleText), newPending };
 }
-
-/**
- * Merge completed lines into the existing line buffer.
- * Handles the banner-guard and append-to-last-line logic.
- */
-export function mergeOutput(
-  prev: Line[],
-  completedLines: string[],
-): Line[] {
+/** Appends completed lines to the buffer. Unfinished lines never
+ *  reach it (the caller keeps them as `pending`), so nothing is merged. */
+export function mergeOutput(prev: Line[], completedLines: string[]): Line[] {
   if (completedLines.length === 0) return prev;
-
-  const next = [...prev];
-  const last = next[next.length - 1];
-
-  // Only append first chunk to last line when:
-  //  - The last line is a shell output line (not banner/cmd/ok etc.)
-  //  - We are past the fixed banner section
-  const pastBanner = next.length > BANNER_LINE_COUNT;
-  const canMerge   = pastBanner && last && (last.kind === "shell" || last.kind == null) && last.text !== "";
-
-  if (canMerge) {
-    next[next.length - 1] = mkLine(last.text + completedLines[0], "shell");
-  } else {
-    next.push(mkLine(completedLines[0], "shell"));
-  }
-
-  for (let i = 1; i < completedLines.length; i++) {
-    next.push(mkLine(completedLines[i], "shell"));
-  }
-
-  // Evict old lines to keep memory bounded (keep last 8000)
+  const next = prev.concat(completedLines.map(t => mkLine(t, "shell")));
+  // Keep memory bounded.
   return next.length > 10_000 ? next.slice(-8_000) : next;
 }
 

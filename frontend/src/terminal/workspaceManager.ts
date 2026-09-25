@@ -1,21 +1,13 @@
 /**
- * workspaceManager.ts — real workspace lifecycle (see README §
- * Workspace System).
+ * workspaceManager.ts — workspace lifecycle.
  *
- * A workspace is a `.oxis/workspace.lua` file. There's no separate
- * "workspace config format" or new oxis.* API for this — a workspace
- * file runs through the exact same Lua VM and `oxis.*` bindings as a
- * plugin does (buildLuaAPI + loadLuaPlugin, see pluginManager.ts's
- * load()), just tagged with the pseudo-plugin name "__workspace__"
- * instead of a real plugin's name. That's deliberate: it means a
- * workspace file can call oxis.task(...), oxis.theme(...),
- * oxis.plugin.enable(...), oxis.command(...), etc. with zero new API
- * surface, and `'workspace close` can cleanly undo everything it did
- * with the registry's existing unregisterByPlugin().
+ * A workspace is a `.oxis/workspace.lua` run through the normal plugin
+ * Lua VM and oxis.* bindings under the pseudo-plugin name
+ * "__workspace__", so closing it can unregister everything it added.
+ * Named workspaces, linked projects, tasks/workflows folders, auto-reload
+ * and layout migration are built on the same load().
  *
- * Requires the native app (real filesystem access) — see isNativeApp()
- * in native.ts. In browser mode, every method here fails with a clear
- * message rather than silently doing nothing.
+ * Needs the native app; in a browser every method fails with a message.
  */
 
 import { readFile, writeFile, statPath, listDir, makeDir, deletePath, isNativeApp } from "../native";
@@ -33,14 +25,8 @@ const WORKSPACE_REL_PATH = ".oxis/workspace.lua";
 const NAMED_SUBDIRS = ["documents", "plugins", "scripts", "tasks", "workflows", ".oxis"] as const;
 const REGISTRY_PATH = "workspaces/registry.json";
 
-// Bumped whenever a new OXIS version changes what a workspace's own
-// folder is expected to contain (a new entry added to NAMED_SUBDIRS,
-// for instance — tasks/ and workflows/ didn't always exist). See
-// migrateWorkspaces() below — this is the "auto-updater for
-// workspaces" that runs once whenever OXIS itself has been updated
-// since the last launch, bringing every EXISTING workspace's on-disk
-// layout in line with what the running version expects, without
-// touching anything the user actually created or customized.
+// Bumped when the expected workspace folder layout changes (e.g. a new
+// NAMED_SUBDIRS entry); see migrateWorkspaces().
 const CURRENT_WORKSPACE_SCHEMA = 1;
 const LAST_SEEN_VERSION_KEY = "oxis-last-seen-version";
 const AUTO_RELOAD_POLL_MS = 3000;
@@ -54,16 +40,9 @@ const CONNECTOR_FILENAME = ".oxis-connector.json";
 const GITIGNORE_RULE = `${CONNECTOR_FILENAME}`;
 const GITIGNORE_MARKER = "# OXIS workspace connector — do not commit"; // written just above the rule so it's identifiable/removable on unlink, and so a human reading .gitignore knows why the line is there
 
-/** Writes (creating if absent) `<dir>/.gitignore` with the one rule
- *  needed to keep the OXIS connector file (below) out of the user's
- *  actual repository — see item 8: never overwrites or reorders
- *  anything already in the file, never duplicates the rule if it's
- *  already there (checked as a real line match, not just a substring,
- *  so a rule that happens to CONTAIN this text for unrelated reasons
- *  doesn't get treated as already covering this). Best-effort: a
- *  read-only or otherwise inaccessible directory logs and returns
- *  rather than throwing, since failing to link the workspace itself
- *  over a .gitignore write failure would be a worse outcome. */
+/** Adds the connector-file rule to `<dir>/.gitignore` (created if
+ *  missing) without touching existing rules or duplicating it. Failures
+ *  are logged, not thrown: linking shouldn't fail over a .gitignore. */
 async function ensureGitignoreRule(dir: string): Promise<void> {
   const path = `${dir}/.gitignore`;
   let existing = "";
@@ -76,16 +55,8 @@ async function ensureGitignoreRule(dir: string): Promise<void> {
   catch { /* read-only/inaccessible directory — the link itself still succeeds, just without this protection; 'workspace info can't easily surface this from here, so it's a silent best-effort by design rather than failing the whole link */ }
 }
 
-/** Writes the connector file itself — a small, non-sensitive marker
- *  (just the OXIS workspace name and when it was linked) that lives
- *  IN the external project directory, representing "this directory is
- *  linked to this OXIS workspace." The real source of truth for the
- *  link is still workspaces/registry.json (see linkExternal) — this
- *  is a secondary, human-discoverable marker, not sensitive OXIS
- *  internal data, so there's nothing here that would matter if it
- *  leaked; it's gitignored purely so a project's own repo doesn't
- *  carry OXIS-specific clutter that means nothing to anyone else who
- *  clones it. */
+/** Writes the connector marker (workspace name + link time) into the
+ *  linked project. registry.json remains the source of truth. */
 async function writeConnectorFile(dir: string, workspaceName: string): Promise<void> {
   const path = `${dir}/${CONNECTOR_FILENAME}`;
   const body = JSON.stringify({ oxisWorkspace: workspaceName, linkedAt: new Date().toISOString() }, null, 2);
@@ -105,11 +76,7 @@ function validateWorkspaceName(name: string): string | null {
   return null;
 }
 
-/** One row of the multi-workspace registry (workspaces/registry.json)
- *  — see the "Named workspaces" section below. Kept separate from the
- *  single-directory .oxis/workspace.lua concept above; a named
- *  workspace just happens to have one of those files inside its own
- *  folder and reuses load()/close() to run it. */
+/** One entry of workspaces/registry.json. */
 export interface NamedWorkspaceEntry {
   name: string;
   createdAt: string;
@@ -117,11 +84,8 @@ export interface NamedWorkspaceEntry {
    *  is linked to — see linkExternal(). Absolute path, set by the
    *  user, never written to by anything here. */
   externalPath?: string;
-  /** Which OXIS version's workspace layout this entry was last
-   *  migrated to — see migrateWorkspaces()/CURRENT_WORKSPACE_SCHEMA
-   *  below. Absent on any workspace created before this existed
-   *  (treated as needing a migration check, same as any older
-   *  version would be). */
+  /** Layout version this workspace was last migrated to (absent on
+   *  old entries, which are checked). */
   schemaVersion?: number;
 }
 
@@ -168,13 +132,8 @@ oxis.workspace(".")   -- marks this directory as the active workspace
 -- end, "Say hello — remove me, I'm just an example")
 `;
 
-// A project.lua stub — deliberately does almost nothing on its own.
-// workspace.lua already owns tasks/theme/commands/plugins; this
-// exists as a place for genuinely PROJECT-level config that isn't
-// about the workspace per se (e.g. metadata a workflow step might
-// read via oxis.getOption) without overloading workspace.lua's job.
-// Loaded by 'project open in addition to workspace.lua, not instead
-// of it — see initProject()/openProject() below.
+// project.lua: for project-level settings that don't belong in
+// workspace.lua. 'project open loads it alongside workspace.lua.
 const PROJECT_TEMPLATE = `-- OXIS project config — loaded by 'project open, alongside .oxis/workspace.lua
 -- (which still owns tasks/theme/commands — see that file). This is
 -- for project-level metadata/setup that isn't really about the
@@ -187,22 +146,12 @@ class WorkspaceManager {
   private apiCtx: APIContext | null = null;
   private disposer: LoadedLuaPlugin | null = null;
   private activeDir: string | null = null;
-  // Which NAMED workspace (see "Named workspaces" below), if any, is
-  // currently active — separate from activeDir because activeDir can
-  // also be an ad-hoc directory that just happens to have its own
-  // .oxis/workspace.lua (the original, still-supported flow), which
-  // isn't part of the workspaces/ registry at all.
+  // The active named workspace, if any. activeDir may instead be an
+  // ad-hoc folder with its own .oxis/workspace.lua.
   private activeNamed: string | null = null;
 
-  // ── Auto-reload polling — see startAutoReload()/stopAutoReload() ──
-  // Not a real native file-system watcher (that would need a new Go
-  // dependency like fsnotify, new Wails event plumbing, and — same as
-  // every other new Go binding this project has added — I have no
-  // way to compile or exercise that here to trust it). This is a
-  // plain interval poll against the same statPath()/listDir() calls
-  // already used and working everywhere else, checked against a
-  // remembered signature — real, but push-based it is not: a change
-  // can take up to AUTO_RELOAD_POLL_MS to be noticed, not instant.
+  // ── Auto-reload: polls statPath/listDir every AUTO_RELOAD_POLL_MS
+  // and compares a signature (there's no native file watcher). ──
   private autoReloadTimer: ReturnType<typeof setInterval> | null = null;
   private lastSignature: string | null = null;
 
@@ -234,16 +183,9 @@ class WorkspaceManager {
     }
   }
 
-  /** Detect + load in one step; used at startup and whenever the
-   *  active shell's cwd changes (see ptyClient.ts's cwd tracking). A
-   *  no-op (not an error) when there's simply no workspace here.
-   *
-   *  Deliberately does NOT auto-detect while a NAMED workspace is
-   *  active — a named workspace is an explicit choice ('workspace
-   *  switch), and incidentally `cd`-ing somewhere in the shell that
-   *  happens to have its own .oxis/workspace.lua shouldn't silently
-   *  yank the user out of it. 'workspace switch default first if you
-   *  actually want the ad-hoc, cwd-based flow to take over. */
+  /** Detects and loads a workspace in `dir`; used at startup and after
+   *  cwd changes. Does nothing while a named workspace is active, so a
+   *  `cd` can't switch you out of it. */
   async detectAndLoad(dir: string): Promise<WorkspaceOpResult | null> {
     if (this.activeNamed) return null;
     const found = await this.detect(dir);
@@ -271,15 +213,9 @@ class WorkspaceManager {
     return { ok: loaded.ok, message: `created ${path}${loaded.ok ? " and loaded it" : ` (${loaded.message})`}` };
   }
 
-  /** `'project init [dir]` — the project layer (see README § Project
-   *  Layer): a project is an EXTERNAL directory that carries its own
-   *  full .oxis/ setup (workspace.lua + project.lua + tasks/workflows/
-   *  scripts/plugins/documents), so a project can ship its own OXIS
-   *  environment alongside its code instead of that living only inside
-   *  dist/workspaces/. Reuses initWorkspace()'s own .oxis/workspace.lua
-   *  creation (never overwrites one that's already there) and just
-   *  adds the companion folders + a project.lua stub around it —
-   *  no new load/permission/task machinery, no duplicated system. */
+  /** `'project init [dir]`: a full .oxis/ setup (workspace.lua,
+   *  project.lua, tasks/, workflows/, scripts/, plugins/, documents/) in
+   *  an existing folder. Never overwrites an existing workspace.lua. */
   async initProject(dir: string): Promise<WorkspaceOpResult> {
     const unavailable = this.unavailable();
     if (unavailable) return unavailable;
@@ -296,11 +232,8 @@ class WorkspaceManager {
       created.push(".oxis/project.lua");
     }
     const wsResult = await this.initWorkspace(dir);
-    // initWorkspace() failing because workspace.lua already exists
-    // isn't a failure for 'project init specifically — the companion
-    // folders above still got created either way, which is the actual
-    // point of this command. A genuine failure (couldn't write files
-    // at all) still needs to surface, though.
+    // An existing workspace.lua is fine here; only a real write
+    // failure is an error.
     const workspaceAlreadyExisted = !wsResult.ok && wsResult.message.includes("already exists at");
     if (!wsResult.ok && !workspaceAlreadyExisted) return wsResult;
     if (workspaceAlreadyExisted) await this.load(dir, null); // still load it, same as a fresh init would — ad-hoc, never named
@@ -353,17 +286,9 @@ class WorkspaceManager {
     return { ok: true, message: "workspace closed" };
   }
 
-  /** A cheap, comparable string standing in for "the state of this
-   *  workspace's own editable files right now" — workspace.lua's own
-   *  mtime, plus the tasks/ and workflows/ folders' listings (name +
-   *  mtime per entry, so an added/removed/edited file inside either
-   *  changes the signature even though workspace.lua itself didn't).
-   *  Not a hash of file CONTENT (would mean reading every file on
-   *  every poll tick, real I/O cost for no real benefit — mtime
-   *  already changes the instant a save happens). Returns null on any
-   *  read failure (workspace directory gone, etc.) rather than
-   *  throwing — the poll loop treats null as "can't tell, skip this
-   *  tick" rather than a reload trigger. */
+  /** A cheap change signature: workspace.lua's mtime plus name+mtime of
+   *  each file in tasks/ and workflows/. null if anything can't be read
+   *  (the poller then skips that tick). */
   private async computeSignature(dir: string): Promise<string | null> {
     try {
       const parts: string[] = [];
@@ -379,18 +304,8 @@ class WorkspaceManager {
     }
   }
 
-  /** Polls computeSignature() every AUTO_RELOAD_POLL_MS and calls
-   *  reload() the moment it changes — see the class-field comment
-   *  above for why this is polling, not a real push-based watcher.
-   *  Started by load() on every successful load (of either kind —
-   *  named or ad-hoc; there's no reason this should only work for
-   *  one), stopped by stopAutoReload() (called from close(), and from
-   *  load() itself before starting a new one, so switching workspaces
-   *  never leaves an old interval polling a directory that's no
-   *  longer active). Errors from a single tick are swallowed (logged,
-   *  not thrown) — a background poller raising an unhandled rejection
-   *  every few seconds would be worse than just skipping that tick
-   *  and trying again next time. */
+  /** Starts polling the signature and reloads when it changes. load()
+   *  restarts it; close() stops it. Tick errors are logged and skipped. */
   private startAutoReload(dir: string, namedWorkspace: string | null): void {
     this.stopAutoReload();
     // Seed the baseline from the load that just happened, rather than
@@ -423,21 +338,9 @@ class WorkspaceManager {
     this.lastSignature = null;
   }
 
-  /** Core load path shared by init/reload/detectAndLoad/switchNamed.
-   *  `namedWorkspace` is the SINGLE place `activeNamed` gets set —
-   *  every caller must say explicitly whether this load is a named
-   *  workspace (pass its name) or an ad-hoc directory (pass null).
-   *  This used to be left to callers to manage as an afterthought
-   *  (only switchNamed updated it, after the fact) — which meant
-   *  activeNamed could go stale the moment ANY other path called
-   *  load(): switch to a named workspace, then have the shell cd into
-   *  an unrelated directory with its own .oxis/workspace.lua
-   *  (detectAndLoad), and the system would still think the OLD named
-   *  workspace was active — wrong workspace shown everywhere
-   *  (Home's panel, the file tree's root, 'workspace newfile/github/
-   *  gitlab all operating against the wrong registry entry). Now
-   *  load() itself is the only place this can be set, so it can't
-   *  drift out of sync with what's actually loaded. */
+  /** Core load path for init/reload/detectAndLoad/switchNamed.
+   *  `namedWorkspace` is the only place activeNamed is set, so it can't
+   *  disagree with what's actually loaded. */
   async load(dir: string, namedWorkspace: string | null = null): Promise<WorkspaceOpResult> {
     const unavailable = this.unavailable();
     if (unavailable) return unavailable;
@@ -449,11 +352,8 @@ class WorkspaceManager {
       return { ok: false, message: `no workspace found at ${path} — try 'workspace init` };
     }
 
-    // Unload whatever was there before (tasks/commands/workflows/etc.
-    // it registered) — a reload shouldn't leave the previous run's
-    // registrations dangling alongside the new ones, and switching to
-    // a DIFFERENT workspace must not leak its workflows into this one
-    // (workflow isolation — see workflowRunner.ts's clear()).
+    // Unload the previous run's commands, tasks and workflows so nothing
+    // leaks into this one.
     if (this.disposer) {
       registry.unregisterByPlugin(WORKSPACE_PLUGIN_NAME);
       try { this.disposer.dispose(); } catch { /* ignore */ }
@@ -484,37 +384,16 @@ class WorkspaceManager {
     // the .lua file itself passed (usually just "."), which
     // workspaceState.ts explicitly does NOT use for display.
     events.emit("workspace_loaded", { path: dir });
-    // Real-time auto-reload — see startAutoReload()'s own doc comment
-    // for what this actually is (polling, not a push-based watcher).
-    // Restarting it here (even when THIS load() call was itself
-    // triggered by the poller noticing a change) re-baselines the
-    // signature to what was just loaded, which is exactly what should
-    // happen after a reload — otherwise the next tick would compare
-    // against the PRE-reload signature and could re-trigger
-    // immediately for no reason.
+    // Restart auto-reload so the signature baseline matches what was
+    // just loaded.
     this.startAutoReload(dir, namedWorkspace);
     void this.runTaskReconciliationInBackground(dir, namedWorkspace);
     return { ok: true, message: `workspace loaded from ${path}` };
   }
 
-  /** The task integrity checker (spec item 8) — runs in the
-   *  background, never awaited by load() itself, specifically so it
-   *  can never noticeably slow workspace startup (a real, explicit
-   *  requirement): detection involves real file reads and, for some
-   *  ecosystems, spawning a subprocess to confirm a tool is actually
-   *  on PATH, neither of which should block the workspace from being
-   *  usable immediately with whatever tasks were already loaded.
-   *
-   *  If reconciliation actually changed anything, this reloads the
-   *  whole workspace once more (this.load() again) so the update is
-   *  picked up correctly — load() already unregisters and re-registers
-   *  everything cleanly on every call, which is the safe way to
-   *  reflect an updated/removed task without hand-rolling a partial,
-   *  surgical re-registration that risks leaving something stale in
-   *  the registry. This can't loop: a second reconciliation pass,
-   *  immediately after the first one just wrote the now-current
-   *  state, finds nothing left to change and reports ran:true with
-   *  empty added/updated/removed — no further reload gets triggered. */
+  /** Task integrity check for a linked project, run in the background
+   *  so it never delays loading. If it changed the generated tasks the
+   *  workspace is reloaded once; a second pass then finds nothing to do. */
   private async runTaskReconciliationInBackground(dir: string, namedWorkspace: string | null): Promise<void> {
     if (!namedWorkspace) return; // ad-hoc (unnamed) workspaces have no registry entry to read an externalPath from
     try {
@@ -544,34 +423,15 @@ class WorkspaceManager {
     }
   }
 
-  /** Loads every workflows/*.lua file in this workspace/project — each
-   *  one is just Lua source that calls oxis.workflow("name", {...},
-   *  "desc") (the same oxis.* API everything else uses), executed once
-   *  to register its definition into workflowRunner and then disposed
-   *  — a workflow's definition is plain JS data after that (see
-   *  workflowRunner.ts), so nothing needs the Lua VM to stay alive.
-   *  Errors in one workflow file are reported and skipped rather than
-   *  aborting the rest — consistent with how a broken plugin doesn't
-   *  take down plugin loading generally.
-   *
-   *  Checks BOTH `<dir>/workflows/` (the named-workspace convention —
-   *  see NAMED_SUBDIRS) and `<dir>/.oxis/workflows/` (the project
-   *  layer's convention — see initProject) since the same load() path
-   *  serves both a named workspace and a project's .oxis/workspace.lua
-   *  alike; whichever one actually exists for a given directory is
-   *  loaded, and having neither is fine (nothing to load). */
+  /** Loads workflows/*.lua (or .oxis/workflows/*.lua for a project):
+   *  each file calls oxis.workflow(...) and its VM is then disposed.
+   *  A broken file is reported and skipped. */
   private async loadWorkflows(dir: string): Promise<void> {
     await this.loadWorkflowsFrom(`${dir}/workflows`);
     await this.loadWorkflowsFrom(`${dir}/.oxis/workflows`);
   }
 
-  /** Same idea as loadWorkflows, for the tasks/ folder — this existed
-   *  structurally (see NAMED_SUBDIRS, and now initProject's .oxis/tasks/)
-   *  but nothing ever actually loaded .lua files from it; task
-   *  registration only ever happened via workspace.lua's own
-   *  oxis.task(...) calls. A tasks/*.lua file works exactly the same
-   *  way a workflows/*.lua file does — it's just Lua source that calls
-   *  oxis.task(name, cmd, desc), loaded once and disposed. */
+  /** Same for tasks/*.lua: each file calls oxis.task(...). */
   private async loadTasks(dir: string): Promise<void> {
     await this.loadTasksFrom(`${dir}/tasks`);
     await this.loadTasksFrom(`${dir}/.oxis/tasks`);
@@ -627,28 +487,13 @@ class WorkspaceManager {
   }
 
   // ══════════════════════════════════════════════════════════════
-  // Named workspaces — 'workspace init "name" / list / switch /
-  // rename / delete / link / unlink.
+  // Named workspaces — 'workspace init "name" / list / switch / rename /
+  // delete / link / unlink.
   //
-  // Each named workspace is a real folder, workspaces/<name>/, holding
-  // its own documents/, plugins/, scripts/, tasks/, workflows/ and a
-  // .oxis/workspace.lua — the SAME kind of file the single-directory
-  // flow above uses, so switching to a named workspace just calls the
-  // existing load() against workspaces/<name>, reusing all of its
-  // Lua-loading, task-registration, and event-emitting behavior
-  // instead of duplicating it. workspaces/registry.json is the only
-  // new piece of state: a flat list of {name, createdAt, externalPath}
-  // so 'workspace list doesn't need to guess folder names apart from
-  // scanning workspaces/ (which would also work, but the registry is
-  // what carries externalPath and survives a workspace being briefly
-  // absent/renamed mid-operation cleanly).
-  //
-  // scripts/ and tasks/ are plain folders you keep your own files in
-  // and open with 'edit — there's no separate "script engine" here;
-  // running things still goes through 'task / oxis.command in
-  // .oxis/workspace.lua like it always has. workflows/ is different:
-  // see loadWorkflows() below and workflowRunner.ts — 'workflow <name>
-  // is a real, if intentionally scoped, execution engine now.
+  // Each is a folder, workspaces/<name>/, with documents/, plugins/,
+  // scripts/, tasks/, workflows/ and .oxis/workspace.lua; switching just
+  // calls load() on it. workspaces/registry.json lists them with their
+  // linked folder.
   // ══════════════════════════════════════════════════════════════
 
   private async readRegistry(): Promise<NamedWorkspaceEntry[]> {
@@ -696,14 +541,8 @@ class WorkspaceManager {
     return { ok: true, message: `workspace "${name}" created (${dir}/) — 'workspace switch ${name} to activate it` };
   }
 
-  /** The actual "auto-updater for workspaces" — call once at startup
-   *  (see App.tsx's init effect). Compares the running OXIS_VERSION
-   *  against whatever was last seen (localStorage) and, ONLY if it's
-   *  different (a real update happened, or this is the very first
-   *  launch), runs migrateWorkspaces() across every named workspace.
-   *  Cheap and safe to call on every launch regardless — the version
-   *  check just avoids doing the (idempotent, but not free) folder
-   *  scan on every single startup when nothing's actually changed. */
+  /** Runs migrateWorkspaces() once after OXIS itself was updated
+   *  (the last-seen version is kept in localStorage). */
   async runAutoUpdateIfNeeded(): Promise<void> {
     if (!isNativeApp()) return;
     let lastSeen: string | null = null;
@@ -716,17 +555,8 @@ class WorkspaceManager {
     try { localStorage.setItem(LAST_SEEN_VERSION_KEY, OXIS_VERSION); } catch { /* not fatal — just means this runs again next launch too */ }
   }
 
-  /** Brings every named workspace's on-disk folder layout up to
-   *  whatever the running OXIS version expects — currently just
-   *  "every folder in NAMED_SUBDIRS actually exists" (a workspace
-   *  created before tasks/workflows were added to that list would be
-   *  missing them; `.oxis/` similarly for anything from before the
-   *  project layer). Purely additive: creates missing folders, never
-   *  touches, overwrites, or deletes anything that's already there —
-   *  a workspace's `workspace.lua`, its documents, its own tasks are
-   *  never rewritten by this. Safe and cheap to run repeatedly
-   *  (checked via schemaVersion first, so an up-to-date workspace
-   *  does no filesystem work at all beyond the registry read). */
+  /** Creates any folders a named workspace is missing for the current
+   *  layout. Additive only: never changes or deletes existing files. */
   async migrateWorkspaces(): Promise<{ migrated: string[] }> {
     if (!isNativeApp()) return { migrated: [] };
     const entries = await this.readRegistry();
@@ -809,18 +639,9 @@ class WorkspaceManager {
     return { ok: true, message: `deleted workspace "${name}"` };
   }
 
-  /** `'workspace link "<path>"` — connect the ACTIVE named workspace
-   *  to an existing project directory elsewhere on disk. This doesn't
-   *  copy anything into dist/ — externalPath is just remembered on
-   *  the workspace's registry entry for your own scripts/tasks/
-   *  workflows to reference (e.g. a task that `cd`s there before
-   *  running a build), while OXIS keeps managing the workspace's own
-   *  documents/plugins/scripts/tasks/workflows folders around it.
-   *
-   *  Also writes a small connector marker file into that directory
-   *  and makes sure its .gitignore excludes it (see writeConnectorFile/
-   *  ensureGitignoreRule above) — real, working side effects, not
-   *  just an internal pointer nothing else reflects. */
+  /** `'workspace link "<path>"`: connect the active named workspace to a
+   *  project folder. Records it in the registry, writes the connector
+   *  file (gitignored), and generates tasks from the project. */
   async linkExternal(path: string): Promise<WorkspaceOpResult> {
     if (!this.activeNamed) {
       return { ok: false, message: "no workspace active — 'workspace switch <name> first (or 'workspace init \"name\" then switch)" };
@@ -837,17 +658,8 @@ class WorkspaceManager {
     await ensureGitignoreRule(path);
     events.emit("workspace_linked", { path });
 
-    // Automatic project detection — Priority 5 of the spec-driven
-    // pass. Runs the real detectors (projectDetector.ts) against the
-    // now-linked directory and, if anything real was found, writes
-    // it to its own file under .oxis/tasks/ (see writeDetectedTasks's
-    // own doc comment for why that's always safe to overwrite
-    // wholesale) — completely separate from workspace.lua and any
-    // hand-written tasks/*.lua, so this can never touch or overwrite
-    // anything the user wrote themselves. A detection failure here
-    // (a detector throwing, a write failing) is reported but doesn't
-    // undo the link itself — linking succeeded regardless of whether
-    // detection did.
+    // Detect the project type and write .oxis/tasks/auto-detected.lua.
+    // A detection failure is reported but doesn't undo the link.
     let detectionNote = "";
     try {
       const result = await detectProject(path);
@@ -868,11 +680,8 @@ class WorkspaceManager {
     return { ok: true, message: `workspace "${this.activeNamed}" linked to ${path} (added a .gitignore rule for the connector file, if one wasn't already there)${detectionNote}` };
   }
 
-  /** `'workspace unlink` — remove the active workspace's external path.
-   *  Cleans up the connector file too, but never lets that block the
-   *  actual unlink — the directory may already be moved, deleted, or
-   *  otherwise inaccessible by the time you unlink (see item 7), and
-   *  the registry entry should still be cleared regardless. */
+  /** `'workspace unlink`: clear the link, and remove the connector file
+   *  if the folder is still reachable. */
   async unlinkExternal(): Promise<WorkspaceOpResult> {
     if (!this.activeNamed) return { ok: false, message: "no workspace active" };
     const entries = await this.readRegistry();
@@ -899,24 +708,8 @@ class WorkspaceManager {
   }
 
   /** Where 'new should write documents right now. */
-  /** Always "created-documents" — reported directly as broken when
-   *  this used to split between that and workspaces/<name>/documents
-   *  depending on whether a workspace was active. The reported
-   *  symptom ("'new doesn't create a document — only works once I
-   *  close the workspace") matches exactly: the file was actually
-   *  being written to workspaces/<name>/documents/, a folder buried
-   *  inside workspaces/ that the Home screen's own file explorer
-   *  doesn't surface as a top-level location the way it does
-   *  created-documents — so a document created while a workspace was
-   *  active looked like it silently failed, when it had actually just
-   *  landed somewhere the user had no reason to go looking. Simplified
-   *  to always use the one, real, visible folder — 'new and 'touch
-   *  are the only two callers (see below), and neither one has any
-   *  reason to split based on workspace state the way pluginsDir()
-   *  legitimately does (created plugins load in per-workspace, so
-   *  scoping them per-workspace is meaningful; a plain text document
-   *  isn't loaded/executed by anything workspace-aware, so there's no
-   *  equivalent reason for it to be scoped that way too). */
+  /** Where 'new / 'touch write: always created-documents/, where people
+   *  expect to find them (plugins, unlike documents, are per-workspace). */
   documentsDir(): string {
     return "created-documents";
   }

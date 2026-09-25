@@ -1,19 +1,9 @@
 /**
- * taskReconciler.ts — the task integrity checker (spec item 8): keeps
- * .oxis/tasks/auto-detected.lua synchronized with the project's
- * actual, current configuration whenever a workspace is opened,
- * linked, reloaded, or refreshed.
+ * taskReconciler.ts — keeps .oxis/tasks/auto-detected.lua in step with
+ * the linked project whenever the workspace opens or reloads.
  *
- * The one rule everything else here serves: NEVER touch a task the
- * user has hand-edited, no matter what the underlying project
- * configuration has since done — explicitly requested, and the whole
- * reason GeneratedTaskMeta records a contentHash at generation time
- * (projectDetector.ts) is so this file can tell "still exactly as
- * generated" apart from "edited since" before ever regenerating
- * anything. A task the user edited stops being tracked by the
- * auto-detected metadata going forward — it's effectively a
- * user-owned task from that point on, kept in the file verbatim,
- * never removed even if its original source configuration disappears.
+ * A generated task the user has edited (its line no longer matches the
+ * recorded hash) is never changed or removed again; it's kept verbatim.
  */
 
 import { readFile, writeFile, statPath } from "../native";
@@ -24,18 +14,9 @@ import {
   type GeneratedTasksMeta,
 } from "./projectDetector";
 
-/** Extracts `name -> exact current line text` for every
- *  `oxis.task(...)` call in an existing auto-detected.lua — used to
- *  compare against each task's recorded contentHash. A simple,
- *  line-oriented parse (one call per line, exactly how
- *  generateTasksFile itself always writes them) rather than a real
- *  Lua parser — this file is only ever written by generateTasksFile,
- *  so it never needs to understand arbitrary Lua, only its own,
- *  narrow output format. A user who rewrites a line in some
- *  drastically different form (multi-line, a variable, etc.) simply
- *  won't match the regex — treated as "can't confirm this is
- *  unmodified," which correctly falls on the safe side (never
- *  auto-touch it) rather than the unsafe one. */
+/** name → current line for each oxis.task(...) in auto-detected.lua.
+ *  Line-based, matching generateTasksFile's own output; a line rewritten
+ *  in another form won't match and is treated as user-edited. */
 function parseExistingTaskLines(content: string): Map<string, string> {
   const lines = new Map<string, string>();
   for (const raw of content.split("\n")) {
@@ -71,12 +52,8 @@ export interface ReconcileResult {
 
 const EMPTY_RESULT: ReconcileResult = { ran: false, added: [], updated: [], removed: [], preservedEdited: [] };
 
-/** Runs one reconciliation pass against `externalDir` (the linked
- *  project's real directory) and `oxisTasksDir` (that workspace's own
- *  `.oxis/tasks`). Safe to call on every workspace open/reload — it's
- *  a no-op (returns ran:false) if this workspace was never linked to
- *  a project or was never auto-detected in the first place, so there
- *  is nothing to reconcile against yet. */
+/** One reconciliation pass. Returns ran:false if the workspace was
+ *  never linked or auto-detected. */
 export async function reconcileDetectedTasks(externalDir: string, oxisTasksDir: string): Promise<ReconcileResult> {
   const metaPath = `${oxisTasksDir}/.auto-detected-meta.json`;
   const luaPath = `${oxisTasksDir}/auto-detected.lua`;
@@ -95,11 +72,8 @@ export async function reconcileDetectedTasks(externalDir: string, oxisTasksDir: 
   try { existingContent = await readFile(luaPath); } catch { /* file missing — treat as if every old task were already gone */ }
   const currentLines = parseExistingTaskLines(existingContent);
 
-  // Which previously-tracked tasks has the user actually edited since
-  // generation? Compare each one's CURRENT line in the file against
-  // the hash recorded at generation time — a mismatch (or the line
-  // being gone entirely, which itself could mean "user deleted it on
-  // purpose") means this task is no longer this reconciler's to touch.
+  // Tasks whose current line no longer matches the recorded hash (or
+  // is gone) were edited by the user and are left alone.
   const editedNames = new Set<string>();
   for (const [name, meta] of Object.entries(oldMeta)) {
     const currentLine = currentLines.get(name);
@@ -132,11 +106,8 @@ export async function reconcileDetectedTasks(externalDir: string, oxisTasksDir: 
     // re-deriving them through taskLine().
   }
 
-  // 2. Reconcile every task that was tracked (untouched since
-  // generation) against fresh detection: still present with the same
-  // command → keep; still present with a different command (the
-  // underlying script/target was renamed to run something else) →
-  // update; no longer present → remove.
+  // 2. For each still-generated task: same command → keep, different
+  // command → update, no longer detected → remove.
   for (const [name, meta] of Object.entries(oldMeta)) {
     if (editedNames.has(name)) continue; // handled above
     const freshTask = freshByName.get(name);
@@ -145,12 +116,8 @@ export async function reconcileDetectedTasks(externalDir: string, oxisTasksDir: 
       continue;
     }
     const freshLine = taskLine(freshTask);
-    // Not in editedNames means currentLines.get(name) already matches
-    // meta.contentHash exactly — i.e. it's still exactly what was
-    // last generated. So comparing the freshly-detected line against
-    // that current line directly tells us whether the underlying
-    // project configuration actually changed anything, with no need
-    // to re-derive or re-parse either side further.
+    // Its current line equals the generated one, so comparing with the
+    // fresh detection shows whether the project changed.
     if (freshLine !== currentLines.get(name)) {
       updated.push(name);
     }
@@ -172,11 +139,8 @@ export async function reconcileDetectedTasks(externalDir: string, oxisTasksDir: 
     return { ran: true, added, updated, removed, preservedEdited };
   }
 
-  // Rebuild the file: generated content for everything still tracked
-  // (finalTasks, via the normal generator — grouped/commented the
-  // same way as a fresh detection), PLUS every hand-edited line
-  // appended verbatim underneath its own clearly-labeled section so
-  // it's visibly distinct from what OXIS still manages.
+  // Rebuild: generated tasks plus the user-edited lines, verbatim, in
+  // their own section.
   let content = generateTasksFile({ projectTypes: fresh.projectTypes, tasks: finalTasks });
   if (preservedEdited.length > 0) {
     content += "\n-- Tasks below were hand-edited since they were generated —\n";

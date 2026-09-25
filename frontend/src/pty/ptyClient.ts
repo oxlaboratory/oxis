@@ -1,18 +1,10 @@
 /**
- * ptyClient.ts — OXIS PTY layer
+ * ptyClient.ts — WebSocket ↔ PTY bridge. No UI.
  *
- * Pure WebSocket ↔ PTY bridge. No UI, no React, no business logic.
- *
- * OXIS runs in two contexts (see isNativeApp() in native.ts):
- *   - the native Wails window, whose own origin (Wails' AssetServer)
- *     is NOT the same server the PTY socket listens on — Wails'
- *     AssetServer can't carry a WebSocket upgrade at all (no Hijacker
- *     on that path). The port is fetched from Go instead
- *     (native.ts's getPtyPort()) and connected to explicitly.
- *   - a plain browser tab pointed at http://127.0.0.1:1420 — here,
- *     server.Listen (internal/server/server.go) serves both /ws and
- *     the frontend itself on the SAME origin, so a same-origin
- *     relative URL just works, exactly like any other local web app.
+ * In the native window the socket lives on a different origin than the
+ * page (Wails' asset server can't upgrade WebSockets), so the port comes
+ * from Go (getPtyPort). In a browser tab at http://127.0.0.1:<port> the
+ * socket is same-origin.
  *
  * Protocol (JSON over WS):
  *   Client → Server: { type: "init", cols, rows }
@@ -49,12 +41,8 @@ export interface PtyOptions {
   reconnect?: boolean;
 }
 
-// Cached across calls/reconnects within a session — the PTY server's
-// port doesn't change once OXIS has started. Only a SUCCESSFUL lookup
-// is cached: if getPtyPort() fails (e.g. window.go genuinely wasn't
-// bound yet), the failed promise is discarded rather than kept
-// forever, so a later retry (new tab, reconnect) gets a fresh attempt
-// instead of replaying the same failure for the rest of the session.
+// The port never changes while OXIS runs; only a successful lookup is
+// cached so a failed one can be retried.
 let ptyPortPromise: Promise<number> | null = null;
 
 async function wsURL(): Promise<string> {
@@ -73,8 +61,12 @@ async function wsURL(): Promise<string> {
   const port = await ptyPortPromise;
   return `ws://127.0.0.1:${port}/ws`;
 }
+
 export function openPty(opts: PtyOptions): PtySession {
-  const { cols, rows, onOutput, onReady, onExit, onError, reconnect } = opts;
+  const { onOutput, onReady, onExit, onError, reconnect } = opts;
+  // Latest requested size; resizes before the socket opens are kept and
+  // sent with init.
+  let size = { cols: opts.cols, rows: opts.rows };
   let ws: WebSocket | null = null;
   let dead = false;
 
@@ -92,7 +84,7 @@ export function openPty(opts: PtyOptions): PtySession {
     ws = socket;
 
     socket.addEventListener("open", () => {
-      socket.send(JSON.stringify({ type: "init", cols, rows }));
+      socket.send(JSON.stringify({ type: "init", ...size }));
     });
 
     socket.addEventListener("message", (ev) => {
@@ -127,7 +119,7 @@ export function openPty(opts: PtyOptions): PtySession {
 
   return {
     write : (data) => send({ type: "input", data }),
-    resize: (c, r) => send({ type: "resize", cols: c, rows: r }),
+    resize: (c, r) => { size = { cols: c, rows: r }; send({ type: "resize", cols: c, rows: r }); },
     kill  : () => {
       dead = true;
       send({ type: "kill" });

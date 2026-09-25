@@ -1,20 +1,10 @@
 /**
- * projectDetector.ts — automatic project detection and task
- * generation, backing 'workspace link and the task integrity checker
- * (taskReconciler.ts). Every detector here reads the project's OWN
- * actual configuration and only proposes a task for something that
- * genuinely exists — never a blindly-generated "npm run build" for a
- * package.json with no build script, never a `cargo test` proposal
- * for a directory that merely contains the string "rust" somewhere.
+ * projectDetector.ts — detects a linked project's type and proposes
+ * tasks for what its own configuration actually defines (real
+ * package.json scripts, Makefile targets, and so on).
  *
- * Detected tasks never touch workspace.lua or the user's own
- * tasks/*.lua files — they're written to their own, clearly-labeled
- * file (see generateTasksFile below) inside .oxis/tasks/, a folder
- * that already auto-loads every .lua file in it (see
- * workspaceManager.ts's loadTasksFrom) alongside whatever the user
- * has written themselves. Nothing here can overwrite a user-created
- * task, because it never writes to the same file a user-created task
- * would live in.
+ * Tasks go to .oxis/tasks/auto-detected.lua, never to workspace.lua or
+ * the user's own task files.
  */
 
 import { readFile, statPath, listDir, runCommand, writeFile, makeDir } from "../native";
@@ -29,9 +19,8 @@ export interface DetectedTask {
 }
 
 export interface ProjectDetectionResult {
-  /** Human-readable labels, e.g. ["Rust (Cargo)", "Node.js (npm)"] —
-   *  a project can genuinely be more than one at once (a Rust crate
-   *  with a companion Node-based website, say). */
+  /** Labels like ["Rust (Cargo)", "Node.js (npm)"]; a project can
+   *  match more than one. */
   projectTypes: string[];
   tasks: DetectedTask[];
 }
@@ -79,23 +68,15 @@ async function detectNode(dir: string): Promise<DetectedTask[]> {
   const scripts = pkg.scripts ?? {};
   if (Object.keys(scripts).length === 0) return [];
 
-  // Detect the actual package manager rather than assuming npm —
-  // the spec explicitly asks for this. Lockfile presence is the
-  // standard, reliable signal every major package manager itself
-  // relies on for the same purpose.
+  // Pick the package manager from the lockfile rather than assuming npm.
   let pm = "npm";
   let runPrefix = "npm run";
   if (await fileExists(`${dir}/pnpm-lock.yaml`)) { pm = "pnpm"; runPrefix = "pnpm run"; }
   else if (await fileExists(`${dir}/yarn.lock`)) { pm = "yarn"; runPrefix = "yarn"; }
   else if (await fileExists(`${dir}/bun.lockb`)) { pm = "bun"; runPrefix = "bun run"; }
 
-  // Only real scripts that actually exist — never inventing "build"/
-  // "test"/"start" if the project doesn't define them. A curated
-  // priority list (common script names first) rather than dumping
-  // every single script.json entry, since some projects define
-  // dozens of narrow, situational scripts not worth a top-level task
-  // each; the reconciler (taskReconciler.ts) picks up any that
-  // change later regardless of whether they made this initial cut.
+  // Only scripts the project defines, common names first (not every
+  // script), since some projects have dozens.
   const priority = ["dev", "start", "build", "test", "lint", "typecheck", "format"];
   const tasks: DetectedTask[] = [];
   for (const name of priority) {
@@ -205,11 +186,8 @@ async function detectCCpp(dir: string): Promise<DetectedTask[]> {
     ];
   }
   if (hasMakefile) {
-    // Only propose targets that actually exist in the Makefile —
-    // `make -pn` (dry-run, print database) then a real target-name
-    // extraction is the standard, reliable way to list them without
-    // guessing "build"/"test"/"clean" are defined just because
-    // they're common conventions.
+    // List real targets with `make -pn` instead of assuming the usual
+    // names exist.
     const content = (await tryReadFile(`${dir}/Makefile`)) ?? (await tryReadFile(`${dir}/makefile`)) ?? "";
     const targets = new Set<string>();
     for (const m of content.matchAll(/^([A-Za-z0-9_-]+)\s*:(?!=)/gm)) {
@@ -266,13 +244,8 @@ const DETECTORS: { label: string; detect: (dir: string) => Promise<DetectedTask[
   { label: "Ruby", detect: detectRuby },
 ];
 
-/** Runs every detector against `dir` and merges the results. A
- *  project can trigger more than one detector at once (a Rust crate
- *  with a Node-based companion site, say) — task NAME collisions
- *  across detectors are resolved by prefixing the source's own label
- *  onto the later one ("build" from Rust, "build-nodejs" from a
- *  second match), so nothing silently overwrites another detector's
- *  proposal for the same short name. */
+/** Runs every detector on `dir` and merges the results; a name clash
+ *  gets the source's label as a suffix ("build-nodejs"). */
 export async function detectProject(dir: string): Promise<ProjectDetectionResult> {
   const projectTypes: string[] = [];
   const tasks: DetectedTask[] = [];
@@ -297,11 +270,7 @@ export async function detectProject(dir: string): Promise<ProjectDetectionResult
   return { projectTypes, tasks };
 }
 
-/** Escapes a string for safe embedding inside a Lua single-quoted
- *  string literal — task names/commands/descriptions here come from
- *  real filenames and file contents (a project's own script names,
- *  Makefile targets, etc.), not arbitrary user typing, but escaping
- *  properly is what makes that safe rather than assumed. */
+/** Escapes a string for a single-quoted Lua literal. */
 function luaEscape(s: string): string {
   return s.replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/\n/g, "\\n");
 }
@@ -309,15 +278,8 @@ function luaEscape(s: string): string {
 export const AUTO_DETECTED_TASKS_FILE = ".oxis/tasks/auto-detected.lua";
 export const AUTO_DETECTED_META_FILE = ".oxis/tasks/.auto-detected-meta.json";
 
-/** One task's own generated metadata — see AUTO_DETECTED_META_FILE.
- *  contentHash is a snapshot of exactly what THIS task's own
- *  generated line looked like at generation time; the reconciler
- *  (taskReconciler.ts) compares it against what's actually in the
- *  .lua file NOW to tell "still exactly as generated" apart from
- *  "the user has hand-edited this one since" — the whole point being
- *  the explicit instruction not to aggressively overwrite something
- *  a person edited themselves, even if the underlying project
- *  configuration has since moved on from what originally produced it. */
+/** Metadata per generated task. contentHash is the generated line's
+ *  hash, so the reconciler can tell whether the user has edited it. */
 export interface GeneratedTaskMeta {
   source: string;
   generatedAt: number;
@@ -342,13 +304,8 @@ function taskLine(t: DetectedTask): string {
   return `oxis.task('${luaEscape(t.name)}', '${luaEscape(t.command)}', '${luaEscape(t.description)}')`;
 }
 
-/** Builds the actual .lua file content — a clear header explaining
- *  what this file is and isn't (never hand-edit warning would be
- *  wrong here: the reconciler explicitly tolerates hand-edits, see
- *  GeneratedTaskMeta's own doc comment — so this says so honestly
- *  rather than warning against something that's actually fine to do),
- *  then one oxis.task() call per detected task, grouped and commented
- *  by which detector/source produced it. */
+/** Builds auto-detected.lua: a header, then one oxis.task() per
+ *  detected task, grouped by source. Hand edits are allowed (and kept). */
 export function generateTasksFile(result: ProjectDetectionResult): string {
   const lines: string[] = [
     "-- auto-detected.lua — automatically generated by OXIS project",
@@ -375,13 +332,8 @@ export function generateTasksFile(result: ProjectDetectionResult): string {
   return lines.join("\n");
 }
 
-/** Writes both the generated .lua file and its metadata sidecar —
- *  the actual side effect 'workspace link (and later the task
- *  reconciler) performs. Always overwrites the .lua file wholesale
- *  rather than patching it line by line — safe specifically because
- *  this file's own metadata is what lets the reconciler tell an
- *  untouched generated task apart from a hand-edited one BEFORE ever
- *  regenerating, not because regenerating itself is assumed safe. */
+/** Writes auto-detected.lua and its metadata. The .lua is rewritten
+ *  whole; the reconciler checks for hand edits before regenerating. */
 export async function writeDetectedTasks(oxisTasksDir: string, result: ProjectDetectionResult): Promise<GeneratedTasksMeta> {
   await makeDir(oxisTasksDir).catch(() => {}); // may already exist — fine either way
   const content = generateTasksFile(result);

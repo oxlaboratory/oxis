@@ -2,33 +2,15 @@
  * backup.ts — 'backup / 'restore, 'config export / import,
  * 'workspace export / import, 'plugin export.
  *
- * Format: plain JSON, not an actual .zip. There's no zip library
- * available in this environment (Wails' JS runtime, browser-mode
- * fallback) — rather than fake a .zip extension on something that
- * isn't one, everything here is honestly a `.json` file: a flat map
- * of relative-path -> file-contents (all text; OXIS's own managed
- * data — settings, Lua source, documents — is text, so this doesn't
- * need to handle binaries). Readable, diffable, and just as portable
- * as a zip for what this is actually for.
+ * Files are plain JSON: a map of relative path → text content.
  *
- * What's included (and, just as importantly, what ISN'T):
- *  - Settings: every "setting.*" key from the same option store
- *    oxis.getOption/setOption use — see SETTINGS in App.tsx.
- *  - A workspace export/full backup includes that workspace's real
- *    files (documents/plugins/scripts/tasks/workflows + its
- *    .oxis/workspace.lua) — not localStorage-only state like undo
- *    history or open editor tabs, which is exactly the kind of
- *    session-local runtime data a backup shouldn't capture.
- *  - A full backup additionally includes created-documents/,
- *    created-plugins/, and the workspace registry (names + links),
- *    but NOT dist/plugins/ (Market-installed plugins — those are
- *    re-fetchable with 'market install, not something to snapshot)
- *    and NOT dist/wix|nsis|deb/ (installer build output, not user data).
+ * Included: settings ("setting.*" options), each workspace's files, and
+ * for a full backup also created-documents/, created-plugins/ and the
+ * workspace registry. Not included: Market plugins (reinstallable) and
+ * installer build output.
  *
- * Restore is destructive by nature (it writes files that may already
- * exist) — the command handlers in App.tsx are responsible for
- * confirming with the user before calling anything here, same as any
- * other "this will overwrite things" operation elsewhere in OXIS.
+ * The command handlers in App.tsx confirm with the user before
+ * restoring.
  */
 
 import { readFile, writeFile, listDir, isNativeApp } from "../native";
@@ -168,12 +150,8 @@ export async function createFullBackup(): Promise<FullBackup> {
   };
 }
 
-/** `'restore <path>` — the caller (App.tsx's command handler) is
- *  responsible for confirming with the user first; this performs the
- *  restore unconditionally once called. Never deletes anything that
- *  isn't part of the backup — restoring only ever adds/overwrites
- *  files the backup actually contains, so an unrelated workspace or
- *  document created since the backup was taken is left alone. */
+/** `'restore <path>` (the caller confirms first). Only writes files the
+ *  backup contains; nothing else is deleted. */
 export async function restoreFullBackup(data: FullBackup): Promise<{ ok: boolean; message: string }> {
   if (!isNativeApp()) return { ok: false, message: "restore needs the desktop app (no filesystem access in browser mode)" };
   let settingsCount = 0, docCount = 0, pluginCount = 0;
