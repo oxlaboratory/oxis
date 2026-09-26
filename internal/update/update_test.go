@@ -5,6 +5,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/oxis/oxis/internal/buildinfo"
 )
 
 // fakeGitHub answers the commit endpoint with status and body, and
@@ -27,9 +29,10 @@ func fakeGitHub(t *testing.T, status int, body string) {
 
 func withBuildCommit(t *testing.T, sha string) {
 	t.Helper()
-	old := BuildCommit
-	BuildCommit = sha
-	t.Cleanup(func() { BuildCommit = old })
+	buildinfo.CommitSHA() // settle the vcs fallback before overriding
+	old := buildinfo.Commit
+	buildinfo.Commit = sha
+	t.Cleanup(func() { buildinfo.Commit = old })
 }
 
 func TestCheck(t *testing.T) {
@@ -71,5 +74,43 @@ func TestCheckOffline(t *testing.T) {
 	t.Cleanup(func() { apiBase = old })
 	if got := Check("linux"); got.Available || !strings.Contains(got.Error, "couldn't reach GitHub") {
 		t.Errorf("offline check = %+v", got)
+	}
+}
+
+func TestCheckCountsCommits(t *testing.T) {
+	cases := []struct {
+		name          string
+		compare       string
+		wantAvailable bool
+		wantBehind    int
+		wantAhead     int
+	}{
+		{"behind the branch", `{"status":"ahead","ahead_by":3,"behind_by":0}`, true, 3, 0},
+		{"local work ahead of the branch", `{"status":"behind","ahead_by":0,"behind_by":2}`, false, 0, 2},
+		{"diverged", `{"status":"diverged","ahead_by":4,"behind_by":1}`, true, 4, 1},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			withBuildCommit(t, "aaa111")
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch {
+				case strings.Contains(r.URL.Path, "/commits/"):
+					_, _ = w.Write([]byte(`{"sha":"bbb222"}`))
+				case strings.HasSuffix(r.URL.Path, "/compare/aaa111...bbb222"):
+					_, _ = w.Write([]byte(c.compare))
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			t.Cleanup(srv.Close)
+			old := apiBase
+			apiBase = srv.URL
+			t.Cleanup(func() { apiBase = old })
+
+			got := Check("windows")
+			if got.Available != c.wantAvailable || got.Behind != c.wantBehind || got.Ahead != c.wantAhead {
+				t.Errorf("got Available=%v Behind=%d Ahead=%d, want %v %d %d", got.Available, got.Behind, got.Ahead, c.wantAvailable, c.wantBehind, c.wantAhead)
+			}
+		})
 	}
 }

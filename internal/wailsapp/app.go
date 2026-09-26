@@ -31,10 +31,6 @@ type App struct {
 
 func NewApp() *App { return &App{} }
 
-// Version is set at build time via
-// -ldflags "-X github.com/oxis/oxis/internal/wailsapp.Version=...".
-var Version = "0.0.0-dev"
-
 // CheckForUpdate compares this build against the latest GitHub release
 // for this OS (see internal/update).
 func (a *App) CheckForUpdate() update.Info { return update.Check(runtime.GOOS) }
@@ -476,9 +472,10 @@ func (a *App) CancelCommand(requestID string) bool {
 	return false
 }
 
-// SystemInfo backs oxis.system.info().
+// SystemInfo backs oxis.system.info() and 'version.
 type SystemInfo struct {
 	OS           string `json:"os"`
+	OSName       string `json:"osName"` // e.g. "Windows 11 24H2 (build 26100)"
 	Arch         string `json:"arch"`
 	NumCPU       int    `json:"numCPU"`
 	GoVersion    string `json:"goVersion"`
@@ -490,11 +487,14 @@ func (a *App) SystemInfo() SystemInfo {
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
 	return SystemInfo{
-		OS: runtime.GOOS, Arch: runtime.GOARCH, NumCPU: runtime.NumCPU(),
+		OS: runtime.GOOS, OSName: osNameOnce(), Arch: runtime.GOARCH, NumCPU: runtime.NumCPU(),
 		GoVersion: runtime.Version(), AllocMB: m.Alloc / 1024 / 1024,
 		NumGoroutine: runtime.NumGoroutine(),
 	}
 }
+
+// osNameOnce caches osName: the OS doesn't change while OXIS runs.
+var osNameOnce = sync.OnceValue(osName)
 
 type ProcessInfo struct {
 	PID  int    `json:"pid"`

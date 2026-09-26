@@ -747,6 +747,29 @@ and `created-plugins/` to one JSON file; `'restore <path>` asks first
 and only writes files the backup contains. Market plugins aren't
 included (reinstall them with `'market install`).
 
+`'version` shows exactly which build is running:
+
+```
+OXIS  v1.2.1  ·  build 57  ·  4f2a9c1
+
+version    1.2.1+57.4f2a9c1
+commit     4f2a9c1  4f2a9c1e0b7d…
+tag        v1.2.1-7-g4f2a9c1  ·  latest-build
+channel    latest-build · prebuilt by CI from main
+built      2026-09-27 09:14 UTC (3 h ago)
+committed  2026-09-27 09:02 UTC (3 h ago)
+update     up to date with main
+os         Windows 11 24H2 (build 26100) · amd64
+shell      PowerShell 7+ (pwsh)
+engine     Go 1.22.12 · WebView2 140
+mode       desktop app
+```
+
+`'version --json` prints the same as JSON and `'version --copy` puts it
+on the clipboard for a bug report. The build number counts the commits
+on `main`, and the tag is the nearest `v*` release tag (in `git
+describe` form when the build is past it).
+
 `'diagnostics` shows the version, OS, runtime, plugin counts, active
 workspace and the last recorded errors. Nothing is sent anywhere; OXIS
 has no telemetry.
@@ -756,8 +779,11 @@ has no telemetry.
 ## Auto-update
 
 A build knows the commit it was built from. At startup (and with
-`'update`) OXIS asks GitHub for the latest commit on `main`; if it
-differs, the terminal and status bar say a newer build is available.
+`'update`) OXIS asks GitHub for the latest commit on `main` and how far
+apart the two are; if `main` has commits this build doesn't, the
+terminal and status bar say a newer build is available and how many
+commits behind you are. A build that is only *ahead* of `main` (your
+own unpushed work) isn't offered an "update".
 When GitHub can't be reached (offline, rate limited) `'update` says so
 rather than claiming you're up to date. A build without a commit stamp
 (built by hand, e.g. a plain `go build`) can't tell whether it's
@@ -868,9 +894,13 @@ npm/                     npm launcher package (downloads the prebuilt binary)
 | `build-windows` (windows-latest) | `.msi` and bare `oxis.exe` |
 | `publish-release` (pushes to `main` only) | both of the above, published together to the `latest-build` release |
 
-Both builds stamp the version and commit into the binary
-(`-ldflags -X`), which the updater relies on. Locally, `npm run build`
-does the same.
+Every build is stamped by `scripts/buildstamp.js` with its version,
+commit, nearest release tag, build number and dates: into the binary
+(`-ldflags -X`, package `internal/buildinfo`), which the updater relies
+on, and into the page, which `'version` shows. Locally, `npm run build`
+and `build-linux.sh` do the same. Bumping `version` in `package.json`
+makes CI tag the first build of `main` that carries it as
+`v<version>`.
 
 ---
 

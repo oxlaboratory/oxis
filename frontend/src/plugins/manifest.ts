@@ -21,9 +21,9 @@
 
 import type { PermissionNamespace } from "./permissions";
 
-/** The running OXIS version, for min_oxis_version checks. Keep in sync
- *  with package.json. */
-export const OXIS_VERSION = "1.2.1";
+/** The running OXIS version (package.json, via buildInfo.ts), for
+ *  min_oxis_version checks. */
+export { OXIS_VERSION } from "../buildInfo";
 
 // Must match PermissionNamespace; unknown names in a manifest's
 // `permissions:` are dropped.

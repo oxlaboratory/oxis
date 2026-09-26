@@ -18,7 +18,11 @@ on:
     branches: [main]
 
 permissions:
-  contents: write # needed to create/update the "latest-build" release
+  contents: write # needed to create/update the "latest-build" release and version tags
+
+# Stamped into every build (scripts/buildstamp.js) and shown by 'version.
+env:
+  OXIS_CHANNEL: ${{ github.event_name == 'push' && 'latest-build' || 'pr' }}
 
 jobs:
   build-linux:
@@ -26,7 +30,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 1
+          fetch-depth: 0 # history and tags for the build number (no old file contents)
+          filter: blob:none
 
       - uses: actions/setup-go@v5
         with:
@@ -64,7 +69,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 1
+          fetch-depth: 0 # history and tags for the build number (no old file contents)
+          filter: blob:none
 
       - uses: actions/setup-go@v5
         with:
@@ -131,6 +137,25 @@ jobs:
         run: |
           gh api -X PATCH "repos/${{ github.repository }}/git/refs/tags/latest-build" -f sha="${{ github.sha }}" -F force=true \
             || gh api -X POST "repos/${{ github.repository }}/git/refs" -f ref=refs/tags/latest-build -f sha="${{ github.sha }}"
+
+      # Bumping the version in package.json tags the first build of main
+      # that carries it as v<version>.
+      - uses: actions/checkout@v4
+        with:
+          path: src
+          sparse-checkout: package.json
+          sparse-checkout-cone-mode: false
+
+      - name: Tag a new version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="$(node -p "require('./src/package.json').version")"
+          if gh api "repos/${{ github.repository }}/git/ref/tags/v$VERSION" >/dev/null 2>&1; then
+            echo "v$VERSION already tagged"
+          else
+            gh api -X POST "repos/${{ github.repository }}/git/refs" -f ref="refs/tags/v$VERSION" -f sha="${{ github.sha }}"
+          fi
 
       - name: Publish rolling "latest-build" release
         uses: softprops/action-gh-release@v2

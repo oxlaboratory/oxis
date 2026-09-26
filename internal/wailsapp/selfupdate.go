@@ -40,7 +40,19 @@ const releaseDownloadPrefix = "https://github.com/" + update.ProjectPath + "/rel
 //
 // On success the new process is already running and the caller should
 // quit this one. On failure the original install is untouched.
-func (a *App) PerformUpdate(fallbackBinaryURL string) (bool, string) {
+func (a *App) PerformUpdate(fallbackBinaryURL string) UpdateResult {
+	ok, msg := performUpdate(fallbackBinaryURL)
+	return UpdateResult{Installed: ok, Error: msg}
+}
+
+// UpdateResult is PerformUpdate's answer. (A Go method bound by Wails
+// can only return a value and an error, so the pair travels as one.)
+type UpdateResult struct {
+	Installed bool   `json:"installed"`
+	Error     string `json:"error"`
+}
+
+func performUpdate(fallbackBinaryURL string) (bool, string) {
 	exePath, err := os.Executable()
 	if err != nil {
 		return false, fmt.Sprintf("couldn't determine my own executable path: %v", err)
@@ -121,7 +133,7 @@ func installAndRestart(exePath, newBinaryPath string) (bool, string) {
 	return true, ""
 }
 
-// buildFromSource shallow-clones the repo into a temp dir, runs
+// buildFromSource clones the repo into a temp dir, runs
 // `node scripts/build-go.js` there (which finds Go on its own), and
 // stages the resulting binary into dir. Needs git and node on PATH.
 func buildFromSource(dir string) (stagedPath string, cleanup func(), err error) {
@@ -141,8 +153,11 @@ func buildFromSource(dir string) (stagedPath string, cleanup func(), err error) 
 
 	cloneCtx, cloneCancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cloneCancel()
-	cloneCmd := exec.CommandContext(cloneCtx, "git", "clone", "--depth", "1",
-		"https://github.com/oxlaboratory/oxis.git", cloneDir)
+	// Commits and tags without old file contents: small like a shallow
+	// clone, but the build can still number itself and find its
+	// release tag (scripts/buildstamp.js).
+	cloneCmd := exec.CommandContext(cloneCtx, "git", "clone", "--filter=blob:none",
+		"https://github.com/"+update.ProjectPath+".git", cloneDir)
 	hideWindow(cloneCmd)
 	if out, cerr := cloneCmd.CombinedOutput(); cerr != nil {
 		return "", nil, fmt.Errorf("git clone failed: %v — %s", cerr, lastLines(string(out), 10))
@@ -153,6 +168,7 @@ func buildFromSource(dir string) (stagedPath string, cleanup func(), err error) 
 	defer buildCancel()
 	buildCmd := exec.CommandContext(buildCtx, nodeBin, filepath.Join("scripts", "build-go.js"))
 	buildCmd.Dir = cloneDir
+	buildCmd.Env = append(os.Environ(), "OXIS_CHANNEL=self-update")
 	hideWindow(buildCmd)
 	if out, berr := buildCmd.CombinedOutput(); berr != nil {
 		return "", nil, fmt.Errorf("build failed: %v — %s", berr, lastLines(string(out), 20))

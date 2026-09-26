@@ -9,6 +9,9 @@ FRONTEND_DIR="$ROOT/frontend"
 SERVER_EMBED="$ROOT/internal/server/dist"
 OUT="$ROOT/dist"
 VERSION="$(node -p "require('$ROOT/package.json').version")"
+# One stamp for the page and the binary (scripts/buildstamp.js).
+OXIS_BUILD_STAMP="$(node "$ROOT/scripts/buildstamp.js")"
+export OXIS_BUILD_STAMP
 
 echo "→ OXIS $VERSION — Linux build"
 
@@ -45,9 +48,8 @@ echo "→ [3/4] Compiling Go binary (tags: $TAGS)..."
 cd "$ROOT"
 go mod download
 mkdir -p "$OUT"
-BUILD_COMMIT="$(git rev-parse HEAD 2>/dev/null || echo "")"
 go build -tags "$TAGS" \
-  -ldflags="-s -w -X github.com/oxis/oxis/internal/wailsapp.Version=$VERSION -X github.com/oxis/oxis/internal/update.BuildCommit=$BUILD_COMMIT" \
+  -ldflags="-s -w $(node "$ROOT/scripts/buildstamp.js" --ldflags)" \
   -o "$OUT/oxis" \
   ./cmd/oxi
 echo "   ✓ dist/oxis ($(du -sh "$OUT/oxis" | cut -f1))"

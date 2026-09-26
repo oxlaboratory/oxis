@@ -20,7 +20,7 @@ import {
   deleteToLineStart, deleteToLineEnd,
   transposeChars,
   setYankBuf, getYankBuf,
-  isWindows, setCurrentShell,
+  isWindows, setCurrentShell, currentShell,
 } from "./terminal/terminal";
 import type { Line, LineKind } from "./terminal/terminal";
 
@@ -63,7 +63,9 @@ import { checkPublishable, findExistingListing, prepareFreePublish, submitPaidPl
 import { commitAll, setupRemote, unlinkRemote, getRemotes, parseGitRemote, cancelActiveCommit, type GitProvider } from "./plugins/git";
 import { loadUserConfig } from "./terminal/userConfig";
 import { userConfigDir } from "./native";
-import { readFile, writeFile, listDir, makeDir, statPath, movePath, isNativeApp, openUrl, checkForUpdate, performUpdate, quitApp, windowGetSize, windowSetSize } from "./native";
+import { readFile, writeFile, listDir, makeDir, statPath, movePath, isNativeApp, openUrl, checkForUpdate, performUpdate, quitApp, windowGetSize, windowSetSize, systemInfo } from "./native";
+import type { NativeUpdateInfo } from "./native";
+import { BUILD, OXIS_VERSION, fullVersion, describe as describeBuild, shortCommit, channelLabel, formatStampDate } from "./buildInfo";
 import Titlebar from "./components/Titlebar";
 import TextContextMenu from "./components/TextContextMenu";
 import ConfirmDialog, { confirmDialog } from "./components/ConfirmDialog";
@@ -301,7 +303,7 @@ async function reportUserConfig(verbose: boolean): Promise<void> {
 let _commandsRegistered = false;
 // One background update check per run, shared by the status bar and the
 // terminal notice. null when the check is turned off in settings.
-let _startupUpdateCheck: Promise<import("./native").NativeUpdateInfo | null> | null = null;
+let _startupUpdateCheck: Promise<NativeUpdateInfo | null> | null = null;
 function startupUpdateCheck() {
   if (!_startupUpdateCheck) {
     _startupUpdateCheck = getSetting("updateCheckOnStartup") === false
@@ -657,6 +659,13 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
   // latest commit and installs over itself only with --force.
   const LATEST_BUILD_URL = "https://github.com/oxlaboratory/oxis/releases/tag/latest-build";
   const short = (sha: string) => sha.slice(0, 7);
+  const commits = (n: number) => `${n} commit${n === 1 ? "" : "s"}`;
+  /** "3 commits behind main" etc., or "" when GitHub couldn't say. */
+  const updateDistance = (u: NativeUpdateInfo) =>
+    u.behind > 0 && u.ahead > 0 ? `${commits(u.behind)} behind main, ${commits(u.ahead)} ahead`
+    : u.behind > 0 ? `${commits(u.behind)} behind main`
+    : u.ahead > 0 ? `${commits(u.ahead)} ahead of main`
+    : "";
 
   registry.register({ name:"update", category:"files", description:"Check for a newer OXIS build — 'update install installs it in place",
     handler:(args)=>{
@@ -677,8 +686,15 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
           dim("'update install --force replaces this build with the latest one");
           return;
         }
-        if (!u.available) { ok(`up to date (${short(u.currentCommit)})`); return; }
-        ok(`newer build available: ${short(u.currentCommit)} → ${short(u.latestCommit)}`);
+        if (!u.available) {
+          ok(u.ahead > 0
+            ? `nothing newer: this build (${short(u.currentCommit)}) is ${updateDistance(u)} — local work`
+            : `up to date (${short(u.currentCommit)})`);
+          return;
+        }
+        const dist = updateDistance(u);
+        ok(`newer build available: ${short(u.currentCommit)} → ${short(u.latestCommit)}${dist ? ` (${dist})` : ""}`);
+        if (u.releaseUrl) dim(`what changed: ${u.releaseUrl}`);
         dim("'update install builds the latest source and installs it in place");
       }).catch(e => err(`update check failed: ${e instanceof Error ? e.message : e}`));
     }});
@@ -697,20 +713,22 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
       }
       if (u.currentCommit && !u.available && !force) {
         ok(`already up to date (${short(u.currentCommit)}) — nothing to install`);
+        if (u.ahead > 0) dim(`this build is ${updateDistance(u)}; 'update install --force replaces it with main anyway`);
         return;
       }
-      info(`installing build ${short(u.latestCommit)}${u.currentCommit ? ` (currently ${short(u.currentCommit)})` : ""}…`);
+      const dist = updateDistance(u);
+      info(`installing build ${short(u.latestCommit)}${u.currentCommit ? ` (currently ${short(u.currentCommit)}${dist ? `, ${dist}` : ""})` : ""}…`);
       dim("pulling the latest source and building it — this rebuilds the whole app, so it can take a few minutes");
       // rawBinaryUrl is only used if building from source isn't
       // possible; PerformUpdate reports it if neither works.
-      const [installed, reason] = await performUpdate(u.rawBinaryUrl);
-      if (!installed) {
-        err(`update failed: ${reason} — your current install was left untouched`);
+      const result = await performUpdate(u.rawBinaryUrl);
+      if (!result.installed) {
+        err(`update failed: ${result.error} — your current install was left untouched`);
         return;
       }
       ok("update installed — the new version has started, closing this one…");
       setTimeout(() => quitApp(), 800); // long enough to read the message
-    }).catch(e => err(`update check failed: ${e instanceof Error ? e.message : e}`));
+    }).catch(e => err(`update failed: ${e instanceof Error ? e.message : e}`));
   }
 
   // ── shell ─────────────────────────────────────────────
@@ -1732,11 +1750,87 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
     handler:()=>{ history.clear(); ok("history cleared"); }});
 
   // ── version / help ────────────────────────────────────
-  registry.register({ name:"version", category:"info", description:"Version info",
-    handler:()=>{ sep(); ctx.print("  OXIS  v1.2.1","accent");
-      dim(`  Platform: ${isWindows()?"Windows / PowerShell":"Linux / bash"}`);
-      dim("  Lua extensible · Browser rendered · Single binary");
-      dim("  TERMINALS WERE THE BEGINNING."); sep(); }});
+  registry.register({ name:"version", category:"info", description:"Version, commit, tag and build info ('version --json | --copy)",
+    handler:(args)=>{
+      const flags = new Set(args.map(a => a.toLowerCase()));
+      const bad = [...flags].filter(f => f !== "--json" && f !== "--copy");
+      if (bad.length) { err(`unknown option ${bad[0]} — try 'version, 'version --json or 'version --copy`); return; }
+      void versionReport().then(r => {
+        if (flags.has("--json")) {
+          ctx.printLines(JSON.stringify(r.data, null, 2).split("\n").map(l => ["  " + l, "info" as LineKind]));
+        } else {
+          sep();
+          ctx.printLines(r.lines);
+          sep();
+        }
+        if (flags.has("--copy")) {
+          const text = flags.has("--json") ? JSON.stringify(r.data, null, 2) : r.lines.map(([l]) => l.replace(/^  /, "")).join("\n");
+          void copyToClipboard(text).then(() => ok("copied — paste it into a bug report"), e => err(`couldn't copy: ${e instanceof Error ? e.message : e}`));
+        }
+      });
+    }});
+
+  /** Everything 'version shows. The update status comes from the
+   *  startup check when it has finished (or finishes within a moment),
+   *  so 'version stays instant and doesn't spend API calls. */
+  async function versionReport(): Promise<{ lines: Array<[string, LineKind?]>; data: Record<string, unknown> }> {
+    const native = isNativeApp();
+    const [sys, upd] = await Promise.all([
+      native ? systemInfo().catch(() => null) : Promise.resolve(null),
+      native ? Promise.race([startupUpdateCheck(), new Promise<null>(r => setTimeout(() => r(null), 1500))]) : Promise.resolve(null),
+    ]);
+    const ua = navigator.userAgent;
+    const engines: Array<[RegExp, string]> = [
+      [/Edg\/([\d.]+)/, native ? "WebView2" : "Edge"], [/Chrome\/([\d.]+)/, "Chromium"],
+      [/Firefox\/([\d.]+)/, "Firefox"], [/AppleWebKit\/([\d.]+)/, native ? "WebKitGTK" : "WebKit"],
+    ];
+    const engine = engines.map(([re, name]) => { const m = re.exec(ua); return m ? `${name} ${m[1].replace(/(\.0)+$/, "")}` : ""; }).find(Boolean) ?? "unknown";
+    const shells: Record<string, string> = {
+      pwsh: "PowerShell 7+ (pwsh)", powershell: "Windows PowerShell 5.1", cmd: "Command Prompt (cmd)",
+      bash: "bash", zsh: "zsh", fish: "fish", sh: "sh",
+    };
+    const shellName = shells[currentShell()] ?? (currentShell() || (isWindows() ? "PowerShell" : "bash"));
+
+    let updateText = "";
+    let updateKind: LineKind = "dim";
+    if (!native) updateText = "checked by the desktop app";
+    else if (!BUILD.commit) updateText = "unknown — this build has no commit stamp";
+    else if (!upd) updateText = getSetting("updateCheckOnStartup") === false ? "not checked — run 'update" : "checking… — run 'update";
+    else if (upd.error) updateText = `couldn't check (${upd.error})`;
+    else if (upd.available) { updateText = `${short(upd.latestCommit)} available${updateDistance(upd) ? ` — ${updateDistance(upd)}` : ""} · 'update install`; updateKind = "warn"; }
+    else { updateText = upd.ahead > 0 ? `nothing newer — ${updateDistance(upd)}` : "up to date with main"; updateKind = "ok"; }
+
+    const tagText = describeBuild() || "none";
+    const rows: Array<[string, string, LineKind?]> = [
+      ["version", fullVersion()],
+      ["commit", BUILD.commit ? `${shortCommit()}  ${BUILD.commit}${BUILD.dirty ? "  (with uncommitted changes)" : ""}` : "unknown (built outside git)"],
+      ["tag", BUILD.channel === "latest-build" ? `${tagText}  ·  latest-build` : tagText],
+      ["channel", channelLabel()],
+      ["built", formatStampDate(BUILD.buildDate) || "unknown"],
+      ["committed", formatStampDate(BUILD.commitDate) || "unknown"],
+      ["update", updateText, updateKind],
+      ["os", sys ? `${sys.osName || sys.os} · ${sys.arch}` : `${isWindows() ? "Windows" : "Linux"} · browser tab`],
+      ["shell", shellName],
+      ["engine", [sys ? `Go ${sys.goVersion.replace(/^go/, "")}` : "", engine].filter(Boolean).join(" · ")],
+      ["mode", native ? "desktop app" : `browser tab at ${location.origin}`],
+    ];
+    const headline = `  OXIS  v${OXIS_VERSION}${BUILD.buildNumber ? `  ·  build ${BUILD.buildNumber}` : ""}${BUILD.commit ? `  ·  ${shortCommit()}` : ""}`;
+    const lines: Array<[string, LineKind?]> = [
+      [headline, "accent"],
+      ["", undefined],
+      ...rows.map(([k, v, kind]): [string, LineKind?] => [`  ${k.padEnd(11)}${v}`, kind ?? "info"]),
+      ["", undefined],
+      ["  Lua extensible · Browser rendered · Single binary", "dim"],
+      ["  TERMINALS WERE THE BEGINNING.", "dim"],
+    ];
+    const data: Record<string, unknown> = {
+      ...BUILD, fullVersion: fullVersion(), describe: describeBuild() || null,
+      update: upd ? { available: upd.available, latestCommit: upd.latestCommit, behind: upd.behind, ahead: upd.ahead, error: upd.error ?? null } : null,
+      os: sys?.osName ?? null, arch: sys?.arch ?? null, goVersion: sys?.goVersion ?? null,
+      shell: currentShell() || null, engine, mode: native ? "desktop" : "browser",
+    };
+    return { lines, data };
+  }
 
   registry.register({ name:"v",       category:"info", description:"Version info",
     handler:()=> registry.execute("version",[],"") });
@@ -1756,7 +1850,7 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
         return;
       }
       sep(); info("Diagnostics"); sep();
-      info(`OXIS version:     1.2.1`);
+      info(`OXIS version:      ${fullVersion()}${BUILD.commit ? ` (${describeBuild()})` : ""}`);
       info(`OS:                ${isWindows() ? "Windows" : "Linux/Unix"}`);
       info(`Runtime:           ${isNativeApp() ? "native (Wails desktop app)" : "browser"}`);
       const all = pluginManager.all();
@@ -5070,7 +5164,12 @@ function Home({ currentTheme, onTheme, onOpenThemeEditor, onOpenPluginCreator }:
     <span><strong className="oxis-letter">S</strong>hell</span>
   </div>
           <div className="oxis-ver-row">
-            <span className="oxis-ver-label">OXIS</span><span className="oxis-ver-num">v1.2.1</span>
+            <span className="oxis-ver-label">OXIS</span><span className="oxis-ver-num">v{OXIS_VERSION}</span>
+            {BUILD.commit && (
+              <span className="oxis-ver-build" title={`${fullVersion()} · ${channelLabel()} — 'version for details`}>
+                {BUILD.buildNumber ? `build ${BUILD.buildNumber} · ` : ""}{shortCommit()}{BUILD.dirty ? "*" : ""}
+              </span>
+            )}
             <button className="oxis-github-btn" onClick={() => void openUrl("https://github.com/oxlaboratory/oxis")}
               title="Open the OXIS repository on GitHub">GitHub ↗</button>
           </div>

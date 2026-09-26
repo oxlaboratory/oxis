@@ -6,6 +6,18 @@ All notable changes to OXIS. The format follows
 ## [Unreleased]
 
 ### Added
+- `'version` shows the build number, commit, release tag (`git
+  describe` style), channel (CI `latest-build`, self-update or local
+  source build), build and commit dates, update status, OS release,
+  shell and engine versions; `'version --json` and `'version --copy`
+  for bug reports. Home shows the build number and commit next to the
+  version.
+- Builds are stamped by one script (`scripts/buildstamp.js`) for both
+  the binary and the page, so they always agree. CI tags each new
+  `package.json` version as `v<version>` automatically.
+- `'update` says how many commits behind `main` a build is, links the
+  comparison, and no longer offers an "update" to a local build that is
+  ahead of `main`.
 - One global command prompt, fixed above the status bar on every screen
   (Home, terminal and editor). It replaces Home's separate input. It's
   a real text field, with native selection, mouse positioning, IME and
@@ -101,6 +113,13 @@ All notable changes to OXIS. The format follows
 - The npm launcher downloads from the GitHub `latest-build` release.
 
 ### Fixed
+- `'update install` ended with "(intermediate value) is not iterable":
+  the update had installed and started, but the old window never
+  closed. A Go test now rejects any bound method whose result the page
+  can't receive.
+- Vim-mode `j`, `k`, `0`, `$` and `dd` misbehaved on an empty first line.
+- Uninstalling a premium plugin left its package behind, so it came
+  back on the next start.
 - **Security:** the local PTY WebSocket accepted connections from any
   website. It now only accepts the OXIS window and its own origin.
 - **Security:** restoring a backup or importing a workspace export could

@@ -1,11 +1,9 @@
 // Package update checks GitHub for a newer OXIS build.
 //
-// "Newer" means the tip of DefaultBranch differs from BuildCommit, the
-// commit this binary was built from (set with
-// -ldflags "-X github.com/oxis/oxis/internal/update.BuildCommit=<sha>"
-// by scripts/build-go.js and build-linux.sh). A binary built without
-// that flag can't tell whether it's out of date; it only reports the
-// latest commit.
+// "Newer" means the tip of DefaultBranch has commits that the commit
+// this binary was built from (buildinfo.CommitSHA) doesn't. A binary
+// that doesn't know its commit can't tell whether it's out of date; it
+// only reports the latest commit.
 //
 // The self-updater builds from source (see wailsapp.PerformUpdate), so
 // availability doesn't depend on CI having published anything. The
@@ -19,6 +17,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/oxis/oxis/internal/buildinfo"
 )
 
 // ProjectPath is this repo's "owner/repo" on github.com.
@@ -31,9 +31,6 @@ const DefaultBranch = "main"
 // DefaultBranch. Only used for fallback download links.
 const RollingReleaseTag = "latest-build"
 
-// BuildCommit is set via -ldflags at build time (see package doc).
-var BuildCommit = ""
-
 // Info is what a check returns to the frontend.
 type Info struct {
 	Available     bool   `json:"available"`
@@ -43,6 +40,11 @@ type Info struct {
 	DownloadURL   string `json:"downloadUrl"`  // installer (.msi / .deb) for manual download
 	RawBinaryURL  string `json:"rawBinaryUrl"` // bare executable PerformUpdate can swap in
 	Notes         string `json:"notes"`
+	// Behind is how many commits DefaultBranch has that this build
+	// doesn't, Ahead how many this build has that DefaultBranch doesn't
+	// (a local build of unpushed work). -1 when GitHub couldn't say.
+	Behind int `json:"behind"`
+	Ahead  int `json:"ahead"`
 	// Error says why the latest build couldn't be found (offline, rate
 	// limited); empty when the check worked.
 	Error string `json:"error,omitempty"`
@@ -71,12 +73,18 @@ type ghCommit struct {
 	SHA string `json:"sha"`
 }
 
-// Check compares BuildCommit with the tip of DefaultBranch. When the
-// tip can't be fetched, Error says why and Available is false. A build
-// without BuildCommit gets LatestCommit but never Available. goos picks
-// the matching fallback assets.
+type ghCompare struct {
+	AheadBy  int `json:"ahead_by"`
+	BehindBy int `json:"behind_by"`
+}
+
+// Check compares this build's commit with the tip of DefaultBranch.
+// When the tip can't be fetched, Error says why and Available is false.
+// A build that doesn't know its commit gets LatestCommit but never
+// Available. goos picks the matching fallback assets.
 func Check(goos string) Info {
-	info := Info{CurrentCommit: BuildCommit}
+	current := buildinfo.CommitSHA()
+	info := Info{CurrentCommit: current, Behind: -1, Ahead: -1}
 	latestCommit, err := latestCommitOnDefaultBranch()
 	if err != nil {
 		info.Error = err.Error()
@@ -84,39 +92,76 @@ func Check(goos string) Info {
 	}
 	info.LatestCommit = latestCommit
 	info.ReleaseURL = fmt.Sprintf("https://github.com/%s/commits/%s", ProjectPath, DefaultBranch)
-	if BuildCommit == "" {
+	if current == "" {
 		return info
 	}
-	info.Available = !strings.EqualFold(latestCommit, BuildCommit)
-
-	populateFallbackAssets(&info, goos)
-
+	if strings.EqualFold(latestCommit, current) {
+		info.Behind, info.Ahead = 0, 0
+		return info
+	}
+	if c, err := compareCommits(current, latestCommit); err == nil {
+		info.Behind, info.Ahead = c.AheadBy, c.BehindBy
+		// Only newer commits on the branch count: a build that is just
+		// ahead of it (local work) has nothing to update to.
+		info.Available = c.AheadBy > 0
+		info.ReleaseURL = fmt.Sprintf("https://github.com/%s/compare/%s...%s", ProjectPath, shortSHA(current), shortSHA(latestCommit))
+	} else {
+		// GitHub doesn't know this build's commit (never pushed); the
+		// branch tip is still a different build.
+		info.Available = true
+	}
+	if info.Available {
+		populateFallbackAssets(&info, goos)
+	}
 	return info
 }
 
-// latestCommitOnDefaultBranch returns the branch tip SHA.
-func latestCommitOnDefaultBranch() (string, error) {
-	endpoint := fmt.Sprintf("%s/repos/%s/commits/%s", apiBase, ProjectPath, DefaultBranch)
+func shortSHA(sha string) string {
+	if len(sha) > 12 {
+		return sha[:12]
+	}
+	return sha
+}
+
+// compareCommits asks GitHub how base and head relate: AheadBy counts
+// head's commits that base lacks, BehindBy the reverse.
+func compareCommits(base, head string) (ghCompare, error) {
+	var c ghCompare
+	err := getJSON(fmt.Sprintf("%s/repos/%s/compare/%s...%s", apiBase, ProjectPath, base, head), &c)
+	return c, err
+}
+
+// getJSON GETs a GitHub API endpoint into v.
+func getJSON(endpoint string, v any) error {
 	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
 	if err != nil {
-		return "", err
+		return err
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
-
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("couldn't reach GitHub (offline?)")
+		return fmt.Errorf("couldn't reach GitHub (offline?)")
 	}
 	defer resp.Body.Close()
 	switch {
 	case resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusTooManyRequests:
-		return "", fmt.Errorf("GitHub's API rate limit was reached; try again in a while")
+		return fmt.Errorf("GitHub's API rate limit was reached; try again in a while")
 	case resp.StatusCode != http.StatusOK:
-		return "", fmt.Errorf("GitHub answered HTTP %d", resp.StatusCode)
+		return fmt.Errorf("GitHub answered HTTP %d", resp.StatusCode)
 	}
+	if err := json.NewDecoder(resp.Body).Decode(v); err != nil {
+		return fmt.Errorf("GitHub sent an unexpected response")
+	}
+	return nil
+}
 
+// latestCommitOnDefaultBranch returns the branch tip SHA.
+func latestCommitOnDefaultBranch() (string, error) {
 	var c ghCommit
-	if err := json.NewDecoder(resp.Body).Decode(&c); err != nil || c.SHA == "" {
+	if err := getJSON(fmt.Sprintf("%s/repos/%s/commits/%s", apiBase, ProjectPath, DefaultBranch), &c); err != nil {
+		return "", err
+	}
+	if c.SHA == "" {
 		return "", fmt.Errorf("GitHub sent an unexpected response")
 	}
 	return c.SHA, nil

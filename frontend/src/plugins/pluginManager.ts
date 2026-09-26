@@ -37,9 +37,10 @@ export interface PluginMeta {
   shortcuts?: Record<string, string | ((a: string) => string)>;
   /** Where a non-builtin plugin's file lives: "market" → plugins/ (the
    *  plugin-file Go bindings), "user" → created-plugins/ or the active
-   *  workspace's plugins/. Undefined for builtins and premium plugins
-   *  (never written to disk). */
-  origin?: "user" | "market";
+   *  workspace's plugins/, "premium" → its encrypted package in
+   *  .oxis/premium/ (the decrypted source is never written to disk).
+   *  Undefined for builtins. */
+  origin?: "user" | "market" | "premium";
   /** From the `--[[@manifest ... ]]` block (manifest.ts); undefined for
    *  legacy plugins, which skip compatibility checks. */
   manifest?: PluginManifest;
@@ -359,13 +360,13 @@ class PluginManager {
       .map(p => p.name);
   }
 
-  /** Removes a plugin: unloads it, deletes its file (user/Market), and
-   *  drops it from the list. Refuses if another plugin depends on it
-   *  unless `force` is set (the caller warns the user). */
-  /** The file is deleted and confirmed gone (statPath) before the
-   *  plugin is removed from the list; otherwise it would be rediscovered
-   *  on the next start. A file that survives the delete is reported and
-   *  the plugin left as it was. */
+  /** Removes a plugin: unloads it, deletes its file (a user plugin's
+   *  .lua, a Market plugin's file, or a premium plugin's encrypted
+   *  package) and drops it from the list. Refuses if another plugin
+   *  depends on it unless `force` is set (the caller warns the user).
+   *  The file is confirmed gone before the plugin leaves the list,
+   *  otherwise it would come back on the next start; a file that
+   *  survives the delete is reported and the plugin left as it was. */
   async remove(name: string, force = false): Promise<{ ok: boolean; message: string }> {
     const p = this.plugins.get(name);
     if (!p) return { ok: false, message: `not found: ${name}` };
@@ -378,7 +379,9 @@ class PluginManager {
     }
 
     if (!p.builtin && isNativeApp()) {
-      const filePath = p.origin === "user" ? `${workspaceManager.pluginsDir()}/${name}.lua` : null;
+      const filePath = p.origin === "user" ? `${workspaceManager.pluginsDir()}/${name}.lua`
+        : p.origin === "premium" ? `.oxis/premium/${name}.oxispkg`
+        : null;
       try {
         if (filePath) await deletePath(filePath);
         else await deletePluginFile(name);
@@ -586,7 +589,7 @@ class PluginManager {
    * encrypted .oxispkg stays the only copy.
    */
   registerPremiumPlugin(name: string, lua: string, category = "premium", silent = false): void {
-    this.register({ name, desc: "Premium plugin", category, builtin: false, enabled: true, lua });
+    this.register({ name, desc: "Premium plugin", category, builtin: false, enabled: true, lua, origin: "premium" });
     this.persist(); // enabled/disabled flag only — no source, see persist()'s own doc comment
     this.load(name, silent);
   }

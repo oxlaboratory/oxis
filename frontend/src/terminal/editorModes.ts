@@ -13,7 +13,9 @@ export interface CursorState {
 }
 
 function lineBounds(content: string, pos: number): { start: number; end: number } {
-  const start = content.lastIndexOf("\n", Math.max(0, pos - 1)) + 1;
+  // lastIndexOf treats a negative fromIndex as 0 and would find a
+  // newline at offset 0, so position 0 is handled on its own.
+  const start = pos === 0 ? 0 : content.lastIndexOf("\n", pos - 1) + 1;
   const nl = content.indexOf("\n", pos);
   const end = nl === -1 ? content.length : nl;
   return { start, end };
@@ -48,7 +50,7 @@ export function moveUp(c: CursorState, count = 1): number {
     if (start === 0) break;
     const col = pos - start;
     const prevEnd = start - 1;
-    const prevStart = c.content.lastIndexOf("\n", Math.max(0, prevEnd - 1)) + 1;
+    const prevStart = prevEnd === 0 ? 0 : c.content.lastIndexOf("\n", prevEnd - 1) + 1;
     pos = Math.min(prevStart + col, prevEnd);
   }
   return pos;

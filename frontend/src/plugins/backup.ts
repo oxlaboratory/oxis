@@ -14,6 +14,7 @@
  */
 
 import { readFile, writeFile, listDir, isNativeApp } from "../native";
+import { OXIS_VERSION } from "../buildInfo";
 import { workspaceManager, type NamedWorkspaceEntry } from "../terminal/workspaceManager";
 
 const SETTING_PREFIX = "setting.";
@@ -154,7 +155,7 @@ export async function createFullBackup(): Promise<FullBackup> {
   for (const w of registry) workspaces[w.name] = await readDirRecursive(`workspaces/${w.name}`);
   return {
     createdAt: new Date().toISOString(),
-    oxisVersion: "1.2.1",
+    oxisVersion: OXIS_VERSION,
     settings: exportSettings().settings,
     workspaceRegistry: registry,
     workspaces,

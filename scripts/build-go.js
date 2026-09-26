@@ -29,7 +29,14 @@ const EMBED_DIST = path.join(ROOT, "internal", "server", "dist");
 const OUT        = path.join(ROOT, "dist");
 const IS_WIN     = process.platform === "win32";
 const IS_LINUX   = process.platform === "linux";
-const VERSION    = require(path.join(ROOT, "package.json")).version;
+const { stamp, ldflags: stampFlags } = require("./buildstamp");
+
+// Computed once, before npm/goversioninfo touch tracked files, and
+// handed to the frontend build through OXIS_BUILD_STAMP so the page and
+// the binary carry the same stamp.
+const STAMP   = stamp();
+const VERSION = STAMP.version;
+process.env.OXIS_BUILD_STAMP = JSON.stringify(STAMP);
 
 const col = {
   reset:"\x1b[0m", magenta:"\x1b[35m", cyan:"\x1b[36m",
@@ -74,7 +81,7 @@ function copyDir(src, dest) {
   }
 }
 
-log(`\n→ OXIS ${VERSION} build`, col.magenta);
+log(`\n→ OXIS ${VERSION} build${STAMP.buildNumber ? ` ${STAMP.buildNumber}` : ""}${STAMP.commit ? ` (${STAMP.commit.slice(0, 7)}${STAMP.dirty ? ", modified" : ""})` : ""}`, col.magenta);
 
 const GO = process.env.GO_BIN || findGo();
 if (!GO) {
@@ -134,13 +141,9 @@ fs.mkdirSync(OUT, { recursive:true });
 const binaryName = IS_WIN ? "oxis.exe" : "oxis";
 const outBinary  = path.join(OUT, binaryName);
 
-// Version and BuildCommit feed 'update (internal/update). Without
-// BuildCommit a build never reports an available update.
-const buildCommit = (() => {
-  const r = spawnSync("git", ["rev-parse", "HEAD"], { cwd:ROOT, stdio:"pipe" });
-  return r.status === 0 ? r.stdout.toString().trim() : "";
-})();
-const xflags  = `-X github.com/oxis/oxis/internal/wailsapp.Version=${VERSION} -X github.com/oxis/oxis/internal/update.BuildCommit=${buildCommit}`;
+// The stamp feeds 'version and 'update (internal/buildinfo). Without a
+// commit a build never reports an available update.
+const xflags  = stampFlags(STAMP);
 const ldflags = IS_WIN ? `"-s -w -H windowsgui ${xflags}"` : `"-s -w ${xflags}"`;
 
 // Wails needs the "desktop" tag or the binary refuses to start;

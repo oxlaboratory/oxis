@@ -729,6 +729,11 @@ html, body, #root {
   font-size: var(--home-fs); font-style: italic; color: var(--muted);
 }
 
+.oxis-ver-build {
+  font-size: 10px; font-style: normal; color: var(--dim); opacity: .75;
+  font-variant-numeric: tabular-nums; cursor: help;
+}
+
 .oxis-github-btn {
   background: transparent; border: none;
   color: var(--dim); font-family: var(--font); font-size: 10px; font-style: normal;

@@ -45,7 +45,7 @@ declare global {
           /** Builds the latest source and swaps it in (see
            *  PerformUpdate in selfupdate.go); fallbackBinaryUrl is used
            *  only if building isn't possible. */
-          PerformUpdate?: (fallbackBinaryUrl: string) => Promise<[boolean, string]>;
+          PerformUpdate?: (fallbackBinaryUrl: string) => Promise<NativeUpdateResult>;
           WriteTempScript?: (ext: string, content: string) => Promise<string>;
           WindowGetSize?: () => Promise<NativeWindowSize>;
           WindowSetSize?: (width: number, height: number) => Promise<NativeWindowSize>;
@@ -70,7 +70,8 @@ export class NativeUnavailableError extends Error {
 export interface NativeFileEntry { name: string; isDir: boolean; size: number; modTime: number; }
 export interface NativeStatResult { exists: boolean; isDir: boolean; size: number; modTime: number; }
 export interface NativeRunCommandResult { stdout: string; stderr: string; exitCode: number; }
-export interface NativeSystemInfo { os: string; arch: string; numCPU: number; goVersion: string; allocMB: number; numGoroutine: number; }
+/** osName is readable, e.g. "Windows 11 24H2 (build 26100)". */
+export interface NativeSystemInfo { os: string; osName: string; arch: string; numCPU: number; goVersion: string; allocMB: number; numGoroutine: number; }
 export interface NativeProcessInfo { pid: number; name: string; }
 /** Mirrors WindowResult in internal/wailsapp/window.go. */
 export interface NativeWindowSize { width: number; height: number; configPath: string; persisted: boolean; }
@@ -89,9 +90,15 @@ export interface NativeUpdateInfo {
    *  in; empty when the release has none for this platform. */
   rawBinaryUrl: string;
   notes: string;
+  /** Commits main has that this build doesn't, and the reverse (local
+   *  work); -1 when GitHub couldn't say. */
+  behind: number;
+  ahead: number;
   /** Why the latest build couldn't be found (offline, rate limited). */
   error?: string;
 }
+/** Mirrors UpdateResult in internal/wailsapp/selfupdate.go. */
+export interface NativeUpdateResult { installed: boolean; error: string; }
 
 /** True if running inside the native Wails window; false in a plain
  *  browser tab (e.g. http://127.0.0.1:1420 opened directly). Synchronous
@@ -268,16 +275,16 @@ export async function readClipboard(): Promise<string> {
  *  nothing available in browser mode instead of throwing. */
 export async function checkForUpdate(): Promise<NativeUpdateInfo> {
   const fn = window.go?.wailsapp?.App?.CheckForUpdate;
-  if (!fn) return { available: false, currentCommit: "", latestCommit: "", releaseUrl: "", downloadUrl: "", rawBinaryUrl: "", notes: "" };
+  if (!fn) return { available: false, currentCommit: "", latestCommit: "", releaseUrl: "", downloadUrl: "", rawBinaryUrl: "", notes: "", behind: -1, ahead: -1 };
   return fn();
 }
 
-/** Installs a newer build in place (see PerformUpdate). Returns
- *  [true, ""] with the new process already running; the caller then
- *  quits this one. [false, reason] leaves the install untouched. */
-export async function performUpdate(fallbackUrl: string): Promise<[boolean, string]> {
+/** Installs a newer build in place (see PerformUpdate). installed:
+ *  the new process is already running and the caller quits this one;
+ *  otherwise error says why and the install is untouched. */
+export async function performUpdate(fallbackUrl: string): Promise<NativeUpdateResult> {
   const fn = window.go?.wailsapp?.App?.PerformUpdate;
-  if (!fn) return [false, "updating isn't available outside the native app"];
+  if (!fn) return { installed: false, error: "updating isn't available outside the native app" };
   return fn(fallbackUrl);
 }
 
