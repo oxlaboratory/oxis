@@ -4,7 +4,7 @@
  */
 
 import React, {
-  useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState,
+  memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState,
 } from "react";
 import { createPortal } from "react-dom";
 import { marked } from "marked";
@@ -3234,6 +3234,22 @@ function renderLineWithLinks(text: string, onOpenUrl: (url: string) => void, onO
   return parts;
 }
 
+const openLineUrl = (url: string) => { void openUrl(url); };
+const openLinePath = (path: string) => { _ctxRef.current?.openEditor(path); };
+
+/** One output line. Memoised because the terminal re-renders on every
+ *  keystroke in the prompt, and rebuilding (and re-scanning for links)
+ *  up to 10,000 lines each time made typing lag. */
+const OutputLine = memo(function OutputLine({ line, match }: { line: Line; match: boolean }) {
+  return (
+    <div data-line-id={line.id}
+      className={`term-line${match ? " term-line--match" : ""}`}
+      style={{ color: line.kind ? LINE_COLORS[line.kind] : undefined }}>
+      {renderLineWithLinks(line.text, openLineUrl, openLinePath)}
+    </div>
+  );
+});
+
 /** An unfinished output line that asks for a secret: "[sudo] password
  *  for ana:", "Enter passphrase (empty for no passphrase):", "Password
  *  for 'https://github.com':", "Enter PIN:". */
@@ -4448,14 +4464,7 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
         onContextMenu={openOutputMenu}
         tabIndex={-1}
       >
-        {lines.map(line => (
-          <div key={line.id}
-            data-line-id={line.id}
-            className={`term-line${outputSearchSet.has(line.id) ? " term-line--match" : ""}`}
-            style={{ color: line.kind ? LINE_COLORS[line.kind] : undefined }}>
-            {renderLineWithLinks(line.text, u => void openUrl(u), p => _ctxRef.current?.openEditor(p))}
-          </div>
-        ))}
+        {lines.map(line => <OutputLine key={line.id} line={line} match={outputSearchSet.has(line.id)} />)}
         {partial && <div className="term-line">{partial}</div>}
       </div>
 

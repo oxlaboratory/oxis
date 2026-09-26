@@ -11,11 +11,16 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/oxis/oxis/internal/update"
 )
 
 // selfUpdateBackupEnv tells the newly launched build where the previous
 // executable was backed up, so it can delete it once it has started.
 const selfUpdateBackupEnv = "OXIS_UPDATE_BACKUP_PATH"
+
+// releaseDownloadPrefix is where prebuilt fallback binaries must come from.
+const releaseDownloadPrefix = "https://github.com/" + update.ProjectPath + "/releases/download/"
 
 // PerformUpdate replaces the running executable with a newer build.
 //
@@ -50,6 +55,12 @@ func (a *App) PerformUpdate(fallbackBinaryURL string) (bool, string) {
 	if buildErr != nil {
 		if fallbackBinaryURL == "" {
 			return false, fmt.Sprintf("couldn't build the update from source (%v), and no prebuilt fallback is available for this platform/build", buildErr)
+		}
+		// The page passes the URL in, so only this project's own release
+		// downloads are accepted: anything else would let a script in the
+		// page swap OXIS for an arbitrary program.
+		if !strings.HasPrefix(fallbackBinaryURL, releaseDownloadPrefix) {
+			return false, fmt.Sprintf("refusing to install an update from %q: updates only come from %s", fallbackBinaryURL, releaseDownloadPrefix)
 		}
 		var dlErr error
 		newBinaryPath, cleanupNew, dlErr = downloadRawBinary(fallbackBinaryURL, exeDir)

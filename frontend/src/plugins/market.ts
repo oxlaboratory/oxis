@@ -37,11 +37,23 @@ async function fetchJSON<T>(url: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+// Plugin names become file names on disk, so entries with anything else
+// are dropped.
+const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/;
+
+function isUsableEntry(e: unknown): e is MarketEntry {
+  const m = e as Partial<MarketEntry> | null;
+  return !!m && typeof m.name === "string" && SAFE_NAME.test(m.name) && !m.name.includes("..")
+    && typeof m.file === "string";
+}
+
 /** The Market index, cached for the session. */
 export async function fetchIndex(force = false): Promise<MarketEntry[]> {
   if (cachedIndex && !force) return cachedIndex;
-  const entries = await fetchJSON<MarketEntry[]>(`${MARKET_BASE}/index.json`);
-  cachedIndex = Array.isArray(entries) ? entries : [];
+  const entries = await fetchJSON<unknown>(`${MARKET_BASE}/index.json`);
+  cachedIndex = (Array.isArray(entries) ? entries : []).filter(isUsableEntry).map(e => ({
+    ...e, desc: String(e.desc ?? ""), category: String(e.category ?? "plugin"),
+  }));
   return cachedIndex;
 }
 
@@ -115,9 +127,12 @@ const encryptedPluginPath = (name: string) => `.oxis/premium/${name}.oxispkg`;
 
 /** Fetches, encrypts, stores and loads a premium plugin once its
  *  license is active (native app only). */
-export async function installPremium(name: string): Promise<{ entry: MarketEntry; loaded: boolean; loadMessage: string }> {
-  const entry = await findEntry(name);
-  if (!entry) throw new Error(`not found in marketplace: ${name}`);
+export async function installPremium(typedName: string): Promise<{ entry: MarketEntry; loaded: boolean; loadMessage: string }> {
+  const entry = await findEntry(typedName);
+  if (!entry) throw new Error(`not found in marketplace: ${typedName}`);
+  // The index's spelling, so the file name and plugin name match
+  // whatever case was typed.
+  const name = entry.name;
   if (!entry.premium) throw new Error(`${name} is free — use 'market install ${name} instead`);
   if (!isNativeApp()) throw new Error("premium plugins need the native OXIS app (local encrypted storage isn't available in browser mode)");
 

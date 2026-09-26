@@ -81,6 +81,14 @@ All notable changes to OXIS. The format follows
 ### Fixed
 - **Security:** the local PTY WebSocket accepted connections from any
   website. It now only accepts the OXIS window and its own origin.
+- **Security:** restoring a backup or importing a workspace export could
+  write files anywhere on disk through `../` paths in the file. Unsafe
+  paths are now refused and reported.
+- **Security:** the updater accepted a download URL from anywhere; it
+  now only installs builds from this project's GitHub releases. Market
+  plugin names that aren't plain file names are ignored.
+- Typing lagged with a long scrollback (about 50 ms per key at 9,000
+  lines); output lines no longer re-render on every keystroke.
 - **Security:** answers to password prompts (`sudo`, `ssh`, git,
   `Read-Host -AsSecureString`) were shown in the prompt and saved to
   command history. The prompt is now masked there and the answer is

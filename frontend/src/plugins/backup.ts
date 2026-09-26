@@ -69,14 +69,31 @@ async function readDirRecursive(basePath: string, relPath = ""): Promise<Record<
   return out;
 }
 
-async function writeFilesFromMap(basePath: string, files: Record<string, string>): Promise<number> {
-  let count = 0;
+/** A path from a backup or export file, or null unless it stays inside
+ *  the folder it's restored into: relative, no "..", no drive letter or
+ *  ":" (Windows streams), no NUL. A crafted file could otherwise write
+ *  anywhere, e.g. "../../AppData/.../Startup/x.bat". */
+export function safeRelPath(rel: string): string | null {
+  const parts = rel.replace(/\\/g, "/").split("/").filter(s => s !== "" && s !== ".");
+  if (parts.length === 0 || /^[\\/]/.test(rel)) return null;
+  if (parts.some(s => s === ".." || s.includes(":") || s.includes("\0"))) return null;
+  return parts.join("/");
+}
+
+interface WriteResult { written: number; refused: number }
+
+async function writeFilesFromMap(basePath: string, files: Record<string, string>): Promise<WriteResult> {
+  const result: WriteResult = { written: 0, refused: 0 };
   for (const [rel, content] of Object.entries(files)) {
-    try { await writeFile(`${basePath}/${rel}`, content); count++; }
+    const safe = typeof content === "string" ? safeRelPath(rel) : null;
+    if (!safe) { result.refused++; continue; }
+    try { await writeFile(`${basePath}/${safe}`, content); result.written++; }
     catch { /* one bad path shouldn't abort the whole restore */ }
   }
-  return count;
+  return result;
 }
+
+const refusedNote = (n: number) => n ? ` — refused ${n} file(s) with unsafe paths` : "";
 
 export interface WorkspaceExport {
   name: string;
@@ -100,15 +117,11 @@ export async function importWorkspace(data: WorkspaceExport, targetName?: string
   const name = targetName || data.name;
   const created = await workspaceManager.createNamed(name);
   if (!created.ok) return created;
-  const count = await writeFilesFromMap(`workspaces/${name}`, data.files);
-  if (data.entry.externalPath) {
-    // createNamed() just made it — switch to it briefly is overkill;
-    // write the link directly via the same mechanism 'workspace link uses.
-    const list = await workspaceManager.listNamed();
-    const entry = list.find(w => w.name === name);
-    if (entry) { /* linkExternal only affects the ACTIVE workspace by design — see workspaceManager.ts; leave externalPath for the user to re-link with 'workspace switch + 'workspace link if they need it, rather than reaching around that on their behalf */ }
-  }
-  return { ok: true, message: `workspace "${name}" imported (${count} file(s))${data.entry.externalPath ? ` — re-link its external path manually: 'workspace link "${data.entry.externalPath}"` : ""}` };
+  const { written, refused } = await writeFilesFromMap(`workspaces/${name}`, data.files || {});
+  // An external project path is never re-linked automatically: linking
+  // only applies to the active workspace, so the user does it.
+  const external = data.entry?.externalPath;
+  return { ok: true, message: `workspace "${name}" imported (${written} file(s))${refusedNote(refused)}${external ? ` — re-link its external path with: 'workspace link "${external}"` : ""}` };
 }
 
 /** `'plugin export <name> <path>` — just the plugin's own .lua
@@ -154,12 +167,11 @@ export async function createFullBackup(): Promise<FullBackup> {
  *  backup contains; nothing else is deleted. */
 export async function restoreFullBackup(data: FullBackup): Promise<{ ok: boolean; message: string }> {
   if (!isNativeApp()) return { ok: false, message: "restore needs the desktop app (no filesystem access in browser mode)" };
-  let settingsCount = 0, docCount = 0, pluginCount = 0;
   const workspaceResults: string[] = [];
 
-  settingsCount = importSettings({ settings: data.settings }).count;
-  docCount = await writeFilesFromMap("created-documents", data.createdDocuments || {});
-  pluginCount = await writeFilesFromMap("created-plugins", data.createdPlugins || {});
+  const settingsCount = importSettings({ settings: data.settings }).count;
+  const docs = await writeFilesFromMap("created-documents", data.createdDocuments || {});
+  const plugins = await writeFilesFromMap("created-plugins", data.createdPlugins || {});
 
   for (const entry of data.workspaceRegistry || []) {
     const existing = (await workspaceManager.listNamed()).find(w => w.name === entry.name);
@@ -167,14 +179,14 @@ export async function restoreFullBackup(data: FullBackup): Promise<{ ok: boolean
       const created = await workspaceManager.createNamed(entry.name);
       if (!created.ok) { workspaceResults.push(`${entry.name}: skipped (${created.message})`); continue; }
     }
-    const count = await writeFilesFromMap(`workspaces/${entry.name}`, data.workspaces?.[entry.name] || {});
-    workspaceResults.push(`${entry.name}: ${count} file(s)${existing ? " (merged into existing workspace)" : ""}`);
+    const { written, refused } = await writeFilesFromMap(`workspaces/${entry.name}`, data.workspaces?.[entry.name] || {});
+    workspaceResults.push(`${entry.name}: ${written} file(s)${existing ? " (merged into existing workspace)" : ""}${refusedNote(refused)}`);
   }
 
   return {
     ok: true,
     message: [
-      `restored ${settingsCount} setting(s), ${docCount} document(s), ${pluginCount} created-plugin file(s)`,
+      `restored ${settingsCount} setting(s), ${docs.written} document(s), ${plugins.written} created-plugin file(s)${refusedNote(docs.refused + plugins.refused)}`,
       ...workspaceResults.map(r => `  workspace ${r}`),
     ].join("\n"),
   };
