@@ -3234,6 +3234,11 @@ function renderLineWithLinks(text: string, onOpenUrl: (url: string) => void, onO
   return parts;
 }
 
+/** An unfinished output line that asks for a secret: "[sudo] password
+ *  for ana:", "Enter passphrase (empty for no passphrase):", "Password
+ *  for 'https://github.com':", "Enter PIN:". */
+const SECRET_PROMPT_RE = /(password|passphrase|\bpin\b)[^\n]*:\s*$/i;
+
 function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }: TermProps) {
   const onNewTab = onShowShell;
   // ── output state ─────────────────────────────────────────
@@ -3241,6 +3246,12 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
   const [ready,      setReady]      = useState(false);
   const [partial,    setPartial]    = useState("");
   const [connErr,    setConnErr]    = useState("");
+  // The shell is waiting at a password prompt (sudo, ssh, git,
+  // Read-Host -AsSecureString): the prompt is masked and the answer
+  // stays out of history.
+  const secretInput = SECRET_PROMPT_RE.test(partial);
+  const secretRef = useRef(secretInput);
+  secretRef.current = secretInput;
 
   // ── global prompt state ───────────────────────────────────
   // The prompt is a real <input> (native selection, IME, clipboard,
@@ -3898,6 +3909,13 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
   // From Home, Enter switches to the terminal first so the output is
   // visible; an empty Enter on Home just opens the terminal.
   const submit = useCallback(() => {
+    if (secretRef.current) {
+      // Sent exactly as typed and never added to history.
+      const answer = inputRef.current.value;
+      clearInput();
+      sendToShell(answer + "\r");
+      return;
+    }
     const cmd = inputRef.current.value.trim();
     clearInput();
     history.resetNav();
@@ -3906,7 +3924,7 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
       if (!cmd) return;
     }
     runLine(cmd);
-  }, [clearInput, runLine, onShowShell]);
+  }, [clearInput, runLine, onShowShell, sendToShell]);
 
   // ── Search helpers ────────────────────────────────────────
   const enterSearch = useCallback(() => {
@@ -4306,7 +4324,8 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
         <div className="term-input-wrap">
           <input
             ref={promptRef}
-            className="term-prompt-input"
+            className={`term-prompt-input${secretInput ? " term-secret" : ""}`}
+            placeholder={secretInput ? "hidden input — not saved to history" : undefined}
             value={inputVal}
             onChange={onPromptChange}
             onBeforeInput={e => {
@@ -4327,13 +4346,13 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
             spellCheck={false} autoComplete="off" autoCorrect="off" autoCapitalize="off"
             aria-label="OXIS command prompt"
           />
-          <span ref={mirrorRef} className="term-input-mirror" aria-hidden="true" />
+          <span ref={mirrorRef} className={`term-input-mirror${secretInput ? " term-secret" : ""}`} aria-hidden="true" />
           {!caret.hasSel && (
             <span
               className={`term-caret ${ready && promptFocused ? "term-caret--on" : "term-caret--off"}`}
               style={{ left: caret.left }}
               aria-hidden="true"
-            >{caret.ch === " " ? " " : caret.ch}</span>
+            >{caret.ch === " " ? " " : secretInput ? "•" : caret.ch}</span>
           )}
         </div>
       </div>

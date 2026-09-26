@@ -63,6 +63,20 @@ All notable changes to OXIS. The format follows
 ### Fixed
 - **Security:** the local PTY WebSocket accepted connections from any
   website. It now only accepts the OXIS window and its own origin.
+- **Security:** answers to password prompts (`sudo`, `ssh`, git,
+  `Read-Host -AsSecureString`) were shown in the prompt and saved to
+  command history. The prompt is now masked there and the answer is
+  never recorded.
+- `git log`, `git diff`, `man` and other paged output stopped at a
+  `less` prompt the line-based terminal can't drive. The shell now
+  starts with `PAGER=cat` and `GIT_PAGER=cat`.
+- On Windows, a line longer than the terminal that wrapped while at the
+  bottom of the screen was split in two with a character repeated, in
+  the output and in anything copied from it.
+- Escape sequences and CRLFs cut in half by the end of a PTY read are
+  now joined with the next read instead of leaking as text.
+- Multi-line plugin scripts with non-ASCII text were garbled in Windows
+  PowerShell 5.1.
 - Windows and Linux CI builds failed (clipboard sources weren't
   committed).
 - Linux builds were compiled without Wails' `desktop` tag, and without

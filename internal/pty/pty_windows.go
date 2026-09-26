@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"sync"
+	"sync/atomic"
 	"syscall"
 
 	"github.com/UserExistsError/conpty"
@@ -47,7 +48,7 @@ func HandleSession(conn *websocket.Conn) {
 	}
 
 	shellCmd := buildShellCmd()
-	cpty, err := conpty.Start(shellCmd, conpty.ConPtyDimensions(cols, rows))
+	cpty, err := conpty.Start(shellCmd, conpty.ConPtyDimensions(cols, rows), conpty.ConPtyEnv(shellEnv()))
 	if err != nil {
 		log.Printf("[oxis] ConPTY failed: %v", err)
 		safeSend(conn, &mu, outMsg{Type: "error", Message: "ConPTY failed — requires Windows 10 1809+"})
@@ -56,29 +57,15 @@ func HandleSession(conn *websocket.Conn) {
 
 	safeSend(conn, &mu, outMsg{Type: "ready"})
 
+	var width atomic.Int32 // for joinWrappedRows
+	width.Store(int32(cols))
+
 	go func() {
-		buf := make([]byte, 8192)
-		var pending []byte // incomplete UTF-8 tail carried to the next read
-		for {
-			n, err := cpty.Read(buf)
-			if n > 0 {
-				chunk := buf[:n]
-				if len(pending) > 0 {
-					chunk = append(append([]byte{}, pending...), chunk...)
-				}
-				complete, newPending := splitIncompleteUTF8(chunk)
-				pending = append([]byte{}, newPending...) // copy: buf is reused
-				data := stripCtrl(string(complete))
-				if data != "" {
-					safeSend(conn, &mu, outMsg{Type: "output", Data: data})
-				}
-			}
-			if err != nil {
-				if err != io.EOF {
-					log.Printf("[oxis] read: %v", err)
-				}
-				break
-			}
+		err := pumpOutput(cpty, func() int { return int(width.Load()) }, func(data string) {
+			safeSend(conn, &mu, outMsg{Type: "output", Data: data})
+		})
+		if err != io.EOF {
+			log.Printf("[oxis] read: %v", err)
 		}
 		code, _ := cpty.Wait(context.Background())
 		safeSend(conn, &mu, outMsg{Type: "exit", Code: int(code)})
@@ -102,6 +89,7 @@ func HandleSession(conn *websocket.Conn) {
 		case "resize":
 			if m.Cols > 0 && m.Rows > 0 {
 				_ = cpty.Resize(int(m.Cols), int(m.Rows))
+				width.Store(int32(m.Cols))
 			}
 		case "kill":
 			cpty.Close()

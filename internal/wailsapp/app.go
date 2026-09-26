@@ -327,6 +327,11 @@ func (a *App) WriteTempScript(ext string, content string) (string, error) {
 		return "", err
 	}
 	defer f.Close()
+	// Windows PowerShell 5.1 reads a .ps1 without a BOM as ANSI, which
+	// garbles any non-ASCII text in the script.
+	if strings.EqualFold(ext, ".ps1") {
+		content = "\ufeff" + content
+	}
 	if _, err := f.WriteString(content); err != nil {
 		os.Remove(f.Name())
 		return "", err

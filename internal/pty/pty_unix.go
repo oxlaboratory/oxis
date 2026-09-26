@@ -55,10 +55,7 @@ func HandleSession(conn *websocket.Conn) {
 			}
 
 			cmd = exec.Command(shell)
-			cmd.Env = append(os.Environ(),
-				"TERM=xterm-256color",
-				"COLORTERM=truecolor",
-			)
+			cmd.Env = shellEnv("TERM=xterm-256color", "COLORTERM=truecolor")
 
 			ptmx, err = gpty.StartWithSize(cmd, &gpty.Winsize{
 				Rows: rows,
@@ -74,38 +71,23 @@ func HandleSession(conn *websocket.Conn) {
 
 			// PTY → WebSocket in background
 			go func() {
-				buf := make([]byte, 8192)
-				var pending []byte // incomplete UTF-8 tail carried to the next read
-				for {
-					n, err := ptmx.Read(buf)
-					if n > 0 {
-						chunk := buf[:n]
-						if len(pending) > 0 {
-							chunk = append(append([]byte{}, pending...), chunk...)
+				// A real PTY wraps without ConPTY's cursor jumps: width 0
+				// skips joinWrappedRows.
+				_ = pumpOutput(ptmx, func() int { return 0 }, func(data string) {
+					safeSend(conn, &mu, outMsg{Type: "output", Data: data})
+				})
+				code := 0
+				if cmd != nil {
+					if werr := cmd.Wait(); werr != nil {
+						if exitErr, ok := werr.(*exec.ExitError); ok {
+							code = exitErr.ExitCode()
+						} else {
+							code = -1
 						}
-						complete, newPending := splitIncompleteUTF8(chunk)
-						pending = append([]byte{}, newPending...) // copy: buf is reused
-						data := stripCtrl(string(complete))
-						if data != "" {
-							safeSend(conn, &mu, outMsg{Type: "output", Data: data})
-						}
-					}
-					if err != nil {
-						code := 0
-						if cmd != nil {
-							if werr := cmd.Wait(); werr != nil {
-								if exitErr, ok := werr.(*exec.ExitError); ok {
-									code = exitErr.ExitCode()
-								} else {
-									code = -1
-								}
-							}
-						}
-						safeSend(conn, &mu, outMsg{Type: "exit", Code: code})
-						conn.Close()
-						return
 					}
 				}
+				safeSend(conn, &mu, outMsg{Type: "exit", Code: code})
+				conn.Close()
 			}()
 
 			// WebSocket → PTY (rest of loop below)

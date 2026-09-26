@@ -142,6 +142,10 @@ html, body, #root {
   position: absolute; left: 0; top: 0; visibility: hidden;
   white-space: pre; font-family: var(--font); font-size: var(--fs);
 }
+/* At a password prompt: dots instead of text, on the input and on its
+   mirror so the caret still lines up. */
+.term-secret { -webkit-text-security: disc; }
+.term-prompt-input::placeholder { color: var(--dim); font-style: italic; -webkit-text-security: none; }
 
 /* Drawn caret — 'config set cursorStyle block|bar|underline and
    'config set cursorBlink true|false (attributes on <html>). */
