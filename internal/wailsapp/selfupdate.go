@@ -69,7 +69,14 @@ func (a *App) PerformUpdate(fallbackBinaryURL string) (bool, string) {
 		}
 	}
 	defer cleanupNew()
+	return installAndRestart(exePath, newBinaryPath)
+}
 
+// installAndRestart moves newBinaryPath into exePath (the current one is
+// renamed to a backup first), starts it, and restores the backup if it
+// can't start or exits within two seconds.
+func installAndRestart(exePath, newBinaryPath string) (bool, string) {
+	exeDir := filepath.Dir(exePath)
 	backupPath := filepath.Join(exeDir, fmt.Sprintf(".oxis-update-backup-%d%s", time.Now().Unix(), filepath.Ext(exePath)))
 	if err := os.Rename(exePath, backupPath); err != nil {
 		return false, fmt.Sprintf("couldn't back up the current install: %v", err)
@@ -89,10 +96,12 @@ func (a *App) PerformUpdate(fallbackBinaryURL string) (bool, string) {
 		return rollback(fmt.Sprintf("couldn't set the new executable's permissions: %v", err))
 	}
 
+	// Not hideWindow: on Windows that starts the process with SW_HIDE,
+	// which a GUI program's first ShowWindow obeys, so the updated OXIS
+	// would run with no visible window.
 	cmd := exec.Command(exePath)
 	cmd.Env = append(os.Environ(), selfUpdateBackupEnv+"="+backupPath)
 	cmd.Dir = exeDir
-	hideWindow(cmd)
 	if err := cmd.Start(); err != nil {
 		_ = os.Remove(exePath)
 		return rollback(fmt.Sprintf("the new version failed to start: %v", err))

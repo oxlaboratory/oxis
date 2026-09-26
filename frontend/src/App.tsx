@@ -26,8 +26,8 @@ import type { Line, LineKind } from "./terminal/terminal";
 
 import { history }                          from "./terminal/history";
 import type { SearchResult }               from "./terminal/history";
-import { themeManager }                     from "./terminal/themeManager";
-import type { Theme }                       from "./terminal/themeManager";
+import { themeManager, themeOption, optionValue, normalizeOption, THEME_OPTIONS, CORE_KEYS, resolveColor } from "./terminal/themeManager";
+import type { Theme, ThemeOption, ThemeValue } from "./terminal/themeManager";
 import { events }                           from "./terminal/events";
 import { keybinds, registerCoreKeybinds }  from "./terminal/keybinds";
 import { registry }                         from "./terminal/commandRegistry";
@@ -169,25 +169,29 @@ interface SettingDef {
   default: string | number | boolean;
   choices?: string[]; // for a "pick one of these" setting; omitted = free string/number/boolean
   apply: (value: string | number | boolean) => void;
+  /** Themes can set this too: the theme decides until the user sets it. */
+  themed?: boolean;
 }
 
 const SETTINGS: SettingDef[] = [
   {
-    key: "fontSize", label: "Font Size", default: 13,
+    key: "fontSize", label: "Font Size", default: 13, themed: true,
     description: "Terminal & editor font size in px (line height scales with it)",
     apply: (v) => {
       const n = Number(v) || 13;
+      const theme = themeManager.get(themeManager.getCurrent());
+      const lineHeight = theme ? Number(optionValue(theme, themeOption("lineHeight")!)) : 1.54;
       document.documentElement.style.setProperty("--fs", `${n}px`);
-      document.documentElement.style.setProperty("--lh", `${Math.round(n * 1.54)}px`);
+      document.documentElement.style.setProperty("--lh", `${Math.round(n * lineHeight)}px`);
     },
   },
   {
-    key: "cursorStyle", label: "Cursor Style", default: "block", choices: ["block", "bar", "underline"],
+    key: "cursorStyle", label: "Cursor Style", default: "block", choices: ["block", "bar", "underline"], themed: true,
     description: "Terminal cursor shape",
     apply: (v) => document.documentElement.setAttribute("data-cursor-style", String(v)),
   },
   {
-    key: "cursorBlink", label: "Cursor Blink", default: true,
+    key: "cursorBlink", label: "Cursor Blink", default: true, themed: true,
     description: "Whether the terminal cursor blinks",
     apply: (v) => document.documentElement.setAttribute("data-cursor-blink", v ? "on" : "off"),
   },
@@ -202,11 +206,20 @@ function settingDef(key: string): SettingDef | undefined {
   return SETTINGS.find(s => s.key.toLowerCase() === key.toLowerCase());
 }
 
+function isSettingSet(key: string): boolean {
+  const stored = readPersistedOption(`setting.${key}`);
+  return stored !== undefined && stored !== null;
+}
+
+/** The setting's value: the user's, else the active theme's (for
+ *  themed settings), else the default. */
 function getSetting(key: string): string | number | boolean {
   const def = settingDef(key);
   if (!def) return "";
-  const stored = readPersistedOption(`setting.${def.key}`);
-  return (stored === undefined || stored === null) ? def.default : (stored as string | number | boolean);
+  if (isSettingSet(def.key)) return readPersistedOption(`setting.${def.key}`) as string | number | boolean;
+  const theme = def.themed ? themeManager.get(themeManager.getCurrent()) : undefined;
+  const opt = def.themed ? themeOption(def.key) : undefined;
+  return theme && opt ? optionValue(theme, opt) : def.default;
 }
 
 function setSetting(key: string, rawValue: string): { ok: boolean; message: string } {
@@ -235,15 +248,29 @@ function setSetting(key: string, rawValue: string): { ok: boolean; message: stri
 function resetSetting(key: string): { ok: boolean; message: string } {
   const def = settingDef(key);
   if (!def) return { ok: false, message: `unknown setting: ${key} — 'config list to see all` };
+  if (def.themed) {
+    // Forget the user's value so the theme decides again.
+    const all = readAllOptions();
+    delete all[`setting.${def.key}`];
+    try { localStorage.setItem(OPTIONS_KEY, JSON.stringify(all)); } catch { /* storage unavailable */ }
+    themeManager.apply(themeManager.getCurrent());
+    return { ok: true, message: `${def.key} reset — now ${getSetting(def.key)} from the theme` };
+  }
   writePersistedOption(`setting.${def.key}`, def.default as LuaJSValue);
   def.apply(def.default);
   return { ok: true, message: `${def.key} reset to ${def.default}` };
 }
 
-/** Applies every setting's saved (or default) value; run at startup. */
+/** Applies the settings (run at startup and after every theme change):
+ *  themed settings only when the user has set them, so the theme's
+ *  value otherwise stands. */
 function applyAllSettings(): void {
-  for (const def of SETTINGS) def.apply(getSetting(def.key));
+  for (const def of SETTINGS) {
+    if (def.themed && !isSettingSet(def.key)) continue;
+    def.apply(getSetting(def.key));
+  }
 }
+events.on("theme_changed", () => applyAllSettings());
 
 const USER_CONFIG_TEMPLATE = `-- ~/.oxis/config.lua — runs every time OXIS starts ('config reload re-runs it).
 -- Full oxis.* API: see the Lua API section of the README.
@@ -605,49 +632,84 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
         `du -sh "${r}"`
       )); }});
 
-  registry.register({ name:"edit",   category:"files", description:"Open in built-in editor (no argument: just opens the file tree)",
-    handler:(_,r)=>{
-      if(!r){ events.emit("open_file_tree", {}); return; }
-      _ctxRef.current?.openEditor(r); ok(`opening ${r}`); }});
+  /** Where 'edit <path> opens a relative path: in the shell's current
+   *  folder if it exists there, else in the data folder if it exists
+   *  there (created-documents/…), else a new file in the shell's folder. */
+  const resolveEditPath = async (path: string): Promise<string> => {
+    const cwd = cwdTracker.get();
+    if (!cwd || /^([A-Za-z]:)?[\\/]/.test(path) || path.startsWith("~")) return path;
+    const inCwd = `${cwd.replace(/[\\/]+$/, "")}${isWindows() ? "\\" : "/"}${path}`;
+    const exists = (p: string) => statPath(p).then(s => s.exists && !s.isDir, () => false);
+    if (await exists(inCwd)) return inCwd;
+    if (await exists(path)) return path;
+    return inCwd;
+  };
 
-  registry.register({ name:"update", category:"files", description:"Check for a newer OXIS build, or 'update install to actually install it in place",
+  registry.register({ name:"edit",   category:"files", description:"Open in built-in editor (no argument: just opens the file tree)",
+    handler: async (_,r)=>{
+      if(!r){ events.emit("open_file_tree", {}); return; }
+      const path = await resolveEditPath(r);
+      _ctxRef.current?.openEditor(path); ok(`opening ${path}`); }});
+
+  // Updates are a desktop-app feature: a browser tab has no binary to
+  // replace. A build without an embedded commit (built by hand, or a
+  // test build) can't tell whether it's current, so it only reports the
+  // latest commit and installs over itself only with --force.
+  const LATEST_BUILD_URL = "https://github.com/oxlaboratory/oxis/releases/tag/latest-build";
+  const short = (sha: string) => sha.slice(0, 7);
+
+  registry.register({ name:"update", category:"files", description:"Check for a newer OXIS build — 'update install installs it in place",
     handler:(args)=>{
-      if(args[0]?.toLowerCase()==="install"){
-        runUpdateInstall();
+      if(!isNativeApp()){
+        err("updates only work in the desktop app — this is a browser tab");
+        dim(`the latest build is at ${LATEST_BUILD_URL}`);
         return;
       }
-      ok("checking for a newer build...");
-      checkForUpdate().then(info => {
-        if (!info.available) {
-          ok(`up to date${info.currentCommit ? ` (${info.currentCommit.slice(0, 7)})` : " (dev build — no commit info embedded)"}`);
+      if(args[0]?.toLowerCase()==="install"){
+        runUpdateInstall(args.slice(1).some(a => a === "--force" || a === "-f"));
+        return;
+      }
+      info("checking for a newer build…");
+      checkForUpdate().then(u => {
+        if (u.error) { err(`couldn't check for updates: ${u.error}`); return; }
+        if (!u.currentCommit) {
+          info(`this build has no commit stamp (a local or test build), so OXIS can't tell whether it's current — the latest on main is ${short(u.latestCommit)}`);
+          dim("'update install --force replaces this build with the latest one");
           return;
         }
-        ok(`newer build available: ${info.currentCommit ? info.currentCommit.slice(0, 7) : "current"} → ${info.latestCommit.slice(0, 7)}`);
-        dim("'update install to pull the latest source, build it, and install it in place — automatically, no download link");
-      }).catch(() => err("update check failed — check your connection"));
+        if (!u.available) { ok(`up to date (${short(u.currentCommit)})`); return; }
+        ok(`newer build available: ${short(u.currentCommit)} → ${short(u.latestCommit)}`);
+        dim("'update install builds the latest source and installs it in place");
+      }).catch(e => err(`update check failed: ${e instanceof Error ? e.message : e}`));
     }});
 
   /** 'update install — replaces the running app in place (see
    *  PerformUpdate in selfupdate.go: source build first, prebuilt binary
-   *  as a fallback, rollback on failure). A bare 'update only reports. */
-  function runUpdateInstall(): void {
-    info("checking for a newer build...");
-    checkForUpdate().then(async checkInfo => {
-      if (!checkInfo.available) {
-        ok(`already up to date${checkInfo.currentCommit ? ` (${checkInfo.currentCommit.slice(0, 7)})` : ""} — nothing to install`);
+   *  as a fallback, rollback on failure). */
+  function runUpdateInstall(force: boolean): void {
+    info("checking for a newer build…");
+    checkForUpdate().then(async u => {
+      if (u.error) { err(`couldn't check for updates: ${u.error} — nothing was changed`); return; }
+      if (!u.currentCommit && !force) {
+        info(`this build has no commit stamp, so OXIS can't tell whether it's older than ${short(u.latestCommit)}`);
+        dim("'update install --force installs the latest build over it anyway");
         return;
       }
-      info(`installing build ${checkInfo.latestCommit.slice(0, 7)} (currently on ${checkInfo.currentCommit ? checkInfo.currentCommit.slice(0, 7) : "unknown"})…`);
-      dim("pulling latest source and building it — this rebuilds the whole app locally, so it can take a few minutes");
+      if (u.currentCommit && !u.available && !force) {
+        ok(`already up to date (${short(u.currentCommit)}) — nothing to install`);
+        return;
+      }
+      info(`installing build ${short(u.latestCommit)}${u.currentCommit ? ` (currently ${short(u.currentCommit)})` : ""}…`);
+      dim("pulling the latest source and building it — this rebuilds the whole app, so it can take a few minutes");
       // rawBinaryUrl is only used if building from source isn't
       // possible; PerformUpdate reports it if neither works.
-      const [ok_, reason] = await performUpdate(checkInfo.rawBinaryUrl);
-      if (!ok_) {
-        err(`✗ update failed: ${reason} — your current install was left untouched`);
+      const [installed, reason] = await performUpdate(u.rawBinaryUrl);
+      if (!installed) {
+        err(`update failed: ${reason} — your current install was left untouched`);
         return;
       }
-      ok("✓ update installed — the new version has started, restarting now…");
-      setTimeout(() => quitApp(), 800); // brief pause so the message above is actually visible before the window closes
+      ok("update installed — the new version has started, closing this one…");
+      setTimeout(() => quitApp(), 800); // long enough to read the message
     }).catch(e => err(`update check failed: ${e instanceof Error ? e.message : e}`));
   }
 
@@ -758,27 +820,70 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
                   `xdg-open "${r}" 2>/dev/null || open "${r}" 2>/dev/null`)); }});
 
   // ── theme ─────────────────────────────────────────────
-  registry.register({ name:"theme",   category:"themes", description:"Manage themes",
+  registry.register({ name:"theme",   category:"themes", description:"Switch, edit and fine-tune themes — 'theme keys lists every option",
     handler:(args,rest)=>{
       const all = themeManager.all();
       const cur = themeManager.getCurrent();
+      const sub = args[0]?.toLowerCase();
       if(!rest){ sep(); ctx.print("  Themes","accent"); sep();
-        Object.keys(all).forEach(n=>ctx.print(`  ${n===cur?"●":"○"}  ${n}${n===cur?"  (active)":""}`,n===cur?"accent":"dim"));
-        sep(); dim("'theme <name>  ·  'theme new <name>  ·  'theme delete <name>  ·  'theme export <name>  ·  'theme import <file>"); return; }
-      if(args[0]==="new"){
+        Object.keys(all).forEach(n=>ctx.print(`  ${n===cur?"●":"○"}  ${n}${n===cur?"  (active)":""}${themeManager.isCustom(n)?"  · custom":""}`,n===cur?"accent":"dim"));
+        sep();
+        dim("'theme <name>  ·  'theme new <name>  ·  'theme edit [name]  ·  'theme delete <name>");
+        dim("'theme set <key> <value>  ·  'theme unset <key>  ·  'theme keys  ·  'theme export <name>  ·  'theme import <file>");
+        return; }
+      if(sub==="new"){
         if(!args[1]){err("usage: 'theme new <name>");return;}
         events.emit("open_theme_editor",{name:args[1]}); return; }
-      if(args[0]==="delete"||args[0]==="del"){
+      if(sub==="edit"){
+        const target = args[1] || cur;
+        if(!all[target]){err(`not found: ${target}`);return;}
+        // Built-in themes can't be overwritten; edit a copy.
+        events.emit("open_theme_editor",{name: themeManager.builtins()[target] ? `${target}-custom` : target});
+        return; }
+      if(sub==="set"){
+        const key = args[1];
+        const value = args.slice(2).join(" ");
+        if(!key || !value){err("usage: 'theme set <key> <value>   ('theme keys lists the keys)");return;}
+        const r = themeManager.setOption(key, value);
+        (r.ok ? ok : err)(r.message); return; }
+      if(sub==="unset"||sub==="reset"){
+        if(!args[1]){err("usage: 'theme unset <key>");return;}
+        const r = themeManager.setOption(args[1], "");
+        (r.ok ? ok : err)(r.message); return; }
+      if(sub==="keys"||sub==="options"){
+        const t = themeManager.get(cur)!;
+        const stored = themeManager.all()[cur] ?? {};
+        const show = (v: ThemeValue) => { const s = String(v); return s === "" ? "none" : s.length > 48 ? s.slice(0, 45) + "…" : s; };
+        sep(); ctx.print(`  Theme keys — values for "${cur}" (● set by the theme, ○ default)`,"accent"); sep();
+        ctx.print("  Core colours","accent");
+        ctx.print(`    ${CORE_KEYS.map(k => `${k} ${t[k]}`).join("  ·  ")}`,"dim");
+        for (const group of [...new Set(THEME_OPTIONS.map(o => o.group))]) {
+          ctx.print(`  ${group}`,"accent");
+          for (const opt of THEME_OPTIONS.filter(o => o.group === group)) {
+            const own = stored[opt.key] !== undefined;
+            const range = opt.kind === "number" ? ` ${opt.min}–${opt.max}${opt.unit ?? ""}` : opt.choices ? ` ${opt.choices.join("|")}` : opt.kind === "toggle" ? " on|off" : "";
+            ctx.print(`    ${own ? "●" : "○"} ${opt.key.padEnd(18)} ${show(optionValue(t, opt)).padEnd(30)} ${opt.hint}${range ? ` (${range.trim()})` : ""}`, own ? "info" : "dim");
+          }
+        }
+        sep(); dim("'theme set <key> <value> changes the active theme (a built-in one gets a -custom copy)  ·  'theme unset <key> resets one");
+        return; }
+      if(sub==="delete"||sub==="del"){
         if(!args[1]){err("usage: 'theme delete <name>");return;}
         if(themeManager.builtins()[args[1]]){err(`cannot delete built-in: ${args[1]}`);return;}
-        themeManager.removeCustom(args[1]); ok(`theme deleted: ${args[1]}`); return; }
-      if(args[0]==="export"){
-        const j=themeManager.export(args[1]); if(j) ctx.print(j,"dim"); else err(`not found: ${args[1]}`); return; }
-      if(args[0]==="import"){
+        if(!themeManager.removeCustom(args[1])){err(`no custom theme called ${args[1]}`);return;}
+        if(cur===args[1]) themeManager.apply("default");
+        ok(`theme deleted: ${args[1]}`); return; }
+      if(sub==="export"){
+        const j=themeManager.export(args[1] || cur); if(j) ctx.print(j,"dim"); else err(`not found: ${args[1]}`); return; }
+      if(sub==="import"){
         if(!args[1]){err("usage: 'theme import <file.json>");return;}
         void readFile(args[1]).then(json => {
           const r = themeManager.import(json);
-          if(r.ok){ ok(`imported theme "${r.name}" — 'theme ${r.name} to use it`); events.emit("theme_changed",{name:themeManager.getCurrent()}); }
+          if(r.ok){
+            ok(`imported theme "${r.name}" — 'theme ${r.name} to use it`);
+            for (const w of r.warnings ?? []) ctx.print(`  ⚠  ignored ${w}`,"warn");
+            events.emit("theme_changed",{name:themeManager.getCurrent()});
+          }
           else err(`import failed: ${r.error}`);
         }).catch(e => err(`couldn't read ${args[1]}: ${e instanceof Error ? e.message : e}`));
         return; }
@@ -1442,7 +1547,7 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
           const removeCompletely = args.includes("--remove-remote");
           workspaceManager.getActiveExternalPath().then(extPath => {
             if(!extPath){ err(`no connected project directory — 'workspace link "<path>" first`); return; }
-            return unlinkRemote(extPath, removeCompletely).then(r => (r.ok?ok:err)(r.message));
+            return unlinkRemote(extPath, removeCompletely).then(r => { (r.ok?ok:err)(r.message); if(r.ok) events.emit("git_remote_changed"); });
           }).catch(e => err(`couldn't unlink: ${e instanceof Error ? e.message : e}`));
           return;
         }
@@ -1456,7 +1561,7 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
               return;
             }
             (r.ok?ok:err)(r.message);
-            if(r.ok) dim(`'task commit <message> is ready to use for this project`);
+            if(r.ok){ dim(`'task commit <message> is ready to use for this project`); events.emit("git_remote_changed"); }
           });
         }).catch(e => err(`couldn't set up ${provider}: ${e instanceof Error ? e.message : e}`));
         return; }
@@ -3074,29 +3179,127 @@ function pluginTemplate(name: string, template?: string): string {
 // ══════════════════════════════════════════════════════════════
 // THEME EDITOR — fixed, fully functional
 // ══════════════════════════════════════════════════════════════
-const THEME_FIELDS: [keyof Theme, string, string][] = [
-  ["bg",      "Background",        "bg"],
-  ["bg1",     "Background 1",      "titlebar/tabs"],
-  ["bg2",     "Background 2",      "cards/inputs"],
-  ["bg3",     "Background 3",      "hover/buttons"],
+const THEME_FIELDS: [typeof CORE_KEYS[number], string, string][] = [
+  ["bg",      "Background",        "terminal and Home"],
+  ["bg1",     "Background 1",      "title bar and tabs"],
+  ["bg2",     "Background 2",      "cards and inputs"],
+  ["bg3",     "Background 3",      "hover and buttons"],
   ["bg4",     "Background 4",      "scrollbars"],
   ["border",  "Border",            "subtle borders"],
-  ["border2", "Border Accent",     "active/focus borders"],
-  ["text",    "Text",              "primary text"],
+  ["border2", "Border accent",     "active and focus borders"],
+  ["text",    "Text",              "main text"],
   ["muted",   "Muted",             "secondary text"],
   ["dim",     "Dim",               "placeholders"],
-  ["comment", "Comment",           "faint/disabled text"],
-  ["purple",  "Accent",            "banner, prompts, active tabs"],
-  ["purple2", "Accent 2",          "active borders, status bar"],
-  ["purple3", "Accent 3",          "ok messages, highlights"],
+  ["comment", "Comment",           "faint and disabled text"],
+  ["purple",  "Accent",            "prompt, highlights, active items"],
+  ["purple2", "Accent 2",          "status bar, active borders"],
+  ["purple3", "Accent 3",          "links and light highlights"],
   ["grey",    "Grey",              "neutral text"],
   ["grey2",   "Grey 2",            "neutral dark"],
 ];
 
+const THEME_GROUPS = [...new Set(THEME_OPTIONS.map(o => o.group))];
+const isHexColor = (v: string) => /^#[0-9a-f]{6}$/i.test(v);
+const isSet = (v: ThemeValue | undefined) => v !== undefined && v !== "";
+
+/** One theme setting: its control, and a reset button once it's set.
+ *  Unset settings show what they fall back to. */
+function ThemeOptionRow({ opt, theme, value, onChange }: {
+  opt: ThemeOption;
+  theme: Theme;
+  value: ThemeValue | undefined;
+  onChange: (value: ThemeValue | undefined) => void;
+}) {
+  const set = isSet(value);
+  const effective = set ? value! : opt.fallback;
+  const invalid = set && normalizeOption(opt, value) === undefined;
+  let control: React.ReactNode;
+  switch (opt.kind) {
+    case "color": {
+      const shown = resolveColor(theme, effective);
+      control = (
+        <>
+          <div className="te-swatch" style={{ background: shown }} />
+          <input type="color" className="te-color" value={isHexColor(shown) ? shown : "#000000"}
+            onChange={e => onChange(e.target.value)} />
+          <input type="text" className={`te-hex${invalid ? " te-invalid" : ""}`} value={set ? String(value) : ""}
+            placeholder={String(opt.fallback).replace(/^var\(--(\w+)\)$/, "= $1")}
+            onChange={e => onChange(e.target.value)} spellCheck={false} />
+        </>
+      );
+      break;
+    }
+    case "number":
+      control = (
+        <>
+          <input type="range" className="te-range" min={opt.min} max={opt.max} step={opt.step}
+            value={Number(effective)} onChange={e => onChange(Number(e.target.value))} />
+          <input type="number" className="te-num" min={opt.min} max={opt.max} step={opt.step}
+            value={Number(effective)} onChange={e => onChange(e.target.value === "" ? undefined : Number(e.target.value))} />
+          <span className="te-unit">{opt.unit ?? ""}</span>
+        </>
+      );
+      break;
+    case "choice":
+      control = (
+        <select className="te-select" value={set ? String(value) : ""} onChange={e => onChange(e.target.value || undefined)}>
+          <option value="">default ({String(opt.fallback)})</option>
+          {opt.choices!.map(c => <option key={c} value={c}>{c}</option>)}
+        </select>
+      );
+      break;
+    case "toggle":
+      control = (
+        <select className="te-select" value={set ? (value ? "on" : "off") : ""}
+          onChange={e => onChange(e.target.value === "" ? undefined : e.target.value === "on")}>
+          <option value="">default ({opt.fallback ? "on" : "off"})</option>
+          <option value="on">on</option>
+          <option value="off">off</option>
+        </select>
+      );
+      break;
+    case "text":
+      control = (
+        <input type="text" className={`te-text${invalid ? " te-invalid" : ""}`} value={set ? String(value) : ""}
+          placeholder={String(opt.fallback) || "none"} onChange={e => onChange(e.target.value)} spellCheck={false} />
+      );
+      break;
+    case "css":
+      return (
+        <div className="te-row te-row--block">
+          <div className="te-label-group">
+            <span className="te-label">{opt.label}</span>
+            <span className="te-hint">{opt.hint}</span>
+          </div>
+          <textarea className="te-css" value={set ? String(value) : ""} spellCheck={false}
+            placeholder={".term-line { text-shadow: 0 0 2px currentColor; }\n.statusline { height: 22px; }"}
+            onChange={e => onChange(e.target.value)} />
+        </div>
+      );
+  }
+  return (
+    <div className="te-row">
+      <div className="te-label-group">
+        <span className="te-label">{opt.label}</span>
+        {opt.hint && <span className="te-hint">{opt.hint}</span>}
+      </div>
+      <div className="te-control">{control}</div>
+      {set
+        ? <button className="te-reset" title="Back to the default" onClick={() => onChange(undefined)}>×</button>
+        : <span className="te-reset te-reset--empty" />}
+    </div>
+  );
+}
+
 function ThemeEditor({ name: initName, onClose }: { name: string; onClose: () => void }) {
-  const base = themeManager.get(themeManager.getCurrent()) ?? themeManager.get("default")!;
+  const startFrom = themeManager.all()[initName] ? initName : themeManager.getCurrent();
   const [name, setName] = useState(initName || "custom");
-  const [vals, setVals] = useState<Theme>({ ...base });
+  const [vals, setVals] = useState<Theme>(() => {
+    const t = { ...(themeManager.get(startFrom) ?? themeManager.get("default")!) };
+    delete t.name;
+    delete t.extends;
+    return t;
+  });
   const [err,  setErr]  = useState("");
   const [ok,   setOk]   = useState(false);
 
@@ -3110,14 +3313,30 @@ function ThemeEditor({ name: initName, onClose }: { name: string; onClose: () =>
     onClose();
   }, [onClose]);
 
-  const setColor = (k: keyof Theme, v: string) =>
-    setVals(prev => ({ ...prev, [k]: v }));
+  const setValue = (key: string, v: ThemeValue | undefined) => setVals(prev => {
+    const next = { ...prev };
+    if (v === undefined || v === "") delete next[key];
+    else next[key] = v;
+    return next;
+  });
+
+  const startFromTheme = (base: string) => {
+    const t = themeManager.get(base);
+    if (!t) return;
+    const copy = { ...t };
+    delete copy.name;
+    delete copy.extends;
+    setVals(copy);
+  };
 
   const save = () => {
     if (!name.trim()) { setErr("Name required"); return; }
     if (!/^[a-z0-9_-]+$/i.test(name)) { setErr("Letters, numbers, - _ only"); return; }
+    if (themeManager.builtins()[name]) { setErr(`"${name}" is a built-in theme — pick another name`); return; }
     const missing = themeManager.validate(vals);
     if (missing.length) { setErr(`Missing: ${missing.join(", ")}`); return; }
+    const problems = themeManager.problems(vals);
+    if (problems.length) { setErr(problems[0]); return; }
     themeManager.addCustom(name, vals);
     themeManager.apply(name);
     setErr(""); setOk(true);
@@ -3129,6 +3348,10 @@ function ThemeEditor({ name: initName, onClose }: { name: string; onClose: () =>
       <div className="te-header">
         <span className="te-title">Theme Editor</span>
         <div className="te-header-right">
+          <select className="te-select" value="" onChange={e => startFromTheme(e.target.value)} title="Replace everything with another theme's values">
+            <option value="">start from…</option>
+            {Object.keys(themeManager.all()).map(n => <option key={n} value={n}>{n}</option>)}
+          </select>
           <input
             className="te-name-input"
             value={name}
@@ -3141,34 +3364,56 @@ function ThemeEditor({ name: initName, onClose }: { name: string; onClose: () =>
       </div>
 
       <div className="te-scroll">
-        {THEME_FIELDS.map(([key, label, hint]) => (
-          <div className="te-row" key={key}>
-            <div className="te-swatch" style={{ background: vals[key] as string }} />
-            <input
-              type="color"
-              className="te-color"
-              value={/^#[0-9a-f]{6}$/i.test(String(vals[key])) ? String(vals[key]) : "#000000"}
-              onChange={e => setColor(key, e.target.value)}
-            />
-            <div className="te-label-group">
-              <span className="te-label">{label}</span>
-              <span className="te-hint">{hint}</span>
+        <details className="te-section" open>
+          <summary className="te-section-title">Core colours</summary>
+          {THEME_FIELDS.map(([key, label, hint]) => (
+            <div className="te-row" key={key}>
+              <div className="te-label-group">
+                <span className="te-label">{label}</span>
+                <span className="te-hint">{hint}</span>
+              </div>
+              <div className="te-control">
+                <div className="te-swatch" style={{ background: String(vals[key]) }} />
+                <input
+                  type="color"
+                  className="te-color"
+                  value={isHexColor(String(vals[key])) ? String(vals[key]) : "#000000"}
+                  onChange={e => setValue(key, e.target.value)}
+                />
+                <input
+                  type="text"
+                  className="te-hex"
+                  value={String(vals[key] ?? "")}
+                  onChange={e => setValue(key, e.target.value)}
+                  maxLength={40}
+                  spellCheck={false}
+                />
+              </div>
+              <span className="te-reset te-reset--empty" />
             </div>
-            <input
-              type="text"
-              className="te-hex"
-              value={vals[key] as string}
-              onChange={e => setColor(key, e.target.value)}
-              maxLength={9}
-              spellCheck={false}
-            />
-          </div>
-        ))}
+          ))}
+        </details>
+        {THEME_GROUPS.map(group => {
+          const opts = THEME_OPTIONS.filter(o => o.group === group);
+          const count = opts.filter(o => isSet(vals[o.key])).length;
+          return (
+            <details className="te-section" key={group}>
+              <summary className="te-section-title">
+                {group}{count > 0 && <span className="te-count">{count} set</span>}
+              </summary>
+              {opts.map(opt => (
+                <ThemeOptionRow key={opt.key} opt={opt} theme={vals} value={vals[opt.key]}
+                  onChange={v => setValue(opt.key, v)} />
+              ))}
+            </details>
+          );
+        })}
       </div>
 
       <div className="te-footer">
         {err && <span className="te-err">{err}</span>}
         {ok  && <span className="te-ok">✓ saved</span>}
+        {!err && !ok && <span className="te-note">changes preview live</span>}
         <button className="te-btn te-btn--cancel" onClick={handleClose}>cancel</button>
         <button className="te-btn te-btn--save"   onClick={save}>save theme</button>
       </div>
@@ -3202,6 +3447,7 @@ function ensurePluginsInited(): void {
   _pluginsInited = true;
   initPlugins(forwardingApiCtx);
   workspaceManager.init(forwardingApiCtx);
+  void workspaceManager.restoreLastActive();
   // Give the terminal a moment to be ready to print config.lua errors.
   setTimeout(() => void reportUserConfig(false), 300);
 }
@@ -4336,7 +4582,7 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
         className="term-input-row"
         onMouseDown={e => { if (e.target !== promptRef.current) { e.preventDefault(); focusPrompt(); } }}
       >
-        <span className="term-prompt" aria-hidden="true">OXIS&nbsp;❯</span>
+        <span className="term-prompt" aria-hidden="true" />
         <div className="term-input-wrap">
           <input
             ref={promptRef}
@@ -4875,6 +5121,9 @@ function WorkspacePanel({ ws, plugins, activeWorkspace, activeWorkspacePath }: {
   // Git remote of the linked project, read from `git remote -v` so it
   // also shows remotes OXIS didn't set up.
   const [gitInfo, setGitInfo] = useState<{ provider: GitProvider; repo: string } | null | undefined>(undefined); // undefined = "haven't checked yet", null = "checked, not connected"
+  // Re-read after 'workspace github/gitlab (or unlink) changes origin.
+  const [remoteVersion, setRemoteVersion] = useState(0);
+  useEffect(() => events.on("git_remote_changed", () => setRemoteVersion(v => v + 1)), []);
   useEffect(() => {
     if (!activeWorkspacePath) { setGitInfo(null); return; }
     let cancelled = false;
@@ -4885,7 +5134,7 @@ function WorkspacePanel({ ws, plugins, activeWorkspace, activeWorkspacePath }: {
       setGitInfo(origin ? parseGitRemote(origin.url) : null);
     }).catch(() => { if (!cancelled) setGitInfo(null); });
     return () => { cancelled = true; };
-  }, [activeWorkspacePath]);
+  }, [activeWorkspacePath, remoteVersion]);
   return (
     <div className="oxis-box oxis-workspace-box">
       <div className="oxis-box-row oxis-workspace-header">

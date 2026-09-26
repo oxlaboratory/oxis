@@ -21,6 +21,15 @@ import { detectProject, writeDetectedTasks } from "./projectDetector";
 import { reconcileDetectedTasks } from "./taskReconciler";
 
 const WORKSPACE_PLUGIN_NAME = "__workspace__";
+
+// The named workspace to reopen on the next launch.
+const ACTIVE_WORKSPACE_KEY = "oxis-active-workspace";
+function rememberActive(name: string | null): void {
+  try {
+    if (name) localStorage.setItem(ACTIVE_WORKSPACE_KEY, name);
+    else localStorage.removeItem(ACTIVE_WORKSPACE_KEY);
+  } catch { /* storage unavailable: just not remembered */ }
+}
 const WORKSPACE_REL_PATH = ".oxis/workspace.lua";
 const NAMED_SUBDIRS = ["documents", "plugins", "scripts", "tasks", "workflows", ".oxis"] as const;
 const REGISTRY_PATH = "workspaces/registry.json";
@@ -158,6 +167,17 @@ class WorkspaceManager {
   /** Must be called once at startup, same as pluginManager.init(). */
   init(ctx: APIContext): void {
     this.apiCtx = ctx;
+  }
+
+  /** Reopens the named workspace that was active when OXIS last closed.
+   *  A workspace that no longer exists is forgotten. */
+  async restoreLastActive(): Promise<void> {
+    if (!isNativeApp()) return;
+    let name: string | null = null;
+    try { name = localStorage.getItem(ACTIVE_WORKSPACE_KEY); } catch { return; }
+    if (!name || this.activeNamed) return;
+    const result = await this.switchNamed(name);
+    if (!result.ok) rememberActive(null);
   }
 
   private unavailable(): WorkspaceOpResult | null {
@@ -592,6 +612,7 @@ class WorkspaceManager {
    *  no active workspace). */
   async switchNamed(name: string | null): Promise<WorkspaceOpResult> {
     if (name === null || name.toLowerCase() === "default") {
+      rememberActive(null);
       return this.disposer ? this.close() : { ok: true, message: "no workspace was active" };
     }
     const entries = await this.readRegistry();
@@ -600,6 +621,7 @@ class WorkspaceManager {
     }
     const result = await this.load(`workspaces/${name}`, name);
     if (!result.ok) return result;
+    rememberActive(name);
     return { ok: true, message: `switched to workspace "${name}"` };
   }
 
@@ -629,6 +651,7 @@ class WorkspaceManager {
 
   /** `'workspace delete <name>` */
   async removeNamed(name: string): Promise<WorkspaceOpResult> {
+    try { if (localStorage.getItem(ACTIVE_WORKSPACE_KEY) === name) rememberActive(null); } catch { /* storage unavailable */ }
     const entries = await this.readRegistry();
     const idx = entries.findIndex(e => e.name === name);
     if (idx === -1) return { ok: false, message: `no workspace named "${name}"` };

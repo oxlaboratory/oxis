@@ -23,7 +23,7 @@ import {
   systemInfo as nativeSystemInfo, listProcesses, killProcess, isNativeApp,
   writeTempScript,
 } from "../native";
-import { requirePermission, requireShellPermission } from "./permissions";
+import { requirePermission, requireShellPermission, type PermissionNamespace } from "./permissions";
 import { scriptRunTracker } from "../terminal/scriptRunTracker";
 import { workflowRunner } from "./workflowRunner";
 import { setTaskCommand } from "./taskCommands";
@@ -127,6 +127,9 @@ const AUTOCMD_ALIASES: Record<string, string> = {
 
 export function buildLuaAPI(ctx: APIContext): OxisBindings {
   const options: Record<string, LuaJSValue> = {};
+  // Trusted code (built-ins, the user's own config, workspace, task and
+  // workflow files) never gets a permission prompt.
+  const need = (ns: PermissionNamespace) => { if (!ctx.isTrusted) requirePermission(ctx.pluginName, ns); };
 
   return {
     platform: isWindows() ? "windows" : "unix",
@@ -166,7 +169,7 @@ export function buildLuaAPI(ctx: APIContext): OxisBindings {
     quote: (text) => shellQuote(text),
     theme: (name) => { themeManager.apply(name); },
     cwd: () => ctx.getCwd(),
-    newTerminal: () => { requirePermission(ctx.pluginName, "terminal"); ctx.newTerminal(); },
+    newTerminal: () => { need("terminal"); ctx.newTerminal(); },
 
     // oxis.option("key") -> value   |   oxis.option("key", value) -> sets it
     getOption: (key) => (options[key] ?? ctx.getOption(key)),
@@ -201,7 +204,7 @@ export function buildLuaAPI(ctx: APIContext): OxisBindings {
 
     // Permission-gated: these change what the user sees or which
     // configuration is active.
-    workspace: (path) => { requirePermission(ctx.pluginName, "workspace"); events.emit("workspace_loaded", { path }); },
+    workspace: (path) => { need("workspace"); events.emit("workspace_loaded", { path }); },
     dashboard: (config) => events.emit("dashboard_config", { config }),
     workflow: (name, def, description) => {
       const warnings = workflowRunner.register(name, def, description);
@@ -211,46 +214,46 @@ export function buildLuaAPI(ctx: APIContext): OxisBindings {
     // ── Core system APIs — each checks its permission first. fs,
     // process and system need the native app. ──
     fsRead: async (path) => {
-      requirePermission(ctx.pluginName, "fs");
+      need("fs");
       if (!isNativeApp()) throw new Error("oxis.fs needs the native OXIS app (no filesystem access in browser mode)");
       return readFile(path);
     },
     fsWrite: async (path, content) => {
-      requirePermission(ctx.pluginName, "fs");
+      need("fs");
       if (!isNativeApp()) throw new Error("oxis.fs needs the native OXIS app (no filesystem access in browser mode)");
       await writeFile(path, content);
     },
     fsList: async (path) => {
-      requirePermission(ctx.pluginName, "fs");
+      need("fs");
       if (!isNativeApp()) throw new Error("oxis.fs needs the native OXIS app (no filesystem access in browser mode)");
       const entries = await listDir(path);
       return entries as unknown as LuaJSValue[];
     },
     fsStat: async (path) => {
-      requirePermission(ctx.pluginName, "fs");
+      need("fs");
       if (!isNativeApp()) throw new Error("oxis.fs needs the native OXIS app (no filesystem access in browser mode)");
       const s = await statPath(path);
       return s as unknown as LuaJSValue;
     },
     fsMkdir: async (path) => {
-      requirePermission(ctx.pluginName, "fs");
+      need("fs");
       if (!isNativeApp()) throw new Error("oxis.fs needs the native OXIS app (no filesystem access in browser mode)");
       await makeDir(path);
     },
     fsRemove: async (path) => {
-      requirePermission(ctx.pluginName, "fs");
+      need("fs");
       if (!isNativeApp()) throw new Error("oxis.fs needs the native OXIS app (no filesystem access in browser mode)");
       await deletePath(path);
     },
 
     processList: async () => {
-      requirePermission(ctx.pluginName, "process");
+      need("process");
       if (!isNativeApp()) throw new Error("oxis.process needs the native OXIS app");
       const list = await listProcesses();
       return list as unknown as LuaJSValue[];
     },
     processKill: async (pid) => {
-      requirePermission(ctx.pluginName, "process");
+      need("process");
       if (!isNativeApp()) throw new Error("oxis.process needs the native OXIS app");
       await killProcess(pid);
     },
@@ -258,7 +261,7 @@ export function buildLuaAPI(ctx: APIContext): OxisBindings {
     // oxis.net.request({ url=..., method="GET", headers={...}, body=... })
     // Plain fetch() with no special credentials.
     netRequest: async (opts) => {
-      requirePermission(ctx.pluginName, "net");
+      need("net");
       const o = (opts ?? {}) as { url?: string; method?: string; headers?: Record<string, string>; body?: string };
       if (!o.url) throw new Error("oxis.net.request requires { url = ... }");
       const res = await fetch(o.url, { method: o.method || "GET", headers: o.headers, body: o.body });
@@ -269,7 +272,7 @@ export function buildLuaAPI(ctx: APIContext): OxisBindings {
     },
 
     systemInfo: async () => {
-      requirePermission(ctx.pluginName, "system");
+      need("system");
       if (!isNativeApp()) throw new Error("oxis.system needs the native OXIS app");
       const info = await nativeSystemInfo();
       return info as unknown as LuaJSValue;

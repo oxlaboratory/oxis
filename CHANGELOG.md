@@ -31,6 +31,23 @@ All notable changes to OXIS. The format follows
   boxes (discarding edits, multi-line paste, restore, theme delete).
 - `oxis.quote(text)` quotes an argument for PowerShell or bash, so
   plugins can pass user input to `oxis.run()` safely.
+- Themes can now set much more than colours: status, interface, syntax
+  and sky colours, font, size, line height, letter spacing, weight,
+  ligatures, corner radius, padding, scrollbar width, a glow, cursor
+  shape and blink, the prompt label, whether the sky and corner mark
+  show, a background image or gradient (with strength, blur and fit),
+  and extra CSS. Anything a theme leaves out is derived from its core
+  colours.
+- `'theme set <key> <value>`, `'theme unset <key>` and `'theme keys`
+  change and list options from the terminal (a built-in theme gets a
+  `-custom` copy); `'theme edit` reopens a theme in the editor.
+- The theme editor has a control for every option (colour pickers,
+  sliders, choices, a CSS box), grouped into sections, with per-option
+  reset and a "start from" theme.
+- Two new built-in themes: `paper` (light) and `matrix`.
+- OXIS reopens the named workspace you were last in.
+- README screenshots of the desktop app and browser mode, and a gallery
+  of every built-in theme.
 
 ### Changed
 - Up/Down history: with text typed first, only matching commands are
@@ -54,6 +71,11 @@ All notable changes to OXIS. The format follows
   fast keystrokes.
 - Clouds on Home move together and no longer overlap each other or the
   sun.
+- `'edit <relative path>` opens from the shell's current folder (like
+  every other command), falling back to the data folder.
+- `'update` in a browser tab says updates are a desktop-app feature;
+  on a build without a commit stamp it shows the latest commit, and
+  `'update install --force` installs it.
 - Shortcut plugins (`sysmon`, `files`, `network`, `python`, `winutil`)
   use POSIX commands on Linux.
 - All 16 Lua plugins work on Linux as well as Windows, take their input
@@ -103,6 +125,20 @@ All notable changes to OXIS. The format follows
   now joined with the next read instead of leaking as text.
 - Multi-line plugin scripts with non-ASCII text were garbled in Windows
   PowerShell 5.1.
+- Colours that ignored the theme: neon-green selection, highlights, Home
+  banner letters and success lines in every theme, and a lavender editor
+  selection and search highlight.
+- `'update` said "up to date" when GitHub couldn't be reached, in a
+  browser tab, and on builds without a commit stamp.
+- A successful `'update install` started the new version with a hidden
+  window.
+- Switching to a named workspace asked "Plugin __workspace__ wants to
+  switch/load OXIS workspaces": your own workspace, config, task and
+  workflow files are trusted and no longer get permission prompts.
+- Home kept showing "git: not connected" after `'workspace github` until
+  you switched workspaces.
+- The theme editor was taller than the space between the title bar and
+  the prompt, hiding its header and buttons.
 - A command's completion marker could leak into the output (e.g. at the
   end of `'glog`) and leave OXIS thinking the command was still running
   when the marker arrived split across two reads. The cwd probe had the

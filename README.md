@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img src="assets/screenshot-git-connected.png" alt="OXIS Home screen with a workspace connected to a Git repository" width="720">
+  <img src="assets/screenshots/app-home.png" alt="OXIS Home screen: a workspace linked to a project with a GitHub remote, its tasks and plugins" width="760">
 </p>
 
 **OXIS is a terminal app for Windows and Linux** — the same kind of
@@ -26,6 +26,7 @@ workspaces, and a plugin system with a Market, all scriptable in
 ## Contents
 
 - [What it does](#what-it-does)
+- [Screenshots](#screenshots) — desktop app and browser mode
 - [Getting started](#getting-started)
 - [Using OXIS](#using-oxis) — the prompt, keys, copying, window size
 - [Commands](#commands)
@@ -64,6 +65,28 @@ workspaces, and a plugin system with a Market, all scriptable in
   from, and a publishing flow that opens a GitHub pull request for you.
 - **Runs as a desktop app** (Wails) on Windows and Linux, or in a
   browser tab at `http://127.0.0.1:1420` while the app is running.
+
+## Screenshots
+
+**Desktop app**
+
+| | |
+|---|---|
+| <img src="assets/screenshots/app-terminal.png" alt="The terminal: git output, 'workspace info and the theme list"> | <img src="assets/screenshots/app-editor.png" alt="The built-in editor with TypeScript syntax highlighting"> |
+| The terminal: your shell plus `'` commands, one prompt at the bottom | The built-in editor (`'edit src/cart.ts`) |
+| <img src="assets/screenshots/app-palette.png" alt="The command palette over the terminal"> | <img src="assets/screenshots/app-theme-keys.png" alt="'theme keys listing every theme option and its value"> |
+| The command palette (Ctrl+Shift+P) | `'theme keys` — every theme option, and which the theme sets |
+
+**Browser mode** — the same UI in a browser tab at `http://127.0.0.1:1420`
+while the desktop app is running (no file access or updates there):
+
+| | |
+|---|---|
+| <img src="assets/screenshots/browser-home.png" alt="Home in a browser tab, dusk theme"> | <img src="assets/screenshots/browser-terminal.png" alt="The terminal in a browser tab, paper theme"> |
+
+More in [Themes](#themes).
+
+---
 
 ## Getting started
 
@@ -249,10 +272,12 @@ shell, so the file always lands in the same place.
 
 ## Built-in editor
 
-`'edit <file>` opens a file; `'edit` alone opens the file tree. Relative
-paths resolve against the data folder (not the shell's directory);
-absolute paths open that exact file, and a leading `/` means the root of
-the app's drive on Windows. Quote paths with spaces.
+`'edit <file>` opens a file; `'edit` alone opens the file tree. A
+relative path opens from the shell's current folder, or from the data
+folder if it only exists there (`'edit created-documents/notes.md`); a
+new file is created in the current folder. Absolute paths open that
+exact file, and a leading `/` means the root of the app's drive on
+Windows. Quote paths with spaces.
 
 - **Modes.** Normal (hjkl, `0`/`$`, `gg`/`G`, `w`/`b`, `x`, `dd`, `dw`,
   `o`/`O`), Insert (`i`, `a`, `o`…) and Visual (`v`, then `d`/`x`/`y`).
@@ -314,8 +339,9 @@ Each named workspace is a folder with its own `.oxis/workspace.lua`,
 `documents/`, `plugins/`, `scripts/`, `tasks/` and `workflows/`. While
 one is active, `'new` and `'plugin new` write into it, and its own
 plugins, tasks and workflows are loaded (the previous workspace's are
-unloaded). When OXIS is updated, older workspaces get any new folders
-added automatically; nothing existing is changed.
+unloaded). OXIS reopens the workspace you were last in when it starts.
+When OXIS is updated, older workspaces get any new folders added
+automatically; nothing existing is changed.
 
 ### Linking a real project
 
@@ -593,31 +619,83 @@ end)
 
 ## Themes
 
+<p align="center">
+  <img src="assets/screenshots/themes.png" alt="The ten built-in themes, each shown on the Home screen" width="100%">
+</p>
+
 ```
-'theme                 list themes
-'theme <name>          switch
-'theme new <name>      visual theme editor with live preview
-'theme export <name>   print a theme as JSON
-'theme import <file>   add a theme from a JSON file
-'theme delete <name>   delete a custom theme
+'theme                     list themes
+'theme <name>              switch
+'theme set <key> <value>   change one thing about the active theme
+'theme unset <key>         put one thing back to its default
+'theme keys                every option with the active theme's value
+'theme edit [name]         the theme editor (live preview)
+'theme new <name>          the editor, starting a new theme
+'theme export [name]       print a theme as JSON
+'theme import <file>       add a theme from a JSON file
+'theme delete <name>       delete a custom theme
 ```
 
 Built-in themes: `default`, `midnight`, `slate`, `forest`, `ember`,
-`rose`, `dusk`, `void`. A theme is 16 colours:
+`rose`, `dusk`, `void`, `paper` (light) and `matrix`.
+
+`'theme set` works on the active theme. A built-in theme is never
+changed: the first `'theme set` makes a `<name>-custom` copy that
+extends it and switches to it, so you can go back with `'theme <name>`.
+
+```
+'theme set promptText ~/acme λ
+'theme set backgroundGradient radial-gradient(ellipse at top right, #3b2a6b 0%, #080810 65%)
+'theme set glow 0.45
+'theme set fontSize 15
+```
+
+<p align="center">
+  <img src="assets/screenshots/app-theme-custom.png" alt="midnight with a gradient background, a glow, a custom prompt label and a purple status bar" width="49%">
+  <img src="assets/screenshots/app-theme-editor.png" alt="The theme editor, with the Text and Background sections open" width="49%">
+</p>
+
+### What a theme can set
+
+A theme is 16 core colours plus any of the options below. Anything it
+leaves out is worked out from the core colours, so a theme only lists
+what it changes. `"extends": "<theme>"` inherits everything you don't
+set.
+
+| Group | Keys |
+|---|---|
+| Core colours | `bg` `bg1`–`bg4` backgrounds, `border` `border2`, `text` `muted` `dim` `comment`, `purple` `purple2` `purple3` (the accents), `grey` `grey2` |
+| Status colours | `success` `error` `warning` `link` |
+| Interface | `selection` `caret` `promptColor` `promptBg` `promptBorder` `statusBg` `statusText` `titlebarBg` `titlebarText` `cornerMark` `scrollbar` `scrollbarHover` |
+| Syntax (editor) | `synKeyword` `synString` `synNumber` `synComment` `synFunction` |
+| Sky (Home) | `sun` `cloud` `moon` `star` |
+| Text | `font` (a CSS font list), `fontSize` 9–28, `lineHeight` 1–2.4, `letterSpacing` −1–4, `fontWeight` 300–700, `ligatures` on/off |
+| Shape & effects | `radius` 0–14, `padding` 4–64 (terminal side padding), `scrollbarWidth` 2–14, `glow` 0–1 |
+| Cursor | `cursorStyle` block/bar/underline, `cursorBlink` on/off |
+| Prompt & Home | `promptText` (up to 24 characters), `showSky` on/off, `showCornerMark` on/off |
+| Background | `backgroundImage` (an `https://` or `data:image/` URL), `backgroundGradient` (a CSS gradient), `backgroundOpacity` 0–1, `backgroundBlur` 0–30, `backgroundFit` cover/contain/tile |
+| Advanced | `css`: any extra CSS, applied while the theme is active |
+
+Colours are any CSS colour (`#rrggbb`, `rgba(…)`, `color-mix(…)`).
+Your own `'config set fontSize`, `cursorStyle` and `cursorBlink` win over
+a theme's; `'config reset <key>` hands them back to the theme.
 
 ```json
 {
-  "name": "mytheme",
-  "bg": "#0d1117", "bg1": "#161b22", "bg2": "#21262d", "bg3": "#30363d", "bg4": "#3d444d",
-  "border": "#30363d", "border2": "#388bfd",
-  "text": "#e6edf3", "muted": "#8b949e", "dim": "#6e7681", "comment": "#3b434b",
-  "purple": "#79c0ff", "purple2": "#388bfd", "purple3": "#a5d6ff",
-  "grey": "#8b949e", "grey2": "#3d444d"
+  "name": "harbour",
+  "extends": "slate",
+  "purple": "#5cc8ff", "purple2": "#2f8fd8", "purple3": "#a6e3ff",
+  "success": "#7ee787", "statusBg": "#1f6fb2",
+  "font": "'Fira Code', monospace", "fontSize": 14, "ligatures": true,
+  "promptText": "⚓ ❯", "glow": 0.25,
+  "backgroundGradient": "linear-gradient(160deg, #0e1018 40%, #12304a)",
+  "backgroundOpacity": 0.8
 }
 ```
 
-`"extends": "midnight"` inherits every colour you don't set. The
-`purple*` keys are the accent colours (prompt, highlights, borders).
+Save theme files in `~/.oxis/themes/` (they load at startup) or add one
+with `'theme import <file>`. Unknown keys and invalid values are
+ignored, and `'theme import` lists them.
 
 ---
 
@@ -655,13 +733,14 @@ printed in the terminal and listed by `'diagnostics`.
 
 | Setting | Default | Effect |
 |---|---|---|
-| `fontSize` | `13` | Terminal and editor font size in px |
-| `cursorStyle` | `block` | Prompt cursor: `block`, `bar` or `underline` |
-| `cursorBlink` | `true` | Whether the prompt cursor blinks |
+| `fontSize` | theme's (`13`) | Terminal and editor font size in px |
+| `cursorStyle` | theme's (`block`) | Prompt cursor: `block`, `bar` or `underline` |
+| `cursorBlink` | theme's (`true`) | Whether the prompt cursor blinks |
 | `updateCheckOnStartup` | `true` | Check for a newer build at startup |
 
-Settings apply immediately and persist. Themes are managed with
-`'theme`.
+Settings apply immediately and persist. The first three follow the
+theme until you set them; `'config reset` hands them back to it. Themes
+are managed with `'theme`.
 
 `'backup [path]` writes settings, named workspaces, `created-documents/`
 and `created-plugins/` to one JSON file; `'restore <path>` asks first
@@ -679,8 +758,12 @@ has no telemetry.
 A build knows the commit it was built from. At startup (and with
 `'update`) OXIS asks GitHub for the latest commit on `main`; if it
 differs, the terminal and status bar say a newer build is available.
-Builds without that commit stamp (e.g. a plain `go build`) never report
-updates.
+When GitHub can't be reached (offline, rate limited) `'update` says so
+rather than claiming you're up to date. A build without a commit stamp
+(built by hand, e.g. a plain `go build`) can't tell whether it's
+current: `'update` shows the latest commit, and `'update install
+--force` installs it anyway. Updating is a desktop-app feature; in a
+browser tab `'update` points to the latest release instead.
 
 `'update install` replaces the running app in place:
 

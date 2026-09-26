@@ -4,7 +4,8 @@
 // commit this binary was built from (set with
 // -ldflags "-X github.com/oxis/oxis/internal/update.BuildCommit=<sha>"
 // by scripts/build-go.js and build-linux.sh). A binary built without
-// that flag never reports an update.
+// that flag can't tell whether it's out of date; it only reports the
+// latest commit.
 //
 // The self-updater builds from source (see wailsapp.PerformUpdate), so
 // availability doesn't depend on CI having published anything. The
@@ -42,6 +43,9 @@ type Info struct {
 	DownloadURL   string `json:"downloadUrl"`  // installer (.msi / .deb) for manual download
 	RawBinaryURL  string `json:"rawBinaryUrl"` // bare executable PerformUpdate can swap in
 	Notes         string `json:"notes"`
+	// Error says why the latest build couldn't be found (offline, rate
+	// limited); empty when the check worked.
+	Error string `json:"error,omitempty"`
 }
 
 type ghAsset struct {
@@ -59,27 +63,30 @@ type ghRelease struct {
 var (
 	httpClient = &http.Client{Timeout: 8 * time.Second}
 	headClient = &http.Client{Timeout: 5 * time.Second}
+	// apiBase is GitHub's API root (replaced in tests).
+	apiBase = "https://api.github.com"
 )
 
 type ghCommit struct {
 	SHA string `json:"sha"`
 }
 
-// Check compares BuildCommit with the tip of DefaultBranch. Any failure
-// (offline, rate limit, no BuildCommit) returns Available=false, never
-// an error. goos picks the matching fallback assets.
+// Check compares BuildCommit with the tip of DefaultBranch. When the
+// tip can't be fetched, Error says why and Available is false. A build
+// without BuildCommit gets LatestCommit but never Available. goos picks
+// the matching fallback assets.
 func Check(goos string) Info {
 	info := Info{CurrentCommit: BuildCommit}
-	if BuildCommit == "" {
-		return info
-	}
-
-	latestCommit := latestCommitOnDefaultBranch()
-	if latestCommit == "" {
+	latestCommit, err := latestCommitOnDefaultBranch()
+	if err != nil {
+		info.Error = err.Error()
 		return info
 	}
 	info.LatestCommit = latestCommit
 	info.ReleaseURL = fmt.Sprintf("https://github.com/%s/commits/%s", ProjectPath, DefaultBranch)
+	if BuildCommit == "" {
+		return info
+	}
 	info.Available = !strings.EqualFold(latestCommit, BuildCommit)
 
 	populateFallbackAssets(&info, goos)
@@ -87,35 +94,38 @@ func Check(goos string) Info {
 	return info
 }
 
-// latestCommitOnDefaultBranch returns the branch tip SHA, or "".
-func latestCommitOnDefaultBranch() string {
-	endpoint := fmt.Sprintf("https://api.github.com/repos/%s/commits/%s", ProjectPath, DefaultBranch)
+// latestCommitOnDefaultBranch returns the branch tip SHA.
+func latestCommitOnDefaultBranch() (string, error) {
+	endpoint := fmt.Sprintf("%s/repos/%s/commits/%s", apiBase, ProjectPath, DefaultBranch)
 	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
 	if err != nil {
-		return ""
+		return "", err
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return ""
+		return "", fmt.Errorf("couldn't reach GitHub (offline?)")
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return ""
+	switch {
+	case resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusTooManyRequests:
+		return "", fmt.Errorf("GitHub's API rate limit was reached; try again in a while")
+	case resp.StatusCode != http.StatusOK:
+		return "", fmt.Errorf("GitHub answered HTTP %d", resp.StatusCode)
 	}
 
 	var c ghCommit
-	if err := json.NewDecoder(resp.Body).Decode(&c); err != nil {
-		return ""
+	if err := json.NewDecoder(resp.Body).Decode(&c); err != nil || c.SHA == "" {
+		return "", fmt.Errorf("GitHub sent an unexpected response")
 	}
-	return c.SHA
+	return c.SHA, nil
 }
 
 // populateFallbackAssets fills the download fields from the rolling
 // release when it exists. It never affects Available.
 func populateFallbackAssets(info *Info, goos string) {
-	endpoint := fmt.Sprintf("https://api.github.com/repos/%s/releases/tags/%s", ProjectPath, RollingReleaseTag)
+	endpoint := fmt.Sprintf("%s/repos/%s/releases/tags/%s", apiBase, ProjectPath, RollingReleaseTag)
 	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
 	if err != nil {
 		return

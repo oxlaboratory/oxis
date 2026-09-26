@@ -89,6 +89,8 @@ export interface NativeUpdateInfo {
    *  in; empty when the release has none for this platform. */
   rawBinaryUrl: string;
   notes: string;
+  /** Why the latest build couldn't be found (offline, rate limited). */
+  error?: string;
 }
 
 /** True if running inside the native Wails window; false in a plain
