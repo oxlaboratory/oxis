@@ -71,10 +71,13 @@ class ScriptRunTracker {
     this.pending.clear();
   }
 
-  /** Strips completed markers from raw output and resolves their calls. */
+  /** Strips completed markers from raw output and resolves their calls.
+   *  Output arrives in chunks, so a marker cut off at the end of one is
+   *  held back and completed by the next. */
   consume(raw: string): string {
-    if (this.pending.size === 0) return raw;
-    let out = raw;
+    let out = this.carry + raw;
+    this.carry = "";
+    if (this.pending.size === 0) return out;
     for (const [marker, resolve] of [...this.pending]) {
       if (out.includes(marker)) {
         out = out.split(marker).join("");
@@ -82,7 +85,26 @@ class ScriptRunTracker {
         resolve({ cancelled: false, timedOut: false });
       }
     }
+    const keep = this.partialMarkerLength(out);
+    if (keep > 0) {
+      this.carry = out.slice(-keep);
+      out = out.slice(0, -keep);
+    }
     return out;
+  }
+
+  // Output held back by consume() because it may be the start of a marker.
+  private carry = "";
+
+  /** Length of the longest end of `text` that begins a pending marker. */
+  private partialMarkerLength(text: string): number {
+    let best = 0;
+    for (const marker of this.pending.keys()) {
+      for (let k = Math.min(marker.length - 1, text.length); k > best; k--) {
+        if (text.endsWith(marker.slice(0, k))) { best = k; break; }
+      }
+    }
+    return best;
   }
 }
 

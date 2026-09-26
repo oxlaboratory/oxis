@@ -37,6 +37,8 @@ export function looksLikeDirectoryChange(cmd: string): boolean {
 class CwdTracker {
   private cwd = "";
   private listeners = new Set<(cwd: string) => void>();
+  // Output held back by consume() because it may be part of an answer.
+  private carry = "";
 
   get(): string {
     return this.cwd;
@@ -51,10 +53,25 @@ class CwdTracker {
    *  (triggering workspace detection) when it changed. */
   consume(raw: string): string {
     let changed: string | null = null;
-    const stripped = raw.replace(PROBE_RE, (_match, path: string) => {
+    let stripped = (this.carry + raw).replace(PROBE_RE, (_match, path: string) => {
       changed = path.trim();
       return "";
     });
+    this.carry = "";
+    // An answer cut off by the end of this chunk waits for the rest:
+    // an opening marker with no closing one on its line, or the start
+    // of a marker at the very end.
+    const open = stripped.lastIndexOf(MARK);
+    let keep = open >= 0 && !/[\r\n]/.test(stripped.slice(open)) ? stripped.length - open : 0;
+    if (keep === 0) {
+      for (let k = MARK.length - 1; k > 0; k--) {
+        if (stripped.endsWith(MARK.slice(0, k))) { keep = k; break; }
+      }
+    }
+    if (keep > 0) {
+      this.carry = stripped.slice(-keep);
+      stripped = stripped.slice(0, -keep);
+    }
     if (changed !== null && changed !== this.cwd) {
       this.cwd = changed;
       this.listeners.forEach((fn) => fn(changed as string));

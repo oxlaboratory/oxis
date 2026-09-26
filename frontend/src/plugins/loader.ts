@@ -8,7 +8,7 @@
 
 import { pluginManager } from "./pluginManager";
 import { loadAllPremiumPlugins } from "./market";
-import type { APIContext } from "./pluginAPI";
+import { shellQuote as q, type APIContext } from "./pluginAPI";
 import { isWindows } from "../terminal/terminal";
 
 // Shortcut tables pick PowerShell or POSIX commands once, at startup.
@@ -47,8 +47,8 @@ const BUILTINS: BuiltinDef[] = [
       gs:"git status", gl:"git log --oneline -20", gd:"git diff",
       ga:"git add -A; git status", gp:"git push", gpl:"git pull",
       gb:"git branch -a", gst:"git stash",
-      gc :(a)=>a?`git commit -m "${a}"`:`echo "usage: 'gc <msg>"`,
-      gco:(a)=>a?`git checkout ${a}`:`echo "usage: 'gco <branch>"`,
+      gc :(a)=>a?`git commit -m ${q(a)}`:`echo "usage: 'gc <msg>"`,
+      gco:(a)=>a?`git checkout ${q(a)}`:`echo "usage: 'gco <branch>"`,
     }},
   { name:"npm", desc:"Node/npm shortcuts", category:"dev", builtin:true, enabled:true,
     shortcuts:{
@@ -81,27 +81,25 @@ const BUILTINS: BuiltinDef[] = [
     shortcuts: WIN ? {
       myip:`(Invoke-WebRequest -Uri 'https://api.ipify.org' -UseBasicParsing).Content`,
       wifi:`netsh wlan show interfaces`,
-      ports:`Get-NetTCPConnection | Where-Object State -eq 'Listen' | Sort-Object LocalPort | Format-Table LocalPort,@{N='Process';E={(Get-Process -Id $_.OwningProcess -EA SilentlyContinue).Name}} -AutoSize`,
       ping:(a)=>`Test-Connection ${a||"8.8.8.8"} -Count 4`,
       dns :(a)=>`Resolve-DnsName ${a} | Format-Table -AutoSize`,
     } : {
       myip:"curl -s https://api.ipify.org; echo",
       wifi:"nmcli device wifi list",
-      ports:"ss -tlnp",
       ping:(a)=>`ping -c 4 ${a||"8.8.8.8"}`,
       dns :(a)=>`getent hosts ${a}`,
     }},
   { name:"files", desc:"Advanced file operations", category:"files", builtin:true, enabled:true,
     shortcuts: WIN ? {
-      fsize  :(a)=>`$s=Get-ChildItem -Recurse "${a||"."}" -EA SilentlyContinue|Measure-Object -Property Length -Sum;Write-Host "$([math]::Round($s.Sum/1MB,2)) MB ($($s.Count) files)"`,
-      fopen  :(a)=>`Start-Process "${a}"`,
-      fhash  :(a)=>`Get-FileHash "${a}" | Format-Table Algorithm,Hash`,
+      fsize  :(a)=>`$s=Get-ChildItem -Recurse -File -LiteralPath ${q(a||".")} -EA SilentlyContinue|Measure-Object -Property Length -Sum;Write-Host "$([math]::Round($s.Sum/1MB,2)) MB ($($s.Count) files)"`,
+      fopen  :(a)=>a?`Start-Process ${q(a)}`:`echo "usage: 'fopen <file>"`,
+      fhash  :(a)=>a?`Get-FileHash -LiteralPath ${q(a)} | Format-Table Algorithm,Hash`:`echo "usage: 'fhash <file>"`,
       flatest:`Get-ChildItem -Recurse -File -EA SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 10 LastWriteTime,@{N='File';E={$_.Name}} | Format-Table -AutoSize`,
       fbig   :`Get-ChildItem -Recurse -File -EA SilentlyContinue | Sort-Object Length -Descending | Select-Object -First 10 @{N='MB';E={[math]::Round($_.Length/1MB,2)}},Name | Format-Table -AutoSize`,
     } : {
-      fsize  :(a)=>`du -sh "${a||"."}"`,
-      fopen  :(a)=>`xdg-open "${a}"`,
-      fhash  :(a)=>`sha256sum "${a}"`,
+      fsize  :(a)=>`du -sh ${q(a||".")}`,
+      fopen  :(a)=>a?`xdg-open ${q(a)}`:`echo "usage: 'fopen <file>"`,
+      fhash  :(a)=>a?`sha256sum ${q(a)}`:`echo "usage: 'fhash <file>"`,
       flatest:`find . -type f -printf '%T@ %TY-%Tm-%Td %TH:%TM  %p\n' 2>/dev/null | sort -rn | head -n 10 | cut -d' ' -f2-`,
       fbig   :`find . -type f -printf '%s\t%p\n' 2>/dev/null | sort -rn | head -n 10 | awk -F'\t' '{printf "%8.2f MB  %s\n", $1/1048576, $2}'`,
     }},

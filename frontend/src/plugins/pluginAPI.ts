@@ -69,15 +69,25 @@ export function toPowerShellChain(cmd: string): string {
   return parts.reduceRight((rest, part) => rest ? `${part}; if ($?) { ${rest} }` : part, "");
 }
 
+/** Quotes text as a single argument: PowerShell single quotes on
+ *  Windows (which also treats curly quotes as quotes), POSIX single
+ *  quotes elsewhere. */
+export function shellQuote(text: string, windows = isWindows()): string {
+  return windows
+    ? `'${text.replace(/['\u2018\u2019\u201A\u201B]/g, q => q + q)}'`
+    : `'${text.replace(/'/g, `'\\''`)}'`;
+}
+
 /**
  * oxis.run(): runs a command in the shared shell and resolves when it
  * has finished (scriptRunTracker), so workflows can await it and a
  * second command can't be typed into a prompt the first is still
  * showing.
  *
- * Multi-line scripts on Windows are written to a temp .ps1 and run as
- * one line; pasting them line by line would feed later lines into any
- * Read-Host prompt earlier in the script.
+ * Multi-line scripts are written to a temp file (.ps1 on Windows, .sh
+ * run with bash elsewhere) and run as one line; typed line by line,
+ * later lines would be read as the answer to any prompt (Read-Host,
+ * read) earlier in the script.
  */
 export function runScript(ctx: APIContext, cmd: string): Promise<{ ok: boolean }> {
   // Not an async function, so turn a synchronous permission denial into
@@ -91,13 +101,17 @@ export function runScript(ctx: APIContext, cmd: string): Promise<{ ok: boolean }
   const send = (line: string) => ctx.sendToShell(line);
   const done = (r: { cancelled: boolean; timedOut: boolean }) => ({ ok: !r.cancelled && !r.timedOut });
 
-  if (!cmd.includes("\n") || !windows || !isNativeApp()) {
+  if (!cmd.includes("\n") || !isNativeApp()) {
     return scriptRunTracker.runAndAwait(send, windows ? toPowerShellChain(cmd) : cmd).then(done);
   }
 
-  return writeTempScript(".ps1", cmd)
-    .then((path) => scriptRunTracker.runAndAwait(send,
-      `& "${path}"; Remove-Item "${path}" -Force -ErrorAction SilentlyContinue`))
+  return writeTempScript(windows ? ".ps1" : ".sh", cmd)
+    .then((path) => {
+      const p = shellQuote(path, windows);
+      return scriptRunTracker.runAndAwait(send, windows
+        ? `& ${p}; Remove-Item ${p} -Force -ErrorAction SilentlyContinue`
+        : `bash ${p}; rm -f ${p}`);
+    })
     // Couldn't write the temp file: send it as-is rather than do nothing.
     .catch(() => scriptRunTracker.runAndAwait(send, cmd))
     .then(done);
@@ -149,6 +163,7 @@ export function buildLuaAPI(ctx: APIContext): OxisBindings {
 
     echo: (text) => ctx.print(`  ${text}`, "info"),
     run: (cmd) => runScript(ctx, cmd),
+    quote: (text) => shellQuote(text),
     theme: (name) => { themeManager.apply(name); },
     cwd: () => ctx.getCwd(),
     newTerminal: () => { requirePermission(ctx.pluginName, "terminal"); ctx.newTerminal(); },

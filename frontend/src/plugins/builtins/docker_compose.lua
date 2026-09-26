@@ -1,19 +1,46 @@
--- docker_compose.lua — Docker Compose workflow
+-- docker_compose.lua — Docker Compose workflow (Compose v2: `docker compose`)
 
-oxis.command("dcup",     function() oxis.run("docker-compose up -d && docker-compose ps") end, "docker-compose up -d, then show status")
-oxis.command("dcdown",   function() oxis.run("docker-compose down") end, "docker-compose down")
-oxis.command("dcrestart",function() oxis.run("docker-compose restart && docker-compose ps") end, "restart all compose services")
-oxis.command("dcps",     function() oxis.run("docker-compose ps") end, "show compose service status")
-oxis.command("dclogs",   function() oxis.run("docker-compose logs --tail=100 -f") end, "tail compose logs")
-oxis.command("dcbuild",  function() oxis.run("docker-compose build --no-cache") end, "rebuild compose images with no cache")
-oxis.command("dcpull",   function() oxis.run("docker-compose pull && docker-compose up -d") end, "pull latest images and restart")
-oxis.command("dcprune",  function() oxis.run("docker system prune -f && docker volume prune -f") end, "prune unused docker containers and volumes")
-oxis.command("dcstats",  function()
-  oxis.run("docker stats --no-stream --format 'table {{.Name}}\\t{{.CPUPerc}}\\t{{.MemUsage}}\\t{{.NetIO}}'")
-end, "live resource usage for running containers")
-oxis.command("dcexec", function()
-  oxis.run([[
-    $svc = Read-Host "Service name"
-    docker-compose exec $svc /bin/sh
-  ]])
-end, "open a shell inside a compose service")
+local DC = "docker compose"
+
+-- " 'svc1' 'svc2'" from the command's arguments, or "" for all services.
+local function services(args)
+  local out = ""
+  for _, a in ipairs(args) do out = out .. " " .. oxis.quote(a) end
+  return out
+end
+
+oxis.command("dcup", function(args)
+  oxis.run(DC .. " up -d" .. services(args) .. " && " .. DC .. " ps")
+end, "start services in the background, then show status: 'dcup [service...]")
+
+oxis.command("dcdown", function() oxis.run(DC .. " down") end, "stop and remove the project's containers")
+
+oxis.command("dcrestart", function(args)
+  oxis.run(DC .. " restart" .. services(args) .. " && " .. DC .. " ps")
+end, "restart services: 'dcrestart [service...]")
+
+oxis.command("dcps", function() oxis.run(DC .. " ps") end, "service status")
+
+oxis.command("dclogs", function(args)
+  oxis.run(DC .. " logs --tail=100 -f" .. services(args))
+end, "follow the last 100 log lines (Ctrl+C stops): 'dclogs [service...]")
+
+oxis.command("dcbuild", function(args)
+  oxis.run(DC .. " build --no-cache" .. services(args))
+end, "rebuild images without the cache: 'dcbuild [service...]")
+
+oxis.command("dcpull", function() oxis.run(DC .. " pull && " .. DC .. " up -d") end,
+  "pull newer images and recreate what changed")
+
+oxis.command("dcprune", function() oxis.run("docker system prune && docker volume prune") end,
+  "remove stopped containers, unused networks, dangling images and unused volumes (Docker asks first)")
+
+oxis.command("dcstats", function()
+  oxis.run([[docker stats --no-stream --format 'table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.NetIO}}']])
+end, "CPU, memory and network use of running containers")
+
+oxis.command("dcexec", function(args)
+  if #args == 0 then oxis.echo("usage: 'dcexec <service> [command]   (default command: sh)"); return end
+  local cmd = #args > 1 and table.concat(args, " ", 2) or "sh"
+  oxis.run(DC .. " exec " .. oxis.quote(args[1]) .. " " .. cmd)
+end, "run a command (default: a shell) inside a service: 'dcexec <service> [command]")

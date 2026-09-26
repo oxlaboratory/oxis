@@ -1,37 +1,46 @@
--- todo.lua — project TODO tracker
--- Scans source files for TODO/FIXME/HACK/NOTE comments
+-- todo.lua — find TODO/FIXME-style comments in source files
+-- Tags match as whole, upper-case words, so "note" in prose doesn't
+-- count. node_modules, .git, dist and vendor are skipped.
 
-oxis.command("todos", function()
-  oxis.run([[
-    $exts   = @("*.ts","*.tsx","*.js","*.jsx","*.go","*.py","*.rs","*.lua","*.cs","*.java")
-    $tags   = @("TODO","FIXME","HACK","XXX","NOTE","BUG","WARN","PERF")
-    $found  = 0
-    $pattern = ($tags -join "|")
-    $exts | ForEach-Object {
-      Get-ChildItem -Recurse -Filter $_ -ErrorAction SilentlyContinue |
-        Where-Object { $_.FullName -notmatch '\\node_modules\\|\\\.git\\|\\dist\\' } |
-        ForEach-Object {
-          $file = $_
-          Select-String -Path $file.FullName -Pattern $pattern -ErrorAction SilentlyContinue |
-            ForEach-Object {
-              $tag  = ($_ | Select-String -Pattern $pattern).Matches[0].Value
-              Write-Host "  [$tag] $($file.Name):$($_.LineNumber)  $($_.Line.Trim())"
-              $found++
-            }
-        }
-    }
-    Write-Host ""
-    Write-Host "  $found item(s) found."
-  ]])
-end, "scan source files for TODO/FIXME/HACK/NOTE comments")
+local WIN = oxis.platform == "windows"
+local EXTS = { "ts", "tsx", "js", "jsx", "go", "py", "rs", "lua", "cs", "java", "c", "cpp", "h" }
 
-oxis.command("fixmes", function()
-  oxis.run([[
-    Get-ChildItem -Recurse -Include *.ts,*.tsx,*.js,*.go,*.py -ErrorAction SilentlyContinue |
-      Where-Object { $_.FullName -notmatch 'node_modules|\.git|dist' } |
-      ForEach-Object {
-        Select-String -Path $_.FullName -Pattern 'FIXME|BUG' -ErrorAction SilentlyContinue |
-          ForEach-Object { Write-Host "  [FIXME] $($_.Filename):$($_.LineNumber)  $($_.Line.Trim())" }
-      }
-  ]])
-end, "scan source files for FIXME/BUG comments")
+local PS = [[
+$files = Get-ChildItem -Recurse -File -Include @EXTS@ -ErrorAction SilentlyContinue |
+  Where-Object { $_.FullName -notmatch '\\(node_modules|\.git|dist|vendor)\\' }
+$hits = @($files | Select-String -Pattern '\b(@TAGS@)\b' -CaseSensitive)
+foreach ($h in $hits) {
+  Write-Host ("  [{0}] {1}:{2}  {3}" -f $h.Matches[0].Groups[1].Value, (Resolve-Path -Relative $h.Path), $h.LineNumber, $h.Line.Trim())
+}
+Write-Host ""
+Write-Host "  $($hits.Count) found."
+]]
+
+local SH = [[
+grep -rnE @EXTS@ --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=dist --exclude-dir=vendor '\b(@TAGS@)\b' . 2>/dev/null |
+  sed 's|^\./||' |
+  awk -v re='@TAGS@' '{
+    file = $0; sub(/:.*/, "", file)
+    rest = substr($0, length(file) + 2); line = rest; sub(/:.*/, "", line)
+    text = substr(rest, length(line) + 2); gsub(/^[ \t]+|[ \t]+$/, "", text)
+    match(text, re)
+    printf "  [%s] %s:%s  %s\n", substr(text, RSTART, RLENGTH), file, line, text; n++
+  } END { printf "\n  %d found.\n", n }'
+]]
+
+local function scan(tags)
+  local exts = {}
+  for i, e in ipairs(EXTS) do
+    exts[i] = WIN and ("*." .. e) or ("--include='*." .. e .. "'")
+  end
+  local script = WIN and PS or SH
+  script = script:gsub("@EXTS@", table.concat(exts, WIN and "," or " "))
+  script = script:gsub("@TAGS@", tags)
+  oxis.run(script)
+end
+
+oxis.command("todos", function() scan("TODO|FIXME|HACK|XXX|NOTE|BUG|WARN|PERF") end,
+  "list TODO, FIXME, HACK, XXX, NOTE, BUG, WARN and PERF comments under this folder")
+
+oxis.command("fixmes", function() scan("FIXME|BUG") end,
+  "list FIXME and BUG comments under this folder")

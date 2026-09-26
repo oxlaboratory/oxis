@@ -28,6 +28,8 @@ export interface OxisBindings {
   echo(text: string): void;
   // Returns a promise; Lua never sees it, but the binding catches it.
   run(cmd: string): Promise<{ ok: boolean }>;
+  /** Quotes text as one argument for the platform's shell. */
+  quote(text: string): string;
   theme(name: string): void;
   cwd(): string;
   getOption(key: string): LuaJSValue;
@@ -221,6 +223,7 @@ function buildOxisTable(L: LuaState, b: OxisBindings, closedRef: { closed: boole
     });
     return 0;
   });
+  setfn("quote", (L) => { pushLuaValue(L, b.quote(argString(L, 1) ?? "")); return 1; });
   setfn("theme", (L) => { b.theme(lua.lua_tojsstring(L, 1)); return 0; });
   setfn("cwd", (L) => { pushLuaValue(L, b.cwd()); return 1; });
   setfn("newTerminal", () => { b.newTerminal(); return 0; });

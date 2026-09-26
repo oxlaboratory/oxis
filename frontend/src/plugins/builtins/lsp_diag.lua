@@ -1,11 +1,27 @@
--- lsp_diag.lua — code diagnostics
--- Runs linters/type-checkers and surfaces errors in OXIS
+-- lsp_diag.lua — run linters and type checkers from OXIS
+-- Long outputs are cut to their first lines.
 
-oxis.command("tsc",     function() oxis.run("npx tsc --noEmit 2>&1 | head -60") end, "run the TypeScript compiler in check-only mode")
-oxis.command("eslint",  function() oxis.run("npx eslint . --ext .ts,.tsx,.js,.jsx --format compact 2>&1 | head -60") end, "run ESLint over ts/tsx/js/jsx files")
-oxis.command("pycheck", function() oxis.run("python -m mypy . --ignore-missing-imports 2>&1 | head -40") end, "run mypy type checking")
-oxis.command("golint",  function() oxis.run("golangci-lint run ./... 2>&1 | head -40") end, "run golangci-lint")
-oxis.command("rustcheck",function() oxis.run("cargo check 2>&1") end, "run cargo check")
-oxis.command("audit",   function() oxis.run("npm audit --audit-level=moderate 2>&1 | head -40") end, "check npm dependencies for known vulnerabilities")
-oxis.command("outdated",function() oxis.run("npm outdated 2>&1") end, "list outdated npm dependencies")
-oxis.command("depcheck", function() oxis.run("npx depcheck 2>&1 | head -40") end, "find unused npm dependencies")
+local WIN = oxis.platform == "windows"
+
+-- Runs cmd, showing only the first n lines of its output.
+local function capped(cmd, n)
+  if WIN then oxis.run(cmd .. " | Select-Object -First " .. n)
+  else oxis.run(cmd .. " 2>&1 | head -n " .. n) end
+end
+
+oxis.command("tsc", function() capped("npx tsc --noEmit", 60) end,
+  "type-check the TypeScript project without emitting files")
+oxis.command("eslint", function() capped("npx eslint .", 60) end,
+  "lint the project with its ESLint config")
+oxis.command("pycheck", function() capped((WIN and "python" or "python3") .. " -m mypy . --ignore-missing-imports", 40) end,
+  "type-check Python with mypy")
+oxis.command("golint", function() capped("golangci-lint run ./...", 40) end,
+  "lint Go code with golangci-lint")
+oxis.command("rustcheck", function() oxis.run("cargo check") end,
+  "check the Rust crate compiles (cargo check)")
+oxis.command("audit", function() capped("npm audit --audit-level=moderate", 40) end,
+  "npm dependencies with known vulnerabilities (moderate and up)")
+oxis.command("outdated", function() oxis.run("npm outdated") end,
+  "npm dependencies with newer versions")
+oxis.command("depcheck", function() capped("npx depcheck", 40) end,
+  "npm dependencies the code doesn't use")

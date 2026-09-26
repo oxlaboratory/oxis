@@ -123,6 +123,15 @@ jobs:
           name: oxis-windows-${{ github.sha }}
           path: release-files
 
+      # The release action only creates the tag; move it to this build so
+      # it always points at the commit the files were built from.
+      - name: Point the latest-build tag at this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api -X PATCH "repos/${{ github.repository }}/git/refs/tags/latest-build" -f sha="${{ github.sha }}" -F force=true \
+            || gh api -X POST "repos/${{ github.repository }}/git/refs" -f ref=refs/tags/latest-build -f sha="${{ github.sha }}"
+
       - name: Publish rolling "latest-build" release
         uses: softprops/action-gh-release@v2
         with:

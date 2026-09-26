@@ -29,6 +29,8 @@ All notable changes to OXIS. The format follows
 - The status bar confirms every copy ("copied 14 chars").
 - An in-app confirm dialog replaces the system "wails.localhost says"
   boxes (discarding edits, multi-line paste, restore, theme delete).
+- `oxis.quote(text)` quotes an argument for PowerShell or bash, so
+  plugins can pass user input to `oxis.run()` safely.
 
 ### Changed
 - Up/Down history: with text typed first, only matching commands are
@@ -54,6 +56,22 @@ All notable changes to OXIS. The format follows
   sun.
 - Shortcut plugins (`sysmon`, `files`, `network`, `python`, `winutil`)
   use POSIX commands on Linux.
+- All 16 Lua plugins work on Linux as well as Windows, take their input
+  as arguments (asking only when it's missing), and describe every
+  command in `'help`. Multi-line `oxis.run()` scripts run from a temp
+  bash file on Linux, like the `.ps1` on Windows.
+- `docker_compose` uses Compose v2 (`docker compose`) and accepts
+  service names; `'dcprune` lets Docker ask before deleting.
+- `file_ops`: `'dup` is now `'fdup` (it clashed with the docker
+  plugin's `'dup`) and copies next to the original. `'tree` takes a
+  depth and really skips `node_modules`.
+- `git_advanced`: `'gblame <file>` runs `git blame`; `'greset` asks
+  before discarding changes; `'gshow` and `'grebase` take arguments.
+- The `network` plugin no longer has its own `'ports`, which replaced
+  (and, once the plugin was disabled, removed) the built-in one.
+- Existing files are never overwritten by `project_init`.
+- `latest-build` now always points at the commit its files were built
+  from (CI moves the tag on every published build).
 - One shared startup update check (it used to run twice and ignored
   `updateCheckOnStartup` in the terminal).
 - README, CONTRIBUTING and code comments rewritten to be shorter and to
@@ -77,6 +95,19 @@ All notable changes to OXIS. The format follows
   now joined with the next read instead of leaking as text.
 - Multi-line plugin scripts with non-ASCII text were garbled in Windows
   PowerShell 5.1.
+- A command's completion marker could leak into the output (e.g. at the
+  end of `'glog`) and leave OXIS thinking the command was still running
+  when the marker arrived split across two reads. The cwd probe had the
+  same problem.
+- Lua plugin bugs: `'sshls`/`'sshadd`/`'sshcopy` assigned PowerShell's
+  read-only `$host`; `'get`, `'time` and `'bench` ignored their
+  arguments; `lsp_diag` piped to `head`, which PowerShell doesn't have,
+  and used ESLint options removed in ESLint 9; `'clipclear` failed on
+  Windows PowerShell 5.1; `'ping4` only worked on PowerShell 7;
+  `'todos` matched any "note" in prose; `'pnet` cut its table after
+  formatting it.
+- `'gc`, `'gco`, `'fsize`, `'fopen` and `'fhash` broke on arguments with
+  quotes or spaces.
 - Windows and Linux CI builds failed (clipboard sources weren't
   committed).
 - Linux builds were compiled without Wails' `desktop` tag, and without

@@ -426,7 +426,7 @@ and POSIX variants):
 | sysmon | on | `top` `mem` `cpu` `uptime` |
 | files | on | `fsize` `fopen` `fhash` `flatest` `fbig` |
 | docker | off | `dps` `dimg` `dup` `ddown` `dlog` `dsh` `drm` |
-| network | off | `myip` `wifi` `ports` `ping` `dns` |
+| network | off | `myip` `wifi` `ping` `dns` |
 | python | off | `py` `pip` `venv` `act` `freeze` `pipu` |
 | go | off | `gobuild` `gorun` `gotest` `gotidy` `govet` |
 | rust | off | `cb` `cr` `ct` `cc` `cbr` |
@@ -436,7 +436,11 @@ Lua plugins (off by default, `'plugin enable <name>`): `fuzzy`,
 `git_advanced`, `lsp_diag`, `http`, `session_notes`, `env_manager`,
 `benchmark`, `process_manager`, `project_init`, `clipboard`, `todo`,
 `docker_compose`, `file_ops`, `system_health`, `snippets`,
-`ssh_manager`. `'help <plugin>` lists each one's commands.
+`ssh_manager`. `'help <plugin>` lists each one's commands. All of them
+work on Windows and Linux, and take their input as arguments (`'ff cfg`,
+`'pfind 3000`, `'note call Sam back`), asking only when it's missing.
+On Linux, `clipboard` needs wl-clipboard, xclip or xsel, and `http`
+uses curl (and jq to format JSON, if installed).
 
 ### Manifest
 
@@ -514,7 +518,8 @@ Everything is on the global `oxis` table.
 | `oxis.command(name, fn(args, rest), description)` | Register `'name`. `args` is a table of words, `rest` the raw text. |
 | `oxis.task(name, cmd, description)` | Register a task (`'task name`) |
 | `oxis.workflow(name, def, description)` | Register a workflow (see [Workspaces](#tasks-and-workflows)) |
-| `oxis.run(cmd)` | Run a command in the shell. Multi-line PowerShell scripts run as one script; `&&` works on Windows PowerShell 5.1 too. |
+| `oxis.run(cmd)` | Run a command in the shell. Multi-line scripts run as one script file (`.ps1` on Windows, bash elsewhere), so a `Read-Host`/`read` prompt gets your answer rather than the next line; `&&` works on Windows PowerShell 5.1 too. |
+| `oxis.quote(text)` | `text` quoted as one argument for the platform's shell, safe to splice into `oxis.run()` (e.g. `oxis.run("git blame -- " .. oxis.quote(rest))`) |
 | `oxis.echo(text)` | Print a line in the terminal |
 | `oxis.cwd()` | The shell's current directory |
 | `oxis.platform` | `"windows"` or `"unix"` |
