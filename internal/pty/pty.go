@@ -29,6 +29,23 @@ type outMsg struct {
 	Data    string `json:"data,omitempty"`
 	Code    int    `json:"code,omitempty"`
 	Message string `json:"message,omitempty"`
+	// Shell is sent with "ready": "powershell", "pwsh", "cmd", "bash",
+	// "zsh", "fish" or "sh", so the frontend can use the right syntax.
+	Shell string `json:"shell,omitempty"`
+}
+
+// shellKind names the shell a command line or path starts.
+func shellKind(command string) string {
+	c := strings.ToLower(command)
+	for _, k := range []string{"pwsh", "powershell", "fish", "zsh", "bash"} {
+		if strings.Contains(c, k) {
+			return k
+		}
+	}
+	if strings.Contains(c, "cmd.exe") || strings.TrimSpace(c) == "cmd" {
+		return "cmd"
+	}
+	return "sh"
 }
 
 // shellEnv is the environment the shell starts with: OXIS's own, with

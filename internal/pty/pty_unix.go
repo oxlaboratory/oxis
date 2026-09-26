@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sync"
 
 	gpty "github.com/creack/pty"
@@ -67,7 +68,7 @@ func HandleSession(conn *websocket.Conn) {
 			}
 			defer ptmx.Close()
 
-			safeSend(conn, &mu, outMsg{Type: "ready"})
+			safeSend(conn, &mu, outMsg{Type: "ready", Shell: shellKind(filepath.Base(shell))})
 
 			// PTY → WebSocket in background
 			go func() {

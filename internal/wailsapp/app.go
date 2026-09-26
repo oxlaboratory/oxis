@@ -443,6 +443,10 @@ func (a *App) RunCommand(requestID string, dir string, name string, args []strin
 	}
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = resolvedDir
+	// There's no terminal to answer a prompt on: git fails with an
+	// authentication error instead of waiting for one (credential
+	// helpers with their own window still work).
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
 	hideWindow(cmd)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

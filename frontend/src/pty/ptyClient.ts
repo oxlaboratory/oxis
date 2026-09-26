@@ -20,7 +20,9 @@
 import { getPtyPort, isNativeApp } from "../native";
 
 export type OutputCallback = (data: string) => void;
-export type ReadyCallback  = () => void;
+/** Called once the shell is running, with its kind ("powershell",
+ *  "bash", "fish"…; empty from an older server). */
+export type ReadyCallback  = (shell: string) => void;
 export type ExitCallback   = (code: number) => void;
 export type ErrorCallback  = (msg: string) => void;
 
@@ -88,11 +90,11 @@ export function openPty(opts: PtyOptions): PtySession {
     });
 
     socket.addEventListener("message", (ev) => {
-      let msg: { type: string; data?: string; code?: number; message?: string };
+      let msg: { type: string; data?: string; code?: number; message?: string; shell?: string };
       try { msg = JSON.parse(ev.data as string); } catch { return; }
       switch (msg.type) {
         case "output": if (msg.data) onOutput(msg.data); break;
-        case "ready":                onReady();           break;
+        case "ready":                onReady(msg.shell ?? ""); break;
         case "exit":   if (msg.code !== undefined) onExit(msg.code); break;
         case "error":  if (msg.message) onError(msg.message); break;
       }

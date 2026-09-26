@@ -163,6 +163,12 @@ export function getYankBuf(): string        { return _yankBuf; }
 // ─────────────────────────────────────────────────────────────
 // PLATFORM DETECTION
 // ─────────────────────────────────────────────────────────────
+let shellKind = "";
+/** Which shell the terminal runs ("powershell", "bash", "fish"…), as
+ *  reported by the PTY; "" until it has started. */
+export function currentShell(): string { return shellKind; }
+export function setCurrentShell(kind: string): void { shellKind = kind; }
+
 export function isWindows(): boolean {
   return navigator.userAgent.toLowerCase().includes("windows");
 }

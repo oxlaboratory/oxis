@@ -271,8 +271,17 @@ export async function detectProject(dir: string): Promise<ProjectDetectionResult
 }
 
 /** Escapes a string for a single-quoted Lua literal. */
-function luaEscape(s: string): string {
-  return s.replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/\n/g, "\\n");
+/** Escapes text for a single-quoted Lua string. Control characters
+ *  become \ddd escapes: a raw line break (\r as well as \n) would end
+ *  the string and stop the whole tasks file from loading. */
+export function luaEscape(s: string): string {
+  return s.replace(/[\\'\x00-\x1f\x7f]/g, c =>
+    c === "\\" ? "\\\\" : c === "'" ? "\\'" : "\\" + String(c.charCodeAt(0)).padStart(3, "0"));
+}
+
+/** Reverses luaEscape (for reading generated task lines back). */
+export function luaUnescape(s: string): string {
+  return s.replace(/\\(\d{3}|.)/g, (_, g: string) => /^\d{3}$/.test(g) ? String.fromCharCode(Number(g)) : g);
 }
 
 export const AUTO_DETECTED_TASKS_FILE = ".oxis/tasks/auto-detected.lua";

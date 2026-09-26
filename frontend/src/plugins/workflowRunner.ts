@@ -142,8 +142,8 @@ function psQuote(v: string): string {
 }
 
 /** Env-var assignments put in front of a step's command, quoted so
- *  values are literal ($(...) and backticks are never run). Adding a
- *  line also routes the step through runScript's multi-line path. */
+ *  values are literal ($(...) and backticks are never run). Each is its
+ *  own line, typed into the shell before the command. */
 function withEnvPrefix(cmd: string, env: Record<string, string>): string {
   const entries = Object.entries(env);
   if (entries.length === 0) return cmd;
@@ -304,7 +304,9 @@ class WorkflowRunner {
     try {
       const result = await scriptRunTracker.runAndAwait(ctx.sendToShell, withEnvPrefix(cmd, env));
       if (result.cancelled) this.cancelled = true;
-      return !result.cancelled && !result.timedOut;
+      if (result.timedOut) ctx.print(`  ✗  ${stepLabel(step)} didn't finish (timed out)`, "err");
+      else if (result.exitCode) ctx.print(`  ·  ${stepLabel(step)} exited with code ${result.exitCode}`, "dim");
+      return result.exitCode === 0;
     } catch (e) {
       ctx.print(`  ✗  ${stepLabel(step)}: ${e instanceof Error ? e.message : e}`, "err");
       return false;

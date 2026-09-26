@@ -55,7 +55,7 @@ func HandleSession(conn *websocket.Conn) {
 		return
 	}
 
-	safeSend(conn, &mu, outMsg{Type: "ready"})
+	safeSend(conn, &mu, outMsg{Type: "ready", Shell: shellKind(shellCmd)})
 
 	var width atomic.Int32 // for joinWrappedRows
 	width.Store(int32(cols))

@@ -20,7 +20,7 @@ import {
   deleteToLineStart, deleteToLineEnd,
   transposeChars,
   setYankBuf, getYankBuf,
-  isWindows,
+  isWindows, setCurrentShell,
 } from "./terminal/terminal";
 import type { Line, LineKind } from "./terminal/terminal";
 
@@ -4051,7 +4051,8 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
     session.current = openPty({
       ...(measurePtySize() ?? { cols: 120, rows: 30 }),
       onOutput,
-      onReady: () => {
+      onReady: (shell) => {
+        setCurrentShell(shell);
         setReady(true);
         onReady();
         setTimeout(focusPrompt, 60);

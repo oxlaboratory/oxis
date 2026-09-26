@@ -139,6 +139,15 @@ All notable changes to OXIS. The format follows
   you switched workspaces.
 - The theme editor was taller than the space between the title bar and
   the prompt, hiding its header and buttons.
+- Workflow shell steps never failed: a step counted as passed whenever
+  its command finished, so `retry`, `continueOnError` and "workflow
+  failed" never applied. OXIS now reads each command's exit status (and
+  shows it when a step fails); `oxis.run()` reports it too.
+- A project file with a line break in a script or target name stopped
+  the whole `auto-detected.lua` tasks file from loading.
+- `'task commit` could wait on a git credential prompt it can't show;
+  git now fails straight away with an authentication error (credential
+  managers with their own window still work).
 - A command's completion marker could leak into the output (e.g. at the
   end of `'glog`) and leave OXIS thinking the command was still running
   when the marker arrived split across two reads. The cwd probe had the

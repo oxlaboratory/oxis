@@ -24,7 +24,7 @@ import {
   writeTempScript,
 } from "../native";
 import { requirePermission, requireShellPermission, type PermissionNamespace } from "./permissions";
-import { scriptRunTracker } from "../terminal/scriptRunTracker";
+import { scriptRunTracker, type RunResult } from "../terminal/scriptRunTracker";
 import { workflowRunner } from "./workflowRunner";
 import { setTaskCommand } from "./taskCommands";
 
@@ -89,7 +89,7 @@ export function shellQuote(text: string, windows = isWindows()): string {
  * later lines would be read as the answer to any prompt (Read-Host,
  * read) earlier in the script.
  */
-export function runScript(ctx: APIContext, cmd: string): Promise<{ ok: boolean }> {
+export function runScript(ctx: APIContext, cmd: string): Promise<{ ok: boolean; exitCode: number | null }> {
   // Not an async function, so turn a synchronous permission denial into
   // a rejection explicitly (the Lua binding only handles rejections).
   try {
@@ -99,18 +99,22 @@ export function runScript(ctx: APIContext, cmd: string): Promise<{ ok: boolean }
   }
   const windows = isWindows();
   const send = (line: string) => ctx.sendToShell(line);
-  const done = (r: { cancelled: boolean; timedOut: boolean }) => ({ ok: !r.cancelled && !r.timedOut });
+  const done = (r: RunResult) => ({ ok: !r.cancelled && !r.timedOut && r.exitCode === 0, exitCode: r.exitCode });
 
   if (!cmd.includes("\n") || !isNativeApp()) {
     return scriptRunTracker.runAndAwait(send, windows ? toPowerShellChain(cmd) : cmd).then(done);
   }
 
-  return writeTempScript(windows ? ".ps1" : ".sh", cmd)
+  // The script deletes itself as it starts (PowerShell has parsed it all
+  // by then, and bash keeps reading from its open handle), so running it
+  // is the last command and its exit status is the one reported.
+  const selfDelete = windows
+    ? "Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue\n"
+    : "rm -f -- \"$0\"\n";
+  return writeTempScript(windows ? ".ps1" : ".sh", selfDelete + cmd)
     .then((path) => {
       const p = shellQuote(path, windows);
-      return scriptRunTracker.runAndAwait(send, windows
-        ? `& ${p}; Remove-Item ${p} -Force -ErrorAction SilentlyContinue`
-        : `bash ${p}; rm -f ${p}`);
+      return scriptRunTracker.runAndAwait(send, windows ? `& ${p}` : `bash ${p}`);
     })
     // Couldn't write the temp file: send it as-is rather than do nothing.
     .catch(() => scriptRunTracker.runAndAwait(send, cmd))

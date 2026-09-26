@@ -101,3 +101,20 @@ func TestShellEnvDisablesPagers(t *testing.T) {
 		}
 	}
 }
+
+func TestShellKind(t *testing.T) {
+	cases := map[string]string{
+		`"C:\Program Files\PowerShell\7\pwsh.exe" -NoLogo -NoExit`:                               "pwsh",
+		`"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoExit -Command x`: "powershell",
+		"cmd.exe": "cmd",
+		"bash":    "bash",
+		"zsh":     "zsh",
+		"fish":    "fish",
+		"dash":    "sh",
+	}
+	for in, want := range cases {
+		if got := shellKind(in); got != want {
+			t.Errorf("shellKind(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

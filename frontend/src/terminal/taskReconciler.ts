@@ -10,6 +10,8 @@ import { readFile, writeFile, statPath } from "../native";
 import {
   detectProject,
   generateTasksFile,
+  luaEscape,
+  luaUnescape,
   type DetectedTask,
   type GeneratedTasksMeta,
 } from "./projectDetector";
@@ -22,7 +24,7 @@ function parseExistingTaskLines(content: string): Map<string, string> {
   for (const raw of content.split("\n")) {
     const m = raw.match(/^\s*oxis\.task\(\s*'((?:[^'\\]|\\.)*)'/);
     if (!m) continue;
-    const name = m[1].replace(/\\(.)/g, "$1");
+    const name = luaUnescape(m[1]);
     lines.set(name, raw.trim());
   }
   return lines;
@@ -38,8 +40,7 @@ function fnv1a(s: string): string {
 }
 
 function taskLine(t: DetectedTask): string {
-  const esc = (s: string) => s.replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/\n/g, "\\n");
-  return `oxis.task('${esc(t.name)}', '${esc(t.command)}', '${esc(t.description)}')`;
+  return `oxis.task('${luaEscape(t.name)}', '${luaEscape(t.command)}', '${luaEscape(t.description)}')`;
 }
 
 export interface ReconcileResult {
