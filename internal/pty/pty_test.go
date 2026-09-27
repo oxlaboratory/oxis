@@ -12,6 +12,13 @@ func TestStripCtrl(t *testing.T) {
 		"\x1b]0;title\x07prompt> ":           "prompt> ",
 		"Directory\x1b[9;1HMode\x1b[45X\r\n": "Directory\nMode\r\n",
 		"\x1b[?25l\x1b[2J\x1b[m\x1b[HPS> ":   "PS> ",
+		// npm's spinner on Windows, then its erase before the prompt.
+		"done\r\n\\\r\x1b[KPS> ": "done\r\n\\\r\x1aPS> ",
+		// Node readline on Linux: column 1, then erase.
+		"50%\x1b[1G\x1b[0K100%": "50%\r\x1a100%",
+		"a\x1b[2Kb":             "a\r\x1ab",
+		// Erase-to-end after text (not at column 1) erases nothing visible.
+		"text\x1b[K\r\n": "text\r\n",
 	}
 	for in, want := range cases {
 		if got := stripCtrl(in); got != want {

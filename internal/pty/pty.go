@@ -92,8 +92,25 @@ var ansiRe = regexp.MustCompile(
 // or consecutive rows run together once escapes are stripped.
 var rowStartRe = regexp.MustCompile(`\x1b\[\d+;1H`)
 
+// colOneRe is "move to column 1" (CHA), which Node's readline and npm
+// use instead of a carriage return.
+var colOneRe = regexp.MustCompile(`\x1b\[1?G`)
+
+// eraseLineRe is a line being erased: "\r" then erase-to-end, or
+// erase-whole-line. Spinners and progress bars end this way.
+var eraseLineRe = regexp.MustCompile(`\r\x1b\[0?K|\x1b\[2K`)
+
+// lineErased marks where the current line was erased. It survives
+// stripping (it isn't an escape sequence) so the frontend can drop what
+// was drawn before it (visibleText in terminal.ts); otherwise the last
+// frame of a spinner is left behind.
+const lineErased = "\x1a"
+
 func stripCtrl(s string) string {
-	return ansiRe.ReplaceAllString(rowStartRe.ReplaceAllString(s, "\n"), "")
+	s = rowStartRe.ReplaceAllString(s, "\n")
+	s = colOneRe.ReplaceAllString(s, "\r")
+	s = eraseLineRe.ReplaceAllString(s, "\r"+lineErased)
+	return ansiRe.ReplaceAllString(s, "")
 }
 
 // splitIncompleteUTF8 splits off a trailing, incomplete multi-byte UTF-8

@@ -30,14 +30,22 @@ export function stripAnsi(s: string): string {
     .replace(/[\x00\x07\x08]/g, "");   // NUL / BEL / BS
 }
 
+/** Where the PTY erased the current line (lineErased in pty.go). */
+const LINE_ERASED = "\x1a";
+
 /** What a line with carriage returns shows: each bare \r returns to the
  *  start of the line, so progress output ("4%\r8%\r12%") collapses to
- *  its last state. */
+ *  its last state, and an erased line (a finished spinner) shows only
+ *  what was written after the erase. */
 export function visibleText(line: string): string {
-  if (!line.includes("\r")) return line;
-  const parts = line.split("\r");
-  for (let i = parts.length - 1; i >= 0; i--) if (parts[i] !== "") return parts[i];
-  return "";
+  if (!line.includes("\r") && !line.includes(LINE_ERASED)) return line;
+  let shown = "";
+  for (const part of line.split("\r")) {
+    const erased = part.lastIndexOf(LINE_ERASED);
+    if (erased >= 0) shown = part.slice(erased + 1);
+    else if (part !== "") shown = part;
+  }
+  return shown;
 }
 
 // ─────────────────────────────────────────────────────────────
