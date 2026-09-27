@@ -834,6 +834,15 @@ sources are kept private and aren't part of this repository. The
 Market's `/health` endpoint reports which of its secrets and storage
 bindings are configured.
 
+**Deploying the website.** `npm run deploy:site` publishes `cloudflare/`
+to Cloudflare Pages (log in once with `npx wrangler login`, or set
+`CLOUDFLARE_API_TOKEN`). It uploads only `index.html`, `404.html`,
+`index.json`, `assets/` and `plugins/`, compiles the private
+`functions/` backend alongside them, and never uploads
+`premium-source/` or secrets. Secrets and bindings stay as configured
+in the Cloudflare dashboard. `--dry-run` stages and compiles without
+uploading.
+
 ---
 
 ## Architecture

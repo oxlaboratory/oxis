@@ -70,6 +70,11 @@ All notable changes to OXIS. The format follows
   keeps its search, filters and checkout, and each card shows its
   `'market install` command. Screenshots are served as WebP, and the
   site links only to GitHub.
+- `npm run deploy:site` deploys the website and Market backend to
+  Cloudflare Pages, uploading only the public files. The site has a
+  404 page, so a missing plugin file is a 404 instead of the home page
+  served as `.lua`, and its plugin cards show the same versions as
+  `index.json`.
 - Up/Down history: with text typed first, only matching commands are
   shown, the oldest match stays put instead of jumping to unrelated
   entries, and Down returns to what you typed.

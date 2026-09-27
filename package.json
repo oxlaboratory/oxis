@@ -12,6 +12,7 @@
     "build:msi":       "node ./scripts/build-msi.js",
     "build:installer": "node ./scripts/build-msi.js",
     "build:setup":     "node ./scripts/build-msi.js",
-    "setup":           "node ./scripts/setup.js"
+    "setup":           "node ./scripts/setup.js",
+    "deploy:site":     "node ./scripts/deploy-site.js"
   }
 }

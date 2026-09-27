@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Not found — OXIS</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='-4 0 82 100'%3E%3Cpath fill='%233dff64' fill-rule='evenodd' d='M37 0 74 19v62L37 100 0 81V19zm0 19-18.5 9.6v42.4L37 80.4l18.5-9.4V28.6z'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root{ --bg:#06070b; --text:#e8ebf5; --muted:#a3aac4; --dim:#666e8f; --accent:#3dff64; --line:rgba(255,255,255,.1); }
+  *{ box-sizing:border-box; margin:0; padding:0; }
+  body{ min-height:100vh; display:grid; place-items:center; padding:24px; background:var(--bg); color:var(--text);
+    font-family:Inter, system-ui, sans-serif; background-image:radial-gradient(700px 400px at 50% 0%, rgba(61,255,100,.1), transparent 70%); }
+  .box{ width:min(560px, 100%); border:1px solid var(--line); border-radius:16px; overflow:hidden; background:#1a1b26;
+    font-family:'JetBrains Mono', ui-monospace, monospace; font-size:14px; box-shadow:0 40px 100px -40px #000; }
+  .bar{ display:flex; gap:8px; padding:12px 14px; background:#16161e; border-bottom:1px solid #31364a; }
+  .bar i{ width:11px; height:11px; border-radius:50%; background:#ff5f57; } .bar i:nth-child(2){ background:#febc2e; }
+  .out{ padding:20px; line-height:1.8; color:#c0caf5; }
+  .c{ color:#7dff9a; } .e{ color:#ff7a8a; } .d{ color:#7a809b; }
+  .out a{ color:var(--accent); }
+  h1{ font-size:clamp(30px, 6vw, 44px); letter-spacing:-.03em; margin:0 0 20px; font-weight:800; text-align:center; }
+  p.back{ text-align:center; margin-top:22px; color:var(--muted); }
+  p.back a{ color:var(--accent); text-decoration:none; font-weight:500; }
+</style>
+</head>
+<body>
+<main>
+  <h1>404</h1>
+  <div class="box" role="img" aria-label="An OXIS terminal saying the page wasn't found">
+    <div class="bar"><i></i><i></i></div>
+    <div class="out">
+      <div><span class="c">'open</span> <span id="path">this page</span></div>
+      <div class="e">  ✗  not found — nothing lives at this address</div>
+      <div class="d">     try 'home, or the links below</div>
+    </div>
+  </div>
+  <p class="back"><a href="/">← OXIS home</a> · <a href="/#market">Market</a> · <a href="https://github.com/oxlaboratory/oxis">GitHub</a></p>
+</main>
+<script>document.getElementById('path').textContent = location.pathname;</script>
+</body>
+</html>
