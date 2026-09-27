@@ -6,6 +6,13 @@ All notable changes to OXIS. The format follows
 ## [Unreleased]
 
 ### Added
+- Full-screen programs work: vim, less, htop, lazygit, fzf, Microsoft
+  Edit… When a program switches to the terminal's alternate screen, its
+  output goes untouched to a real terminal grid (xterm.js, loaded the
+  first time it's needed) over the output; keys, mouse and window size
+  go to it, and when it exits the line view carries on without repeating
+  anything. **back to OXIS** recovers from a program that crashed without
+  closing its screen.
 - Plugin APIs for things that happen over time:
   - `oxis.process.spawn` runs a program (or a command line) and gives
     the plugin its output as it's printed, line by line if asked, with
@@ -217,6 +224,12 @@ All notable changes to OXIS. The format follows
 - The npm launcher downloads from the GitHub `latest-build` release.
 
 ### Fixed
+- Stray `32m`, `?25h` and similar in the output: a read that ended
+  right after the `ESC [` of a colour or cursor code sent it early, and
+  the rest of the code showed up as text.
+- Lines printed twice after resizing the window (Windows): ConPTY
+  repaints the whole screen after a resize, and OXIS showed it again.
+  The same repaint after a full-screen program exits is dropped too.
 - `'plugin publish` (and unpublish, paid-plugin onboarding, checkout,
   license checks and premium downloads) couldn't reach the Market from
   the desktop app: the page's JSON requests failed their CORS preflight

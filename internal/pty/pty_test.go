@@ -92,7 +92,7 @@ func TestPumpOutputJoinsAcrossReads(t *testing.T) {
 	for cut := 1; cut < len(conptyWrapScroll); cut++ {
 		var out strings.Builder
 		r := &chunkReader{chunks: []string{conptyWrapScroll[:cut], conptyWrapScroll[cut:]}}
-		if err := pumpOutput(r, func() int { return 50 }, func(s string) { out.WriteString(s) }); err != io.EOF {
+		if err := pumpOutput(r, func() int { return 50 }, func(_, s string) { out.WriteString(s) }, &RepaintGuard{}, true); err != io.EOF {
 			t.Fatalf("cut %d: err = %v", cut, err)
 		}
 		if out.String() != conptyWrapScrollWant {
@@ -130,5 +130,111 @@ func TestShellKind(t *testing.T) {
 		if got := shellKind(in); got != want {
 			t.Errorf("shellKind(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// What ConPTY sent around a full-screen program (from an OXIS_PTY_TRACE
+// of one): the command's echo, the alternate screen with a drawing,
+// leaving it, the repaint of the main screen, then the next prompt.
+const fullScreenSession = "PS demo> node tui.js\r\n" +
+	"\x1b[?1049h\x1b[?25l\x1b[H\x1b[K\r\n\x1b[2;4H\x1b[32mTUI\x1b[m\x1b[K\x1b[?25h" +
+	"\x1b[?1049l\x1b[?25l\x1b[HPS demo> node tui.js\x1b[K\r\n\x1b[K\r\n\x1b[K\x1b[2;1H\x1b[?25h" +
+	"PS demo> "
+
+func TestFullScreenPrograms(t *testing.T) {
+	for cut := 1; cut < len(fullScreenSession); cut++ {
+		var got []string
+		r := &chunkReader{chunks: []string{fullScreenSession[:cut], fullScreenSession[cut:]}}
+		err := pumpOutput(r, func() int { return 80 }, func(kind, s string) {
+			// Consecutive pieces of one kind are one message for this test.
+			if n := len(got); n > 0 && strings.HasPrefix(got[n-1], kind+":") && kind != kindScreenStart && kind != kindScreenEnd {
+				got[n-1] += s
+				return
+			}
+			got = append(got, kind+":"+s)
+		}, &RepaintGuard{}, true)
+		if err != io.EOF {
+			t.Fatalf("cut %d: %v", cut, err)
+		}
+		want := []string{
+			"output:PS demo> node tui.js\r\n",
+			"screen-start:",
+			"screen:\x1b[?1049h\x1b[?25l\x1b[H\x1b[K\r\n\x1b[2;4H\x1b[32mTUI\x1b[m\x1b[K\x1b[?25h\x1b[?1049l",
+			"screen-end:",
+			"output:PS demo> ",
+		}
+		if strings.Join(got, "|") != strings.Join(want, "|") {
+			t.Errorf("cut %d:\n got %q\nwant %q", cut, got, want)
+		}
+	}
+}
+
+func TestFullScreenWithoutRepaint(t *testing.T) {
+	// A real PTY (Linux, macOS) doesn't repaint: what follows is new.
+	var out strings.Builder
+	r := &chunkReader{chunks: []string{"\x1b[?1049hdraw\x1b[?1049l", "$ "}}
+	_ = pumpOutput(r, func() int { return 0 }, func(kind, s string) {
+		if kind == kindOutput {
+			out.WriteString(s)
+		}
+	}, nil, false)
+	if out.String() != "$ " {
+		t.Errorf("got %q", out.String())
+	}
+}
+
+func TestRepaintAfterExitAndResize(t *testing.T) {
+	// Leaving the program repaints once; the terminal going back to its
+	// own size repaints again (from a trace). Neither may show twice.
+	session := "\x1b[?1049hdraw\x1b[?1049l" +
+		"\x1b[?25l\x1b[HPS demo> old line\x1b[K\r\n\x1b[K\x1b[2;1H\x1b[?25h" +
+		"\x1b[?25l\x1b[HPS demo> old line\x1b[K\r\n\x1b[K\x1b[2;1H\x1b[?25h" +
+		"PS demo> "
+	for cut := 1; cut < len(session); cut++ {
+		var out strings.Builder
+		r := &chunkReader{chunks: []string{session[:cut], session[cut:]}}
+		_ = pumpOutput(r, func() int { return 80 }, func(kind, s string) {
+			if kind == kindOutput {
+				out.WriteString(s)
+			}
+		}, &RepaintGuard{}, true)
+		if out.String() != "PS demo> " {
+			t.Errorf("cut %d: line view got %q", cut, out.String())
+		}
+	}
+}
+
+func TestRepaintAfterResize(t *testing.T) {
+	var guard RepaintGuard
+	guard.Arm() // the window was just resized
+	var out strings.Builder
+	r := &chunkReader{chunks: []string{"\x1b[?25l\x1b[Hold\x1b[K\r\n\x1b[3;9H\x1b[?25h", "new output\r\n"}}
+	_ = pumpOutput(r, func() int { return 80 }, func(kind, s string) { out.WriteString(s) }, &guard, true)
+	if out.String() != "new output\r\n" {
+		t.Errorf("got %q", out.String())
+	}
+
+	// Without a resize, the same bytes are ordinary output.
+	out.Reset()
+	r = &chunkReader{chunks: []string{"\x1b[Hhello\r\n"}}
+	_ = pumpOutput(r, func() int { return 80 }, func(kind, s string) { out.WriteString(s) }, &RepaintGuard{}, true)
+	if out.String() != "hello\r\n" {
+		t.Errorf("unarmed: got %q", out.String())
+	}
+}
+
+func TestLeaveScreenByHand(t *testing.T) {
+	// A program went full screen and died without switching back; the
+	// user leaves the view, and the shell's next output is lines again.
+	var guard RepaintGuard
+	var got []string
+	send := func(kind, s string) { got = append(got, kind+":"+s) }
+	sp := &screenSplitter{cols: func() int { return 80 }, send: send, guard: &guard}
+	sp.write("\x1b[?1049hcrashed")
+	guard.LeaveScreen()
+	sp.write("PS demo> ")
+	want := "screen-start:|screen:\x1b[?1049hcrashed|screen-end:|output:PS demo> "
+	if strings.Join(got, "|") != want {
+		t.Errorf("got %q", got)
 	}
 }

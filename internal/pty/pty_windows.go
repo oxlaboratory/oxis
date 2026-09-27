@@ -59,11 +59,12 @@ func HandleSession(conn *websocket.Conn) {
 
 	var width atomic.Int32 // for joinWrappedRows
 	width.Store(int32(cols))
+	var repaint RepaintGuard // ConPTY repaints the screen after a resize
 
 	go func() {
-		err := pumpOutput(cpty, func() int { return int(width.Load()) }, func(data string) {
-			safeSend(conn, &mu, outMsg{Type: "output", Data: data})
-		})
+		err := pumpOutput(cpty, func() int { return int(width.Load()) }, func(kind, data string) {
+			safeSend(conn, &mu, outMsg{Type: kind, Data: data})
+		}, &repaint, true)
 		if err != io.EOF {
 			log.Printf("[oxis] read: %v", err)
 		}
@@ -88,9 +89,12 @@ func HandleSession(conn *websocket.Conn) {
 			}
 		case "resize":
 			if m.Cols > 0 && m.Rows > 0 {
+				repaint.Arm()
 				_ = cpty.Resize(int(m.Cols), int(m.Rows))
 				width.Store(int32(m.Cols))
 			}
+		case "screen-exit":
+			repaint.LeaveScreen()
 		case "kill":
 			cpty.Close()
 			return

@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -214,20 +215,23 @@ func joinWrappedRows(s string, cols int) string {
 // sequence cut off by the end of a read.
 var heldTailRe = regexp.MustCompile(`\r(?:\n(?:\x1b(?:\[\d*;?\d*H?)?)?(?:\x1b(?:\[[0-9;]*m?)?)*)?$`)
 
-// completeEscRe matches one complete escape sequence at the start.
+// completeEscRe matches one complete escape sequence at the start. A
+// lone "ESC [" or "ESC ]" is the start of a longer sequence, not a
+// two-byte one: sent early, the rest of it ("32m", "?25h") would show
+// up as text.
 var completeEscRe = regexp.MustCompile(
-	`^(?:\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b\[[\x30-\x3f]*[\x20-\x2f]*[\x40-\x7e]|\x1b[\x20-\x7e])`)
+	`^(?:\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b\[[\x30-\x3f]*[\x20-\x2f]*[\x40-\x7e]|\x1b[\x20-\x5a\x5c\x5e-\x7e])`)
 
 // splitForNextRead splits off what shouldn't be sent yet because the
 // next read may complete it: a partial UTF-8 character, a partial
-// escape sequence, or a trailing "\r\n" that may turn out to be a
-// wrapped row (joinWrappedRows).
-func splitForNextRead(data []byte) (complete, hold []byte) {
+// escape sequence, or (outside a full-screen program, where rows are
+// joined) a trailing "\r\n" that may turn out to be a wrapped row.
+func splitForNextRead(data []byte, screen bool) (complete, hold []byte) {
 	complete, hold = splitIncompleteUTF8(data)
 	if len(hold) > 0 {
 		return complete, hold
 	}
-	if loc := heldTailRe.FindIndex(complete); loc != nil {
+	if loc := heldTailRe.FindIndex(complete); loc != nil && !screen {
 		return complete[:loc[0]], complete[loc[0]:]
 	}
 	if i := bytes.LastIndexByte(complete, 0x1b); i >= 0 && len(complete)-i < 256 && !completeEscRe.Match(complete[i:]) {
@@ -257,10 +261,136 @@ func openTrace() *os.File {
 	return f
 }
 
-// pumpOutput reads the PTY until it fails, sending cleaned-up output.
-// cols reports the current width (0 skips joinWrappedRows). Returns
-// the read error that ended it.
-func pumpOutput(r io.Reader, cols func() int, send func(string)) error {
+// Full-screen programs (vim, less, htop, lazygit, Microsoft Edit…)
+// switch the terminal to its alternate screen and draw with cursor
+// moves, which the line view can't show. While one is running its
+// output goes to the page untouched, between "screen-start" and
+// "screen-end", for a real terminal grid (xterm.js) to draw.
+var (
+	altScreenOnRe  = regexp.MustCompile(`\x1b\[\?(?:1049|1047|47)h`)
+	altScreenOffRe = regexp.MustCompile(`\x1b\[\?(?:1049|1047|47)l`)
+)
+
+// ConPTY repaints the whole screen after a resize and when a program
+// leaves the alternate screen: cursor home, every row again, then a
+// cursor move back to where the shell carries on. The line view has all
+// of it already, so a repaint that starts within repaintWait of either
+// is dropped.
+var (
+	repaintStartRe = regexp.MustCompile(`^(?:\x1b\[\?25[hl])*\x1b\[H`)
+	// cursorOnlyRe is output that only shows or hides the cursor: what
+	// can come just before a repaint, in a read of its own.
+	cursorOnlyRe = regexp.MustCompile(`^(?:\x1b\[\?25[hl])+$`)
+	repaintEndRe = regexp.MustCompile(`\x1b\[\d+;\d+H(?:\x1b\[\?25h)?`)
+)
+
+const (
+	repaintWait = 250 * time.Millisecond
+	// repaintMax caps what's dropped as one repaint, in case its end
+	// never comes.
+	repaintMax = 1 << 20
+)
+
+// RepaintGuard says when a ConPTY repaint is expected. Arm it when the
+// terminal is resized; the splitter arms it when a full-screen program
+// exits. For a real PTY, which doesn't repaint, it's never armed.
+type RepaintGuard struct {
+	until atomic.Int64
+	// leave is set when the user leaves the full-screen view by hand (a
+	// program that crashed without switching back): the next output
+	// goes to the line view again.
+	leave atomic.Bool
+}
+
+// LeaveScreen ends full-screen mode for a program that never did.
+func (g *RepaintGuard) LeaveScreen() { g.leave.Store(true) }
+
+func (g *RepaintGuard) Arm() { g.until.Store(time.Now().Add(repaintWait).UnixNano()) }
+
+func (g *RepaintGuard) armed() bool { return g != nil && time.Now().UnixNano() < g.until.Load() }
+
+// Output kinds passed to pumpOutput's send (the WebSocket message
+// types).
+const (
+	kindOutput      = "output"       // line view: cleaned up, colours kept
+	kindScreen      = "screen"       // a full-screen program's raw output
+	kindScreenStart = "screen-start" // one has started
+	kindScreenEnd   = "screen-end"   // …and ended
+)
+
+// screenSplitter routes output between the line view and a full-screen
+// program's grid, and drops ConPTY's repaints.
+type screenSplitter struct {
+	cols      func() int
+	send      func(kind, data string)
+	guard     *RepaintGuard
+	repaints  bool // ConPTY: the screen is repainted when a program exits
+	screen    bool
+	inRepaint bool
+	dropped   int
+}
+
+func (sp *screenSplitter) line(s string) {
+	if s = stripCtrl(joinWrappedRows(s, sp.cols())); s != "" {
+		sp.send(kindOutput, s)
+	}
+}
+
+func (sp *screenSplitter) write(s string) {
+	for s != "" {
+		if sp.screen && sp.guard != nil && sp.guard.leave.Swap(false) {
+			sp.screen = false
+			sp.send(kindScreenEnd, "")
+		}
+		switch {
+		case sp.screen:
+			loc := altScreenOffRe.FindStringIndex(s)
+			if loc == nil {
+				sp.send(kindScreen, s)
+				return
+			}
+			sp.send(kindScreen, s[:loc[1]])
+			sp.send(kindScreenEnd, "")
+			sp.screen = false
+			if sp.guard != nil && sp.repaints {
+				sp.guard.Arm()
+			}
+			s = s[loc[1]:]
+		case sp.inRepaint:
+			loc := repaintEndRe.FindStringIndex(s)
+			if loc == nil {
+				if sp.dropped += len(s); sp.dropped > repaintMax {
+					sp.inRepaint = false
+				}
+				return // all repaint; the rest follows
+			}
+			sp.inRepaint = false
+			s = s[loc[1]:]
+		case sp.guard.armed() && cursorOnlyRe.MatchString(s):
+			return // the start of a repaint, in a read of its own
+		case sp.guard.armed() && repaintStartRe.MatchString(s):
+			sp.inRepaint, sp.dropped = true, 0
+			s = repaintStartRe.ReplaceAllString(s, "")
+		default:
+			loc := altScreenOnRe.FindStringIndex(s)
+			if loc == nil {
+				sp.line(s)
+				return
+			}
+			sp.line(s[:loc[0]])
+			sp.send(kindScreenStart, "")
+			sp.screen = true
+			s = s[loc[0]:]
+		}
+	}
+}
+
+// pumpOutput reads the PTY until it fails, sending cleaned-up output
+// (and a full-screen program's raw output, see screenSplitter). cols
+// reports the current width (0 skips joinWrappedRows); guard steers the
+// splitter (repaints, leaving a full-screen view) and may be nil;
+// repaints is true for ConPTY. Returns the read error that ended it.
+func pumpOutput(r io.Reader, cols func() int, send func(kind, data string), guard *RepaintGuard, repaints bool) error {
 	type readResult struct {
 		data []byte
 		err  error
@@ -283,9 +413,10 @@ func pumpOutput(r io.Reader, cols func() int, send func(string)) error {
 			}
 		}
 	}()
+	sp := &screenSplitter{cols: cols, send: send, guard: guard, repaints: repaints}
 	emit := func(b []byte) {
-		if s := stripCtrl(joinWrappedRows(string(b), cols())); s != "" {
-			send(s)
+		if len(b) > 0 {
+			sp.write(string(b))
 		}
 	}
 	var held []byte
@@ -304,7 +435,7 @@ func pumpOutput(r io.Reader, cols func() int, send func(string)) error {
 		}
 		data := append(held, res.data...)
 		var complete []byte
-		complete, held = splitForNextRead(data)
+		complete, held = splitForNextRead(data, sp.screen)
 		held = append([]byte(nil), held...)
 		emit(complete)
 		if res.err != nil {

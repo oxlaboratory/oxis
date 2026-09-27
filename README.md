@@ -37,7 +37,7 @@ One ~14&nbsp;MB binary for Windows and Linux. No account. No telemetry.
 <td width="33%" valign="top">
 
 **🐚 Your shell, unchanged**<br>
-PowerShell 7, Windows PowerShell, bash, zsh or fish, with your profile, aliases and tools, in full 24-bit colour.
+PowerShell 7, Windows PowerShell, bash, zsh or fish, with your profile, aliases and tools, in full 24-bit colour — vim, less, htop and other full-screen programs included.
 
 </td>
 <td width="33%" valign="top">
@@ -143,6 +143,8 @@ itself into your editor as it's written. See the [Lua API](#lua-api).
 | A theme tweaked with four `'theme set` lines | `'theme edit` — every option with a live preview |
 | <img src="assets/screenshots/app-autotest.png" alt="The autotest plugin re-running a project's tests on save: passing, then failing with the test name and actual versus expected values, then passing again"> | <img src="assets/screenshots/app-image-viewer.png" alt="The editor's image viewer showing a PNG with its size, type, file size and zoom controls"> |
 | `'autotest` from the Market: tests re-run on every save (a plugin built on `oxis.fs.watch` and `oxis.process.spawn`) | Pictures open in an image viewer, not as bytes |
+| <img src="assets/screenshots/app-vim.png" alt="vim editing a TypeScript file inside OXIS, in the default theme's colours"> | <img src="assets/screenshots/app-less.png" alt="less paging through the OXIS README inside OXIS"> |
+| vim inside OXIS, in the theme's colours | `less` paging a file; any full-screen program runs in a real terminal grid |
 
 **Browser mode** — the same UI in a browser tab at `http://127.0.0.1:1420`
 while the desktop app is running:
@@ -322,6 +324,21 @@ scrolls above it and never goes underneath it.
 
 With an empty prompt, arrow keys, Home/End, Delete, Tab, Esc and F1–F12
 go straight to the running program, so interactive tools still work.
+
+### Full-screen programs
+
+vim, less, htop, lazygit, fzf, Microsoft Edit and anything else that
+takes over the whole terminal run in a real terminal grid (xterm.js)
+that covers the output while they're open. Every key, the mouse and
+the window size go to the program; when it exits, OXIS is back where
+it was, with nothing repeated. The grid uses the theme's colours and
+font, and loads only the first time it's needed. If a program crashes
+without closing its screen, **back to OXIS** in the bar below returns
+to the normal view.
+
+Pagers stay off by default (`PAGER` and `GIT_PAGER` are `cat`), so
+`git log` and `git diff` print straight into the terminal; set your own
+pager and it opens full screen.
 
 ### Selecting and copying output
 

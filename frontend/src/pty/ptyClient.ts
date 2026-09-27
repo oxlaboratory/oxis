@@ -10,8 +10,11 @@
  *   Client → Server: { type: "init", cols, rows }
  *                    { type: "input", data }
  *                    { type: "resize", cols, rows }
+ *                    { type: "screen-exit" }  (leave a full-screen view by hand)
  *                    { type: "kill" }
  *   Server → Client: { type: "output", data }
+ *                    { type: "screen-start" } / { type: "screen", data } / { type: "screen-end" }
+ *                      (a full-screen program's raw output, see terminal/fullScreen.ts)
  *                    { type: "ready" }
  *                    { type: "exit", code }
  *                    { type: "error", message }
@@ -25,10 +28,14 @@ export type OutputCallback = (data: string) => void;
 export type ReadyCallback  = (shell: string) => void;
 export type ExitCallback   = (code: number) => void;
 export type ErrorCallback  = (msg: string) => void;
+/** A full-screen program started, printed (raw output), or ended. */
+export type ScreenCallback = (event: "start" | "data" | "end", data: string) => void;
 
 export interface PtySession {
   write  : (data: string) => void;
   resize : (cols: number, rows: number) => void;
+  /** Back to the line view when a full-screen program never switched back. */
+  leaveScreen: () => void;
   kill   : () => void;
 }
 
@@ -39,6 +46,7 @@ export interface PtyOptions {
   onReady:  ReadyCallback;
   onExit:   ExitCallback;
   onError:  ErrorCallback;
+  onScreen?: ScreenCallback;
   /** Auto-reconnect on unexpected close. Default: false */
   reconnect?: boolean;
 }
@@ -65,7 +73,7 @@ async function wsURL(): Promise<string> {
 }
 
 export function openPty(opts: PtyOptions): PtySession {
-  const { onOutput, onReady, onExit, onError, reconnect } = opts;
+  const { onOutput, onReady, onExit, onError, onScreen, reconnect } = opts;
   // Latest requested size; resizes before the socket opens are kept and
   // sent with init.
   let size = { cols: opts.cols, rows: opts.rows };
@@ -97,6 +105,9 @@ export function openPty(opts: PtyOptions): PtySession {
         case "ready":                onReady(msg.shell ?? ""); break;
         case "exit":   if (msg.code !== undefined) onExit(msg.code); break;
         case "error":  if (msg.message) onError(msg.message); break;
+        case "screen-start": onScreen?.("start", ""); break;
+        case "screen":       if (msg.data) onScreen?.("data", msg.data); break;
+        case "screen-end":   onScreen?.("end", ""); break;
       }
     });
 
@@ -122,6 +133,7 @@ export function openPty(opts: PtyOptions): PtySession {
   return {
     write : (data) => send({ type: "input", data }),
     resize: (c, r) => { size = { cols: c, rows: r }; send({ type: "resize", cols: c, rows: r }); },
+    leaveScreen: () => send({ type: "screen-exit" }),
     kill  : () => {
       dead = true;
       send({ type: "kill" });

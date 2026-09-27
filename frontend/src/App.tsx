@@ -53,6 +53,7 @@ import {
 } from "./terminal/editorModes";
 import { highlight, detectLang, escapeHtml } from "./terminal/syntaxHighlight";
 import { editorBridge } from "./terminal/editorBridge";
+import { openFullScreen, inFullScreen, type FullScreenView } from "./terminal/fullScreen";
 import type { EditorLang }       from "./terminal/syntaxHighlight";
 import { pluginManager }                   from "./plugins/pluginManager";
 import { UNDOCUMENTED_SENTINEL }           from "./plugins/pluginAPI";
@@ -3991,6 +3992,14 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
   const outQueue      = useRef<Line[]>([]);
   const partialQueued = useRef<{ text: string; spans?: Span[] } | null>(null);
   const flushTimers   = useRef<{ raf: number; timer: number } | null>(null);
+  // A full-screen program (vim, less, htop…) is running: its output is
+  // drawn by a real terminal grid (terminal/fullScreen.ts) over the
+  // output, and keys go straight to it.
+  const [screenOn, setScreenOn] = useState(false);
+  const screenHostRef = useRef<HTMLDivElement>(null);
+  const screenView    = useRef<FullScreenView | null>(null);
+  const screenQueue   = useRef<string[]>([]);   // output before the grid has loaded
+  const ptySize       = useRef({ cols: 120, rows: 30 });
   // While a program floods output, the screen is updated every
   // FLOOD_FRAME_MS instead of every frame, so the main thread spends its
   // time taking the output in rather than repainting it.
@@ -4318,7 +4327,7 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
     const isEditable = (el: Element | null) =>
       el instanceof HTMLElement && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable);
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.defaultPrevented) return;
+      if (e.defaultPrevented || inFullScreen(e.target)) return;
       if (e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "i") {
         e.preventDefault();
         focusPrompt();
@@ -4527,9 +4536,22 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
     if (mounted.current) return;
     mounted.current = true;
 
+    ptySize.current = measurePtySize() ?? { cols: 120, rows: 30 };
     session.current = openPty({
-      ...(measurePtySize() ?? { cols: 120, rows: 30 }),
+      ...ptySize.current,
       onOutput,
+      onScreen: (event, data) => {
+        if (event === "start") { screenQueue.current = []; setScreenOn(true); return; }
+        if (event === "data") {
+          if (screenView.current) screenView.current.write(data);
+          else screenQueue.current.push(data);
+          return;
+        }
+        screenView.current?.dispose();
+        screenView.current = null;
+        screenQueue.current = [];
+        setScreenOn(false);
+      },
       onReady: (shell) => {
         setCurrentShell(shell);
         setReady(true);
@@ -4567,16 +4589,57 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
     const host = (el.closest(".app-body") as HTMLElement | null) ?? el;
     let last = "";
     const ro = new ResizeObserver(() => {
+      if (screenView.current) {
+        // A full-screen program: the grid decides the size.
+        const s = screenView.current.fit();
+        if (s) { ptySize.current = s; session.current?.resize(s.cols, s.rows); }
+        return;
+      }
       const size = measurePtySize();
       if (!size) return;
       const key = `${size.cols}x${size.rows}`;
       if (key === last) return;
       last = key;
+      ptySize.current = size;
       session.current?.resize(size.cols, size.rows);
     });
     ro.observe(host);
     return () => ro.disconnect();
   }, []);
+
+  // ── Full-screen programs: open the grid, and put things back after ──
+  const wasScreen = useRef(false);
+  useEffect(() => {
+    if (!screenOn) {
+      if (!wasScreen.current) return;
+      wasScreen.current = false;
+      // Back to the line view, at the line view's size.
+      const size = measurePtySize();
+      if (size && (size.cols !== ptySize.current.cols || size.rows !== ptySize.current.rows)) {
+        ptySize.current = size;
+        session.current?.resize(size.cols, size.rows);
+      }
+      if (isActiveRef.current) setTimeout(focusPrompt, 30);
+      return;
+    }
+    wasScreen.current = true;
+    const host = screenHostRef.current;
+    if (!host) return;
+    let cancelled = false;
+    openFullScreen(host, { ...ptySize.current, onData: (d) => session.current?.write(d) })
+      .then((view) => {
+        if (cancelled) { view.dispose(); return; }
+        screenView.current = view;
+        for (const d of screenQueue.current) view.write(d);
+        screenQueue.current = [];
+        const size = view.fit();
+        if (size) { ptySize.current = size; session.current?.resize(size.cols, size.rows); }
+        view.focus();
+      })
+      .catch((e) => addLine(`  ✗  couldn't open the full-screen view: ${e instanceof Error ? e.message : e}`, "err"));
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [screenOn]);
 
   // ── Plugin/command init (once ever) ──────────────────────
   useEffect(() => {
@@ -5110,7 +5173,22 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
       </div>
     </div>
   );
-  const promptPortal = promptHost ? createPortal(promptBar, promptHost) : null;
+  // A program that crashed without switching back leaves the grid up:
+  // "back to OXIS" returns to the line view by hand.
+  const leaveScreen = () => {
+    session.current?.leaveScreen();
+    screenView.current?.dispose();
+    screenView.current = null;
+    screenQueue.current = [];
+    setScreenOn(false);
+  };
+  const screenBar = (
+    <div className="term-prompt-bar term-prompt-bar--screen" onMouseDown={e => { if (e.target === e.currentTarget) { e.preventDefault(); screenView.current?.focus(); } }}>
+      <span className="term-screen-hint">full-screen program — keys go to it; it closes when you quit it (Ctrl+C, q, :q…)</span>
+      <button className="term-screen-leave" onClick={leaveScreen} title="Back to the OXIS view (for a program that ended without closing its screen)">back to OXIS</button>
+    </div>
+  );
+  const promptPortal = promptHost ? createPortal(screenOn ? screenBar : promptBar, promptHost) : null;
 
   if (editorFiles.length > 0 || fileTreeOpen) {
     const activeFile = editorFiles.find(f => f.path === activeEditorPath) ?? editorFiles[0];
@@ -5220,6 +5298,7 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
       {promptPortal}
       {connErr && <div className="term-error">⚠ {connErr}</div>}
       <div className="term-corner-mark" aria-hidden="true">OXIS</div>
+      {screenOn && <div className="term-screen"><div className="term-screen-grid" ref={screenHostRef} /></div>}
 
       <div
         className="term-out"
@@ -5230,7 +5309,7 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
         tabIndex={-1}
       >
         {outputBlocks.map(b => <OutputBlock key={b.key} lines={b.lines} matches={outputSearchSet} />)}
-        {partial && <div className="term-line">{partialSpans && !secretInput ? renderSpans(partialSpans) : partial}</div>}
+        {partial && !screenOn && <div className="term-line">{partialSpans && !secretInput ? renderSpans(partialSpans) : partial}</div>}
       </div>
 
       {outputMenu && (
@@ -6107,7 +6186,10 @@ export default function App() {
       return el instanceof HTMLElement && !el.classList.contains("term-prompt-input")
         && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
     };
-    const handler = (e: KeyboardEvent) => keybinds.handle(e, { skipCore: inOtherField() });
+    const handler = (e: KeyboardEvent) => {
+      if (inFullScreen(e.target)) return; // vim, less… get every key
+      keybinds.handle(e, { skipCore: inOtherField() });
+    };
     window.addEventListener("keydown", handler, true);
     // In the native window, stop WebView accelerators (reload, find,
     // new window) from firing on Ctrl+R/F/N/P etc. The key still reaches

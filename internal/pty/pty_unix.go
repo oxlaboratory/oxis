@@ -22,6 +22,9 @@ func HandleSession(conn *websocket.Conn) {
 		ptmx *os.File
 		cmd  *exec.Cmd
 		mu   sync.Mutex
+		// A real PTY doesn't repaint, so this is never armed; it's how
+		// the page leaves a full-screen view by hand.
+		screen RepaintGuard
 	)
 
 	// Read the first message to init the PTY
@@ -74,9 +77,9 @@ func HandleSession(conn *websocket.Conn) {
 			go func() {
 				// A real PTY wraps without ConPTY's cursor jumps: width 0
 				// skips joinWrappedRows.
-				_ = pumpOutput(ptmx, func() int { return 0 }, func(data string) {
-					safeSend(conn, &mu, outMsg{Type: "output", Data: data})
-				})
+				_ = pumpOutput(ptmx, func() int { return 0 }, func(kind, data string) {
+					safeSend(conn, &mu, outMsg{Type: kind, Data: data})
+				}, &screen, false)
 				code := 0
 				if cmd != nil {
 					if werr := cmd.Wait(); werr != nil {
@@ -122,6 +125,8 @@ readLoop:
 					Cols: msg.Cols,
 				})
 			}
+		case "screen-exit":
+			screen.LeaveScreen()
 		case "kill":
 			if ptmx != nil {
 				ptmx.Close()
