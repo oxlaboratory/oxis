@@ -2,479 +2,1545 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>OXIS // plugin.market</title>
+<title>OXIS — the scriptable terminal for Windows and Linux</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="OXIS runs your real PowerShell, bash, zsh or fish and adds a built-in editor, workspaces, tasks, workflows, themes and Lua plugins on top. Open source, one binary, no telemetry.">
+<meta name="theme-color" content="#06070b">
+<meta property="og:type" content="website">
+<meta property="og:title" content="OXIS — the scriptable terminal">
+<meta property="og:description" content="Your real shell, plus an editor, workspaces, workflows, themes and Lua plugins. Open source for Windows and Linux.">
+<meta property="og:image" content="https://oxis-market.pages.dev/assets/app-home.webp">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='-4 0 82 100'%3E%3Cpath fill='%233dff64' fill-rule='evenodd' d='M37 0 74 19v62L37 100 0 81V19zm0 19-18.5 9.6v42.4L37 80.4l18.5-9.4V28.6z'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:ital,wght@0,400;0,500;0,700;1,400&display=swap" rel="stylesheet">
 <style>
   :root{
-    --bg:        #0b0f0d;
-    --panel:     #101613;
-    --panel-2:   #0d1311;
-    --line:      #1c2620;
-    --green:     #35e07a;
-    --green-dim: #1f8f52;
-    --green-bg:  rgba(53,224,122,0.07);
-    --grey:      #7c8b84;
-    --grey-dim:  #4a564f;
-    --white:     #d8e6de;
-    --amber:     #e8c15a;
-    --amber-dim: #4a3f1f;
-    --amber-bg:  rgba(232,193,90,0.07);
+    --bg:#06070b; --bg-2:#0a0c13; --surface:#0d1018; --surface-2:#121622;
+    --line:rgba(255,255,255,.07); --line-2:rgba(255,255,255,.13);
+    --text:#e8ebf5; --muted:#a3aac4; --dim:#666e8f;
+    --accent:#3dff64; --accent-2:#7dff9a; --accent-3:#29d84e; --on-accent:#03140a;
+    --cyan:#5ee7ff; --violet:#a78bfa; --amber:#f5c65b; --red:#ff6b81;
+    --glow:color-mix(in srgb, var(--accent) 38%, transparent);
+    --soft:color-mix(in srgb, var(--accent) 10%, transparent);
+    --font:'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    --mono:'JetBrains Mono', ui-monospace, 'Cascadia Code', Consolas, monospace;
+    --ease:cubic-bezier(.2,.8,.2,1);
+    /* demo terminal (the active OXIS theme) */
+    --t-bg:#1a1b26; --t-bg1:#16161e; --t-bg2:#1f2335; --t-line:#31364a;
+    --t-text:#c0caf5; --t-muted:#7a809b; --t-dim:#565f89;
+    --t-a:#3dff64; --t-a2:#29d84e; --t-a3:#7dff9a;
   }
   *{box-sizing:border-box; margin:0; padding:0;}
-  html,body{
-    background:var(--bg);
-    color:var(--white);
-    font-family:'JetBrains Mono', ui-monospace, monospace;
-    min-height:100vh;
+  html{scroll-behavior:smooth; scroll-padding-top:84px;}
+  body{
+    background:var(--bg); color:var(--text); font-family:var(--font);
+    font-size:16px; line-height:1.6; -webkit-font-smoothing:antialiased;
+    overflow-x:hidden; min-height:100vh;
   }
-  ::selection{ background:var(--green); color:#04140a; }
-
-  @media(prefers-reduced-motion: reduce){
-    *{ transition:none !important; scroll-behavior:auto !important; }
-  }
-
-  /* visible keyboard focus on every interactive element */
-  a:focus-visible, button:focus-visible, select:focus-visible, input:focus-visible{
-    outline:2px solid var(--green);
-    outline-offset:2px;
-  }
-  .card.paid a:focus-visible, .card.paid button:focus-visible{
-    outline-color:var(--amber);
-  }
-
-  ::-webkit-scrollbar{ width:10px; }
+  ::selection{ background:var(--accent); color:var(--on-accent); }
+  a{ color:inherit; }
+  code, kbd, .mono{ font-family:var(--mono); }
+  img{ max-width:100%; display:block; }
+  :focus-visible{ outline:2px solid var(--accent); outline-offset:3px; border-radius:6px; }
+  ::-webkit-scrollbar{ width:10px; height:10px; }
   ::-webkit-scrollbar-track{ background:var(--bg); }
-  ::-webkit-scrollbar-thumb{ background:var(--line); border-radius:2px; }
-  ::-webkit-scrollbar-thumb:hover{ background:var(--green-dim); }
+  ::-webkit-scrollbar-thumb{ background:#1d2130; border-radius:8px; border:2px solid var(--bg); }
+  ::-webkit-scrollbar-thumb:hover{ background:color-mix(in srgb, var(--accent) 40%, #1d2130); }
 
-  .frame{
-    max-width:1180px;
-    margin:28px auto 60px;
-    border:1px solid var(--line);
-    background:var(--panel);
-    box-shadow:0 0 0 1px #000, 0 30px 80px -30px rgba(0,0,0,0.8);
-  }
-  @media(max-width:640px){
-    .frame{ margin:0 0 24px; border-left:none; border-right:none; }
-  }
+  .wrap{ max-width:1200px; margin:0 auto; padding:0 24px; }
+  .sr{ position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
 
-  /* ---------- titlebar ---------- */
-  .titlebar{
-    display:flex;
-    align-items:center;
-    justify-content:space-between;
-    padding:13px 18px;
-    background:#050807;
-    border-bottom:1px solid var(--line);
-  }
-  .tb-left{ display:flex; align-items:center; gap:9px; }
-  .tb-name{ font-weight:700; letter-spacing:3px; font-size:13px; color:var(--white); }
-  .tb-sep{ color:var(--grey-dim); font-size:12px; }
-  .tb-route{ color:var(--green); font-size:12px; letter-spacing:1px; }
-  .tb-link{
-    color:var(--grey); font-size:11px; letter-spacing:1px; text-decoration:none;
-    border:1px solid var(--line); padding:5px 10px; transition:.12s;
-    white-space:nowrap;
-  }
-  .tb-link:hover{ color:var(--green); border-color:var(--green-dim); background:var(--green-bg); }
-  .tb-links{ display:flex; align-items:center; gap:8px; }
-  .tb-nav{ display:flex; align-items:center; gap:14px; margin-left:6px; }
-  .tb-nav a{ color:var(--grey); font-size:11px; letter-spacing:1px; text-decoration:none; transition:.12s; }
-  .tb-nav a:hover{ color:var(--green); }
-  @media(max-width:640px){ .tb-nav{ display:none; } }
-
-  /* ---------- hero ---------- */
-  .hero{
-    padding:36px 34px 30px;
-    border-bottom:1px solid var(--line);
+  /* ── page backdrop: faint grid + noise, fixed ─────────────── */
+  .backdrop{ position:fixed; inset:0; z-index:-1; pointer-events:none; }
+  .backdrop::before{
+    content:""; position:absolute; inset:0;
     background:
-      radial-gradient(700px 220px at 12% 0%, var(--green-bg), transparent 70%);
-    position:relative;
+      radial-gradient(1200px 600px at 80% -10%, color-mix(in srgb, var(--violet) 9%, transparent), transparent 60%),
+      radial-gradient(900px 500px at -10% 30%, color-mix(in srgb, var(--accent) 6%, transparent), transparent 60%);
   }
-  .hero-top{
-    display:flex;
-    justify-content:space-between;
-    align-items:flex-start;
-    gap:16px;
-    flex-wrap:wrap;
-  }
-  .hero-title{
-    font-size:clamp(16px, 4.2vw, 19px);
-    letter-spacing:clamp(2px, 1vw, 4px);
-    color:var(--white);
-    font-weight:700;
-  }
-  .hero-title span{ color:var(--green); }
-  .hero-sub{
-    color:var(--grey);
-    font-size:12.5px;
-    margin-top:10px;
-    max-width:560px;
-    line-height:1.65;
+  .backdrop::after{
+    content:""; position:absolute; inset:0; opacity:.035;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
   }
 
-  /* ---------- intro (what is OXIS) ---------- */
-  .intro{
-    padding:40px 34px 36px;
-    border-bottom:1px solid var(--line);
-    background:var(--panel-2);
-  }
-  .intro-kicker{ color:var(--green); font-size:11px; letter-spacing:3px; margin-bottom:10px; }
-  .intro-title{
-    font-size:clamp(20px, 4vw, 28px);
-    color:var(--white); font-weight:700; line-height:1.35;
-    max-width:760px;
-  }
-  .intro-body{
-    color:var(--grey); font-size:13px; line-height:1.75;
-    max-width:680px; margin-top:16px;
-  }
-  .intro-body strong{ color:var(--white); font-weight:600; }
-  .intro-list{
-    display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));
-    gap:14px; margin-top:24px; max-width:900px;
-  }
-  .intro-item{
-    border:1px solid var(--line); background:var(--panel);
-    padding:14px 16px; font-size:12px; color:var(--grey); line-height:1.6;
-  }
-  .intro-item b{ color:var(--white); display:block; margin-bottom:4px; font-size:12.5px; }
-  .intro-cta{ display:flex; gap:12px; margin-top:26px; flex-wrap:wrap; }
-  .intro-btn{
-    display:inline-block; text-decoration:none; font-size:12px; letter-spacing:.5px;
-    padding:10px 18px; border:1px solid var(--line); color:var(--white);
-    transition:.12s;
-  }
-  .intro-btn:hover{ border-color:var(--green-dim); background:var(--green-bg); color:var(--green); }
-  .intro-btn.primary{ background:var(--green); color:#04140a; border-color:var(--green); font-weight:700; }
-  .intro-btn.primary:hover{ background:var(--green-dim); border-color:var(--green-dim); color:#04140a; }
-
-  /* ---------- about ---------- */
-  .about{
-    padding:44px 34px 50px;
-    border-top:1px solid var(--line);
-    background:var(--panel-2);
-  }
-  .about-title{ color:var(--white); font-size:16px; font-weight:700; letter-spacing:1px; margin-bottom:16px; }
-  .about-grid{
-    display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr));
-    gap:24px;
-  }
-  .about-col p{ color:var(--grey); font-size:12.5px; line-height:1.75; margin-bottom:10px; max-width:420px; }
-  .about-col a{ color:var(--green); text-decoration:none; }
-  .about-col a:hover{ text-decoration:underline; }
-  .about-links{ display:flex; flex-direction:column; gap:8px; margin-top:6px; }
-  .about-links a{
-    display:flex; align-items:center; gap:8px;
-    color:var(--grey); font-size:12.5px; text-decoration:none; transition:.12s;
-  }
-  .about-links a:hover{ color:var(--green); }
-  .about-foot{
-    margin-top:32px; padding-top:20px; border-top:1px solid var(--line);
-    color:var(--grey-dim); font-size:11px; letter-spacing:.5px;
+  /* ── nav ───────────────────────────────────────────────────── */
+  .nav{ position:fixed; top:0; left:0; right:0; z-index:60; border-bottom:1px solid transparent;
+    transition:background .35s var(--ease), border-color .35s, backdrop-filter .35s; }
+  .nav.scrolled, .nav.open{ background:rgba(6,7,11,.74); backdrop-filter:saturate(150%) blur(16px);
+    -webkit-backdrop-filter:saturate(150%) blur(16px); border-bottom-color:var(--line); }
+  .nav-in{ max-width:1200px; margin:0 auto; padding:14px 24px; display:flex; align-items:center; gap:30px; }
+  .brand{ display:flex; align-items:center; gap:11px; text-decoration:none; font-weight:800; letter-spacing:.2em; font-size:15px; }
+  .brand svg{ width:21px; height:28px; filter:drop-shadow(0 0 12px var(--glow)); transition:transform .6s var(--ease); }
+  .brand:hover svg{ transform:rotate(60deg); }
+  .nav-links{ display:flex; gap:24px; }
+  .nav-links a{ color:var(--muted); font-size:14px; font-weight:500; text-decoration:none; position:relative; padding:4px 0; transition:color .2s; }
+  .nav-links a::after{ content:""; position:absolute; left:0; right:0; bottom:-2px; height:1.5px; background:var(--accent);
+    transform:scaleX(0); transform-origin:left; transition:transform .3s var(--ease); }
+  .nav-links a:hover{ color:var(--text); }
+  .nav-links a:hover::after{ transform:scaleX(1); }
+  .nav-right{ margin-left:auto; display:flex; align-items:center; gap:10px; }
+  .gh-pill{ display:inline-flex; align-items:center; gap:8px; border:1px solid var(--line-2); border-radius:999px;
+    padding:7px 13px; font-size:13px; font-weight:600; text-decoration:none; color:var(--text); transition:border-color .2s, background .2s; }
+  .gh-pill:hover{ border-color:color-mix(in srgb, var(--accent) 50%, transparent); background:var(--soft); }
+  .gh-pill svg{ width:16px; height:16px; }
+  .gh-pill .gh-stars{ color:var(--muted); font-weight:500; display:none; }
+  .gh-pill .gh-stars.on{ display:inline; }
+  .menu-btn{ display:none; background:none; border:1px solid var(--line-2); border-radius:10px; width:38px; height:38px;
+    color:var(--text); cursor:pointer; align-items:center; justify-content:center; }
+  @media(max-width:900px){
+    .nav-links{ display:none; }
+    .menu-btn{ display:inline-flex; }
+    .nav.open .nav-links{ display:flex; position:absolute; top:100%; left:0; right:0; flex-direction:column; gap:4px;
+      padding:10px 24px 18px; background:rgba(6,7,11,.95); border-bottom:1px solid var(--line); }
+    .nav.open .nav-links a{ padding:10px 0; font-size:16px; }
+    .nav-right .btn-sm{ display:none; }
   }
 
-  /* ---------- command bar ---------- */
-  .cmdwrap{ padding:20px 34px; border-bottom:1px solid var(--line); background:var(--panel-2); }
-  .cmdbar{
-    display:flex;
-    align-items:center;
-    border:1px solid var(--line);
-    background:var(--bg);
-    padding:11px 14px;
-    gap:10px;
-  }
-  .cmdbar:focus-within{ border-color:var(--green-dim); }
-  .cmd-label{ color:var(--green); font-size:12.5px; white-space:nowrap; }
-  .cmd-label i{ color:var(--grey-dim); font-style:normal; }
-  .cmdbar input{
-    flex:1;
-    min-width:0;
-    background:transparent;
-    border:none;
-    outline:none;
-    color:var(--white);
-    font-family:inherit;
-    font-size:13px;
-    caret-color:var(--green);
-  }
-  .cmdbar input::placeholder{ color:var(--grey-dim); }
-  .cmd-count{ color:var(--grey-dim); font-size:11px; white-space:nowrap; }
+  /* ── buttons ───────────────────────────────────────────────── */
+  .btn{ position:relative; display:inline-flex; align-items:center; justify-content:center; gap:10px; overflow:hidden;
+    border-radius:12px; padding:13px 20px; font-family:var(--font); font-size:15px; font-weight:600;
+    text-decoration:none; cursor:pointer; border:1px solid transparent; white-space:nowrap;
+    transition:transform .2s var(--ease), box-shadow .3s var(--ease), background .2s, border-color .2s, color .2s; }
+  .btn svg{ width:18px; height:18px; flex-shrink:0; }
+  .btn:active{ transform:translateY(1px) scale(.99); }
+  .btn-primary{ background:var(--accent); color:var(--on-accent);
+    box-shadow:0 0 0 1px color-mix(in srgb, var(--accent) 60%, #fff 0%), 0 8px 30px -8px var(--glow), inset 0 1px 0 rgba(255,255,255,.35); }
+  .btn-primary:hover{ transform:translateY(-2px); box-shadow:0 0 0 1px var(--accent), 0 14px 44px -8px var(--glow), inset 0 1px 0 rgba(255,255,255,.35); }
+  .btn-primary::after{ content:""; position:absolute; top:0; bottom:0; width:60px; left:-80px;
+    background:linear-gradient(100deg, transparent, rgba(255,255,255,.55), transparent); transform:skewX(-18deg); }
+  .btn-primary:hover::after{ animation:shine .9s var(--ease); }
+  @keyframes shine{ to{ left:calc(100% + 80px); } }
+  .btn-ghost{ background:rgba(255,255,255,.03); color:var(--text); border-color:var(--line-2); backdrop-filter:blur(8px); }
+  .btn-ghost:hover{ transform:translateY(-2px); border-color:color-mix(in srgb, var(--accent) 45%, transparent); background:var(--soft); }
+  .btn-sm{ padding:8px 14px; font-size:13.5px; border-radius:10px; }
+  .btn-sm svg{ width:15px; height:15px; }
 
-  @media(max-width:640px){
-    .cmdbar{ gap:8px; padding:10px 12px; }
-    .cmd-label i{ display:none; }
-    .cmd-count{ font-size:10px; }
+  /* ── hero ──────────────────────────────────────────────────── */
+  .hero{ position:relative; padding:150px 0 90px; overflow:hidden; isolation:isolate; }
+  .hero::after{ content:""; position:absolute; left:0; right:0; bottom:0; height:180px; z-index:-1;
+    background:linear-gradient(transparent, var(--bg)); }
+  .aurora{ position:absolute; inset:-10% -10% 0; z-index:-2; pointer-events:none; filter:blur(70px); opacity:.55; }
+  .aurora span{ position:absolute; border-radius:50%; animation:drift 20s ease-in-out infinite alternate; }
+  .aurora span:nth-child(1){ width:560px; height:560px; left:52%; top:2%; background:radial-gradient(circle, color-mix(in srgb, var(--accent) 50%, transparent), transparent 65%); }
+  .aurora span:nth-child(2){ width:520px; height:520px; left:72%; top:24%; background:radial-gradient(circle, color-mix(in srgb, var(--cyan) 40%, transparent), transparent 65%); animation-duration:26s; animation-delay:-6s; }
+  .aurora span:nth-child(3){ width:620px; height:620px; left:-8%; top:-18%; background:radial-gradient(circle, color-mix(in srgb, var(--violet) 38%, transparent), transparent 65%); animation-duration:30s; animation-delay:-12s; }
+  @keyframes drift{
+    0%{ transform:translate(0,0) scale(1); }
+    50%{ transform:translate(-60px,40px) scale(1.12); }
+    100%{ transform:translate(40px,-30px) scale(.94); }
   }
+  .gridlines{ position:absolute; inset:0; z-index:-1; pointer-events:none;
+    background-image:linear-gradient(var(--line) 1px, transparent 1px), linear-gradient(90deg, var(--line) 1px, transparent 1px);
+    background-size:64px 64px; background-position:center top;
+    -webkit-mask-image:radial-gradient(ellipse 75% 60% at 50% 30%, #000 20%, transparent 72%);
+    mask-image:radial-gradient(ellipse 75% 60% at 50% 30%, #000 20%, transparent 72%); }
+  .stars{ position:absolute; inset:0; z-index:-1; pointer-events:none; }
+  .stars i{ position:absolute; width:2px; height:2px; border-radius:50%; background:#fff; opacity:0; animation:twinkle 4s ease-in-out infinite; }
+  @keyframes twinkle{ 0%,100%{ opacity:0; } 50%{ opacity:var(--o,.6); } }
+  .shooting{ position:absolute; top:14%; left:-10%; width:140px; height:1px; z-index:-1; pointer-events:none;
+    background:linear-gradient(90deg, transparent, #fff); opacity:0; transform:rotate(-18deg); animation:shoot 11s ease-in 3s infinite; }
+  @keyframes shoot{ 0%{ opacity:0; transform:translate(0,0) rotate(-18deg); } 2%{ opacity:.9; }
+    9%{ opacity:0; transform:translate(820px,-266px) rotate(-18deg); } 100%{ opacity:0; transform:translate(820px,-266px) rotate(-18deg); } }
 
-  .filters{
-    display:flex;
-    flex-wrap:wrap;
-    gap:8px;
-    margin-top:14px;
-  }
-  .chip{
-    border:1px solid var(--line);
-    color:var(--grey);
-    font-size:11px;
-    letter-spacing:1px;
-    padding:6px 12px;
-    cursor:pointer;
-    background:transparent;
-    font-family:inherit;
-    transition:.12s;
-  }
-  .chip:hover{ border-color:var(--green-dim); color:var(--white); }
-  .chip.active{ border-color:var(--green); color:var(--green); background:var(--green-bg); }
+  .hero-grid{ display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.05fr); gap:60px; align-items:center; }
+  @media(max-width:1020px){ .hero-grid{ grid-template-columns:minmax(0,1fr); gap:56px; } .hero{ padding-top:128px; } }
 
-  /* ---------- region / display-currency selector ---------- */
-  .region-row{
-    margin-top:14px;
-    display:flex;
-    align-items:center;
-    gap:10px;
-    flex-wrap:wrap;
-  }
-  .region-label{ color:var(--green); font-size:11.5px; white-space:nowrap; }
-  .region-label i{ color:var(--grey-dim); font-style:normal; }
-  #region-select{
-    background:var(--bg);
-    border:1px solid var(--line);
-    color:var(--white);
-    font-family:inherit;
-    font-size:11.5px;
-    padding:7px 10px;
-    cursor:pointer;
-    outline:none;
-  }
-  #region-select:focus{ border-color:var(--green-dim); }
-  .region-hint{ color:var(--grey-dim); font-size:10px; }
+  .live{ display:inline-flex; align-items:center; gap:10px; padding:6px 14px 6px 8px; border-radius:999px;
+    border:1px solid var(--line-2); background:rgba(255,255,255,.03); font-size:13px; color:var(--muted);
+    text-decoration:none; font-family:var(--mono); transition:border-color .2s, background .2s; max-width:100%; }
+  .live:hover{ border-color:color-mix(in srgb, var(--accent) 50%, transparent); background:var(--soft); color:var(--text); }
+  .live .tagv{ background:var(--soft); color:var(--accent); border-radius:999px; padding:2px 8px; font-weight:700; }
+  .live .txt{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .pulse{ width:8px; height:8px; border-radius:50%; background:var(--accent); box-shadow:0 0 0 0 var(--glow); animation:pulse 2s infinite; flex-shrink:0; }
+  @keyframes pulse{ 70%{ box-shadow:0 0 0 9px transparent; } 100%{ box-shadow:0 0 0 0 transparent; } }
 
-  /* ---------- grid ---------- */
-  .grid{
-    padding:28px 34px 10px;
-    display:grid;
-    grid-template-columns:repeat(auto-fill, minmax(min(260px, 100%), 1fr));
-    gap:16px;
-  }
-  @media(max-width:640px){
-    .grid{ padding:20px 14px 6px; gap:12px; }
-    .hero{ padding:24px 16px 22px; }
-    .cmdwrap{ padding:16px; }
-  }
+  h1{ font-size:clamp(42px, 6.4vw, 78px); line-height:1.02; letter-spacing:-.045em; font-weight:800; margin:24px 0 22px; }
+  .grad{ background:linear-gradient(92deg, var(--accent) 0%, var(--cyan) 55%, var(--violet) 100%); background-size:200% 100%;
+    -webkit-background-clip:text; background-clip:text; color:transparent; animation:gradmove 8s ease-in-out infinite alternate; }
+  @keyframes gradmove{ to{ background-position:100% 0; } }
+  .rotator{ display:inline-block; position:relative; }
+  .rotator .word{ display:inline-block; transition:transform .5s var(--ease), opacity .5s var(--ease), filter .5s; }
+  .rotator .word.out{ transform:translateY(-40%); opacity:0; filter:blur(6px); }
+  .rotator .word.pre{ transform:translateY(40%); opacity:0; filter:blur(6px); transition:none; }
+  .lede{ font-size:clamp(17px, 1.6vw, 19px); color:var(--muted); max-width:540px; line-height:1.65; }
+  .lede b{ color:var(--text); font-weight:600; }
+  .cta{ display:flex; gap:12px; flex-wrap:wrap; margin-top:34px; }
+  .cta-note{ margin-top:14px; font-size:13px; color:var(--dim); }
+  .cta-note a{ color:var(--muted); }
+  .checks{ display:flex; flex-wrap:wrap; gap:8px 20px; margin-top:28px; font-size:13.5px; color:var(--muted); }
+  .checks span{ display:inline-flex; align-items:center; gap:7px; }
+  .checks svg{ width:15px; height:15px; color:var(--accent); }
 
-  .card{
-    border:1px solid var(--line);
-    background:var(--panel-2);
-    padding:16px;
-    display:flex;
-    flex-direction:column;
-    gap:10px;
-    position:relative;
-    transition:.14s border-color;
-  }
-  .card:hover{ border-color:var(--green-dim); }
-  .card.paid{ border-color:var(--amber-dim); }
-  .card.paid:hover{ border-color:var(--amber); }
-  .card.hidden{ display:none; }
+  /* ── demo terminal (mirrors the app's window) ──────────────── */
+  .term-wrap{ position:relative; perspective:1600px; }
+  .term-wrap::before{ content:""; position:absolute; inset:8% 6% -4%; z-index:-1; border-radius:30px; filter:blur(50px);
+    background:radial-gradient(closest-side, color-mix(in srgb, var(--t-a) 45%, transparent), transparent); opacity:.55;
+    transition:background .6s; }
+  .term{ position:relative; border-radius:14px; overflow:hidden; background:var(--t-bg); color:var(--t-text);
+    border:1px solid color-mix(in srgb, var(--t-a) 22%, rgba(255,255,255,.08));
+    box-shadow:0 1px 0 rgba(255,255,255,.06) inset, 0 40px 120px -30px rgba(0,0,0,.9), 0 0 0 1px rgba(0,0,0,.6);
+    font-family:var(--mono); font-size:13px; line-height:1.62;
+    transform:rotateY(var(--ry,-7deg)) rotateX(var(--rx,4deg)); transform-style:preserve-3d;
+    transition:transform .6s var(--ease), background .5s, color .5s, border-color .5s; animation:float 7s ease-in-out infinite; }
+  .term:hover, .term.focus{ --ry:0deg; --rx:0deg; }
+  @keyframes float{ 0%,100%{ translate:0 0; } 50%{ translate:0 -8px; } }
+  @media(max-width:1020px){ .term{ --ry:0deg; --rx:0deg; } }
+  .term-bar{ position:relative; display:flex; align-items:center; justify-content:center; gap:9px; height:40px;
+    background:var(--t-bg1); border-bottom:1px solid var(--t-line); transition:background .5s, border-color .5s; }
+  .term-dots{ position:absolute; left:14px; display:flex; gap:8px; }
+  .term-dots i{ width:12px; height:12px; border-radius:50%; background:#ff5f57; }
+  .term-dots i:nth-child(2){ background:#febc2e; }
+  .term-title{ letter-spacing:.3em; font-size:11.5px; color:var(--t-muted); font-weight:500; }
+  .term-mode{ font-size:10px; font-weight:700; letter-spacing:.08em; padding:3px 9px; border-radius:7px;
+    background:var(--t-a); color:var(--t-bg); transition:background .5s, color .5s; }
+  .term-body{ height:330px; overflow-y:auto; padding:14px 18px 8px; scrollbar-width:none; }
+  .term-body::-webkit-scrollbar{ display:none; }
+  .tl{ white-space:pre-wrap; word-break:break-word; min-height:1.62em; animation:tlin .25s var(--ease); }
+  @keyframes tlin{ from{ opacity:0; transform:translateY(3px); } }
+  .tl .p{ color:var(--t-muted); }
+  .t-cmd{ color:var(--t-a3); }
+  .t-acc{ color:var(--t-a); font-weight:700; }
+  .t-ok{ color:var(--t-a); }
+  .t-err{ color:#ff7a8a; }
+  .t-warn{ color:#f5c65b; }
+  .t-dim{ color:var(--t-muted); }
+  .t-mut{ color:var(--t-dim); }
+  .t-mod{ color:#f5c65b; }
+  .t-new{ color:#ff7a8a; }
+  .t-link{ color:var(--t-a3); text-decoration:underline; text-underline-offset:3px; cursor:pointer; }
+  .term-prompt{ display:flex; align-items:center; gap:10px; padding:12px 18px; border-top:1px solid var(--t-line);
+    background:color-mix(in srgb, var(--t-bg2) 75%, var(--t-bg)); cursor:text; transition:background .5s, border-color .5s; }
+  .tp-label{ color:var(--t-a); font-weight:700; white-space:nowrap; transition:color .5s; }
+  .term-prompt input{ flex:1; min-width:0; background:none; border:none; outline:none; color:var(--t-text);
+    font-family:var(--mono); font-size:13.5px; caret-color:var(--t-a); }
+  .term-prompt input::placeholder{ color:var(--t-dim); }
+  .term-status{ display:flex; align-items:center; gap:14px; height:28px; font-size:11px; background:var(--t-a);
+    color:var(--t-bg); font-weight:600; padding-right:14px; transition:background .5s, color .5s; }
+  .ts-mode{ height:100%; display:flex; align-items:center; padding:0 18px 0 14px; letter-spacing:.08em; font-weight:800;
+    background:color-mix(in srgb, var(--t-bg) 12%, transparent); clip-path:polygon(0 0, 100% 0, calc(100% - 10px) 100%, 0 100%); }
+  .ts-right{ margin-left:auto; display:flex; gap:12px; opacity:.85; }
+  .term-hint{ margin-top:18px; text-align:center; font-size:13px; color:var(--dim); transition:opacity .4s; }
+  .term-hint code{ color:var(--accent); background:var(--soft); padding:2px 7px; border-radius:6px; font-size:12.5px; }
+  @media(max-width:560px){ .term{ font-size:11.5px; } .term-body{ height:300px; padding:12px 12px 6px; } .term-prompt{ padding:11px 12px; } .ts-right #tsClock{ display:none; } }
 
+  /* ── marquee ───────────────────────────────────────────────── */
+  .marquee{ border-top:1px solid var(--line); border-bottom:1px solid var(--line); background:rgba(255,255,255,.012);
+    padding:22px 0; overflow:hidden; position:relative; }
+  .marquee .lbl{ text-align:center; font-size:12px; letter-spacing:.2em; color:var(--dim); text-transform:uppercase; margin-bottom:16px; font-weight:600; }
+  .mq{ display:flex; gap:14px; width:max-content; animation:scrollx 38s linear infinite; }
+  .marquee:hover .mq{ animation-play-state:paused; }
+  .marquee::before, .marquee::after{ content:""; position:absolute; top:0; bottom:0; width:120px; z-index:1; pointer-events:none; }
+  .marquee::before{ left:0; background:linear-gradient(90deg, var(--bg), transparent); }
+  .marquee::after{ right:0; background:linear-gradient(-90deg, var(--bg), transparent); }
+  @keyframes scrollx{ to{ transform:translateX(-50%); } }
+  .chiplg{ display:inline-flex; align-items:center; gap:9px; padding:9px 16px; border-radius:999px; border:1px solid var(--line);
+    background:var(--surface); font-family:var(--mono); font-size:13px; color:var(--muted); white-space:nowrap; }
+  .chiplg b{ color:var(--text); font-weight:500; }
+  .chiplg i{ width:7px; height:7px; border-radius:50%; background:var(--c, var(--accent)); box-shadow:0 0 10px var(--c, var(--accent)); }
+
+  /* ── sections ──────────────────────────────────────────────── */
+  section{ position:relative; }
+  .sec{ padding:120px 0; }
+  .sec-head{ max-width:760px; margin-bottom:56px; }
+  .sec-head.center{ margin-left:auto; margin-right:auto; text-align:center; }
+  .kicker{ display:inline-flex; align-items:center; gap:8px; font-family:var(--mono); font-size:12.5px; letter-spacing:.14em;
+    text-transform:uppercase; color:var(--accent); font-weight:500; }
+  .kicker::before{ content:""; width:18px; height:1px; background:currentColor; }
+  h2{ font-size:clamp(32px, 4.4vw, 54px); line-height:1.06; letter-spacing:-.035em; font-weight:800; margin:16px 0 18px; }
+  .sec-head p{ color:var(--muted); font-size:18px; line-height:1.65; }
+  @media(max-width:640px){ .sec{ padding:84px 0; } .sec-head p{ font-size:16.5px; } }
+
+  /* reveal on scroll */
+  .rv{ opacity:0; transform:translateY(26px); transition:opacity .9s var(--ease), transform .9s var(--ease); transition-delay:var(--d, 0s); }
+  .rv.in{ opacity:1; transform:none; }
+
+  /* ── bento ─────────────────────────────────────────────────── */
+  .bento{ display:grid; grid-template-columns:repeat(6, minmax(0,1fr)); gap:16px; }
+  .cell{ position:relative; overflow:hidden; border-radius:20px; border:1px solid var(--line); padding:28px;
+    background:linear-gradient(180deg, rgba(255,255,255,.035), rgba(255,255,255,.008)); isolation:isolate;
+    transition:border-color .3s, transform .4s var(--ease); }
+  .cell:hover{ border-color:var(--line-2); transform:translateY(-3px); }
+  .spot::before{ content:""; position:absolute; inset:0; z-index:-1; opacity:0; transition:opacity .35s;
+    background:radial-gradient(420px circle at var(--mx,50%) var(--my,50%), color-mix(in srgb, var(--accent) 13%, transparent), transparent 45%); }
+  .spot:hover::before{ opacity:1; }
+  .c2{ grid-column:span 2; } .c3{ grid-column:span 3; } .c4{ grid-column:span 4; }
+  @media(max-width:980px){ .bento{ grid-template-columns:repeat(2, minmax(0,1fr)); } .c2,.c3,.c4{ grid-column:span 1; } .cwide{ grid-column:span 2; } }
+  @media(max-width:640px){ .bento{ grid-template-columns:minmax(0,1fr); } .c2,.c3,.c4,.cwide{ grid-column:span 1; } .cell{ padding:22px; } }
+  .ico{ width:42px; height:42px; border-radius:12px; display:grid; place-items:center; margin-bottom:18px;
+    background:var(--soft); color:var(--accent); border:1px solid color-mix(in srgb, var(--accent) 25%, transparent); }
+  .ico svg{ width:21px; height:21px; }
+  .cell h3{ font-size:19px; letter-spacing:-.015em; font-weight:700; margin-bottom:8px; }
+  .cell p{ color:var(--muted); font-size:15px; line-height:1.6; }
+  .cell p code, .faq code, .sec-head code{ font-size:.88em; color:var(--accent-2); background:rgba(255,255,255,.05); padding:1px 6px; border-radius:6px; }
+  .shot{ margin-top:22px; border-radius:12px; overflow:hidden; border:1px solid var(--line-2);
+    box-shadow:0 20px 50px -20px rgba(0,0,0,.8); transform:translateY(0); transition:transform .6s var(--ease); }
+  .cell:hover .shot{ transform:translateY(-4px) scale(1.01); }
+  .shells{ display:flex; flex-wrap:wrap; gap:8px; margin-top:18px; }
+  .shells span{ font-family:var(--mono); font-size:12.5px; padding:6px 11px; border-radius:8px; border:1px solid var(--line); color:var(--text); background:rgba(0,0,0,.25); }
+  .shells span::before{ content:"✓ "; color:var(--accent); }
+  .cmds{ display:flex; flex-wrap:wrap; gap:7px; margin-top:18px; }
+  .cmds code{ font-size:12.5px; padding:5px 10px; border-radius:8px; background:rgba(0,0,0,.3); border:1px solid var(--line); color:var(--accent-2);
+    transition:transform .2s, border-color .2s; }
+  .cmds code:hover{ transform:translateY(-2px); border-color:color-mix(in srgb, var(--accent) 40%, transparent); }
+  .mini-steps{ margin-top:18px; font-family:var(--mono); font-size:12.5px; display:grid; gap:7px; }
+  .mini-steps div{ display:flex; align-items:center; gap:10px; padding:8px 12px; border-radius:9px; background:rgba(0,0,0,.28); border:1px solid var(--line); color:var(--muted); }
+  .mini-steps b{ color:var(--accent); font-weight:500; }
+  .mini-steps .bar{ margin-left:auto; height:4px; width:70px; border-radius:4px; background:rgba(255,255,255,.07); overflow:hidden; }
+  .mini-steps .bar::after{ content:""; display:block; height:100%; width:var(--w,100%); background:var(--accent); border-radius:4px;
+    transform-origin:left; animation:fill 2.4s var(--ease) infinite; animation-delay:var(--dl,0s); }
+  @keyframes fill{ 0%{ transform:scaleX(0); } 60%,100%{ transform:scaleX(1); } }
+
+  /* ── code tabs ─────────────────────────────────────────────── */
+  .split{ display:grid; grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr); gap:56px; align-items:center; }
+  @media(max-width:980px){ .split{ grid-template-columns:minmax(0,1fr); gap:36px; } }
+  .points{ display:grid; gap:14px; margin-top:28px; }
+  .point{ display:flex; gap:14px; padding:16px 18px; border-radius:14px; border:1px solid transparent; cursor:pointer;
+    transition:background .25s, border-color .25s; text-align:left; background:none; color:inherit; font:inherit; width:100%; }
+  .point:hover{ background:rgba(255,255,255,.025); }
+  .point.on{ background:rgba(255,255,255,.035); border-color:var(--line-2); }
+  .point .n{ font-family:var(--mono); font-size:12px; color:var(--dim); padding-top:3px; }
+  .point.on .n{ color:var(--accent); }
+  .point h4{ font-size:16.5px; font-weight:600; margin-bottom:3px; }
+  .point p{ color:var(--muted); font-size:14.5px; line-height:1.55; }
+  .editor{ border-radius:16px; border:1px solid var(--line-2); background:#0b0d14; overflow:hidden; box-shadow:0 40px 100px -40px rgba(0,0,0,.9); }
+  .ed-tabs{ display:flex; align-items:center; gap:2px; padding:8px 8px 0; background:#080a10; border-bottom:1px solid var(--line); }
+  .ed-tab{ font-family:var(--mono); font-size:12.5px; color:var(--dim); padding:9px 14px; border-radius:9px 9px 0 0; border:1px solid transparent;
+    border-bottom:none; background:none; cursor:pointer; transition:color .2s, background .2s; }
+  .ed-tab.on{ color:var(--text); background:#0b0d14; border-color:var(--line); }
+  .ed-tab:hover{ color:var(--text); }
+  .copy{ margin-left:auto; font-family:var(--mono); font-size:11.5px; color:var(--muted); background:rgba(255,255,255,.04); border:1px solid var(--line);
+    border-radius:8px; padding:6px 10px; cursor:pointer; margin-bottom:6px; transition:color .2s, border-color .2s; }
+  .copy:hover{ color:var(--text); border-color:var(--line-2); }
+  .copy.done{ color:var(--accent); border-color:color-mix(in srgb, var(--accent) 40%, transparent); }
+  .ed-body{ position:relative; }
+  .ed-pane{ display:none; margin:0; padding:22px 0; overflow-x:auto; font-family:var(--mono); font-size:13.5px; line-height:1.75; counter-reset:ln; }
+  .ed-pane.on{ display:block; animation:fadein .45s var(--ease); }
+  @keyframes fadein{ from{ opacity:0; transform:translateY(6px); } }
+  .ed-pane .ln{ display:block; padding:0 22px 0 0; white-space:pre; color:#c0caf5; }
+  .ed-pane .ln::before{ counter-increment:ln; content:counter(ln); display:inline-block; width:46px; padding-right:18px; text-align:right; color:#3b4261; user-select:none; }
+  .k{ color:#bb9af7; } .s{ color:#9ece6a; } .c{ color:#565f89; font-style:italic; } .f{ color:#7aa2f7; } .num{ color:#ff9e64; } .o{ color:#89ddff; } .pr{ color:#7dcfff; }
+  @media(max-width:560px){ .ed-pane{ font-size:12px; } .ed-pane .ln::before{ width:34px; padding-right:12px; } }
+
+  /* ── themes ────────────────────────────────────────────────── */
+  .swatches{ display:grid; grid-template-columns:repeat(5, minmax(0,1fr)); gap:14px; }
+  @media(max-width:900px){ .swatches{ grid-template-columns:repeat(3, minmax(0,1fr)); } }
+  @media(max-width:520px){ .swatches{ grid-template-columns:repeat(2, minmax(0,1fr)); } }
+  .sw{ position:relative; border-radius:16px; overflow:hidden; border:1px solid var(--line); cursor:pointer; text-align:left;
+    background:var(--sb); color:var(--st); font-family:var(--mono); padding:0; transition:transform .35s var(--ease), border-color .3s, box-shadow .35s; }
+  .sw:hover{ transform:translateY(-4px); box-shadow:0 20px 40px -20px var(--sa); }
+  .sw.on{ border-color:var(--sa); box-shadow:0 0 0 1px var(--sa), 0 20px 50px -20px var(--sa); }
+  .sw .sw-top{ display:flex; gap:5px; padding:10px 12px; background:var(--sb1); }
+  .sw .sw-top i{ width:7px; height:7px; border-radius:50%; background:#ff5f57; } .sw .sw-top i:nth-child(2){ background:#febc2e; }
+  .sw .sw-body{ padding:12px 12px 10px; font-size:11px; line-height:1.7; }
+  .sw .sw-body b{ color:var(--sa); font-weight:700; }
+  .sw .sw-body span{ color:var(--sm); }
+  .sw .sw-bar{ height:18px; background:var(--sa); display:flex; align-items:center; padding:0 10px; font-size:9px; font-weight:800; color:var(--sb); letter-spacing:.1em; }
+  .sw .sw-name{ display:flex; justify-content:space-between; align-items:center; padding:12px 12px; font-size:13px; font-weight:600;
+    background:var(--surface); color:var(--text); border-top:1px solid var(--line); font-family:var(--font); }
+  .sw .sw-name em{ font-style:normal; font-family:var(--mono); font-size:11px; color:var(--dim); }
+  .sw.on .sw-name em{ color:var(--accent); }
+  .theme-cols{ display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:16px; margin-top:16px; }
+  @media(max-width:900px){ .theme-cols{ grid-template-columns:minmax(0,1fr); } }
+  .keys{ display:flex; flex-wrap:wrap; gap:6px; margin-top:14px; }
+  .keys code{ font-size:11.5px; padding:3px 8px; border-radius:6px; background:rgba(0,0,0,.3); border:1px solid var(--line); color:var(--muted); }
+
+  /* ── gallery ───────────────────────────────────────────────── */
+  .gtabs{ display:flex; flex-wrap:wrap; justify-content:center; gap:8px; margin-bottom:28px; }
+  .gtab{ font-family:var(--font); font-size:14px; font-weight:500; color:var(--muted); padding:9px 16px; border-radius:999px;
+    border:1px solid var(--line); background:rgba(255,255,255,.02); cursor:pointer; transition:all .25s var(--ease); }
+  .gtab:hover{ color:var(--text); border-color:var(--line-2); }
+  .gtab.on{ color:var(--on-accent); background:var(--accent); border-color:var(--accent); box-shadow:0 8px 24px -10px var(--glow); }
+  .gframe{ position:relative; max-width:1040px; margin:0 auto; border-radius:18px; padding:10px; border:1px solid var(--line-2);
+    background:linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.01)); box-shadow:0 60px 140px -50px rgba(0,0,0,.95); }
+  .gframe::before{ content:""; position:absolute; inset:-1px; border-radius:19px; padding:1px; pointer-events:none;
+    background:linear-gradient(140deg, color-mix(in srgb, var(--accent) 60%, transparent), transparent 35%, transparent 65%, color-mix(in srgb, var(--violet) 55%, transparent));
+    -webkit-mask:linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite:xor; mask-composite:exclude; }
+  .gstage{ position:relative; aspect-ratio:1650/1050; border-radius:10px; overflow:hidden; background:#10121b; }
+  .gstage img{ position:absolute; inset:0; width:100%; height:100%; object-fit:cover; opacity:0; transform:scale(1.02);
+    transition:opacity .6s var(--ease), transform 1.2s var(--ease); }
+  .gstage img.on{ opacity:1; transform:none; }
+  .gcap{ text-align:center; color:var(--muted); font-size:15px; margin-top:22px; min-height:1.6em; }
+
+  /* ── stats ─────────────────────────────────────────────────── */
+  .stats{ display:grid; grid-template-columns:repeat(5, minmax(0,1fr)); border:1px solid var(--line); border-radius:20px; overflow:hidden;
+    background:rgba(255,255,255,.015); }
+  .stat{ padding:30px 22px; border-right:1px solid var(--line); }
+  .stat:last-child{ border-right:none; }
+  .stat .v{ font-size:clamp(30px, 3.6vw, 44px); font-weight:800; letter-spacing:-.04em; line-height:1; }
+  .stat .v small{ font-size:.55em; color:var(--accent); margin-left:2px; }
+  .stat .l{ color:var(--muted); font-size:14px; margin-top:10px; }
+  @media(max-width:900px){ .stats{ grid-template-columns:repeat(2, minmax(0,1fr)); } .stat{ border-bottom:1px solid var(--line); } .stat:nth-child(2n){ border-right:none; } .stat:last-child{ grid-column:span 2; border-bottom:none; } }
+
+  /* ── market ────────────────────────────────────────────────── */
+  .market-shell{ border:1px solid var(--line); border-radius:22px; background:rgba(255,255,255,.015); overflow:hidden; }
+  .cmdwrap{ padding:22px; border-bottom:1px solid var(--line); background:rgba(0,0,0,.2); }
+  .cmdbar{ display:flex; align-items:center; gap:12px; border:1px solid var(--line-2); background:var(--bg-2); padding:12px 16px; border-radius:12px;
+    transition:border-color .2s, box-shadow .2s; }
+  .cmdbar:focus-within{ border-color:color-mix(in srgb, var(--accent) 55%, transparent); box-shadow:0 0 0 4px var(--soft); }
+  .cmd-label{ color:var(--accent); font-family:var(--mono); font-size:13px; white-space:nowrap; }
+  .cmd-label i{ color:var(--dim); font-style:normal; }
+  .cmdbar input{ flex:1; min-width:0; background:transparent; border:none; outline:none; color:var(--text); font-family:var(--mono); font-size:14px; caret-color:var(--accent); }
+  .cmdbar input::placeholder{ color:var(--dim); }
+  .cmd-count{ color:var(--dim); font-family:var(--mono); font-size:12px; white-space:nowrap; }
+  .filters{ display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; }
+  .chip{ border:1px solid var(--line); color:var(--muted); font-family:var(--mono); font-size:11.5px; letter-spacing:.06em; padding:7px 12px;
+    cursor:pointer; background:transparent; border-radius:999px; transition:all .2s; }
+  .chip:hover{ border-color:var(--line-2); color:var(--text); }
+  .chip.active{ border-color:var(--accent); color:var(--on-accent); background:var(--accent); }
+  .region-row{ margin-top:14px; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .region-label{ color:var(--accent); font-family:var(--mono); font-size:12px; white-space:nowrap; }
+  .region-label i{ color:var(--dim); font-style:normal; }
+  #region-select{ background:var(--bg-2); border:1px solid var(--line-2); color:var(--text); font-family:var(--mono); font-size:12px;
+    padding:8px 10px; cursor:pointer; outline:none; border-radius:9px; }
+  #region-select:focus{ border-color:color-mix(in srgb, var(--accent) 55%, transparent); }
+  .region-hint{ color:var(--dim); font-size:11.5px; }
+  .grid{ padding:22px; display:grid; grid-template-columns:repeat(auto-fill, minmax(min(270px, 100%), 1fr)); gap:14px; }
+  .card{ position:relative; overflow:hidden; isolation:isolate; border:1px solid var(--line); background:var(--surface); border-radius:16px; padding:18px;
+    display:flex; flex-direction:column; gap:11px; transition:border-color .25s, transform .35s var(--ease), box-shadow .35s; animation:cardin .5s var(--ease) both; animation-delay:var(--i,0s); }
+  @keyframes cardin{ from{ opacity:0; transform:translateY(12px); } }
+  .card:hover{ border-color:color-mix(in srgb, var(--accent) 38%, transparent); transform:translateY(-3px); box-shadow:0 20px 40px -24px var(--glow); }
+  .card.paid{ border-color:color-mix(in srgb, var(--amber) 28%, transparent); background:linear-gradient(180deg, color-mix(in srgb, var(--amber) 6%, var(--surface)), var(--surface)); }
+  .card.paid:hover{ border-color:color-mix(in srgb, var(--amber) 60%, transparent); box-shadow:0 20px 40px -24px color-mix(in srgb, var(--amber) 40%, transparent); }
   .card-top{ display:flex; justify-content:space-between; align-items:flex-start; gap:10px; }
-  .card-name{ color:var(--green); font-size:13.5px; font-weight:700; letter-spacing:.4px; }
+  .card-name{ color:var(--text); font-family:var(--mono); font-size:15px; font-weight:700; }
   .card.paid .card-name{ color:var(--amber); }
-  .card-name small{ color:var(--grey-dim); font-weight:500; font-size:10.5px; margin-left:6px; }
-  .badge{
-    font-size:9.5px;
-    letter-spacing:1px;
-    padding:3px 6px;
-    border:1px solid var(--line);
-    color:var(--grey);
-    white-space:nowrap;
-    flex-shrink:0;
-  }
-  .badge.badge-in{ color:var(--green); border-color:var(--green-dim); background:var(--green-bg); }
-  .badge.badge-paid{ color:var(--amber); border-color:var(--amber-dim); background:var(--amber-bg); }
-
-  .card-desc{ color:var(--grey); font-size:11.6px; line-height:1.55; min-height:52px; }
-
-  .card-meta{
-    display:flex;
-    gap:14px;
-    color:var(--grey-dim);
-    font-size:10.5px;
-    border-top:1px dashed var(--line);
-    padding-top:10px;
-  }
-  .card-meta span{ color:var(--grey); }
-  .card-meta b{ color:var(--white); font-weight:600; }
-
+  .card-name small{ color:var(--dim); font-weight:500; font-size:11px; margin-left:7px; }
+  .badge{ font-family:var(--mono); font-size:10px; letter-spacing:.08em; padding:3px 8px; border:1px solid var(--line-2); color:var(--muted); border-radius:999px; white-space:nowrap; flex-shrink:0; }
+  .badge.badge-in{ color:var(--accent); border-color:color-mix(in srgb, var(--accent) 45%, transparent); background:var(--soft); }
+  .badge.badge-paid{ color:var(--amber); border-color:color-mix(in srgb, var(--amber) 40%, transparent); background:color-mix(in srgb, var(--amber) 8%, transparent); }
+  .card-desc{ color:var(--muted); font-size:13.5px; line-height:1.55; min-height:62px; }
   .card-tags{ display:flex; gap:6px; flex-wrap:wrap; }
-  .tag{ font-size:9.5px; color:var(--green-dim); border:1px solid #163821; padding:2px 6px; letter-spacing:.5px; }
-  .card.paid .tag{ color:var(--amber); border-color:var(--amber-dim); }
-
-  .card-actions{ display:flex; gap:8px; margin-top:2px; }
-  .btn{
-    flex:1;
-    border:1px solid var(--green-dim);
-    color:var(--green);
-    background:transparent;
-    font-family:inherit;
-    font-size:11px;
-    letter-spacing:1px;
-    padding:9px 10px;
-    cursor:pointer;
-    transition:.12s;
-  }
-  .btn:hover{ background:var(--green); color:#04140a; }
-  .btn.installed{ background:var(--green-bg); color:var(--green); cursor:default; }
-  .btn.installed:hover{ background:var(--green-bg); color:var(--green); }
-
-  .price{ color:var(--white); font-size:14.5px; font-weight:700; }
-  .price small{ color:var(--grey-dim); font-size:10px; font-weight:500; margin-left:4px; }
-  .sub-count{ color:var(--grey-dim); font-size:10.5px; margin-top:2px; }
-
-  .card.paid .btn{
-    border-color:var(--amber-dim);
-    color:var(--amber);
-  }
-  .card.paid .btn:hover{ background:var(--amber); color:#241d08; }
-
-  .demo-toggle{
-    width:100%;
-    border:1px solid var(--line);
-    color:var(--grey);
-    background:transparent;
-    font-family:inherit;
-    font-size:10.5px;
-    letter-spacing:.5px;
-    padding:8px 10px;
-    cursor:pointer;
-    transition:.12s;
-  }
-  .demo-toggle:hover{ border-color:var(--green-dim); color:var(--white); }
-  .demo-video{
-    border:1px solid var(--line);
-    background:#000;
-    line-height:0;
-  }
+  .tag{ font-family:var(--mono); font-size:10.5px; color:var(--accent-2); background:var(--soft); padding:2px 8px; border-radius:999px; }
+  .card.paid .tag{ color:var(--amber); background:color-mix(in srgb, var(--amber) 9%, transparent); }
+  .card-meta{ display:flex; gap:14px; color:var(--dim); font-size:12px; border-top:1px dashed var(--line-2); padding-top:10px; }
+  .card-meta b{ color:var(--text); font-weight:600; }
+  .card-cli{ display:flex; align-items:center; gap:8px; font-family:var(--mono); font-size:12px; background:rgba(0,0,0,.3); border:1px solid var(--line);
+    border-radius:9px; padding:7px 7px 7px 11px; color:var(--muted); }
+  .card-cli code{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--accent-2); }
+  .card-cli button{ font-family:var(--mono); font-size:10.5px; color:var(--muted); background:rgba(255,255,255,.05); border:1px solid var(--line);
+    border-radius:6px; padding:4px 8px; cursor:pointer; }
+  .card-cli button:hover{ color:var(--text); }
+  .card-cli button.done{ color:var(--accent); }
+  .card-actions{ display:flex; gap:8px; }
+  .mbtn{ flex:1; border:1px solid color-mix(in srgb, var(--accent) 40%, transparent); color:var(--accent); background:transparent; font-family:var(--mono);
+    font-size:12px; letter-spacing:.04em; padding:10px; cursor:pointer; border-radius:10px; transition:all .2s; }
+  .mbtn:hover{ background:var(--accent); color:var(--on-accent); }
+  .mbtn.installed, .mbtn.installed:hover{ background:var(--soft); color:var(--accent); cursor:default; }
+  .card.paid .mbtn{ border-color:color-mix(in srgb, var(--amber) 40%, transparent); color:var(--amber); }
+  .card.paid .mbtn:hover:not(:disabled){ background:var(--amber); color:#241d08; }
+  .mbtn:disabled{ opacity:.5; cursor:not-allowed; }
+  .price{ color:var(--text); font-size:16px; font-weight:700; }
+  .price small{ color:var(--dim); font-size:11px; font-weight:500; margin-left:4px; }
+  .sub-count{ color:var(--dim); font-size:11.5px; margin-top:-4px; }
+  .demo-toggle{ width:100%; border:1px dashed var(--line-2); color:var(--muted); background:transparent; font-family:var(--mono); font-size:11.5px;
+    padding:8px 10px; cursor:pointer; border-radius:9px; transition:all .2s; }
+  .demo-toggle:hover{ border-color:color-mix(in srgb, var(--accent) 40%, transparent); color:var(--text); }
+  .demo-video{ border:1px solid var(--line); background:#000; line-height:0; border-radius:10px; overflow:hidden; }
   .demo-video video, .demo-video iframe{ display:block; width:100%; aspect-ratio:16/9; height:auto; border:none; }
-  .demo-empty{
-    border:1px dashed var(--line);
-    color:var(--grey-dim);
-    font-size:10.5px;
-    text-align:center;
-    padding:22px 10px;
-  }
+  .demo-empty{ border:1px dashed var(--line); color:var(--dim); font-size:11.5px; text-align:center; padding:20px 10px; border-radius:10px; }
+  .empty{ grid-column:1/-1; text-align:center; color:var(--dim); padding:50px 10px; font-family:var(--mono); font-size:13px; display:none; }
+  .market-foot{ padding:18px 22px; border-top:1px solid var(--line); display:flex; flex-wrap:wrap; gap:10px 24px; align-items:center; color:var(--muted); font-size:14px; }
+  .market-foot a{ color:var(--accent); text-decoration:none; }
+  .market-foot a:hover{ text-decoration:underline; }
 
-  .empty{
-    grid-column:1/-1;
-    text-align:center;
-    color:var(--grey-dim);
-    padding:50px 10px;
-    font-size:12px;
-    letter-spacing:1px;
-    display:none;
-  }
+  /* ── install ───────────────────────────────────────────────── */
+  .install{ border:1px solid var(--line); border-radius:22px; overflow:hidden; background:rgba(255,255,255,.015); }
+  .itabs{ display:flex; border-bottom:1px solid var(--line); overflow-x:auto; }
+  .itab{ flex:1; min-width:0; white-space:nowrap; display:flex; align-items:center; justify-content:center; gap:10px; padding:18px; background:none; border:none;
+    border-bottom:2px solid transparent; color:var(--muted); font-family:var(--font); font-size:15px; font-weight:600; cursor:pointer; transition:all .25s; }
+  .itab svg{ width:18px; height:18px; }
+  .itab:hover{ color:var(--text); background:rgba(255,255,255,.02); }
+  .itab.on{ color:var(--text); border-bottom-color:var(--accent); background:rgba(255,255,255,.03); }
+  .ipane{ display:none; padding:34px; gap:34px; grid-template-columns:minmax(0,1fr) minmax(0,1.3fr); }
+  .ipane.on{ display:grid; animation:fadein .45s var(--ease); }
+  @media(max-width:900px){ .ipane{ grid-template-columns:minmax(0,1fr); padding:24px; } }
+  @media(max-width:520px){ .itab{ padding:15px 6px; font-size:14px; gap:7px; } .itab svg{ display:none; } .ipane{ padding:20px; } .cmd-label{ display:none; } }
+  .ipane h3{ font-size:22px; letter-spacing:-.02em; margin-bottom:10px; }
+  .ipane > div > p{ color:var(--muted); font-size:15px; margin-bottom:18px; }
+  .ipane .btns{ display:flex; gap:10px; flex-wrap:wrap; }
+  .steps{ list-style:none; display:grid; gap:12px; margin:18px 0 0; counter-reset:st; }
+  .steps li{ position:relative; padding-left:36px; color:var(--muted); font-size:14.5px; }
+  .steps li::before{ counter-increment:st; content:counter(st); position:absolute; left:0; top:0; width:24px; height:24px; border-radius:50%;
+    display:grid; place-items:center; font-size:12px; font-weight:700; color:var(--accent); background:var(--soft); border:1px solid color-mix(in srgb, var(--accent) 30%, transparent); }
+  .shell{ border-radius:14px; border:1px solid var(--line-2); background:#07080d; overflow:hidden; align-self:start; }
+  .shell-top{ display:flex; align-items:center; gap:8px; padding:10px 12px; border-bottom:1px solid var(--line); font-family:var(--mono); font-size:12px; color:var(--dim); }
+  .shell-top i{ width:10px; height:10px; border-radius:50%; background:#2a2e3d; }
+  .shell-top .copy{ margin-bottom:0; }
+  .shell pre{ margin:0; padding:18px 20px; white-space:pre-wrap; overflow-wrap:anywhere; font-family:var(--mono); font-size:13.5px; line-height:1.8; color:#d6dbef; }
+  .shell pre .pr{ color:var(--accent); user-select:none; }
+  .shell pre .c{ color:#565f89; }
 
-  /* ---------- mobile: 16px inputs (stops iOS zoom-on-focus) and
-     larger tap targets ---------- */
+  /* ── faq ───────────────────────────────────────────────────── */
+  .faq{ max-width:860px; margin:0 auto; display:grid; gap:12px; }
+  .faq details{ border:1px solid var(--line); border-radius:16px; background:rgba(255,255,255,.015); transition:border-color .25s, background .25s; }
+  .faq details[open]{ border-color:var(--line-2); background:rgba(255,255,255,.03); }
+  .faq summary{ list-style:none; cursor:pointer; padding:20px 24px; font-size:17px; font-weight:600; display:flex; align-items:center; gap:16px; }
+  .faq summary::-webkit-details-marker{ display:none; }
+  .faq summary::after{ content:""; margin-left:auto; width:10px; height:10px; border-right:2px solid var(--muted); border-bottom:2px solid var(--muted);
+    transform:rotate(45deg) translateY(-3px); transition:transform .3s var(--ease); flex-shrink:0; }
+  .faq details[open] summary::after{ transform:rotate(225deg) translateY(-2px); border-color:var(--accent); }
+  .faq .a{ padding:0 24px 22px; color:var(--muted); font-size:15.5px; line-height:1.7; }
+  .faq details[open] .a{ animation:fadein .4s var(--ease); }
+  .faq .a a{ color:var(--accent); }
+
+  /* ── closing CTA + footer ──────────────────────────────────── */
+  .final{ position:relative; overflow:hidden; border-radius:28px; border:1px solid var(--line-2); padding:80px 32px; text-align:center; isolation:isolate;
+    background:radial-gradient(600px 300px at 50% 0%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 70%), var(--bg-2); }
+  .final::before{ content:""; position:absolute; inset:0; z-index:-1; opacity:.5;
+    background-image:linear-gradient(var(--line) 1px, transparent 1px), linear-gradient(90deg, var(--line) 1px, transparent 1px); background-size:40px 40px;
+    -webkit-mask-image:radial-gradient(ellipse at 50% 0%, #000, transparent 70%); mask-image:radial-gradient(ellipse at 50% 0%, #000, transparent 70%); }
+  .final h2{ margin-top:0; }
+  .final p{ color:var(--muted); font-size:18px; max-width:580px; margin:0 auto 32px; }
+  .final .cta{ justify-content:center; margin-top:0; }
+  footer{ border-top:1px solid var(--line); margin-top:110px; padding:60px 0 40px; color:var(--muted); font-size:14px; }
+  .foot{ display:grid; grid-template-columns:minmax(0,1.4fr) repeat(3, minmax(0,1fr)); gap:36px; }
+  @media(max-width:900px){ .foot{ grid-template-columns:repeat(2, minmax(0,1fr)); } .foot > div:first-child{ grid-column:span 2; } }
+  .foot h5{ color:var(--text); font-size:13px; letter-spacing:.08em; text-transform:uppercase; margin-bottom:14px; }
+  .foot a{ display:block; color:var(--muted); text-decoration:none; padding:4px 0; transition:color .2s; }
+  .foot a:hover{ color:var(--accent); }
+  .foot p{ max-width:360px; line-height:1.65; margin-top:14px; }
+  .legal{ margin-top:48px; padding-top:22px; border-top:1px solid var(--line); display:flex; flex-wrap:wrap; gap:10px 24px; justify-content:space-between; color:var(--dim); font-size:13px; }
+  .legal .motto{ font-family:var(--mono); letter-spacing:.14em; }
+
+  .toast{ position:fixed; left:50%; bottom:28px; z-index:90; transform:translate(-50%, 20px); opacity:0; pointer-events:none;
+    background:var(--surface-2); border:1px solid var(--line-2); color:var(--text); padding:11px 18px; border-radius:12px; font-size:14px;
+    box-shadow:0 20px 50px -20px rgba(0,0,0,.9); transition:all .35s var(--ease); }
+  .toast.on{ opacity:1; transform:translate(-50%, 0); }
+  .toast b{ color:var(--accent); }
+
   @media(max-width:640px){
     .cmdbar input, #region-select{ font-size:16px; }
     .chip{ padding:9px 14px; }
-    .btn, .demo-toggle{ padding:12px 14px; }
-    #region-select{ padding:10px 12px; }
+    .mbtn, .demo-toggle{ padding:12px 14px; }
+    .cmd-label i{ display:none; }
+  }
+  @media(prefers-reduced-motion: reduce){
+    html{ scroll-behavior:auto; }
+    *, *::before, *::after{ animation-duration:.001ms !important; animation-iteration-count:1 !important; transition-duration:.001ms !important; }
+    .rv{ opacity:1; transform:none; }
+    .aurora, .shooting, .stars{ display:none; }
+    .mq{ animation:none; flex-wrap:wrap; justify-content:center; width:auto; }
   }
 </style>
 </head>
 <body>
+<div class="backdrop" aria-hidden="true"></div>
 
-<div class="frame">
-
-  <div class="titlebar">
-    <div class="tb-left">
-      <div class="tb-name">OXIS</div>
-      <span class="tb-sep">/</span>
-      <span class="tb-route">plugin.market</span>
-      <nav class="tb-nav" aria-label="Site sections">
-        <a href="#market">Market</a>
-        <a href="#about">About</a>
-      </nav>
-    </div>
-    <div class="tb-links">
-      <a class="tb-link" href="https://github.com/oxlaboratory/oxis" target="_blank" rel="noopener noreferrer">GitHub ↗</a>
-      <a class="tb-link" href="https://sourceforge.net/projects/oxis/" target="_blank" rel="noopener noreferrer">SourceForge ↗</a>
+<!-- ═════════════════ NAV ═════════════════ -->
+<header class="nav" id="nav">
+  <div class="nav-in">
+    <a class="brand" href="#top" aria-label="OXIS home">
+      <svg viewBox="0 0 74 100" aria-hidden="true"><path fill="var(--accent)" fill-rule="evenodd" d="M37 0 74 19v62L37 100 0 81V19zm0 19-18.5 9.6v42.4L37 80.4l18.5-9.4V28.6z"/><path fill="#000" opacity=".22" d="M18.5 9.8 37 19l-18.5 9.6zM55.5 70.9 37 80.4 55.5 90z"/></svg>
+      OXIS
+    </a>
+    <nav class="nav-links" aria-label="Sections">
+      <a href="#features">Features</a>
+      <a href="#scripting">Scripting</a>
+      <a href="#themes">Themes</a>
+      <a href="#market">Market</a>
+      <a href="#install">Install</a>
+      <a href="#faq">FAQ</a>
+    </nav>
+    <div class="nav-right">
+      <a class="gh-pill" href="https://github.com/oxlaboratory/oxis" target="_blank" rel="noopener noreferrer" aria-label="OXIS on GitHub">
+        <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        GitHub <span class="gh-stars" id="navStars"></span>
+      </a>
+      <a class="btn btn-primary btn-sm" href="#install">Download</a>
+      <button class="menu-btn" id="menuBtn" aria-label="Menu" aria-expanded="false">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+      </button>
     </div>
   </div>
+</header>
 
-  <div class="intro">
-    <div class="intro-kicker">WHAT IS OXIS</div>
-    <div class="intro-title">A terminal app for Windows and Linux — built to be customized.</div>
-    <div class="intro-body">
-      OXIS is the same kind of program as Command Prompt, PowerShell, or iTerm2, except everything about it — its commands, its themes, its keyboard shortcuts, and its plugins — is scriptable using <strong>Lua</strong>, a small, easy-to-learn language. It works as a normal terminal right out of the box: every command you already know still works, unchanged.
-    </div>
-    <div class="intro-list">
-      <div class="intro-item"><b>Real terminal, real shell</b>Your actual PowerShell or bash, running exactly as it always has.</div>
-      <div class="intro-item"><b>Its own commands, too</b>Type <code>'</code> and OXIS's own commands take over — <code>'edit</code>, <code>'market</code>, <code>'theme</code>, and dozens more.</div>
-      <div class="intro-item"><b>Built-in code editor</b>Real syntax highlighting and multi-line editing, no separate app to switch to.</div>
-      <div class="intro-item"><b>Plugins, in Lua</b>Browse and install other people's plugins below, or write your own.</div>
-    </div>
-    <div class="intro-cta">
-      <a class="intro-btn primary" href="https://github.com/oxlaboratory/oxis" target="_blank" rel="noopener noreferrer">Get OXIS on GitHub ↗</a>
-      <a class="intro-btn" href="#market">Browse the Market ↓</a>
-      <a class="intro-btn" href="#about">About this project</a>
-    </div>
-  </div>
+<main id="top">
 
-  <a id="market"></a>
-  <div class="hero">
-    <div class="hero-top">
-      <div class="hero-title">PLUGIN <span>MARKET</span></div>
-    </div>
-    <div class="hero-sub">Extend your shell. Every free package here is a plain Lua script — read it, fork it, or run it as-is. Premium plugins are monthly subscriptions via Stripe — coming soon.</div>
-  </div>
+<!-- ═════════════════ HERO ═════════════════ -->
+<section class="hero">
+  <div class="aurora" aria-hidden="true"><span></span><span></span><span></span></div>
+  <div class="gridlines" aria-hidden="true"></div>
+  <div class="stars" id="stars" aria-hidden="true"></div>
+  <div class="shooting" aria-hidden="true"></div>
 
-  <div class="cmdwrap">
-    <div class="cmdbar">
-      <span class="cmd-label">market<i>&lt;search-mode&gt;</i></span>
-      <input id="search" type="text" placeholder="search plugins..." autocomplete="off">
-      <span class="cmd-count"><span id="visCount">0</span> shown</span>
-    </div>
-    <div class="filters" id="filters"></div>
-    <div class="region-row">
-      <label class="region-label" for="region-select">region<i>&lt;display-currency&gt;</i></label>
-      <select id="region-select"></select>
-      <span class="region-hint">prices shown for reference — premium plugins checkout through Stripe (subscriptions only, no one-time purchases)</span>
-    </div>
-  </div>
-
-  <div class="grid" id="grid"></div>
-  <div class="empty" id="emptyState"></div>
-
-  <a id="about"></a>
-  <div class="about">
-    <div class="about-title">ABOUT OXIS</div>
-    <div class="about-grid">
-      <div class="about-col">
-        <p>OXIS ("Open Xenial Intelligent Shell") is built around one idea: the terminal, editor, themes, commands, keymaps, plugins, and workspaces should all be one connected, scriptable system rather than separate tools bolted together.</p>
-        <p>This Market is where the community shares what they've built — every free plugin here is a plain, readable Lua script, and the whole project (core app included) is licensed under the <a href="https://github.com/oxlaboratory/oxis/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">Apache License 2.0</a>.</p>
-        <p>Building a plugin, fixing a bug, or just curious how it works? The full source, including this Market site itself, lives in the same repository below.</p>
+  <div class="wrap hero-grid">
+    <div>
+      <a class="live rv" id="liveBadge" href="https://github.com/oxlaboratory/oxis/commits/main" target="_blank" rel="noopener noreferrer">
+        <span class="pulse"></span><span class="tagv" id="liveVer">v1.2.1</span><span class="txt" id="liveTxt">open source · Windows &amp; Linux</span>
+      </a>
+      <h1 class="rv" style="--d:.08s">The terminal<br>you can<br><span class="rotator"><span class="word grad" id="rotWord">script.</span></span></h1>
+      <p class="lede rv" style="--d:.16s">OXIS runs <b>your real PowerShell, bash, zsh or fish</b> — and adds a built-in editor, workspaces, workflows, deep theming and Lua plugins on top. One binary. No account. No telemetry.</p>
+      <div class="cta rv" style="--d:.24s">
+        <a class="btn btn-primary" id="dlPrimary" href="#install">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0-5-5m5 5 5-5M4 19h16"/></svg>
+          <span id="dlLabel">Download OXIS</span>
+        </a>
+        <a class="btn btn-ghost" href="https://github.com/oxlaboratory/oxis" target="_blank" rel="noopener noreferrer">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="m12 2.8 2.8 5.8 6.3.9-4.6 4.4 1.1 6.3L12 17.2l-5.6 3 1.1-6.3L2.9 9.5l6.3-.9z"/></svg>
+          Star on GitHub <span id="heroStars" style="color:var(--muted); font-weight:500"></span>
+        </a>
       </div>
-      <div class="about-col">
-        <div class="about-links">
-          <a href="https://github.com/oxlaboratory/oxis" target="_blank" rel="noopener noreferrer">→ GitHub — source, issues, pull requests</a>
-          <a href="https://sourceforge.net/projects/oxis/" target="_blank" rel="noopener noreferrer">→ SourceForge — mirror &amp; releases</a>
-          <a href="https://github.com/oxlaboratory/oxis/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">→ LICENSE — Apache 2.0, full text</a>
-          <a href="https://github.com/oxlaboratory/oxis/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener noreferrer">→ CONTRIBUTING.md — how to submit a plugin</a>
-        </div>
+      <p class="cta-note rv" style="--d:.3s" id="dlNote">Free and open source under Apache 2.0 · <a href="#install">all downloads &amp; build from source</a></p>
+      <div class="checks rv" style="--d:.36s">
+        <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5L20 7"/></svg>Windows 10 &amp; 11</span>
+        <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5L20 7"/></svg>Linux x64</span>
+        <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5L20 7"/></svg>Self-updating</span>
+        <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5L20 7"/></svg>Zero telemetry</span>
       </div>
     </div>
-    <div class="about-foot">OXIS · Apache License 2.0 · this site is a static Cloudflare Pages deployment of the same repository</div>
-  </div>
 
+    <div class="term-wrap rv" style="--d:.2s">
+      <div class="term" id="term">
+        <div class="term-bar"><span class="term-dots"><i></i><i></i></span><span class="term-title">OXIS</span><span class="term-mode">SHELL</span></div>
+        <div class="term-body" id="termBody" role="log" aria-label="OXIS demo output"></div>
+        <label class="term-prompt" for="termInput">
+          <span class="tp-label" id="tpLabel">OXIS ❯</span>
+          <input id="termInput" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Try an OXIS command, for example 'help">
+        </label>
+        <div class="term-status"><span class="ts-mode">SHELL</span><span>● connected · acme-web</span><span class="ts-right"><span id="tsTheme">default</span><span id="tsClock"></span></span></div>
+      </div>
+      <div class="term-hint" id="termHint">Live demo — click it and type <code>'help</code>, or try <code>'theme ember</code></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════════ SHELL MARQUEE ═════════════════ -->
+<div class="marquee" aria-label="Works with your tools">
+  <div class="lbl">Runs the shell and tools you already use</div>
+  <div class="mq" id="mq"></div>
 </div>
 
+<!-- ═════════════════ FEATURES ═════════════════ -->
+<section class="sec" id="features">
+  <div class="wrap">
+    <div class="sec-head rv">
+      <span class="kicker">Why OXIS</span>
+      <h2>Everything around your shell,<br>in one fast window.</h2>
+      <p>Keep every command and alias you have. OXIS adds the pieces you normally juggle across five apps — and makes all of it scriptable.</p>
+    </div>
+
+    <div class="bento">
+      <div class="cell spot c3 cwide rv">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m4 17 6-6-6-6M12 19h8"/></svg></div>
+        <h3>Your shell, unchanged</h3>
+        <p>OXIS starts a real shell in a real pseudo-terminal: PowerShell 7 or Windows PowerShell on Windows, your <code>$SHELL</code> on Linux. Anything that doesn't start with <code>'</code> goes straight to it — prompts, REPLs and interactive tools included.</p>
+        <div class="shells"><span>pwsh 7</span><span>Windows PowerShell</span><span>bash</span><span>zsh</span><span>fish</span><span>OXIS_SHELL=…</span></div>
+      </div>
+      <div class="cell spot c3 cwide rv" style="--d:.08s">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4c-1 0-2 .5-2 2v3c0 1-1 2-2 2 1 0 2 1 2 2v3c0 1.5 1 2 2 2M15 4c1 0 2 .5 2 2v3c0 1 1 2 2 2-1 0-2 1-2 2v3c0 1.5-1 2-2 2"/></svg></div>
+        <h3>50+ built-in <code>'commands</code></h3>
+        <p>Start a line with an apostrophe and OXIS takes it: open files, switch themes, run tasks, manage plugins — with history, reverse search and readline keys in one prompt that sits on every screen.</p>
+        <div class="cmds"><code>'edit</code><code>'theme</code><code>'task</code><code>'workflow</code><code>'workspace</code><code>'market</code><code>'plugin</code><code>'update</code><code>'version</code><code>'backup</code></div>
+      </div>
+
+      <div class="cell spot c4 cwide rv">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v16H4zM4 9h16M9 9v11"/></svg></div>
+        <h3>A real editor, built in</h3>
+        <p>Syntax highlighting, tabs, a file tree, find &amp; replace, Vim-style Normal/Insert/Visual modes and live HTML/Markdown preview. <code>'edit src/app.ts</code> and you're in — no context switch.</p>
+        <img class="shot" src="assets/app-editor.webp" alt="The OXIS editor showing a TypeScript file in Normal mode" loading="lazy" width="1650" height="1050">
+      </div>
+      <div class="cell spot c2 rv" style="--d:.08s">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h18M3 12h12M3 17h8"/><circle cx="18" cy="16" r="3"/></svg></div>
+        <h3>Workspaces that remember</h3>
+        <p>Each project keeps its own tasks, workflows, plugins and documents, linked to the real folder and its git remote. Switch projects with one command.</p>
+        <div class="mini-steps">
+          <div><b>▸</b> install <span class="bar" style="--dl:0s"></span></div>
+          <div><b>▸</b> build <span class="bar" style="--dl:.4s"></span></div>
+          <div><b>▸</b> test <span class="bar" style="--dl:.8s"></span></div>
+        </div>
+      </div>
+
+      <div class="cell spot c2 rv">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></div>
+        <h3>Command palette</h3>
+        <p><kbd>Ctrl+Shift+P</kbd> finds any command, plugin shortcut or task as you type.</p>
+        <img class="shot" src="assets/app-palette.webp" alt="The OXIS command palette" loading="lazy" width="1650" height="1050">
+      </div>
+      <div class="cell spot c2 rv" style="--d:.06s">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 4 7v6c0 4.4 3.4 7.4 8 8 4.6-.6 8-3.6 8-8V7z"/><path d="m9 12 2 2 4-4"/></svg></div>
+        <h3>Plugins with permissions</h3>
+        <p>Lua plugins declare what they touch — <code>fs</code>, <code>net</code>, <code>shell</code>… — and can never get more. Each runs in its own VM, so a bad plugin can't take your session down.</p>
+      </div>
+      <div class="cell spot c2 rv" style="--d:.12s">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg></div>
+        <h3>Updates itself — safely</h3>
+        <p><code>'update install</code> builds the latest source (or grabs the CI binary), swaps it in, and rolls back if the new build doesn't start. <code>'version</code> shows exactly which commit you run.</p>
+      </div>
+
+      <div class="cell spot c3 cwide rv">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></div>
+        <h3>Private by default</h3>
+        <p>No account and no telemetry. Password prompts are masked, and the only network calls are the ones you can see: update checks against GitHub (one setting turns them off), the Market, and what your plugins declare.</p>
+      </div>
+      <div class="cell spot c3 cwide rv" style="--d:.08s">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M3 9h18M8 21h8"/></svg></div>
+        <h3>Desktop app — or a browser tab</h3>
+        <p>A native window on Windows and Linux (Go + WebView), and the same UI at <code>http://127.0.0.1:1420</code> while it runs. Everything ships as one ~14&nbsp;MB binary.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════════ SCRIPTING ═════════════════ -->
+<section class="sec" id="scripting" style="padding-top:40px">
+  <div class="wrap split">
+    <div class="rv">
+      <span class="kicker">Scriptable to the core</span>
+      <h2>Your terminal is<br>a Lua program.</h2>
+      <p style="color:var(--muted); font-size:18px">Commands, tasks, workflows, keymaps, events and the home screen are all plain Lua — in a plugin, a project's <code style="font-size:.85em">workspace.lua</code> or your <code style="font-size:.85em">~/.oxis/config.lua</code>. Save, and it reloads.</p>
+      <div class="points" id="points">
+        <button class="point on" data-tab="0"><span class="n">01</span><div><h4>Add your own commands</h4><p><code>oxis.command</code> registers <code>'pr</code>; <code>oxis.quote</code> keeps arguments safe for PowerShell and bash alike.</p></div></button>
+        <button class="point" data-tab="1"><span class="n">02</span><div><h4>Automate the boring runs</h4><p>Workflows with retries, conditions, env and parallel steps — failing on real exit codes.</p></div></button>
+        <button class="point" data-tab="2"><span class="n">03</span><div><h4>Theme every pixel</h4><p>16 core colours plus 46 options: fonts, glow, gradients, prompt text, status bar, syntax colours.</p></div></button>
+      </div>
+    </div>
+    <div class="editor rv" style="--d:.1s">
+      <div class="ed-tabs" role="tablist">
+        <button class="ed-tab on" data-tab="0" role="tab">plugins/pr.lua</button>
+        <button class="ed-tab" data-tab="1" role="tab">workflows/release.lua</button>
+        <button class="ed-tab" data-tab="2" role="tab">themes/harbour.json</button>
+        <button class="copy" id="codeCopy">copy</button>
+      </div>
+      <div class="ed-body">
+<pre class="ed-pane on"><span class="ln"><span class="c">--[[@manifest</span></span><span class="ln"><span class="c">version: 1.0.0</span></span><span class="ln"><span class="c">description: open a pull request for a branch</span></span><span class="ln"><span class="c">permissions: shell</span></span><span class="ln"><span class="c">]]</span></span><span class="ln"></span><span class="ln"><span class="pr">oxis</span>.<span class="f">command</span>(<span class="s">"pr"</span>, <span class="k">function</span>(args, rest)</span><span class="ln">  <span class="k">local</span> branch <span class="o">=</span> rest <span class="o">~=</span> <span class="s">""</span> <span class="k">and</span> rest <span class="k">or</span> <span class="s">"HEAD"</span></span><span class="ln">  <span class="pr">oxis</span>.<span class="f">echo</span>(<span class="s">"opening a PR for "</span> <span class="o">..</span> branch)</span><span class="ln">  <span class="pr">oxis</span>.<span class="f">run</span>(<span class="s">"gh pr create --web --head "</span> <span class="o">..</span> <span class="pr">oxis</span>.<span class="f">quote</span>(branch))</span><span class="ln"><span class="k">end</span>, <span class="s">"open a GitHub PR"</span>)</span><span class="ln"></span><span class="ln"><span class="pr">oxis</span>.<span class="f">autocmd</span>(<span class="s">"ShellOpen"</span>, <span class="k">function</span>()</span><span class="ln">  <span class="pr">oxis</span>.<span class="f">echo</span>(<span class="s">"pr ready — try 'pr my-branch"</span>)</span><span class="ln"><span class="k">end</span>)</span></pre>
+<pre class="ed-pane"><span class="ln"><span class="pr">oxis</span>.<span class="f">workflow</span>(<span class="s">"release"</span>, {</span><span class="ln">  env <span class="o">=</span> { NODE_ENV <span class="o">=</span> <span class="s">"production"</span> },</span><span class="ln">  steps <span class="o">=</span> {</span><span class="ln">    { task <span class="o">=</span> <span class="s">"install"</span> },</span><span class="ln">    { run <span class="o">=</span> <span class="s">"npm run build"</span>, retry <span class="o">=</span> <span class="num">2</span> },</span><span class="ln">    { run <span class="o">=</span> <span class="s">"npm test"</span>, continueOnError <span class="o">=</span> <span class="k">true</span> },</span><span class="ln">    { command <span class="o">=</span> <span class="s">"version"</span> },            <span class="c">-- an 'command</span></span><span class="ln">    { condition <span class="o">=</span> <span class="s">"env:DEPLOY"</span>,</span><span class="ln">      run <span class="o">=</span> <span class="s">"npm run deploy"</span> },         <span class="c">-- only when DEPLOY is set</span></span><span class="ln">    { parallel <span class="o">=</span> {</span><span class="ln">        { command <span class="o">=</span> <span class="s">"plugin list"</span> },</span><span class="ln">        { command <span class="o">=</span> <span class="s">"workspace info"</span> } } },</span><span class="ln">  },</span><span class="ln">}, <span class="s">"build, test and deploy"</span>)</span><span class="ln"></span><span class="ln"><span class="c">-- 'workflow release</span></span></pre>
+<pre class="ed-pane"><span class="ln">{</span><span class="ln">  <span class="f">"name"</span>: <span class="s">"harbour"</span>,</span><span class="ln">  <span class="f">"extends"</span>: <span class="s">"slate"</span>,</span><span class="ln">  <span class="f">"purple"</span>: <span class="s">"#5cc8ff"</span>, <span class="f">"purple2"</span>: <span class="s">"#2f8fd8"</span>,</span><span class="ln">  <span class="f">"success"</span>: <span class="s">"#7ee787"</span>, <span class="f">"statusBg"</span>: <span class="s">"#1f6fb2"</span>,</span><span class="ln">  <span class="f">"font"</span>: <span class="s">"'Fira Code', monospace"</span>,</span><span class="ln">  <span class="f">"fontSize"</span>: <span class="num">14</span>, <span class="f">"ligatures"</span>: <span class="k">true</span>,</span><span class="ln">  <span class="f">"promptText"</span>: <span class="s">"⚓ ❯"</span>, <span class="f">"glow"</span>: <span class="num">0.25</span>,</span><span class="ln">  <span class="f">"backgroundGradient"</span>:</span><span class="ln">    <span class="s">"linear-gradient(160deg, #0e1018 40%, #12304a)"</span>,</span><span class="ln">  <span class="f">"backgroundOpacity"</span>: <span class="num">0.8</span></span><span class="ln">}</span><span class="ln"></span><span class="ln"><span class="c">// 'theme import harbour.json · or tweak live:</span></span><span class="ln"><span class="c">// 'theme set glow 0.45</span></span></pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════════ THEMES ═════════════════ -->
+<section class="sec" id="themes" style="padding-top:40px">
+  <div class="wrap">
+    <div class="sec-head center rv">
+      <span class="kicker">Themes</span>
+      <h2>Ten themes. Sixty-two keys.<br><span class="grad">Make it yours.</span></h2>
+      <p>Click one — this page and the demo terminal above switch with it. In OXIS, <code>'theme set &lt;key&gt; &lt;value&gt;</code> changes anything live and saves your own copy.</p>
+    </div>
+    <div class="swatches" id="swatches"></div>
+    <div class="theme-cols">
+      <div class="cell spot rv"><h3>Live theme editor</h3><p><code>'theme edit</code> opens every option with a live preview: colours, fonts, spacing, glow, background images and gradients.</p>
+        <img class="shot" src="assets/app-theme-editor.webp" alt="The OXIS theme editor" loading="lazy" width="1650" height="1050"></div>
+      <div class="cell spot rv" style="--d:.08s"><h3>Themes are just JSON</h3><p>Drop files in <code>~/.oxis/themes/</code>, extend a built-in with <code>"extends"</code>, or <code>'theme import</code> one. Unknown keys are reported, never fatal.</p>
+        <div class="keys"><code>bg</code><code>purple</code><code>statusBg</code><code>promptText</code><code>glow</code><code>font</code><code>ligatures</code><code>radius</code><code>cursorStyle</code><code>synKeyword</code><code>backgroundGradient</code><code>backgroundBlur</code><code>css</code></div></div>
+      <div class="cell spot rv" style="--d:.16s"><h3>Down to the details</h3><p>Gradients, glow, a custom prompt label and a recoloured status bar — all from four <code>'theme set</code> lines.</p>
+        <img class="shot" src="assets/app-theme-custom.webp" alt="A customised midnight theme with a gradient background and glow" loading="lazy" width="1650" height="1050"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════════ GALLERY ═════════════════ -->
+<section class="sec" id="tour" style="padding-top:40px">
+  <div class="wrap">
+    <div class="sec-head center rv">
+      <span class="kicker">Take the tour</span>
+      <h2>See it in action.</h2>
+    </div>
+    <div class="gtabs rv" id="gtabs"></div>
+    <div class="gframe rv"><div class="gstage" id="gstage"></div></div>
+    <p class="gcap" id="gcap"></p>
+  </div>
+</section>
+
+<!-- ═════════════════ STATS ═════════════════ -->
+<section class="wrap" aria-label="OXIS in numbers">
+  <div class="stats rv">
+    <div class="stat"><div class="v"><span data-count="50">0</span><small>+</small></div><div class="l">built-in commands</div></div>
+    <div class="stat"><div class="v"><span data-count="26">0</span></div><div class="l">bundled plugins</div></div>
+    <div class="stat"><div class="v"><span data-count="10">0</span></div><div class="l">themes, 62 keys each</div></div>
+    <div class="stat"><div class="v">~<span data-count="14">0</span><small>MB</small></div><div class="l">one binary, frontend included</div></div>
+    <div class="stat"><div class="v"><span data-count="0">0</span></div><div class="l">telemetry calls</div></div>
+  </div>
+</section>
+
+<!-- ═════════════════ MARKET ═════════════════ -->
+<section class="sec" id="market">
+  <div class="wrap">
+    <div class="sec-head rv">
+      <span class="kicker">plugin.market</span>
+      <h2>Extend your shell.</h2>
+      <p>Every free package is a plain, readable Lua script — read it, fork it, or install it with <code>'market install &lt;name&gt;</code>. Publish yours with <code>'plugin publish</code>, which opens the pull request for you. Premium plugins are monthly subscriptions via Stripe — coming soon.</p>
+    </div>
+    <div class="market-shell rv">
+      <div class="cmdwrap">
+        <div class="cmdbar">
+          <span class="cmd-label">'market search<i> ›</i></span>
+          <input id="search" type="text" placeholder="search plugins, tags, authors…" autocomplete="off" aria-label="Search plugins">
+          <span class="cmd-count"><span id="visCount">0</span> shown</span>
+        </div>
+        <div class="filters" id="filters"></div>
+        <div class="region-row">
+          <label class="region-label" for="region-select">region<i> · display currency</i></label>
+          <select id="region-select"></select>
+          <span class="region-hint">prices for reference — premium plugins check out through Stripe (subscriptions only)</span>
+        </div>
+      </div>
+      <div class="grid" id="grid"></div>
+      <div class="empty" id="emptyState"></div>
+      <div class="market-foot">
+        <span>Built something useful?</span>
+        <a href="https://github.com/oxlaboratory/oxis/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener noreferrer">How to publish a plugin →</a>
+        <a href="https://github.com/oxlaboratory/oxis#lua-api" target="_blank" rel="noopener noreferrer">Lua API reference →</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════════ INSTALL ═════════════════ -->
+<section class="sec" id="install" style="padding-top:40px">
+  <div class="wrap">
+    <div class="sec-head center rv">
+      <span class="kicker">Install</span>
+      <h2>Up and running in a minute.</h2>
+      <p>Every push to <code>main</code> is built by GitHub Actions and published to the rolling <code>latest-build</code> release<span id="relInfo"></span>.</p>
+    </div>
+    <div class="install rv">
+      <div class="itabs" role="tablist">
+        <button class="itab on" data-os="win" role="tab"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 5.5 10 4.5v7H3zm8-1.2L21 3v8.5H11zM3 12.5h7v7l-7-1zm8 0h10V21l-10-1.4z"/></svg>Windows</button>
+        <button class="itab" data-os="linux" role="tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m4 17 6-6-6-6M12 19h8"/></svg>Linux</button>
+        <button class="itab" data-os="src" role="tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m8 7-5 5 5 5M16 7l5 5-5 5"/></svg>From source</button>
+      </div>
+
+      <div class="ipane on" data-os="win">
+        <div>
+          <h3>Windows 10 &amp; 11 (x64)</h3>
+          <p>Use the installer, or the portable <code>oxis.exe</code>. WebView2 already ships with Windows.</p>
+          <div class="btns">
+            <a class="btn btn-primary" data-asset="msi" href="https://github.com/oxlaboratory/oxis/releases/tag/latest-build" target="_blank" rel="noopener noreferrer">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0-5-5m5 5 5-5M4 19h16"/></svg>Installer (.msi)</a>
+            <a class="btn btn-ghost" data-asset="exe" href="https://github.com/oxlaboratory/oxis/releases/tag/latest-build" target="_blank" rel="noopener noreferrer">Portable .exe</a>
+          </div>
+          <ol class="steps">
+            <li>Run the installer (or the .exe — it keeps its data next to itself).</li>
+            <li>Type <code>'help</code>, or just start typing commands you already know.</li>
+            <li><code>'update install</code> keeps you on the newest build from then on.</li>
+          </ol>
+        </div>
+        <div class="shell"><div class="shell-top"><i></i><i></i><i></i><span>PowerShell</span><button class="copy" data-copy="win">copy</button></div>
+<pre data-code="win"><span class="pr">PS&gt; </span>Invoke-WebRequest https://github.com/oxlaboratory/oxis/releases/download/latest-build/oxis.exe -OutFile oxis.exe
+<span class="pr">PS&gt; </span>.\oxis.exe</pre></div>
+      </div>
+
+      <div class="ipane" data-os="linux">
+        <div>
+          <h3>Linux (x64)</h3>
+          <p>A <code>.deb</code> for Debian and Ubuntu, a portable tarball, or the bare binary. OXIS needs GTK 3 and WebKitGTK — the <code>.deb</code> pulls them in.</p>
+          <div class="btns">
+            <a class="btn btn-primary" data-asset="deb" href="https://github.com/oxlaboratory/oxis/releases/tag/latest-build" target="_blank" rel="noopener noreferrer">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0-5-5m5 5 5-5M4 19h16"/></svg>.deb package</a>
+            <a class="btn btn-ghost" data-asset="tar" href="https://github.com/oxlaboratory/oxis/releases/tag/latest-build" target="_blank" rel="noopener noreferrer">Portable .tar.gz</a>
+          </div>
+          <ol class="steps">
+            <li>Install the package (or run the binary after installing <code>libgtk-3-0</code> and <code>libwebkit2gtk-4.1-0</code>).</li>
+            <li>OXIS opens your <code>$SHELL</code> — bash, zsh or fish.</li>
+          </ol>
+        </div>
+        <div class="shell"><div class="shell-top"><i></i><i></i><i></i><span>bash</span><button class="copy" data-copy="linux">copy</button></div>
+<pre data-code="linux"><span class="pr">$ </span>curl -LO <span id="debUrl">https://github.com/oxlaboratory/oxis/releases/download/latest-build/oxis_1.2.1_amd64.deb</span>
+<span class="pr">$ </span>sudo apt install ./<span id="debName">oxis_1.2.1_amd64.deb</span>
+<span class="pr">$ </span>oxis</pre></div>
+      </div>
+
+      <div class="ipane" data-os="src">
+        <div>
+          <h3>Build it yourself</h3>
+          <p>Go 1.22+ and Node.js 24+; on Linux also <code>libgtk-3-dev libwebkit2gtk-4.1-dev pkg-config</code>. macOS isn't tested yet, but Wails supports it.</p>
+          <ol class="steps">
+            <li><code>npm run setup</code> checks your tools and installs dependencies.</li>
+            <li><code>npm run build</code> stamps the version, commit and build number into the binary.</li>
+            <li><code>npm run dev</code> rebuilds and relaunches on every change.</li>
+          </ol>
+        </div>
+        <div class="shell"><div class="shell-top"><i></i><i></i><i></i><span>terminal</span><button class="copy" data-copy="src">copy</button></div>
+<pre data-code="src"><span class="pr">$ </span>git clone https://github.com/oxlaboratory/oxis.git
+<span class="pr">$ </span>cd oxis
+<span class="pr">$ </span>npm run setup
+<span class="pr">$ </span>npm run build   <span class="c"># → dist/oxis.exe or dist/oxis</span></pre></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════════ FAQ ═════════════════ -->
+<section class="sec" id="faq" style="padding-top:40px">
+  <div class="wrap">
+    <div class="sec-head center rv">
+      <span class="kicker">Questions</span>
+      <h2>Switching? Good questions.</h2>
+    </div>
+    <div class="faq">
+      <details class="rv" open><summary>Do I have to change shells or relearn anything?</summary>
+        <div class="a">No. OXIS runs the shell you already use — PowerShell 7 (or Windows PowerShell) on Windows and your <code>$SHELL</code> on Linux, including zsh and fish; set <code>OXIS_SHELL</code> to pick another. Your profile, aliases and prompt load as usual, and anything not starting with <code>'</code> goes straight to the shell.</div></details>
+      <details class="rv"><summary>Does OXIS collect any data?</summary>
+        <div class="a">No telemetry and no account. OXIS only goes online to check GitHub for updates (<code>'config set updateCheckOnStartup false</code> turns that off), to browse the Market, and for requests your plugins make — which need the <code>net</code> permission.</div></details>
+      <details class="rv"><summary>Is it free?</summary>
+        <div class="a">Yes. OXIS is open source under the <a href="https://github.com/oxlaboratory/oxis/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">Apache License 2.0</a>, and free Market plugins stay free. Premium plugins are planned as optional monthly subscriptions; none can be bought yet.</div></details>
+      <details class="rv"><summary>How do updates work — and how do I know what I'm running?</summary>
+        <div class="a"><code>'update</code> compares your build's commit with <code>main</code> on GitHub and says how many commits behind you are. <code>'update install</code> builds the latest source (falling back to the prebuilt binary), swaps it in and restores the old one if the new build fails to start. <code>'version</code> shows the version, build number, commit, release tag, channel and build date — <code>'version --copy</code> puts it on your clipboard for a bug report.</div></details>
+      <details class="rv"><summary>Can I bring my setup with me?</summary>
+        <div class="a">Your shell profile works as-is. On top of that, <code>~/.oxis/config.lua</code> runs at startup, themes are JSON files in <code>~/.oxis/themes/</code>, each project can carry a <code>.oxis/workspace.lua</code>, and <code>'backup</code> / <code>'restore</code> move everything between machines.</div></details>
+      <details class="rv"><summary>What about macOS?</summary>
+        <div class="a">There's no macOS build yet. OXIS is built on Wails, which supports macOS, so building from source should work — it just isn't tested. Issues and pull requests are welcome.</div></details>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════════ CLOSING CTA ═════════════════ -->
+<section class="wrap">
+  <div class="final rv">
+    <span class="kicker">Terminals were the beginning</span>
+    <h2>Make your terminal<br>work the way you do.</h2>
+    <p>Install OXIS, keep your shell, and script the rest.</p>
+    <div class="cta">
+      <a class="btn btn-primary" href="#install"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0-5-5m5 5 5-5M4 19h16"/></svg>Download OXIS</a>
+      <a class="btn btn-ghost" href="https://github.com/oxlaboratory/oxis" target="_blank" rel="noopener noreferrer">Read the source</a>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer id="about">
+  <div class="wrap">
+    <div class="foot">
+      <div>
+        <a class="brand" href="#top" style="display:inline-flex; padding:0; color:var(--text)">
+          <svg viewBox="0 0 74 100" aria-hidden="true"><path fill="var(--accent)" fill-rule="evenodd" d="M37 0 74 19v62L37 100 0 81V19zm0 19-18.5 9.6v42.4L37 80.4l18.5-9.4V28.6z"/></svg>OXIS
+        </a>
+        <p>Open Xenial Intelligent Shell — the terminal, editor, themes, commands, keymaps, plugins and workspaces as one connected, scriptable system.</p>
+      </div>
+      <div><h5>Product</h5><a href="#features">Features</a><a href="#themes">Themes</a><a href="#market">Market</a><a href="#install">Download</a></div>
+      <div><h5>Developers</h5><a href="https://github.com/oxlaboratory/oxis#lua-api" target="_blank" rel="noopener noreferrer">Lua API</a><a href="https://github.com/oxlaboratory/oxis/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener noreferrer">Contributing</a><a href="https://github.com/oxlaboratory/oxis/blob/main/CHANGELOG.md" target="_blank" rel="noopener noreferrer">Changelog</a><a href="https://github.com/oxlaboratory/oxis/issues" target="_blank" rel="noopener noreferrer">Issues</a></div>
+      <div><h5>Project</h5><a href="https://github.com/oxlaboratory/oxis" target="_blank" rel="noopener noreferrer">GitHub</a><a href="https://github.com/oxlaboratory/oxis/releases/tag/latest-build" target="_blank" rel="noopener noreferrer">Latest build</a><a href="https://github.com/oxlaboratory/oxis/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">Apache 2.0</a></div>
+    </div>
+    <div class="legal"><span>© OXIS contributors · Apache License 2.0 · served from this repository's <code>cloudflare/</code> folder</span><span class="motto">TERMINALS WERE THE BEGINNING.</span></div>
+  </div>
+</footer>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
 <script>
+/* ================================================================
+   Shared helpers
+   ================================================================ */
+const $ = (s, el = document) => el.querySelector(s);
+const $$ = (s, el = document) => [...el.querySelectorAll(s)];
+const reduced = () => window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+function escapeHtml(s){
+  // Plugin fields come from submissions, so escape them wherever they
+  // go into innerHTML (text and attribute positions).
+  return String(s ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+const store = {
+  get(k){ try{ return localStorage.getItem(k); }catch{ return null; } },
+  set(k, v){ try{ localStorage.setItem(k, v); }catch{} },
+};
+
+let toastTimer;
+function toast(html){
+  const t = $('#toast');
+  t.innerHTML = html;
+  t.classList.add('on');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('on'), 2200);
+}
+
+async function copyText(text){
+  try{ await navigator.clipboard.writeText(text); return true; }
+  catch{
+    const ta = document.createElement('textarea');
+    ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    let ok = false;
+    try{ ok = document.execCommand('copy'); }catch{}
+    ta.remove();
+    return ok;
+  }
+}
+function flashCopied(btn, label = 'copy'){
+  btn.textContent = 'copied ✓'; btn.classList.add('done');
+  setTimeout(() => { btn.textContent = label; btn.classList.remove('done'); }, 1600);
+}
+
+/* ================================================================
+   Nav, reveal-on-scroll, spotlight, stars, rotator, marquee
+   ================================================================ */
+const nav = $('#nav');
+const onScroll = () => nav.classList.toggle('scrolled', window.scrollY > 8);
+window.addEventListener('scroll', onScroll, { passive: true });
+onScroll();
+$('#menuBtn').addEventListener('click', () => {
+  const open = nav.classList.toggle('open');
+  $('#menuBtn').setAttribute('aria-expanded', String(open));
+});
+$$('.nav-links a').forEach(a => a.addEventListener('click', () => { nav.classList.remove('open'); $('#menuBtn').setAttribute('aria-expanded', 'false'); }));
+
+if('IntersectionObserver' in window && !reduced()){
+  const io = new IntersectionObserver(entries => {
+    for(const e of entries) if(e.isIntersecting){ e.target.classList.add('in'); io.unobserve(e.target); }
+  }, { rootMargin: '0px 0px -8% 0px', threshold: 0 });
+  $$('.rv').forEach(el => io.observe(el));
+} else {
+  $$('.rv').forEach(el => el.classList.add('in'));
+}
+
+document.addEventListener('pointermove', e => {
+  const el = e.target.closest && e.target.closest('.spot');
+  if(!el) return;
+  const r = el.getBoundingClientRect();
+  el.style.setProperty('--mx', (e.clientX - r.left) + 'px');
+  el.style.setProperty('--my', (e.clientY - r.top) + 'px');
+}, { passive: true });
+
+(function stars(){
+  const box = $('#stars');
+  let html = '';
+  for(let i = 0; i < 70; i++){
+    const s = Math.random() < .15 ? 3 : 2;
+    html += `<i style="left:${(Math.random()*100).toFixed(2)}%;top:${(14+Math.random()*62).toFixed(2)}%;width:${s}px;height:${s}px;--o:${(.25+Math.random()*.6).toFixed(2)};animation-delay:${(Math.random()*5).toFixed(2)}s;animation-duration:${(3+Math.random()*4).toFixed(2)}s"></i>`;
+  }
+  box.innerHTML = html;
+})();
+
+(function rotator(){
+  const words = ['script.', 'theme.', 'extend.', 'automate.', 'trust.'];
+  const el = $('#rotWord');
+  if(reduced()) return;
+  let i = 0;
+  setInterval(() => {
+    el.classList.add('out');
+    setTimeout(() => {
+      i = (i + 1) % words.length;
+      el.textContent = words[i];
+      el.classList.remove('out'); el.classList.add('pre');
+      void el.offsetWidth;
+      el.classList.remove('pre');
+    }, 480);
+  }, 2800);
+})();
+
+(function marquee(){
+  const items = [
+    ['PowerShell 7', '#5ea5ff'], ['Windows PowerShell', '#3b82f6'], ['bash', '#4ade80'], ['zsh', '#f59e0b'], ['fish', '#f472b6'],
+    ['git', '#f97316'], ['npm', '#ef4444'], ['node', '#84cc16'], ['go', '#22d3ee'], ['cargo', '#fb923c'], ['python', '#facc15'],
+    ['docker compose', '#38bdf8'], ['ssh', '#a78bfa'], ['kubectl', '#60a5fa'], ['vim keys', '#34d399'], ['gh', '#e5e7eb'],
+  ];
+  const one = items.map(([n, c]) => `<span class="chiplg" style="--c:${c}"><i></i><b>${n}</b></span>`).join('');
+  $('#mq').innerHTML = one + one;
+})();
+
+(function counters(){
+  const els = $$('[data-count]');
+  const run = el => {
+    const target = +el.dataset.count;
+    if(reduced() || target === 0){ el.textContent = target; return; }
+    const t0 = performance.now(), dur = 1400;
+    const tick = t => {
+      const p = Math.min(1, (t - t0) / dur);
+      el.textContent = Math.round(target * (1 - Math.pow(1 - p, 3)));
+      if(p < 1) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  };
+  if(!('IntersectionObserver' in window)){ els.forEach(run); return; }
+  const io = new IntersectionObserver(es => es.forEach(e => { if(e.isIntersecting){ run(e.target); io.unobserve(e.target); } }), { threshold: .6 });
+  els.forEach(el => io.observe(el));
+})();
+
+/* ================================================================
+   Themes — the same palettes as OXIS's built-in themes
+   (frontend/src/terminal/themeManager.ts)
+   ================================================================ */
+const THEMES = {
+  default:  { bg:'#1a1b26', bg1:'#16161e', bg2:'#1f2335', line:'#31364a', text:'#c0caf5', muted:'#7a809b', dim:'#565f89', a:'#3dff64', a2:'#29d84e', a3:'#7dff9a' },
+  midnight: { bg:'#080810', bg1:'#0d0d18', bg2:'#121220', line:'#22223a', text:'#d0c8f0', muted:'#6a6090', dim:'#3d3660', a:'#b090f0', a2:'#7040c0', a3:'#d0b0ff' },
+  slate:    { bg:'#0e1018', bg1:'#121520', bg2:'#181c28', line:'#282d42', text:'#c0c8e0', muted:'#6878a0', dim:'#404868', a:'#8090d8', a2:'#5060a8', a3:'#a8b8f0' },
+  forest:   { bg:'#0d1117', bg1:'#111a14', bg2:'#162019', line:'#223326', text:'#c9d1d9', muted:'#7daa7d', dim:'#3f6040', a:'#56d364', a2:'#2ea043', a3:'#9be9a8' },
+  ember:    { bg:'#18100c', bg1:'#1e1410', bg2:'#261a14', line:'#3a2820', text:'#e8d8c8', muted:'#b07858', dim:'#704838', a:'#e8825a', a2:'#c0532a', a3:'#ffaa80' },
+  rose:     { bg:'#1a0e14', bg1:'#20121a', bg2:'#281820', line:'#3c2832', text:'#f0d8e8', muted:'#b07890', dim:'#704858', a:'#f088a8', a2:'#c06080', a3:'#ffb0c8' },
+  dusk:     { bg:'#130d1a', bg1:'#180f20', bg2:'#1e1428', line:'#2e2040', text:'#d8c8e8', muted:'#8068a0', dim:'#50406a', a:'#c088e8', a2:'#9050c0', a3:'#ddb0ff' },
+  void:     { bg:'#080808', bg1:'#0c0c0c', bg2:'#121212', line:'#202020', text:'#c0b8d8', muted:'#6060a0', dim:'#404060', a:'#9070d0', a2:'#6040a8', a3:'#c0a0f0' },
+  paper:    { bg:'#f7f5ef', bg1:'#ece8de', bg2:'#f0ede4', line:'#cfc8b8', text:'#2f3437', muted:'#6b6f73', dim:'#8d9094', a:'#3b6ea5', a2:'#2f5b8a', a3:'#1f7a5a', light:true },
+  matrix:   { bg:'#020a04', bg1:'#010603', bg2:'#041208', line:'#0b2e15', text:'#b6ffcf', muted:'#4fbf78', dim:'#2a7a48', a:'#00ff66', a2:'#00c850', a3:'#7dffb0' },
+};
+let currentTheme = 'default';
+
+function luminance(hex){
+  const n = parseInt(hex.slice(1), 16);
+  const c = [n >> 16 & 255, n >> 8 & 255, n & 255].map(v => { v /= 255; return v <= .03928 ? v / 12.92 : Math.pow((v + .055) / 1.055, 2.4); });
+  return .2126 * c[0] + .7152 * c[1] + .0722 * c[2];
+}
+
+/** Applies an OXIS theme to the demo terminal and, unless demoOnly,
+ *  to this page's accent colours too. */
+function applyTheme(name, { demoOnly = false, remember = true } = {}){
+  const t = THEMES[name];
+  if(!t) return false;
+  const term = $('#term');
+  const set = (k, v) => term.style.setProperty(k, v);
+  set('--t-bg', t.bg); set('--t-bg1', t.bg1); set('--t-bg2', t.bg2); set('--t-line', t.line);
+  set('--t-text', t.text); set('--t-muted', t.muted); set('--t-dim', t.dim);
+  set('--t-a', t.a); set('--t-a2', t.a2); set('--t-a3', t.a3);
+  $('#tsTheme').textContent = name;
+  if(!demoOnly){
+    const root = document.documentElement.style;
+    // paper is a light theme: its deep blue is too dark for accents on
+    // this dark page, so use its brighter tone.
+    const accent = t.light ? '#6b9fd8' : t.a;
+    root.setProperty('--accent', accent);
+    root.setProperty('--accent-2', t.light ? '#a8c8ec' : t.a3);
+    root.setProperty('--accent-3', t.a2);
+    root.setProperty('--on-accent', luminance(accent) > .35 ? '#05070a' : '#ffffff');
+    currentTheme = name;
+    $$('.sw').forEach(s => s.classList.toggle('on', s.dataset.theme === name));
+    if(remember) store.set('oxis-site-theme', name);
+  }
+  return true;
+}
+
+(function swatches(){
+  $('#swatches').innerHTML = Object.entries(THEMES).map(([name, t], i) => `
+    <button class="sw rv" data-theme="${name}" style="--d:${(i % 5) * .05}s;--sb:${t.bg};--sb1:${t.bg1};--st:${t.text};--sm:${t.muted};--sa:${t.a}" aria-label="Use the ${name} theme">
+      <div class="sw-top"><i></i><i></i></div>
+      <div class="sw-body"><b>workspace</b> <span>= acme-web</span><br><b>tasks</b> <span>= dev, build</span><br><span>OXIS ❯</span> <b>'theme ${name}</b></div>
+      <div class="sw-bar">SHELL</div>
+      <div class="sw-name">${name}<em>${name === 'paper' ? 'light' : 'dark'}</em></div>
+    </button>`).join('');
+  $('#swatches').addEventListener('click', e => {
+    const b = e.target.closest('.sw');
+    if(!b) return;
+    applyTheme(b.dataset.theme);
+    toast(`theme switched to <b>${b.dataset.theme}</b> — in OXIS: <b>'theme ${b.dataset.theme}</b>`);
+  });
+  if('IntersectionObserver' in window && !reduced()){
+    const io = new IntersectionObserver(es => es.forEach(en => { if(en.isIntersecting){ en.target.classList.add('in'); io.unobserve(en.target); } }), { threshold: .1 });
+    $$('.sw').forEach(s => io.observe(s));
+  } else $$('.sw').forEach(s => s.classList.add('in'));
+  const saved = store.get('oxis-site-theme');
+  applyTheme(saved && THEMES[saved] ? saved : 'default', { remember: false });
+})();
+
+/* ================================================================
+   Live build info from GitHub: version, build number, latest commit,
+   stars and the rolling release's downloads (cached for 10 minutes).
+   ================================================================ */
+const REPO = 'oxlaboratory/oxis';
+const LIVE = { version: '1.2.1', build: 0, sha: '', date: '', stars: null, assets: {} };
+
+function ago(iso){
+  const m = Math.round((Date.now() - Date.parse(iso)) / 60000);
+  if(!isFinite(m) || m < 0) return '';
+  if(m < 1) return 'just now';
+  if(m < 60) return `${m} min ago`;
+  if(m < 1440) return `${Math.round(m / 60)} h ago`;
+  const d = Math.round(m / 1440);
+  return d === 1 ? 'yesterday' : `${d} days ago`;
+}
+const fmtStars = n => n >= 1000 ? (n / 1000).toFixed(1).replace(/\.0$/, '') + 'k' : String(n);
+
+async function loadLive(){
+  let cached = null;
+  try{ cached = JSON.parse(sessionStorage.getItem('oxis-live') || 'null'); }catch{}
+  if(cached && Date.now() - cached.t < 10 * 60 * 1000){ Object.assign(LIVE, cached.d); renderLive(); return; }
+  const gh = p => fetch(`https://api.github.com/repos/${REPO}${p}`, { headers: { Accept: 'application/vnd.github+json' } });
+  const [repo, commits, rel, pkg] = await Promise.allSettled([
+    gh('').then(r => r.ok ? r.json() : null),
+    gh('/commits?sha=main&per_page=1').then(async r => r.ok ? { list: await r.json(), link: r.headers.get('Link') || '' } : null),
+    gh('/releases/tags/latest-build').then(r => r.ok ? r.json() : null),
+    fetch(`https://raw.githubusercontent.com/${REPO}/main/package.json`).then(r => r.ok ? r.json() : null),
+  ]);
+  if(repo.value) LIVE.stars = repo.value.stargazers_count;
+  if(commits.value && commits.value.list[0]){
+    const c = commits.value.list[0];
+    LIVE.sha = c.sha; LIVE.date = c.commit.committer.date;
+    // With one commit per page, the last page number is the commit count.
+    const last = /[?&]page=(\d+)>; rel="last"/.exec(commits.value.link);
+    LIVE.build = last ? +last[1] : 1;
+  }
+  if(rel.value){
+    for(const a of rel.value.assets || []){
+      const n = a.name.toLowerCase(), u = a.browser_download_url;
+      if(n.endsWith('.msi')) LIVE.assets.msi = u;
+      else if(n.endsWith('.exe')) LIVE.assets.exe = u;
+      else if(n.endsWith('.deb')){ LIVE.assets.deb = u; LIVE.assets.debName = a.name; }
+      else if(n.endsWith('.tar.gz')) LIVE.assets.tar = u;
+      else if(n === 'oxis') LIVE.assets.bin = u;
+    }
+  }
+  if(pkg.value && /^\d+\.\d+\.\d+/.test(pkg.value.version)) LIVE.version = pkg.value.version;
+  try{ sessionStorage.setItem('oxis-live', JSON.stringify({ t: Date.now(), d: LIVE })); }catch{}
+  renderLive();
+}
+
+function renderLive(){
+  $('#liveVer').textContent = 'v' + LIVE.version;
+  if(LIVE.sha){
+    $('#liveTxt').textContent = `${LIVE.build ? `build ${LIVE.build} · ` : ''}${LIVE.sha.slice(0, 7)}${LIVE.date ? ' · ' + ago(LIVE.date) : ''}`;
+    $('#liveBadge').title = 'Latest commit on main — what \'update install gives you';
+    $('#relInfo').textContent = ` — currently build ${LIVE.build || '?'} (${LIVE.sha.slice(0, 7)})`;
+  }
+  if(LIVE.stars != null){
+    $('#navStars').textContent = '★ ' + fmtStars(LIVE.stars); $('#navStars').classList.add('on');
+    $('#heroStars').textContent = '· ' + fmtStars(LIVE.stars);
+  }
+  for(const a of $$('[data-asset]')){
+    const url = LIVE.assets[a.dataset.asset];
+    if(url){ a.href = url; a.removeAttribute('target'); }
+  }
+  if(LIVE.assets.deb){ $('#debUrl').textContent = LIVE.assets.deb; $('#debName').textContent = LIVE.assets.debName; }
+  pickDownload();
+}
+
+function detectOS(){
+  const p = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || navigator.userAgent;
+  if(/win/i.test(p)) return 'win';
+  if(/android|iphone|ipad/i.test(navigator.userAgent)) return 'mobile';
+  if(/mac/i.test(p)) return 'mac';
+  if(/linux|x11/i.test(p)) return 'linux';
+  return 'other';
+}
+function pickDownload(){
+  const os = detectOS(), a = $('#dlPrimary'), label = $('#dlLabel');
+  if(os === 'win'){ label.textContent = 'Download for Windows'; if(LIVE.assets.msi){ a.href = LIVE.assets.msi; } }
+  else if(os === 'linux'){ label.textContent = 'Download for Linux'; if(LIVE.assets.deb){ a.href = LIVE.assets.deb; } }
+  else if(os === 'mac'){ label.textContent = 'Build from source'; a.href = '#install'; showInstall('src'); }
+  else { label.textContent = 'Get OXIS'; a.href = '#install'; }
+}
+
+/* ================================================================
+   Install tabs + copy buttons, code tabs, gallery
+   ================================================================ */
+function showInstall(os){
+  $$('.itab').forEach(t => t.classList.toggle('on', t.dataset.os === os));
+  $$('.ipane').forEach(p => p.classList.toggle('on', p.dataset.os === os));
+}
+$$('.itab').forEach(t => t.addEventListener('click', () => showInstall(t.dataset.os)));
+{ const os = detectOS(); if(os === 'linux') showInstall('linux'); else if(os === 'mac') showInstall('src'); }
+$$('[data-copy]').forEach(btn => btn.addEventListener('click', async () => {
+  const pre = $(`[data-code="${btn.dataset.copy}"]`);
+  const text = [...pre.childNodes].filter(n => !(n.classList && n.classList.contains('pr'))).map(n => n.textContent).join('')
+    .split('\n').map(l => l.replace(/\s+#.*$/, '').trimEnd()).join('\n');
+  if(await copyText(text)) flashCopied(btn);
+}));
+
+function showCode(i){
+  $$('.ed-tab').forEach(t => t.classList.toggle('on', t.dataset.tab == i));
+  $$('.ed-pane').forEach((p, j) => p.classList.toggle('on', j == i));
+  $$('.point').forEach(p => p.classList.toggle('on', p.dataset.tab == i));
+}
+$$('.ed-tab, .point').forEach(t => t.addEventListener('click', () => showCode(+t.dataset.tab)));
+$('#codeCopy').addEventListener('click', async e => {
+  const pane = $('.ed-pane.on');
+  const text = $$('.ln', pane).map(l => l.textContent).join('\n');
+  if(await copyText(text)) flashCopied(e.currentTarget);
+});
+
+const SHOTS = [
+  ['app-home', 'Home', 'Home: the active workspace, its git remote, plugins and tasks at a glance.'],
+  ['app-terminal', 'Terminal', 'Your real shell, with OXIS commands mixed in and one prompt at the bottom.'],
+  ['app-editor', 'Editor', 'The built-in editor with Vim-style modes, find & replace and a file tree.'],
+  ['app-palette', 'Palette', 'Ctrl+Shift+P: every command, shortcut and task, searchable.'],
+  ['app-theme-editor', 'Theme editor', "'theme edit: every option, with a live preview."],
+  ['browser-home', 'Browser mode', 'The same app in a browser tab at 127.0.0.1:1420 while OXIS runs.'],
+];
+(function gallery(){
+  const stage = $('#gstage'), tabs = $('#gtabs');
+  stage.innerHTML = SHOTS.map(([f, , cap], i) => `<img src="assets/${f}.webp" alt="${escapeHtml(cap)}" ${i ? 'loading="lazy"' : ''} width="1650" height="1050" class="${i ? '' : 'on'}">`).join('');
+  tabs.innerHTML = SHOTS.map(([, name], i) => `<button class="gtab ${i ? '' : 'on'}" data-i="${i}">${name}</button>`).join('');
+  let cur = 0, timer;
+  const show = i => {
+    cur = i;
+    $$('img', stage).forEach((im, j) => im.classList.toggle('on', j === i));
+    $$('.gtab', tabs).forEach((t, j) => t.classList.toggle('on', j === i));
+    $('#gcap').textContent = SHOTS[i][2];
+  };
+  const auto = () => { clearInterval(timer); if(!reduced()) timer = setInterval(() => show((cur + 1) % SHOTS.length), 5000); };
+  tabs.addEventListener('click', e => { const b = e.target.closest('.gtab'); if(b){ show(+b.dataset.i); auto(); } });
+  show(0); auto();
+  window.showShot = name => { const i = SHOTS.findIndex(s => s[0] === name); if(i >= 0){ show(i); auto(); } };
+})();
+
+/* ================================================================
+   Demo terminal — a scripted tour, then yours to type in. It only
+   simulates OXIS; nothing here runs on your machine.
+   ================================================================ */
+const Demo = (() => {
+  const body = $('#termBody'), input = $('#termInput'), term = $('#term');
+  let token = 0;          // bumped to cancel the autoplay
+  let interactive = false;
+  let busy = false;
+  const history = [];
+  let hIdx = 0;
+  const e = escapeHtml;
+
+  const print = (html = '', cls = '') => {
+    const d = document.createElement('div');
+    d.className = 'tl' + (cls ? ' ' + cls : '');
+    d.innerHTML = html || ' ';
+    body.appendChild(d);
+    while(body.children.length > 120) body.firstChild.remove();
+    body.scrollTop = body.scrollHeight;
+  };
+  const echo = cmd => cmd.startsWith("'")
+    ? print(`  <span class="t-cmd">${e(cmd)}</span>`)
+    : print(`<span class="p">PS acme-web&gt;</span> ${e(cmd)}`);
+  const alive = t => t === token;
+
+  const clock = () => {
+    const d = new Date();
+    $('#tsClock').textContent = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' });
+  };
+  clock(); setInterval(clock, 1000);
+
+  async function steps(list, t){
+    for(const [html, cls, wait] of list){
+      if(t !== undefined && !alive(t)) return false;
+      await sleep(wait ?? 120);
+      if(t !== undefined && !alive(t)) return false;
+      print(html, cls);
+    }
+    return true;
+  }
+
+  const TASKS = {
+    test:  [[`     npm test`, 't-dim', 200], [`     ✓ cart totals (14)   ✓ tax (9)   ✓ checkout (19)`, 't-ok', 700], [`  ✓  task test finished — 42 passed in 3.1s`, 't-ok', 250]],
+    build: [[`     npm run build`, 't-dim', 200], [`     vite v6 building for production…`, 't-dim', 500], [`     ✓ 214 modules transformed · dist/ 182 kB`, 't-ok', 700], [`  ✓  task build finished in 4.6s`, 't-ok', 200]],
+    lint:  [[`     npm run lint`, 't-dim', 200], [`     0 problems`, 't-ok', 600], [`  ✓  task lint finished in 1.2s`, 't-ok', 200]],
+    dev:   [[`     npm run dev`, 't-dim', 200], [`     ➜ Local: <span class="t-link">http://localhost:5173/</span>`, '', 600]],
+  };
+
+  const CMDS = {
+    help(){
+      [
+        ['  OXIS commands in this demo', 't-acc'],
+        ["  <span class='t-cmd'>'theme</span> [name]        list or switch themes (try 'theme rose)"],
+        ["  <span class='t-cmd'>'task</span> &lt;name&gt;         run a workspace task: test, build, lint, dev"],
+        ["  <span class='t-cmd'>'workflow</span> release    run a multi-step workflow"],
+        ["  <span class='t-cmd'>'version</span>             what's running — commit, tag, build"],
+        ["  <span class='t-cmd'>'edit</span> &lt;file&gt;         open the built-in editor"],
+        ["  <span class='t-cmd'>'market</span>              browse plugins"],
+        ["  <span class='t-cmd'>'install</span>             how to get OXIS"],
+        ["  <span class='t-cmd'>'clear</span>               clear the screen"],
+        ['     the real app has 50+ commands — and your whole shell', 't-dim'],
+      ].forEach(([h, c]) => print(h, c));
+    },
+    theme(args){
+      const name = (args[0] || '').toLowerCase();
+      if(!name){
+        print('  Themes', 't-acc');
+        Object.keys(THEMES).forEach(n => print(`  ${n === currentTheme ? '●' : '○'}  ${n}${n === currentTheme ? '  (active)' : ''}`, n === currentTheme ? 't-ok' : 't-dim'));
+        print("     'theme &lt;name&gt; to switch", 't-mut');
+        return;
+      }
+      if(!applyTheme(name)){ print(`  ✗  no theme named "${e(name)}" — 'theme lists them`, 't-err'); return; }
+      print(`  ✓  theme switched to "${e(name)}" — this whole page follows along`, 't-ok');
+    },
+    async task(args){
+      const n = (args[0] || '').toLowerCase();
+      if(!TASKS[n]){ print(`  ✗  ${n ? `no task named "${e(n)}"` : "usage: 'task &lt;name&gt;"} — tasks here: test, build, lint, dev`, 't-err'); return; }
+      await steps(TASKS[n]);
+    },
+    async workflow(args){
+      if((args[0] || '').toLowerCase() !== 'release'){ print("  ✗  workflows here: release — try 'workflow release", 't-err'); return; }
+      await steps([
+        ['  ▶  workflow release · 3 steps', 't-acc', 150],
+        ['     [1/3] task install …', 't-dim', 400], ['     [1/3] ✓ exit 0 · 2.1s', 't-ok', 700],
+        ['     [2/3] npm run build …', 't-dim', 300], ['     [2/3] ✓ exit 0 · 4.6s', 't-ok', 900],
+        ['     [3/3] npm test …', 't-dim', 300], ['     [3/3] ✓ exit 0 · 3.1s', 't-ok', 800],
+        ['  ✓  workflow release finished — 3/3 steps in 9.8s', 't-ok', 250],
+      ]);
+    },
+    version(){
+      const sha = LIVE.sha ? LIVE.sha.slice(0, 7) : 'fbbf05c';
+      [
+        [`  OXIS  v${LIVE.version}${LIVE.build ? `  ·  build ${LIVE.build}` : ''}  ·  ${sha}`, 't-acc'],
+        [`  commit     ${sha}${LIVE.date ? `  (${ago(LIVE.date)})` : ''}`],
+        [`  tag        latest-build  ·  v${LIVE.version} line`],
+        ['  channel    latest-build · prebuilt by CI from main'],
+        ['  update     up to date with main', 't-ok'],
+        ['  shell      PowerShell 7+ (pwsh)'],
+        ['     live from GitHub — the app shows your exact build', 't-mut'],
+      ].forEach(([h, c]) => print(h, c));
+    },
+    edit(args){
+      print(`  ✓  opening ${e(args[0] || 'the file tree')} in the editor`, 't-ok');
+      print('     ↓ scrolled to the tour — that is the real editor', 't-dim');
+      window.showShot('app-editor');
+      $('#tour').scrollIntoView({ behavior: reduced() ? 'auto' : 'smooth' });
+    },
+    market(){
+      print(`  ✓  ${PLUGINS.length} plugins in the Market — ↓ scrolled there`, 't-ok');
+      $('#market').scrollIntoView({ behavior: reduced() ? 'auto' : 'smooth' });
+    },
+    install(){
+      print('  ✓  ↓ downloads for Windows and Linux, or build from source', 't-ok');
+      $('#install').scrollIntoView({ behavior: reduced() ? 'auto' : 'smooth' });
+    },
+    clear(){ body.innerHTML = ''; },
+    cls(){ body.innerHTML = ''; },
+  };
+
+  const SHELL = {
+    'git status': () => [['On branch main'], ['Changes not staged for commit:'], ['        <span class="t-err">modified:   src/cart.ts</span>'], ['Untracked files:'], ['        <span class="t-err">src/tax.ts</span>']],
+    'git status --short': () => [[' <span class="t-mod">M</span> src/cart.ts'], ['<span class="t-new">??</span> src/tax.ts']],
+    'git log --oneline': () => [['<span class="t-warn">9c1e4a2</span> Add per-order discount'], ['<span class="t-warn">41b7d0e</span> Tax at 10%'], ['<span class="t-warn">f2f3189</span> Initial storefront']],
+    'ls': () => [['<span class="t-link" style="text-decoration:none">src/</span>  <span class="t-link" style="text-decoration:none">public/</span>  package.json  README.md  vite.config.ts']],
+    'pwd': () => [['C:\\Users\\you\\projects\\acme-web']],
+    'whoami': () => [['you — about to install OXIS?']],
+    'node -v': () => [['v24.4.0']],
+  };
+  SHELL.dir = SHELL.ls; SHELL['get-childitem'] = SHELL.ls; SHELL['git log'] = SHELL['git log --oneline'];
+
+  async function exec(line){
+    const cmd = line.trim();
+    if(!cmd) return;
+    echo(cmd);
+    if(cmd.startsWith("'")){
+      const [name, ...args] = cmd.slice(1).split(/\s+/);
+      const fn = CMDS[name.toLowerCase()];
+      if(fn) await fn(args);
+      else print(`  ✗  '${e(name)} isn't in this demo — 'help lists what is (the app has 50+)`, 't-err');
+      return;
+    }
+    const lower = cmd.toLowerCase();
+    if(lower === 'clear' || lower === 'cls'){ body.innerHTML = ''; return; }
+    if(/^echo\s/i.test(cmd)){ print(e(cmd.replace(/^echo\s+/i, '').replace(/^["']|["']$/g, ''))); return; }
+    const out = SHELL[lower];
+    if(out){ await steps(out().map(([h, c]) => [h, c || '', 60])); return; }
+    print(`<span class="t-dim">(demo) in OXIS this runs in your real shell — PowerShell, bash, zsh or fish.</span>`);
+  }
+
+  async function typeInto(text, t){
+    input.value = '';
+    for(const ch of text){
+      if(!alive(t)) return false;
+      input.value += ch;
+      await sleep(26 + Math.random() * 60);
+    }
+    await sleep(320);
+    return alive(t);
+  }
+
+  const SCRIPT = [
+    ['git status --short', 700],
+    ["'task test", 900],
+    ["'theme ember", 1300, () => applyTheme('ember', { demoOnly: true })],
+    ["'workflow release", 1200],
+    ["'version", 3200],
+  ];
+
+  async function autoplay(){
+    const t = ++token;
+    while(alive(t)){
+      body.innerHTML = '';
+      applyTheme(currentTheme, { demoOnly: true });
+      print('  type \'help for OXIS commands — anything else runs in your shell', 't-dim');
+      await sleep(900);
+      for(const [cmd, pause, fx] of SCRIPT){
+        if(!alive(t)) return;
+        if(!(await typeInto(cmd, t))) return;
+        input.value = '';
+        if(fx){ echo(cmd); fx(); print('  ✓  theme switched to "ember"', 't-ok'); }
+        else if(cmd.startsWith("'task")){ echo(cmd); await steps(TASKS.test, t); }
+        else if(cmd.startsWith("'workflow")){ echo(cmd); await steps([
+          ['  ▶  workflow release · 3 steps', 't-acc', 150],
+          ['     [1/3] ✓ task install · 2.1s', 't-ok', 700],
+          ['     [2/3] ✓ npm run build · 4.6s', 't-ok', 800],
+          ['     [3/3] ✓ npm test · 3.1s', 't-ok', 800],
+          ['  ✓  workflow release finished — 3/3 steps in 9.8s', 't-ok', 250]], t); }
+        else await exec(cmd);
+        await sleep(pause);
+      }
+      if(!alive(t)) return;
+      await sleep(2000);
+    }
+  }
+
+  function takeOver(){
+    if(interactive) return;
+    interactive = true;
+    token++;
+    input.value = '';
+    applyTheme(currentTheme, { demoOnly: true });
+    body.innerHTML = '';
+    print("  your turn — try 'help, 'theme rose, 'task build or git status", 't-acc');
+    $('#termHint').style.opacity = '.4';
+    term.classList.add('focus');
+  }
+
+  input.addEventListener('focus', takeOver);
+  input.addEventListener('blur', () => term.classList.remove('focus'));
+  input.addEventListener('keydown', async ev => {
+    if(!interactive) takeOver();
+    if(ev.key === 'Enter'){
+      ev.preventDefault();
+      if(busy) return;
+      const v = input.value;
+      input.value = '';
+      if(v.trim()){ history.push(v); hIdx = history.length; }
+      busy = true;
+      try{ await exec(v); } finally{ busy = false; }
+    } else if(ev.key === 'ArrowUp'){
+      ev.preventDefault();
+      if(hIdx > 0){ hIdx--; input.value = history[hIdx]; }
+    } else if(ev.key === 'ArrowDown'){
+      ev.preventDefault();
+      if(hIdx < history.length - 1){ hIdx++; input.value = history[hIdx]; } else { hIdx = history.length; input.value = ''; }
+    } else if(ev.key === 'Tab'){
+      const v = input.value;
+      if(v.startsWith("'") && !v.includes(' ')){
+        ev.preventDefault();
+        const hit = Object.keys(CMDS).filter(k => k !== 'cls').find(k => k.startsWith(v.slice(1).toLowerCase()));
+        if(hit) input.value = "'" + hit + ' ';
+      }
+    } else if(ev.key === 'l' && ev.ctrlKey){
+      ev.preventDefault(); body.innerHTML = '';
+    }
+  });
+  term.addEventListener('click', () => input.focus());
+
+  // Tilt towards the pointer on wide screens.
+  if(!reduced() && window.matchMedia('(min-width: 1021px)').matches){
+    const wrap = $('.term-wrap');
+    wrap.addEventListener('pointermove', ev => {
+      if(term.classList.contains('focus')) return;
+      const r = wrap.getBoundingClientRect();
+      const x = (ev.clientX - r.left) / r.width - .5, y = (ev.clientY - r.top) / r.height - .5;
+      term.style.setProperty('--ry', (x * 8).toFixed(2) + 'deg');
+      term.style.setProperty('--rx', (-y * 6).toFixed(2) + 'deg');
+    });
+    wrap.addEventListener('pointerleave', () => { term.style.removeProperty('--ry'); term.style.removeProperty('--rx'); });
+  }
+
+  function start(){
+    if(reduced()){
+      interactive = true;
+      print("  type 'help for OXIS commands — anything else runs in your shell", 't-dim');
+      return;
+    }
+    // Only animate while the terminal is on screen.
+    let playing = false;
+    const io = new IntersectionObserver(es => es.forEach(en => {
+      if(interactive) return;
+      if(en.isIntersecting && !playing){ playing = true; autoplay(); }
+      else if(!en.isIntersecting && playing){ playing = false; token++; }
+    }), { threshold: .25 });
+    io.observe(term);
+  }
+  return { start };
+})();
+
 /* ================================================================
    PLUGINS — the Market catalog shown on this page. Copy an entry to
    add one.
@@ -506,17 +1572,6 @@ const CATEGORIES = [
   "SECURITY", "UTILITY", "FILESYSTEM",
   "DEVOPS", "MONITORING", "GAMES"
 ]; // keep this in sync with any "cat" values you use below
-
-function escapeHtml(s){
-  // Plugin fields come from submissions, so escape them wherever they
-  // go into innerHTML (text and attribute positions).
-  return String(s ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
 
 const PLUGINS = [
 
@@ -586,10 +1641,7 @@ const FX_RATES = {
 };
 
 const DEFAULT_CURRENCY = "AUD";
-let displayCurrency = (() => {
-  try { return localStorage.getItem('oxis-currency') || DEFAULT_CURRENCY; }
-  catch { return DEFAULT_CURRENCY; }
-})();
+let displayCurrency = store.get('oxis-currency') || DEFAULT_CURRENCY;
 
 function formatPrice(usd, currency){
   const rate = FX_RATES[currency] ?? 1;
@@ -602,30 +1654,20 @@ function formatPrice(usd, currency){
 }
 
 const CATS = ["ALL", ...CATEGORIES];
-const acquired = new Set(); // installed (free) plugins
+const acquired = new Set(); // downloaded (free) plugins
 const demoOpen = new Set(); // plugin names with their demo video expanded
 
 function demoVideoHTML(p){
   if(!p.demoVideo){
-    return `<div class="demo-empty">no demo video yet — set demoVideo on "${escapeHtml(p.name)}" in the PLUGINS array</div>`;
+    return `<div class="demo-empty">no demo video yet</div>`;
   }
   const yt = p.demoVideo.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([\w-]+)/);
   if(yt){
-    // yt[1] is already effectively sanitized by the regex itself
-    // (\w and - only — can't contain a quote or angle bracket), but
-    // escapeHtml costs nothing extra and keeps this consistent with
-    // everywhere else a plugin field reaches HTML.
     return `<div class="demo-video"><iframe src="https://www.youtube.com/embed/${escapeHtml(yt[1])}" allowfullscreen loading="lazy"></iframe></div>`;
   }
-  // Unlike the YouTube branch above, a non-YouTube demoVideo URL is
-  // NOT regex-constrained — interpolating it unescaped into a src="..."
-  // attribute let it break out of the attribute entirely (e.g.
-  // `"><script>...`). Real vulnerability, fixed here.
+  // Not regex-constrained like the YouTube id, so it must be escaped to
+  // stay inside the src="..." attribute.
   return `<div class="demo-video"><video src="${escapeHtml(p.demoVideo)}" controls preload="metadata"></video></div>`;
-}
-
-function prefersReducedMotion(){
-  return window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 }
 
 const grid = document.getElementById('grid');
@@ -634,9 +1676,8 @@ const emptyState = document.getElementById('emptyState');
 const regionSelect = document.getElementById('region-select');
 let activeCat = "ALL";
 let query = "";
-// Populated async by loadSubscriberCounts() below — { pluginName: count }.
-// Derived server-side from real license/webhook data (see
-// functions/subscriber-counts.js), not tracked separately here.
+// Filled by loadSubscriberCounts() — { pluginName: count }, derived
+// server-side from license/webhook data (functions/subscriber-counts.js).
 let subscriberCounts = {};
 
 function renderRegionSelect(){
@@ -647,7 +1688,7 @@ function renderRegionSelect(){
 
 regionSelect.addEventListener('change', (e)=>{
   displayCurrency = e.target.value;
-  try{ localStorage.setItem('oxis-currency', displayCurrency); }catch{}
+  store.set('oxis-currency', displayCurrency);
   renderGrid();
 });
 
@@ -656,7 +1697,7 @@ function renderFilters(){
   CATS.forEach(cat=>{
     const b = document.createElement('button');
     b.className = 'chip' + (cat===activeCat ? ' active' : '');
-    b.textContent = `[${cat}]`;
+    b.textContent = cat.toLowerCase();
     b.onclick = ()=>{ activeCat = cat; renderFilters(); renderGrid(); };
     filtersEl.appendChild(b);
   });
@@ -708,28 +1749,21 @@ function triggerFileDownload(blob, filename){
 
 async function downloadPlugin(p){
   const filename = `${p.name}.lua`;
-
-  // Real file wins if one's been dropped in /plugins with a matching
-  // name. Cloudflare Pages serves that folder as plain static files,
-  // so this is just a normal fetch — no backend code involved.
+  // The real file wins if /plugins has one with a matching name
+  // (Cloudflare Pages serves that folder as static files).
   try{
     const res = await fetch(`/plugins/${filename}`, { cache: 'no-store' });
     if(res.ok){
-      const blob = await res.blob();
-      triggerFileDownload(blob, filename);
+      triggerFileDownload(await res.blob(), filename);
       return;
     }
   }catch(err){
     // network hiccup or not deployed yet — fall through to the stub
   }
-
-  // No matching file yet -> generated placeholder, same as before.
-  const content = luaStub(p);
-  const blob = new Blob([content], { type: "text/x-lua" });
-  triggerFileDownload(blob, filename);
+  triggerFileDownload(new Blob([luaStub(p)], { type: "text/x-lua" }), filename);
 }
 
-function cardHTML(p){
+function cardHTML(p, i){
   const isIn = acquired.has(p.name);
   const name = escapeHtml(p.name), ver = escapeHtml(p.ver), desc = escapeHtml(p.desc),
         creator = escapeHtml(p.creator), cat = escapeHtml(p.cat), size = escapeHtml(p.size),
@@ -737,23 +1771,21 @@ function cardHTML(p){
 
   const badge = p.premium
     ? (p.comingSoon ? `<div class="badge badge-paid">soon</div>` : `<div class="badge badge-paid">$ premium</div>`)
-    : `<div class="badge ${isIn ? 'badge-in' : ''}">${isIn ? '★ built-in' : cat}</div>`;
+    : `<div class="badge ${isIn ? 'badge-in' : ''}">${isIn ? '✓ downloaded' : cat.toLowerCase()}</div>`;
 
   let footer;
-
   if(!p.premium){
     footer = `
+      <div class="card-cli"><code>'market install ${name}</code><button data-action="copy-cli" data-name="${name}">copy</button></div>
       <div class="card-actions">
-        <button class="btn ${isIn ? 'installed' : ''}" data-action="install" data-name="${name}">
-          ${isIn ? '✓ installed' : '↓ plugin>install'}
+        <button class="mbtn ${isIn ? 'installed' : ''}" data-action="install" data-name="${name}">
+          ${isIn ? '✓ downloaded' : '↓ download .lua'}
         </button>
-      </div>
-    `;
+      </div>`;
   } else if(p.comingSoon || !p.stripePriceId){
     footer = `
       <div class="price">${priceDisplay || ''} <small>/month</small></div>
-      <button class="btn" disabled style="opacity:.5; cursor:not-allowed;">coming soon</button>
-    `;
+      <button class="mbtn" disabled>coming soon</button>`;
   } else {
     const subCount = subscriberCounts[p.name];
     const subLine = (typeof subCount === 'number' && subCount > 0)
@@ -762,17 +1794,15 @@ function cardHTML(p){
     footer = `
       <div class="price">${priceDisplay || formatPrice(0, displayCurrency)} <small>/month</small></div>
       ${subLine}
-      <button class="btn" data-action="subscribe" data-name="${name}">subscribe via Stripe</button>
-    `;
+      <button class="mbtn" data-action="subscribe" data-name="${name}">subscribe via Stripe</button>`;
   }
 
-  const isDemoOpen = demoOpen.has(p.name);
-  const demoSection = isDemoOpen
+  const demoSection = demoOpen.has(p.name)
     ? `<button class="demo-toggle" data-action="toggle-demo" data-name="${name}">▲ hide demo</button>${demoVideoHTML(p)}`
     : `<button class="demo-toggle" data-action="toggle-demo" data-name="${name}">▶ watch demo</button>`;
 
   return `
-    <div class="card ${p.premium ? 'paid' : ''} ${isIn ? 'purchased' : ''}" data-name="${name}">
+    <div class="card ${p.premium ? 'paid' : ''}" data-name="${name}" style="--i:${Math.min(i, 12) * 0.035}s">
       <div class="card-top">
         <div class="card-name">${name}<small>v${ver}</small></div>
         ${badge}
@@ -782,8 +1812,7 @@ function cardHTML(p){
       <div class="card-meta"><span>by <b>${creator}</b></span>${!p.premium ? `<span><b>${size}</b></span>` : ''}</div>
       ${demoSection}
       ${footer}
-    </div>
-  `;
+    </div>`;
 }
 
 function renderGrid(){
@@ -793,12 +1822,12 @@ function renderGrid(){
     emptyState.style.display = 'none';
   } else {
     emptyState.style.display = 'block';
-    emptyState.innerHTML = "-- no packages match that query --<br>try 'plugin&gt;list&lt;' or clear the filter";
+    emptyState.textContent = "-- no packages match that query -- try another word or clear the filter";
   }
   document.getElementById('visCount').textContent = visible.length;
 }
 
-grid.addEventListener('click', (e)=>{
+grid.addEventListener('click', async (e)=>{
   const btn = e.target.closest('[data-action]');
   if(!btn) return;
   const name = btn.dataset.name;
@@ -810,6 +1839,10 @@ grid.addEventListener('click', (e)=>{
     downloadPlugin(p);
     acquired.add(name);
     renderGrid();
+    toast(`downloaded <b>${escapeHtml(name)}.lua</b> — or in OXIS: <b>'market install ${escapeHtml(name)}</b>`);
+
+  } else if(action === 'copy-cli'){
+    if(await copyText(`'market install ${name}`)) flashCopied(btn);
 
   } else if(action === 'toggle-demo'){
     const opening = !demoOpen.has(name);
@@ -817,8 +1850,8 @@ grid.addEventListener('click', (e)=>{
     renderGrid();
     if(opening){
       requestAnimationFrame(()=>{
-        const card = grid.querySelector(`[data-name="${name}"]`);
-        if(card) card.scrollIntoView({ behavior: prefersReducedMotion() ? 'auto' : 'smooth', block: 'center' });
+        const card = [...grid.querySelectorAll('.card')].find(c => c.dataset.name === name);
+        if(card) card.scrollIntoView({ behavior: reduced() ? 'auto' : 'smooth', block: 'center' });
       });
     }
 
@@ -868,11 +1901,9 @@ async function loadSubscriberCounts(){
     const res = await fetch('/subscriber-counts', { cache: 'no-store' });
     if(!res.ok) return;
     subscriberCounts = await res.json();
-    renderGrid(); // re-render now that counts are in — cards render fine without them first, this just fills the number in a beat later
+    renderGrid();
   }catch(err){
-    // network hiccup, or the backend's OXIS_LICENSES binding isn't
-    // set up yet — subscriber counts just don't show, nothing else
-    // on the page depends on this succeeding
+    // no backend binding yet — counts just don't show
   }
 }
 
@@ -880,6 +1911,9 @@ renderFilters();
 renderRegionSelect();
 renderGrid();
 loadSubscriberCounts();
+pickDownload();
+loadLive().catch(() => {});
+Demo.start();
 </script>
 
 </body>

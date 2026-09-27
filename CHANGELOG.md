@@ -62,6 +62,14 @@ All notable changes to OXIS. The format follows
   of every built-in theme.
 
 ### Changed
+- The website (`cloudflare/`) is now a full landing page: an animated
+  hero with a live, typeable OXIS demo terminal, the current version,
+  build number and commit pulled from GitHub, a download button for the
+  visitor's OS, feature and theme sections (picking a theme recolours
+  the page), a screenshot tour, install steps and an FAQ. The Market
+  keeps its search, filters and checkout, and each card shows its
+  `'market install` command. Screenshots are served as WebP, and the
+  site links only to GitHub.
 - Up/Down history: with text typed first, only matching commands are
   shown, the oldest match stays put instead of jumping to unrelated
   entries, and Down returns to what you typed.
