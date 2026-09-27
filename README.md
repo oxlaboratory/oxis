@@ -1141,6 +1141,9 @@ npm/                     npm launcher package (downloads the prebuilt binary)
 | `build-windows` (windows-latest) | `.msi` and bare `oxis.exe` |
 | `publish-release` (pushes to `main` only) | both of the above, published together to the `latest-build` release |
 
+Both build jobs also run the Go tests (`go test ./internal/...`), so the
+process, file-watching and streaming code is tested on Windows and Linux.
+
 Every build is stamped by `scripts/buildstamp.js` with its version,
 commit, nearest release tag, build number and dates: into the binary
 (`-ldflags -X`, package `internal/buildinfo`), which the updater relies

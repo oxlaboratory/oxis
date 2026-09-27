@@ -51,6 +51,11 @@ jobs:
           chmod +x build-linux.sh
           ./build-linux.sh
 
+      # After the build: the tests compile the embedded frontend it copies
+      # into internal/server/dist.
+      - name: Test
+        run: go test -tags desktop,production,webkit2_41 ./internal/...
+
       - name: Stage release files
         run: |
           mkdir -p release-files
@@ -94,6 +99,10 @@ jobs:
 
       - name: Build (frontend + Go binary)
         run: npm run build
+        shell: cmd
+
+      - name: Test
+        run: go test -tags desktop,production ./internal/...
         shell: cmd
 
       - name: Build MSI installer
