@@ -10,7 +10,7 @@
 
 import { pluginManager } from "./pluginManager";
 import { getLicensedEmail } from "./pluginLicense";
-import { MARKET_BASE, findEntry, type MarketEntry } from "./market";
+import { marketBase, marketFetch, findEntry, type MarketEntry } from "./market";
 
 export interface PublishMetadata {
   name: string;
@@ -92,7 +92,7 @@ export interface SubmissionResult {
 
 async function postSubmission(payload: Record<string, unknown>): Promise<SubmissionResult> {
   try {
-    const res = await fetch(`${MARKET_BASE}/submit-plugin`, {
+    const res = await marketFetch(`${marketBase()}/submit-plugin`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -107,7 +107,7 @@ async function postSubmission(payload: Record<string, unknown>): Promise<Submiss
       ok: true,
       pullRequestUrl,
       message: pullRequestUrl
-        ? `pull request opened: ${pullRequestUrl}\nNot live yet — it needs a human review and merge on GitHub first.`
+        ? `pull request opened: ${pullRequestUrl}\nNot live yet: once it's reviewed and merged on GitHub it appears in 'market and on the website by itself.`
         : `submitted, but the Market backend didn't return a pull request link — check github.com/oxlaboratory/oxis's pull requests directly.`,
     };
   } catch (e) {
@@ -124,6 +124,7 @@ export async function prepareFreePublish(metadata: PublishMetadata, existing?: M
   const result = await postSubmission({
     name: metadata.name, desc: metadata.desc, category: metadata.category,
     version: metadata.version, author: metadata.author, source,
+    permissions: metadata.permissions, os: metadata.os, minOxisVersion: metadata.minOxisVersion,
     ...(isUpdate ? { updateOf: metadata.name } : {}),
   });
   if (!result.ok) return result;
@@ -146,7 +147,7 @@ export interface ConnectOnboardingResult {
  *  onboarding link. The listing itself still goes through PR review. */
 export async function startConnectOnboarding(email: string): Promise<ConnectOnboardingResult> {
   try {
-    const res = await fetch(`${MARKET_BASE}/connect-onboarding`, {
+    const res = await marketFetch(`${marketBase()}/connect-onboarding`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email }),
@@ -198,7 +199,7 @@ export async function submitPaidPlugin(metadata: PublishMetadata, price: string,
  *  not as authentication. */
 export async function requestPluginDeletion(name: string, author: string): Promise<SubmissionResult> {
   try {
-    const res = await fetch(`${MARKET_BASE}/delete-plugin`, {
+    const res = await marketFetch(`${marketBase()}/delete-plugin`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name, author }),

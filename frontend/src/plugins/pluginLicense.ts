@@ -4,7 +4,8 @@
  * with 'market license <email>; there are no OXIS accounts.
  */
 
-const MARKET_BASE = "https://oxis-market.pages.dev"; // see README § Plugin Marketplace for the live URL
+import { marketBase, marketFetch } from "./market";
+
 const EMAIL_KEY = "oxis-license-email-v1";
 const CACHE_KEY_PREFIX = "oxis-license-cache-v1:";
 const CACHE_TTL_MS = 5 * 60 * 1000; // re-check every 5 min, not on every single command
@@ -52,7 +53,7 @@ export async function checkLicense(plugin: string, opts?: { force?: boolean }): 
   }
 
   try {
-    const res = await fetch(`${MARKET_BASE}/verify-license?plugin=${encodeURIComponent(plugin)}&email=${encodeURIComponent(email)}`);
+    const res = await marketFetch(`${marketBase()}/verify-license?plugin=${encodeURIComponent(plugin)}&email=${encodeURIComponent(email)}`);
     const data = await res.json();
     if (!res.ok) {
       const result: LicenseCheckResult = { active: false, status: "error", error: data?.error || `license server returned ${res.status}` };

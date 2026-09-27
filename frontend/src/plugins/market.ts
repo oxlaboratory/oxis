@@ -10,9 +10,51 @@
 import { pluginManager } from "./pluginManager";
 import { getLicensedEmail, checkLicense } from "./pluginLicense";
 import { encryptPluginPackage, decryptPluginPackage, getDeviceId, type EncryptedPluginPackage } from "./pluginEncryption";
-import { readFile, writeFile, listDir, isNativeApp } from "../native";
+import { readFile, writeFile, listDir, isNativeApp, nativeHttpRequest } from "../native";
 
 export const MARKET_BASE = "https://oxis-market.pages.dev";
+
+/** The Market's files as they are on main, so a plugin is installable
+ *  the moment its pull request is merged (the site itself only changes
+ *  when it's deployed). */
+const MARKET_RAW = "https://raw.githubusercontent.com/oxlaboratory/oxis/main/cloudflare";
+
+/** The Market backend: MARKET_BASE, or a self-hosted one set in
+ *  localStorage "oxis-market-base" (also how the publish flow is tested
+ *  against a local server). */
+export function marketBase(): string {
+  try { return (localStorage.getItem("oxis-market-base") || MARKET_BASE).replace(/\/+$/, ""); }
+  catch { return MARKET_BASE; }
+}
+
+/**
+ * fetch() for the Market. In the desktop app the request is made by OXIS
+ * itself (HTTPRequest in Go): the page's origin (wails.localhost) is one
+ * the Market backend's CORS rules would otherwise have to allow, and a
+ * blocked preflight surfaced only as "Failed to fetch". Returns a normal
+ * Response either way.
+ */
+export async function marketFetch(url: string, init: RequestInit = {}, timeoutMs = 15_000): Promise<Response> {
+  const headers: Record<string, string> = {};
+  new Headers(init.headers).forEach((v, k) => { headers[k] = v; });
+  const native = await nativeHttpRequest({
+    url, method: init.method || "GET", headers,
+    body: typeof init.body === "string" ? init.body : "",
+    timeoutSeconds: Math.ceil(timeoutMs / 1000),
+  });
+  if (native) {
+    const empty = native.status === 204 || native.status === 304;
+    return new Response(empty ? null : native.body, { status: native.status, headers: native.headers });
+  }
+  return fetch(url, { ...init, signal: init.signal ?? AbortSignal.timeout(timeoutMs) });
+}
+
+/** Where to look for a Market file, in order. */
+function marketSources(file: string): string[] {
+  const base = marketBase();
+  const path = file.replace(/^\/+/, "");
+  return base === MARKET_BASE ? [`${MARKET_RAW}/${path}`, `${base}/${path}`] : [`${base}/${path}`];
+}
 
 export interface MarketEntry {
   name: string;
@@ -25,6 +67,10 @@ export interface MarketEntry {
    *  every plugin actually available in v1.2.1. */
   premium?: boolean;
   priceDisplay?: string;   // e.g. "$4.99/mo" — display only, real price lives in the Stripe Price
+  permissions?: string[];  // from the plugin's manifest, when it was published
+  os?: string[];
+  minOxisVersion?: string;
+  size?: number;           // bytes of source
   comingSoon?: boolean;    // shown in the market listing, not installable yet
   oxisOwned?: boolean;     // vs. third-party — see README § Third-Party Developer Marketplace
 }
@@ -32,9 +78,24 @@ export interface MarketEntry {
 let cachedIndex: MarketEntry[] | null = null;
 
 async function fetchJSON<T>(url: string): Promise<T> {
-  const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+  const res = await marketFetch(url, {}, 8000);
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
   return res.json() as Promise<T>;
+}
+
+/** The first source that answers. */
+async function fetchFirst<T>(urls: string[], read: (res: Response) => Promise<T>): Promise<T> {
+  let lastError: unknown;
+  for (const url of urls) {
+    try {
+      const res = await marketFetch(url, { cache: "no-store" }, 8000);
+      if (res.ok) return await read(res);
+      lastError = new Error(`${res.status} ${res.statusText}`);
+    } catch (e) {
+      lastError = e;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
 }
 
 // Plugin names become file names on disk, so entries with anything else
@@ -50,7 +111,7 @@ function isUsableEntry(e: unknown): e is MarketEntry {
 /** The Market index, cached for the session. */
 export async function fetchIndex(force = false): Promise<MarketEntry[]> {
   if (cachedIndex && !force) return cachedIndex;
-  const entries = await fetchJSON<unknown>(`${MARKET_BASE}/index.json`);
+  const entries = await fetchFirst<unknown>(marketSources("index.json"), (r) => r.json());
   cachedIndex = (Array.isArray(entries) ? entries : []).filter(isUsableEntry).map(e => ({
     ...e, desc: String(e.desc ?? ""), category: String(e.category ?? "plugin"),
   }));
@@ -66,7 +127,7 @@ export async function findEntry(name: string): Promise<MarketEntry | undefined> 
  *  it can't be determined (so it isn't shown as a false zero). */
 export async function fetchSubscriberCount(name: string): Promise<number | null> {
   try {
-    const counts = await fetchJSON<Record<string, number>>(`${MARKET_BASE}/subscriber-counts?plugin=${encodeURIComponent(name)}`);
+    const counts = await fetchJSON<Record<string, number>>(`${marketBase()}/subscriber-counts?plugin=${encodeURIComponent(name)}`);
     const n = counts[name];
     return typeof n === "number" ? n : null;
   } catch {
@@ -85,11 +146,7 @@ export function searchIndex(entries: MarketEntry[], query: string): MarketEntry[
 
 /** Download a plugin's Lua source from the marketplace. */
 export async function fetchPluginSource(entry: MarketEntry): Promise<string> {
-  const res = await fetch(`${MARKET_BASE}/${entry.file.replace(/^\/+/, "")}`, {
-    signal: AbortSignal.timeout(8000),
-  });
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-  return res.text();
+  return fetchFirst(marketSources(entry.file), (r) => r.text());
 }
 
 /** Downloads, registers and saves a Market plugin. Reports separately
@@ -112,7 +169,7 @@ export async function install(name: string): Promise<{ entry: MarketEntry; persi
  *  the URL to open in a browser — Checkout is a hosted Stripe page,
  *  it can't run inside the terminal itself. */
 export async function subscribe(name: string, email?: string): Promise<{ url: string }> {
-  const res = await fetch(`${MARKET_BASE}/checkout`, {
+  const res = await marketFetch(`${marketBase()}/checkout`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ plugin: name, customerEmail: email }),
@@ -142,7 +199,7 @@ export async function installPremium(typedName: string): Promise<{ entry: Market
   const license = await checkLicense(name, { force: true });
   if (!license.active) throw new Error(license.error || `no active subscription for ${name} — 'market subscribe ${name} first`);
 
-  const res = await fetch(`${MARKET_BASE}/premium-plugin?plugin=${encodeURIComponent(name)}&email=${encodeURIComponent(email)}`);
+  const res = await marketFetch(`${marketBase()}/premium-plugin?plugin=${encodeURIComponent(name)}&email=${encodeURIComponent(email)}`);
   const data = await res.json();
   if (!res.ok) throw new Error(data?.error || `couldn't fetch premium source (${res.status})`);
 

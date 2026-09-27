@@ -8,6 +8,11 @@
 # downloading a file with no type.
 /plugins/*
   Content-Type: text/plain; charset=utf-8
+  Access-Control-Allow-Origin: *
+
+# The Market list, readable from OXIS in a browser tab.
+/index.json
+  Access-Control-Allow-Origin: *
 
 /assets/*
   Cache-Control: public, max-age=604800

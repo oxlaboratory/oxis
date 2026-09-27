@@ -192,6 +192,19 @@ All notable changes to OXIS. The format follows
 - The npm launcher downloads from the GitHub `latest-build` release.
 
 ### Fixed
+- `'plugin publish` (and unpublish, paid-plugin onboarding, checkout,
+  license checks and premium downloads) couldn't reach the Market from
+  the desktop app: the page's JSON requests failed their CORS preflight
+  ("Failed to fetch"). OXIS now makes Market requests itself, and the
+  backend answers the preflight for OXIS in a browser tab.
+- A published plugin never appeared on the website: its card had to be
+  added to `index.html` by hand, and the site only changed when
+  redeployed. The website now builds a card for every plugin in
+  `index.json`, read from `main`, and `'market` reads the same list, so
+  a merged plugin is listed and installable straight away. Its entry
+  now carries its permissions, platforms, size and minimum OXIS version.
+- The website's download button offered a made-up placeholder `.lua`
+  when it couldn't fetch the real file.
 - `oxis.autocmd("EditorClosed")` fired when a file was saved, not when
   it was closed. Saving now fires `EditorSaved`.
 - Numbers reached Lua as floats, so `"status " .. res.status` read

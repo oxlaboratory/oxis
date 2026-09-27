@@ -1583,8 +1583,11 @@ const Demo = (() => {
 })();
 
 /* ================================================================
-   PLUGINS — the Market catalog shown on this page. Copy an entry to
-   add one.
+   PLUGINS — the Market catalog shown on this page. Every plugin in
+   index.json (read live from the repository, so a merged 'plugin
+   publish pull request appears here by itself) gets a card; the entries
+   below add what index.json doesn't carry (tags, premium details,
+   demos) for the plugins listed here.
 
    Required:
      name    – unique lowercase-with-dashes id (also the .lua filename)
@@ -1696,7 +1699,52 @@ function formatPrice(usd, currency){
   }
 }
 
-const CATS = ["ALL", ...CATEGORIES];
+let CATS = ["ALL", ...CATEGORIES];
+
+/* ================================================================
+   Market index: index.json as it is on main (fresh after a merge),
+   else the copy deployed with this page.
+   ================================================================ */
+const MARKET_RAW = `https://raw.githubusercontent.com/${'oxlaboratory/oxis'}/main/cloudflare`;
+const fmtSize = (bytes) => bytes >= 1024 ? `${Math.max(1, Math.round(bytes / 1024))}kb` : `${bytes}b`;
+
+function cardFromIndex(e){
+  const tags = [...(Array.isArray(e.permissions) ? e.permissions : []), ...(Array.isArray(e.os) ? e.os : [])]
+    .map(String).filter(Boolean).slice(0, 3);
+  return {
+    name: String(e.name), ver: String(e.version || '0.0.0'), cat: String(e.category || 'utility').toUpperCase(),
+    creator: String(e.author || 'unknown'), desc: String(e.desc || ''), tags: tags.length ? tags : [String(e.category || 'plugin').toLowerCase()],
+    size: typeof e.size === 'number' ? fmtSize(e.size) : '', file: String(e.file || `plugins/${e.name}.lua`),
+    ...(e.premium ? { premium: true, priceDisplay: e.priceDisplay, stripePriceId: null, comingSoon: true } : {}),
+  };
+}
+
+async function loadMarketIndex(){
+  let entries = null;
+  for (const url of [`${MARKET_RAW}/index.json`, '/index.json']){
+    try{
+      const res = await fetch(url, { cache: 'no-store' });
+      if(res.ok){ entries = await res.json(); break; }
+    }catch{}
+  }
+  if(!Array.isArray(entries)) return;
+  for (const e of entries){
+    if(!e || typeof e.name !== 'string' || !/^[a-z0-9][a-z0-9_-]{0,63}$/i.test(e.name)) continue;
+    const known = PLUGINS.find(p => p.name === e.name);
+    if(known){
+      // index.json is what 'market installs: keep the version in step.
+      if(e.version) known.ver = String(e.version);
+      if(typeof e.size === 'number' && !known.size) known.size = fmtSize(e.size);
+      continue;
+    }
+    const card = cardFromIndex(e);
+    PLUGINS.push(card);
+    if(!CATEGORIES.includes(card.cat)) CATEGORIES.push(card.cat);
+  }
+  CATS = ["ALL", ...CATEGORIES];
+  renderFilters();
+  renderGrid();
+}
 const acquired = new Set(); // downloaded (free) plugins
 const demoOpen = new Set(); // plugin names with their demo video expanded
 
@@ -1751,31 +1799,6 @@ function matches(p){
   return (p.name+' '+p.cat+' '+p.tags.join(' ')+' '+p.desc+' '+p.creator).toLowerCase().includes(q);
 }
 
-function luaStub(p){
-  return `-- ${p.name}.lua${p.premium ? '  (PREMIUM PLUGIN — subscription)' : ''}
--- category : ${p.cat}
--- version  : ${p.ver}
---
--- ${p.desc}
-
-local plugin = {}
-
-plugin.name     = "${p.name}"
-plugin.version  = "${p.ver}"
-plugin.category = "${p.cat}"
-${p.premium ? 'plugin.premium  = true\n' : ''}
-function plugin.init()
-    print("[" .. plugin.name .. "] loaded${p.premium ? ' (premium)' : ''}")
-end
-
-function plugin.run(args)
-    -- TODO: implement ${p.cat.toLowerCase()} logic here
-end
-
-return plugin
-`;
-}
-
 function triggerFileDownload(blob, filename){
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -1787,20 +1810,18 @@ function triggerFileDownload(blob, filename){
   URL.revokeObjectURL(url);
 }
 
+/** The plugin's real .lua: deployed with this page, or on main (a
+ *  plugin merged since the last deploy). */
 async function downloadPlugin(p){
   const filename = `${p.name}.lua`;
-  // The real file wins if /plugins has one with a matching name
-  // (Cloudflare Pages serves that folder as static files).
-  try{
-    const res = await fetch(`/plugins/${filename}`, { cache: 'no-store' });
-    if(res.ok){
-      triggerFileDownload(await res.blob(), filename);
-      return;
-    }
-  }catch(err){
-    // network hiccup or not deployed yet — fall through to the stub
+  const file = p.file || `plugins/${filename}`;
+  for (const url of [`/${file}`, `${MARKET_RAW}/${file}`]){
+    try{
+      const res = await fetch(url, { cache: 'no-store' });
+      if(res.ok){ triggerFileDownload(await res.blob(), filename); return true; }
+    }catch{}
   }
-  triggerFileDownload(new Blob([luaStub(p)], { type: "text/x-lua" }), filename);
+  return false;
 }
 
 function cardHTML(p, i){
@@ -1851,7 +1872,7 @@ function cardHTML(p, i){
       </div>
       <div class="card-desc">${desc}</div>
       <div class="card-tags">${p.tags.map(t=>`<span class="tag">#${escapeHtml(t)}</span>`).join('')}</div>
-      <div class="card-meta"><span>by <b>${creator}</b></span>${!p.premium ? `<span><b>${size}</b></span>` : ''}</div>
+      <div class="card-meta"><span>by <b>${creator}</b></span>${!p.premium && size ? `<span><b>${size}</b></span>` : ''}</div>
       ${demoSection}
       ${footer}
     </div>`;
@@ -1878,7 +1899,10 @@ grid.addEventListener('click', async (e)=>{
   if(action === 'install'){
     const p = PLUGINS.find(x=>x.name===name);
     if(!p || acquired.has(name)) return;
-    downloadPlugin(p);
+    if(!await downloadPlugin(p)){
+      toast(`couldn't download <b>${escapeHtml(name)}.lua</b> — try <b>'market install ${escapeHtml(name)}</b> in OXIS`);
+      return;
+    }
     acquired.add(name);
     renderGrid();
     toast(`downloaded <b>${escapeHtml(name)}.lua</b> — or in OXIS: <b>'market install ${escapeHtml(name)}</b>`);
@@ -1953,6 +1977,7 @@ renderFilters();
 renderRegionSelect();
 renderGrid();
 loadSubscriberCounts();
+loadMarketIndex();
 pickDownload();
 loadLive().catch(() => {});
 Demo.start();

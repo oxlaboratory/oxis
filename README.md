@@ -641,12 +641,24 @@ version, and restores it automatically if the new one fails to load.
 
 **Publishing.** `'plugin publish <name>` validates the plugin (a
 complete manifest is required) and opens a pull request against this
-repository adding it to the Market; it goes live once a maintainer
-merges it. Run it again to publish an update; `'plugin unpublish`
-opens a removal PR. You can also open the PR by hand: add
-`cloudflare/plugins/<name>.lua`, an entry in `cloudflare/index.json`,
-and a card in `cloudflare/index.html`. See
+repository: one commit with `cloudflare/plugins/<name>.lua`, one with
+its `cloudflare/index.json` entry (version, author, permissions,
+platforms, size). Once a maintainer merges it, it's live: `'market`
+and the website both read `index.json` from `main`, so the plugin can
+be installed straight away and the website shows its card, built from
+that entry, without a redeploy. Run it again to publish an update;
+`'plugin unpublish` opens a removal PR. You can also open the PR by
+hand with the same two files. See
 [CONTRIBUTING.md](CONTRIBUTING.md#plugins).
+
+Publishing needs the Market backend's `GITHUB_TOKEN` (a fine-grained
+token for this repository with *Contents* and *Pull requests* set to
+read and write), set as a secret in the Cloudflare Pages project; its
+`/health` page says whether it's there. OXIS makes its Market requests
+itself rather than from the page, so they aren't subject to CORS; for
+OXIS in a browser tab, the backend allows `127.0.0.1`/`localhost` and
+the app's own origins. To use your own Market backend, set
+`localStorage["oxis-market-base"]` to its URL.
 
 ---
 

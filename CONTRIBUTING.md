@@ -66,9 +66,12 @@ To get a plugin into the OXIS Market, either:
 
 - run `'plugin publish <name>` inside OXIS, which validates the plugin
   and opens a pull request for you, or
-- open a pull request by hand that adds `cloudflare/plugins/<name>.lua`,
-  an entry in `cloudflare/index.json`, and a card in
-  `cloudflare/index.html`.
+- open a pull request by hand that adds `cloudflare/plugins/<name>.lua`
+  and an entry in `cloudflare/index.json`.
+
+The website builds the plugin's card from its `index.json` entry, so
+there's no card to add by hand; it appears once the pull request is
+merged.
 
 Every submission is reviewed before it goes live. Plugins must do what
 their description says, declare the permissions they use, and must not
