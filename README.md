@@ -48,8 +48,9 @@ workspaces, and a plugin system with a Market, all scriptable in
 ## What it does
 
 - **A real terminal.** Your PowerShell (7 if installed, otherwise
-  Windows PowerShell) or bash session runs unchanged. Anything that
-  doesn't start with `'` goes straight to it.
+  Windows PowerShell) or bash session runs unchanged, in full colour
+  (16 theme colours, 256 colours and 24-bit). Anything that doesn't
+  start with `'` goes straight to it.
 - **Its own commands.** Start a line with an apostrophe and OXIS
   handles it: `'edit` opens the editor, `'market` browses plugins,
   `'theme` restyles everything, `'help` lists the rest.
@@ -678,6 +679,7 @@ set.
 | Core colours | `bg` `bg1`–`bg4` backgrounds, `border` `border2`, `text` `muted` `dim` `comment`, `purple` `purple2` `purple3` (the accents), `grey` `grey2` |
 | Status colours | `success` `error` `warning` `link` |
 | Interface | `selection` `caret` `promptColor` `promptBg` `promptBorder` `statusBg` `statusText` `titlebarBg` `titlebarText` `cornerMark` `scrollbar` `scrollbarHover` |
+| Terminal colours | the 16 colours programs print with: `ansiBlack` `ansiRed` `ansiGreen` `ansiYellow` `ansiBlue` `ansiMagenta` `ansiCyan` `ansiWhite` and `ansiBright…` of each |
 | Syntax (editor) | `synKeyword` `synString` `synNumber` `synComment` `synFunction` |
 | Sky (Home) | `sun` `cloud` `moon` `star` |
 | Text | `font` (a CSS font list), `fontSize` 9–28, `lineHeight` 1–2.4, `letterSpacing` −1–4, `fontWeight` 300–700, `ligatures` on/off |
@@ -707,6 +709,13 @@ a theme's; `'config reset <key>` hands them back to the theme.
 Save theme files in `~/.oxis/themes/` (they load at startup) or add one
 with `'theme import <file>`. Unknown keys and invalid values are
 ignored, and `'theme import` lists them.
+
+**Bring your colour scheme.** `'theme import` also takes a Windows
+Terminal colour scheme (an entry from its `settings.json` `schemes`, or
+any of the published scheme collections). Its 16 colours become the
+terminal colours, and the rest of OXIS is built from its background,
+foreground and blues: `'theme import one-half-dark.json`, then
+`'theme one-half-dark`.
 
 ---
 

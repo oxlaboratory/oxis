@@ -8,6 +8,7 @@
  * The cwd drives oxis.cwd() and automatic workspace detection.
  */
 
+import { stripSgr } from "./ansi";
 import { workspaceManager } from "./workspaceManager";
 
 const MARK = "\u2063OXISCWD\u2063";
@@ -54,7 +55,7 @@ class CwdTracker {
   consume(raw: string): string {
     let changed: string | null = null;
     let stripped = (this.carry + raw).replace(PROBE_RE, (_match, path: string) => {
-      changed = path.trim();
+      changed = stripSgr(path).trim(); // a coloured prompt can leave codes around it
       return "";
     });
     this.carry = "";

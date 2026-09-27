@@ -8,15 +8,22 @@ import (
 
 func TestStripCtrl(t *testing.T) {
 	cases := map[string]string{
-		"\x1b[32mgreen\x1b[0m":               "green",
+		// Colours and styles survive; everything else goes.
+		"\x1b[32mgreen\x1b[0m":               "\x1b[32mgreen\x1b[0m",
+		"\x1b[1;38;5;208mx\x1b[m":            "\x1b[1;38;5;208mx\x1b[m",
+		"\x1b[38:2::255:0:0mrgb":             "\x1b[38:2::255:0:0mrgb",
+		"\x1b[?25l\x1b[?4mhidden":            "hidden",
 		"\x1b]0;title\x07prompt> ":           "prompt> ",
 		"Directory\x1b[9;1HMode\x1b[45X\r\n": "Directory\nMode\r\n",
-		"\x1b[?25l\x1b[2J\x1b[m\x1b[HPS> ":   "PS> ",
+		"\x1b[?25l\x1b[2J\x1b[m\x1b[HPS> ":   "\x1b[mPS> ",
 		// npm's spinner on Windows, then its erase before the prompt.
 		"done\r\n\\\r\x1b[KPS> ": "done\r\n\\\r\x1aPS> ",
 		// Node readline on Linux: column 1, then erase.
 		"50%\x1b[1G\x1b[0K100%": "50%\r\x1a100%",
 		"a\x1b[2Kb":             "a\r\x1ab",
+		// Cursor-forward draws blank cells.
+		"PS C:\\>\x1b[1Cgit": "PS C:\\> git",
+		"a\x1b[3Cb\x1b[Cc":   "a   b c",
 		// Erase-to-end after text (not at column 1) erases nothing visible.
 		"text\x1b[K\r\n": "text\r\n",
 	}

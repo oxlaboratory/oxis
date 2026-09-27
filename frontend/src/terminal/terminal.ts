@@ -3,6 +3,8 @@
  * processing, and readline word operations. No React, no PTY.
  */
 
+import { stripSgr, type Span } from "./ansi";
+
 // ─────────────────────────────────────────────────────────────
 // ANSI / VT STRIPPER (the Go side already strips; this is a second pass)
 // ─────────────────────────────────────────────────────────────
@@ -30,6 +32,15 @@ export function stripAnsi(s: string): string {
     .replace(/[\x00\x07\x08]/g, "");   // NUL / BEL / BS
 }
 
+const SGR_ONLY_RE = /^\x1b\[[0-9;:]*m$/;
+
+/** Like stripAnsi, but keeps colour/style sequences (see ansi.ts). */
+export function stripAnsiKeepSgr(s: string): string {
+  return s
+    .replace(ANSI_RE, seq => (SGR_ONLY_RE.test(seq) ? seq : ""))
+    .replace(/[\x00\x07\x08]/g, "");
+}
+
 /** Where the PTY erased the current line (lineErased in pty.go). */
 const LINE_ERASED = "\x1a";
 
@@ -39,14 +50,25 @@ const LINE_ERASED = "\x1a";
  *  what was written after the erase. */
 export function visibleText(line: string): string {
   if (!line.includes("\r") && !line.includes(LINE_ERASED)) return line;
-  let shown = "";
+  // Colour codes in text that gets overwritten still apply to what
+  // follows, so they're kept, in order, ahead of the visible part.
+  let shown = "", carried = "";
   for (const part of line.split("\r")) {
     const erased = part.lastIndexOf(LINE_ERASED);
-    if (erased >= 0) shown = part.slice(erased + 1);
-    else if (part !== "") shown = part;
+    if (erased >= 0) {
+      carried += sgrCodes(shown) + sgrCodes(part.slice(0, erased));
+      shown = part.slice(erased + 1);
+    } else if (stripSgr(part) !== "") {
+      carried += sgrCodes(shown);
+      shown = part;
+    } else {
+      shown += part; // only colour codes: they belong to the current text
+    }
   }
-  return shown;
+  return carried + shown;
 }
+
+const sgrCodes = (s: string) => (s.includes("\x1b") ? (s.match(/\x1b\[[0-9;:]*m/g) ?? []).join("") : "");
 
 // ─────────────────────────────────────────────────────────────
 // LINE MODEL
@@ -57,8 +79,11 @@ export type LineKind =
 
 export interface Line {
   id:    number;
+  /** Plain text: what search, copy and every check use. */
   text:  string;
   kind?: LineKind;
+  /** Colours from the shell (ansi.ts); undefined for plain lines. */
+  spans?: Span[];
 }
 
 let _lid = 0;
@@ -93,16 +118,17 @@ export function processOutput(
   pending: string,
 ): { completedLines: string[]; newPending: string } {
   // A trailing \r is kept in `pending` so a CRLF split across two
-  // chunks still reads as one line break.
-  const parts = (pending + stripAnsi(raw)).replace(/\r\n/g, "\n").split("\n");
+  // chunks still reads as one line break. Colour codes stay in the
+  // lines (ansi.ts renders them); stripSgr gives the plain text.
+  const parts = (pending + stripAnsiKeepSgr(raw)).replace(/\r\n/g, "\n").split("\n");
   const newPending = parts.pop() ?? "";
   return { completedLines: parts.map(visibleText), newPending };
 }
 /** Appends completed lines to the buffer. Unfinished lines never
  *  reach it (the caller keeps them as `pending`), so nothing is merged. */
-export function mergeOutput(prev: Line[], completedLines: string[]): Line[] {
+export function mergeOutput(prev: Line[], completedLines: Array<{ text: string; spans?: Span[] }>): Line[] {
   if (completedLines.length === 0) return prev;
-  const next = prev.concat(completedLines.map(t => mkLine(t, "shell")));
+  const next = prev.concat(completedLines.map(l => ({ ...mkLine(l.text, "shell"), spans: l.spans })));
   // Keep memory bounded.
   return next.length > 10_000 ? next.slice(-8_000) : next;
 }

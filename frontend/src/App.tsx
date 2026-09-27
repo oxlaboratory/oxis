@@ -24,6 +24,7 @@ import {
 } from "./terminal/terminal";
 import type { Line, LineKind } from "./terminal/terminal";
 
+import { AnsiParser, stripSgr, type Span } from "./terminal/ansi";
 import { history, keepOutOfHistory }        from "./terminal/history";
 import type { SearchResult }               from "./terminal/history";
 import { themeManager, themeOption, optionValue, normalizeOption, THEME_OPTIONS, CORE_KEYS, resolveColor } from "./terminal/themeManager";
@@ -196,6 +197,11 @@ const SETTINGS: SettingDef[] = [
     key: "cursorBlink", label: "Cursor Blink", default: true, themed: true,
     description: "Whether the terminal cursor blinks",
     apply: (v) => document.documentElement.setAttribute("data-cursor-blink", v ? "on" : "off"),
+  },
+  {
+    key: "ansiColors", label: "Colour Output", default: true,
+    description: "Show the colours programs print (git, test runners, linters); off shows plain text",
+    apply: () => { /* read for each new line of output */ },
   },
   {
     key: "updateCheckOnStartup", label: "Check for Updates", default: true,
@@ -3608,12 +3614,38 @@ const openLinePath = (path: string) => { _ctxRef.current?.openEditor(path); };
 /** One output line. Memoised because the terminal re-renders on every
  *  keystroke in the prompt, and rebuilding (and re-scanning for links)
  *  up to 10,000 lines each time made typing lag. */
+/** Styled spans (shell colours); links are found within each span. */
+function renderSpans(spans: Span[]): React.ReactNode {
+  return spans.map((sp, i) => sp.s
+    ? <span key={i} style={cssText(sp.s)}>{renderLineWithLinks(sp.t, openLineUrl, openLinePath)}</span>
+    : <React.Fragment key={i}>{renderLineWithLinks(sp.t, openLineUrl, openLinePath)}</React.Fragment>);
+}
+
+const cssCache = new Map<string, React.CSSProperties>();
+/** "color:red;font-weight:700" → a React style object (cached; the
+ *  same few styles repeat across thousands of lines). */
+function cssText(text: string): React.CSSProperties {
+  let style = cssCache.get(text);
+  if (!style) {
+    style = {};
+    for (const decl of text.split(";")) {
+      const at = decl.indexOf(":");
+      if (at < 0) continue;
+      const prop = decl.slice(0, at).trim().replace(/-([a-z])/g, (_, c: string) => c.toUpperCase());
+      (style as Record<string, string>)[prop] = decl.slice(at + 1).trim();
+    }
+    if (cssCache.size > 500) cssCache.clear();
+    cssCache.set(text, style);
+  }
+  return style;
+}
+
 const OutputLine = memo(function OutputLine({ line, match }: { line: Line; match: boolean }) {
   return (
     <div data-line-id={line.id}
       className={`term-line${match ? " term-line--match" : ""}`}
       style={{ color: line.kind ? LINE_COLORS[line.kind] : undefined }}>
-      {renderLineWithLinks(line.text, openLineUrl, openLinePath)}
+      {line.spans && line.text ? renderSpans(line.spans) : renderLineWithLinks(line.text, openLineUrl, openLinePath)}
     </div>
   );
 });
@@ -3629,6 +3661,9 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
   const [lines,      setLines]      = useState<Line[]>(() => initialLines());
   const [ready,      setReady]      = useState(false);
   const [partial,    setPartial]    = useState("");
+  const [partialSpans, setPartialSpans] = useState<Span[] | undefined>(undefined);
+  // Colour state carried from one line of shell output to the next.
+  const ansiRef = useRef(new AnsiParser());
   const [connErr,    setConnErr]    = useState("");
   // The shell is waiting at a password prompt (sudo, ssh, git,
   // Read-Host -AsSecureString): the prompt is masked and the answer
@@ -4070,20 +4105,33 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
     if (!raw) return;
     const processed = processOutput(raw, pending.current);
     pending.current = processed.newPending;
+    const colors = getSetting("ansiColors") !== false;
     // The unfinished last line (the shell prompt, or a program asking
-    // for input) is shown live below the completed lines.
-    setPartial(isProbeLine(processed.newPending) ? "" : stripStepEcho(visibleText(processed.newPending)));
+    // for input) is shown live below the completed lines, in colour
+    // too (without committing its style: it isn't finished).
+    const pendingVisible = visibleText(processed.newPending);
+    const pendingPlain = stripSgr(pendingVisible);
+    if (isProbeLine(pendingPlain)) {
+      setPartial(""); setPartialSpans(undefined);
+    } else {
+      const shown = stripStepEcho(pendingPlain);
+      setPartial(shown);
+      setPartialSpans(colors && shown === pendingPlain ? ansiRef.current.preview(pendingVisible).spans : undefined);
+    }
     // Drop probe echoes, and collapse runs of blank lines (the shell's
     // screen repaints turn into many of them once cursor moves are
-    // stripped).
-    const completedLines: string[] = [];
+    // stripped). Every check runs on the plain text; the colours are
+    // only for display, and are dropped from a line OXIS rewrote.
+    const completedLines: Array<{ text: string; spans?: Span[] }> = [];
     let prevBlank = (linesRef.current[linesRef.current.length - 1]?.text ?? "x").trim() === "";
-    for (const raw of processed.completedLines) {
-      if (isProbeLine(raw)) continue;
-      const l = stripStepEcho(raw);
+    for (const styled of processed.completedLines) {
+      const parsed = ansiRef.current.parse(styled); // every line, so the style state stays right
+      const plain = parsed.text;
+      if (isProbeLine(plain)) continue;
+      const l = stripStepEcho(plain);
       const blank = l.trim() === "";
       if (blank && prevBlank) continue;
-      completedLines.push(l);
+      completedLines.push(colors && l === plain ? parsed : { text: l });
       prevBlank = blank;
     }
     if (!completedLines.length) return;
@@ -4854,7 +4902,7 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
         tabIndex={-1}
       >
         {lines.map(line => <OutputLine key={line.id} line={line} match={outputSearchSet.has(line.id)} />)}
-        {partial && <div className="term-line">{partial}</div>}
+        {partial && <div className="term-line">{partialSpans && !secretInput ? renderSpans(partialSpans) : partial}</div>}
       </div>
 
       {outputMenu && (

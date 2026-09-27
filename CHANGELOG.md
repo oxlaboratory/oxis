@@ -6,6 +6,15 @@ All notable changes to OXIS. The format follows
 ## [Unreleased]
 
 ### Added
+- Colour output: the colours and styles programs print (git diffs,
+  test runners, linters, PowerShell errors) are shown instead of
+  stripped: 16 theme colours, the 256-colour palette and 24-bit colour,
+  with bold, dim, italic, underline, inverse and strikethrough. Sixteen
+  "Terminal colours" theme keys (`ansiRed`, `ansiBrightBlue`, …) set
+  the palette; `'config set ansiColors false` turns colour off. Shells
+  are told 24-bit colour works (`COLORTERM=truecolor`).
+- `'theme import` accepts a Windows Terminal colour scheme and builds a
+  whole OXIS theme from it.
 - `oxis.command` handlers get a third argument, `raw`: the text after
   the command name exactly as typed, quotes, backslashes and tabs
   included (`args` and `rest` stay as they were).
@@ -137,6 +146,8 @@ All notable changes to OXIS. The format follows
 - The npm launcher downloads from the GitHub `latest-build` release.
 
 ### Fixed
+- Spaces ConPTY draws by moving the cursor (after the prompt, between
+  coloured runs) were lost, so `PS C:\> git` showed as `PS C:\>git`.
 - The MSI installed to `C:\Users\<name>OXIS` (a lost backslash) instead
   of `C:\Users\<name>\OXIS`. That folder isn't writable, so OXIS put
   its data in `~/Downloads/OXIS`. Installed properly it writes next to

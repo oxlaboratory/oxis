@@ -73,9 +73,9 @@ func shellEnv(set ...string) []string {
 	return append(env, set...)
 }
 
-// ansiRe matches every ANSI/VT escape sequence. The frontend renders its
-// own theme colours, so all escapes are stripped from PTY output on
-// every platform.
+// ansiRe matches every ANSI/VT escape sequence. All of them are
+// stripped except colours and text styles (SGR, see sgrRe), which the
+// frontend renders with the theme's palette (terminal/ansi.ts).
 var ansiRe = regexp.MustCompile(
 	// OSC sequences: ESC ] ... ST
 	`\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)` +
@@ -106,11 +106,35 @@ var eraseLineRe = regexp.MustCompile(`\r\x1b\[0?K|\x1b\[2K`)
 // frame of a spinner is left behind.
 const lineErased = "\x1a"
 
+// cursorForwardRe is "move the cursor right N columns". ConPTY draws
+// blank cells that way instead of printing spaces (after a prompt, or
+// between coloured runs), so they become spaces again.
+var cursorForwardRe = regexp.MustCompile(`\x1b\[(\d*)C`)
+
+func forwardAsSpaces(seq string) string {
+	n, err := strconv.Atoi(cursorForwardRe.FindStringSubmatch(seq)[1])
+	if err != nil || n < 1 {
+		n = 1
+	}
+	return strings.Repeat(" ", min(n, 300))
+}
+
+// sgrRe is a colour/style sequence (Select Graphic Rendition).
+var sgrRe = regexp.MustCompile(`^\x1b\[[0-9;:]*m$`)
+
+func keepSGR(seq string) string {
+	if sgrRe.MatchString(seq) {
+		return seq
+	}
+	return ""
+}
+
 func stripCtrl(s string) string {
 	s = rowStartRe.ReplaceAllString(s, "\n")
 	s = colOneRe.ReplaceAllString(s, "\r")
 	s = eraseLineRe.ReplaceAllString(s, "\r"+lineErased)
-	return ansiRe.ReplaceAllString(s, "")
+	s = cursorForwardRe.ReplaceAllStringFunc(s, forwardAsSpaces)
+	return ansiRe.ReplaceAllStringFunc(s, keepSGR)
 }
 
 // splitIncompleteUTF8 splits off a trailing, incomplete multi-byte UTF-8

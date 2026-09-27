@@ -69,6 +69,26 @@ export const THEME_OPTIONS: ThemeOption[] = [
   { key: "scrollbar", group: "Interface", label: "Scrollbar", hint: "scrollbar thumb", kind: "color", fallback: "var(--bg4)", cssVar: "--scrollbar" },
   { key: "scrollbarHover", group: "Interface", label: "Scrollbar hover", hint: "scrollbar thumb under the mouse", kind: "color", fallback: "var(--grey2)", cssVar: "--scrollbar-hover" },
 
+  // Terminal colours: the 16 colours programs print with (git, test
+  // runners, ls…); 256-colour and 24-bit colours are shown as they are.
+  // Same names as a Windows Terminal colour scheme.
+  { key: "ansiBlack", group: "Terminal colours", label: "Black", hint: "ANSI colour 0", kind: "color", fallback: "#414868", cssVar: "--ansi-0" },
+  { key: "ansiRed", group: "Terminal colours", label: "Red", hint: "ANSI colour 1", kind: "color", fallback: "#f7768e", cssVar: "--ansi-1" },
+  { key: "ansiGreen", group: "Terminal colours", label: "Green", hint: "ANSI colour 2", kind: "color", fallback: "#9ece6a", cssVar: "--ansi-2" },
+  { key: "ansiYellow", group: "Terminal colours", label: "Yellow", hint: "ANSI colour 3", kind: "color", fallback: "#e0af68", cssVar: "--ansi-3" },
+  { key: "ansiBlue", group: "Terminal colours", label: "Blue", hint: "ANSI colour 4", kind: "color", fallback: "#7aa2f7", cssVar: "--ansi-4" },
+  { key: "ansiMagenta", group: "Terminal colours", label: "Magenta", hint: "ANSI colour 5", kind: "color", fallback: "#bb9af7", cssVar: "--ansi-5" },
+  { key: "ansiCyan", group: "Terminal colours", label: "Cyan", hint: "ANSI colour 6", kind: "color", fallback: "#7dcfff", cssVar: "--ansi-6" },
+  { key: "ansiWhite", group: "Terminal colours", label: "White", hint: "ANSI colour 7", kind: "color", fallback: "var(--text)", cssVar: "--ansi-7" },
+  { key: "ansiBrightBlack", group: "Terminal colours", label: "Bright black", hint: "ANSI colour 8 (bold/bright variants)", kind: "color", fallback: "#565f89", cssVar: "--ansi-8" },
+  { key: "ansiBrightRed", group: "Terminal colours", label: "Bright red", hint: "ANSI colour 9 (bold/bright variants)", kind: "color", fallback: "#ff899d", cssVar: "--ansi-9" },
+  { key: "ansiBrightGreen", group: "Terminal colours", label: "Bright green", hint: "ANSI colour 10 (bold/bright variants)", kind: "color", fallback: "#b9f27c", cssVar: "--ansi-10" },
+  { key: "ansiBrightYellow", group: "Terminal colours", label: "Bright yellow", hint: "ANSI colour 11 (bold/bright variants)", kind: "color", fallback: "#ffc777", cssVar: "--ansi-11" },
+  { key: "ansiBrightBlue", group: "Terminal colours", label: "Bright blue", hint: "ANSI colour 12 (bold/bright variants)", kind: "color", fallback: "#8db0ff", cssVar: "--ansi-12" },
+  { key: "ansiBrightMagenta", group: "Terminal colours", label: "Bright magenta", hint: "ANSI colour 13 (bold/bright variants)", kind: "color", fallback: "#c7a9ff", cssVar: "--ansi-13" },
+  { key: "ansiBrightCyan", group: "Terminal colours", label: "Bright cyan", hint: "ANSI colour 14 (bold/bright variants)", kind: "color", fallback: "#a4daff", cssVar: "--ansi-14" },
+  { key: "ansiBrightWhite", group: "Terminal colours", label: "Bright white", hint: "ANSI colour 15 (bold/bright variants)", kind: "color", fallback: "#ffffff", cssVar: "--ansi-15" },
+
   // Syntax highlighting (editor)
   { key: "synKeyword", group: "Syntax", label: "Keywords", hint: "if, function, return…", kind: "color", fallback: "var(--purple)", cssVar: "--syn-keyword" },
   { key: "synString", group: "Syntax", label: "Strings", hint: "\"text\" and 'text'", kind: "color", fallback: "var(--purple3)", cssVar: "--syn-string" },
@@ -232,6 +252,8 @@ const BUILTINS: Record<string, Theme> = {
     success:"#1f7a3a", error:"#b3261e", warning:"#a15c00", link:"#2f5b8a",
     statusText:"#f7f5ef", cloud:"#a9b4c2", moon:"#6b7280", sun:"#d18b00", star:"#3b6ea5",
     selection:"rgba(59,110,165,.22)",
+    ansiBlack:"#2f3437",ansiRed:"#b42318",ansiGreen:"#2e7d32",ansiYellow:"#8a5a00",ansiBlue:"#1f5fa8",ansiMagenta:"#8e44ad",ansiCyan:"#0f7285",ansiWhite:"#6b6f73",
+    ansiBrightBlack:"#5d6166",ansiBrightRed:"#d92d20",ansiBrightGreen:"#388e3c",ansiBrightYellow:"#a86b00",ansiBrightBlue:"#2f78c4",ansiBrightMagenta:"#9b59b6",ansiBrightCyan:"#138a9e",ansiBrightWhite:"#2f3437",
   },
   matrix: {
     bg:"#020a04",bg1:"#010603",bg2:"#041208",bg3:"#07200e",bg4:"#0b2e15",
@@ -470,7 +492,8 @@ class ThemeManager {
 
   import(json: string): { ok: boolean; name?: string; error?: string; warnings?: string[] } {
     try {
-      const t = JSON.parse(json) as Theme & { name?: string };
+      const parsed = JSON.parse(json) as Record<string, unknown>;
+      const t = (isTerminalScheme(parsed) ? fromTerminalScheme(parsed) : parsed) as Theme & { name?: string };
       const name = t.name ?? "imported";
       if (!/^[A-Za-z0-9_-]{1,40}$/.test(name)) return { ok: false, error: `theme names: letters, numbers, - and _ (got "${name}")` };
       if (BUILTINS[name]) return { ok: false, error: `"${name}" is a built-in theme name — rename it in the JSON` };
@@ -482,6 +505,44 @@ class ThemeManager {
       return { ok: false, error: String(e) };
     }
   }
+}
+
+/** A Windows Terminal colour scheme (the "schemes" entries of its
+ *  settings.json, and what most scheme collections publish). */
+function isTerminalScheme(j: Record<string, unknown>): boolean {
+  return typeof j.background === "string" && typeof j.foreground === "string"
+    && typeof j.black === "string" && typeof j.brightWhite === "string" && j.bg === undefined;
+}
+
+const ANSI_NAMES = ["Black", "Red", "Green", "Yellow", "Blue", "Magenta", "Cyan", "White"];
+
+/** Builds an OXIS theme from a terminal colour scheme: its 16 colours
+ *  become the terminal colours, and the rest of the UI is derived from
+ *  its background, foreground and blues. */
+function fromTerminalScheme(j: Record<string, unknown>): Theme & { name: string } {
+  const c = (k: string) => String(j[k]);
+  const bg = c("background"), fg = c("foreground");
+  const mix = (a: string, pct: number, b: string) => `color-mix(in srgb, ${a} ${pct}%, ${b})`;
+  const name = String(j.name ?? "imported").toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "imported";
+  const theme: Theme & { name: string } = {
+    name,
+    bg, bg1: mix(bg, 88, "#000"), bg2: mix(bg, 93, fg), bg3: mix(bg, 87, fg), bg4: mix(bg, 80, fg),
+    border: mix(bg, 82, fg), border2: c("brightBlue"),
+    text: fg, muted: mix(fg, 62, bg), dim: c("brightBlack"), comment: mix(fg, 38, bg),
+    purple: c("brightBlue"), purple2: c("blue"), purple3: c("brightCyan"),
+    grey: c("white"), grey2: c("brightBlack"),
+    success: c("green"), error: c("red"), warning: c("yellow"), link: c("brightCyan"),
+  } as Theme & { name: string };
+  if (typeof j.cursorColor === "string") theme.caret = j.cursorColor;
+  if (typeof j.selectionBackground === "string") theme.selection = mix(j.selectionBackground, 55, "transparent");
+  // Windows Terminal calls magenta "purple"; other tools say "magenta".
+  const alias: Record<string, string> = { magenta: "purple", brightMagenta: "brightPurple" };
+  const pick = (k: string) => c(j[k] === undefined && alias[k] ? alias[k] : k);
+  ANSI_NAMES.forEach(n => {
+    theme[`ansi${n}`] = pick(n.toLowerCase());
+    theme[`ansiBright${n}`] = pick(`bright${n}`);
+  });
+  return theme;
 }
 
 export const themeManager = new ThemeManager();
