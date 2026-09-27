@@ -93,7 +93,8 @@
     .nav-links{ display:none; }
     .menu-btn{ display:inline-flex; }
     .nav.open .nav-links{ display:flex; position:absolute; top:100%; left:0; right:0; flex-direction:column; gap:4px;
-      padding:10px 24px 18px; background:rgba(6,7,11,.95); border-bottom:1px solid var(--line); }
+      padding:10px 24px 18px; background:var(--bg); border-bottom:1px solid var(--line);
+      box-shadow:0 30px 60px -20px rgba(0,0,0,.85); }
     .nav.open .nav-links a{ padding:10px 0; font-size:16px; }
     .nav-right .btn-sm{ display:none; }
   }
@@ -222,7 +223,7 @@
     background:color-mix(in srgb, var(--t-bg) 12%, transparent); clip-path:polygon(0 0, 100% 0, calc(100% - 10px) 100%, 0 100%); }
   .ts-right{ margin-left:auto; display:flex; gap:12px; opacity:.85; }
   .term-hint{ margin-top:18px; text-align:center; font-size:13px; color:var(--dim); transition:opacity .4s; }
-  .term-hint code{ color:var(--accent); background:var(--soft); padding:2px 7px; border-radius:6px; font-size:12.5px; }
+  .term-hint code{ color:var(--accent); background:var(--soft); padding:2px 7px; border-radius:6px; font-size:12.5px; white-space:nowrap; }
   @media(max-width:560px){ .term{ font-size:11.5px; } .term-body{ height:300px; padding:12px 12px 6px; } .term-prompt{ padding:11px 12px; } .ts-right #tsClock{ display:none; } }
 
   /* ── marquee ───────────────────────────────────────────────── */
@@ -231,9 +232,8 @@
   .marquee .lbl{ text-align:center; font-size:12px; letter-spacing:.2em; color:var(--dim); text-transform:uppercase; margin-bottom:16px; font-weight:600; }
   .mq{ display:flex; gap:14px; width:max-content; animation:scrollx 38s linear infinite; }
   .marquee:hover .mq{ animation-play-state:paused; }
-  .marquee::before, .marquee::after{ content:""; position:absolute; top:0; bottom:0; width:120px; z-index:1; pointer-events:none; }
-  .marquee::before{ left:0; background:linear-gradient(90deg, var(--bg), transparent); }
-  .marquee::after{ right:0; background:linear-gradient(-90deg, var(--bg), transparent); }
+  .mq-mask{ overflow:hidden; -webkit-mask-image:linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
+    mask-image:linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent); }
   @keyframes scrollx{ to{ transform:translateX(-50%); } }
   .chiplg{ display:inline-flex; align-items:center; gap:9px; padding:9px 16px; border-radius:999px; border:1px solid var(--line);
     background:var(--surface); font-family:var(--mono); font-size:13px; color:var(--muted); white-space:nowrap; }
@@ -308,7 +308,11 @@
   .point h4{ font-size:16.5px; font-weight:600; margin-bottom:3px; }
   .point p{ color:var(--muted); font-size:14.5px; line-height:1.55; }
   .editor{ border-radius:16px; border:1px solid var(--line-2); background:#0b0d14; overflow:hidden; box-shadow:0 40px 100px -40px rgba(0,0,0,.9); }
-  .ed-tabs{ display:flex; align-items:center; gap:2px; padding:8px 8px 0; background:#080a10; border-bottom:1px solid var(--line); }
+  .ed-tabs{ display:flex; align-items:center; gap:2px; padding:8px 8px 0; background:#080a10; border-bottom:1px solid var(--line);
+    overflow-x:auto; scrollbar-width:none; }
+  .ed-tabs::-webkit-scrollbar{ display:none; }
+  .ed-tab{ white-space:nowrap; flex-shrink:0; }
+  .ed-tab .dir{ color:var(--dim); }
   .ed-tab{ font-family:var(--mono); font-size:12.5px; color:var(--dim); padding:9px 14px; border-radius:9px 9px 0 0; border:1px solid transparent;
     border-bottom:none; background:none; cursor:pointer; transition:color .2s, background .2s; }
   .ed-tab.on{ color:var(--text); background:#0b0d14; border-color:var(--line); }
@@ -471,7 +475,7 @@
   .shell-top{ display:flex; align-items:center; gap:8px; padding:10px 12px; border-bottom:1px solid var(--line); font-family:var(--mono); font-size:12px; color:var(--dim); }
   .shell-top i{ width:10px; height:10px; border-radius:50%; background:#2a2e3d; }
   .shell-top .copy{ margin-bottom:0; }
-  .shell pre{ margin:0; padding:18px 20px; white-space:pre-wrap; overflow-wrap:anywhere; font-family:var(--mono); font-size:13.5px; line-height:1.8; color:#d6dbef; }
+  .shell pre{ margin:0; padding:18px 20px; white-space:pre-wrap; overflow-wrap:break-word; font-family:var(--mono); font-size:13.5px; line-height:1.8; color:#d6dbef; }
   .shell pre .pr{ color:var(--accent); user-select:none; }
   .shell pre .c{ color:#565f89; }
 
@@ -513,6 +517,21 @@
   .toast.on{ opacity:1; transform:translate(-50%, 0); }
   .toast b{ color:var(--accent); }
 
+  @media(max-width:560px){
+    .term-body{ height:230px; }
+    .marquee .lbl{ letter-spacing:.12em; font-size:11px; padding:0 16px; }
+    .sw .sw-body{ font-size:10px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .ed-tab .dir{ display:none; }
+    .ed-tab{ padding:9px 10px; }
+    .ed-tabs .copy{ padding:6px 8px; }
+    .grid{ padding:12px; gap:12px; }
+    .cmdwrap{ padding:14px; }
+    .market-foot{ padding:14px; }
+    .card{ padding:16px; }
+    .wrap{ padding:0 16px; }
+    .ipane{ padding:18px; }
+    .final{ padding:56px 20px; }
+  }
   @media(max-width:640px){
     .cmdbar input, #region-select{ font-size:16px; }
     .chip{ padding:9px 14px; }
@@ -612,7 +631,7 @@
 <!-- ═════════════════ SHELL MARQUEE ═════════════════ -->
 <div class="marquee" aria-label="Works with your tools">
   <div class="lbl">Runs the shell and tools you already use</div>
-  <div class="mq" id="mq"></div>
+  <div class="mq-mask"><div class="mq" id="mq"></div></div>
 </div>
 
 <!-- ═════════════════ FEATURES ═════════════════ -->
@@ -701,9 +720,9 @@
     </div>
     <div class="editor rv" style="--d:.1s">
       <div class="ed-tabs" role="tablist">
-        <button class="ed-tab on" data-tab="0" role="tab">plugins/pr.lua</button>
-        <button class="ed-tab" data-tab="1" role="tab">workflows/release.lua</button>
-        <button class="ed-tab" data-tab="2" role="tab">themes/harbour.json</button>
+        <button class="ed-tab on" data-tab="0" role="tab"><span class="dir">plugins/</span>pr.lua</button>
+        <button class="ed-tab" data-tab="1" role="tab"><span class="dir">workflows/</span>release.lua</button>
+        <button class="ed-tab" data-tab="2" role="tab"><span class="dir">themes/</span>harbour.json</button>
         <button class="copy" id="codeCopy">copy</button>
       </div>
       <div class="ed-body">
@@ -720,7 +739,7 @@
   <div class="wrap">
     <div class="sec-head center rv">
       <span class="kicker">Themes</span>
-      <h2>Ten themes. Sixty-two keys.<br><span class="grad">Make it yours.</span></h2>
+      <h2>Ten themes. Sixty‑two keys.<br><span class="grad">Make it yours.</span></h2>
       <p>Click one — this page and the demo terminal above switch with it. In OXIS, <code>'theme set &lt;key&gt; &lt;value&gt;</code> changes anything live and saves your own copy.</p>
     </div>
     <div class="swatches" id="swatches"></div>
@@ -823,7 +842,7 @@
           </ol>
         </div>
         <div class="shell"><div class="shell-top"><i></i><i></i><i></i><span>PowerShell</span><button class="copy" data-copy="win">copy</button></div>
-<pre data-code="win"><span class="pr">PS&gt; </span>Invoke-WebRequest https://github.com/oxlaboratory/oxis/releases/download/latest-build/oxis.exe -OutFile oxis.exe
+<pre data-code="win"><span class="pr">PS&gt; </span>Invoke-WebRequest https://github.com/<wbr>oxlaboratory/<wbr>oxis/<wbr>releases/<wbr>download/<wbr>latest-build/<wbr>oxis.exe -OutFile oxis.exe
 <span class="pr">PS&gt; </span>.\oxis.exe</pre></div>
       </div>
 
@@ -842,7 +861,7 @@
           </ol>
         </div>
         <div class="shell"><div class="shell-top"><i></i><i></i><i></i><span>bash</span><button class="copy" data-copy="linux">copy</button></div>
-<pre data-code="linux"><span class="pr">$ </span>curl -LO <span id="debUrl">https://github.com/oxlaboratory/oxis/releases/download/latest-build/oxis_1.2.1_amd64.deb</span>
+<pre data-code="linux"><span class="pr">$ </span>curl -LO <span id="debUrl">https://github.com/<wbr>oxlaboratory/<wbr>oxis/<wbr>releases/<wbr>download/<wbr>latest-build/<wbr>oxis_1.2.1_amd64.deb</span>
 <span class="pr">$ </span>sudo apt install ./<span id="debName">oxis_1.2.1_amd64.deb</span>
 <span class="pr">$ </span>oxis</pre></div>
       </div>
@@ -1201,7 +1220,7 @@ function renderLive(){
     const url = LIVE.assets[a.dataset.asset];
     if(url){ a.href = url; a.removeAttribute('target'); }
   }
-  if(LIVE.assets.deb){ $('#debUrl').textContent = LIVE.assets.deb; $('#debName').textContent = LIVE.assets.debName; }
+  if(LIVE.assets.deb){ $('#debUrl').innerHTML = escapeHtml(LIVE.assets.deb).replace(/\//g, '/<wbr>'); $('#debName').textContent = LIVE.assets.debName; }
   pickDownload();
 }
 
@@ -1595,7 +1614,7 @@ const PLUGINS = [
 
   // ---- premium plugins, Stripe subscriptions (see README § OXIS
   // Market) — comingSoon until each has a real stripePriceId ----
-  { name: "ai-devops",       ver: "1.0.0", cat: "AUTOMATION", creator: "OXIS",       desc: "Code explain/fix/generate/review/debug, shell command generation, and Lua plugin scaffolding — real AI calls via any OpenAI-compatible endpoint once you set your own API key.", tags: ["premium","ai"], size: "6kb", premium: true, priceDisplay: "$4.99/mo", stripePriceId: null, comingSoon: true, demoPlanned: true },
+  { name: "ai-devops",       ver: "1.1.0", cat: "AUTOMATION", creator: "OXIS",       desc: "Explain, fix, generate, review and debug code, turn requests into shell commands, and scaffold Lua plugins. Works with any OpenAI-compatible API, or a local model with no key.", tags: ["premium","ai"], size: "6kb", premium: true, priceDisplay: "$4.99/mo", stripePriceId: null, comingSoon: true, demoPlanned: true },
 
 ];
 

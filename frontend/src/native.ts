@@ -48,6 +48,7 @@ declare global {
           PerformUpdate?: (fallbackBinaryUrl: string) => Promise<NativeUpdateResult>;
           WriteTempScript?: (ext: string, content: string) => Promise<string>;
           HTTPRequest?: (opts: NativeHTTPRequest) => Promise<NativeHTTPResponse>;
+          PreviewURL?: (servePath: string, content: string) => Promise<string>;
           WindowGetSize?: () => Promise<NativeWindowSize>;
           WindowSetSize?: (width: number, height: number) => Promise<NativeWindowSize>;
         };
@@ -300,6 +301,14 @@ export async function performUpdate(fallbackUrl: string): Promise<NativeUpdateRe
 export async function nativeHttpRequest(opts: NativeHTTPRequest): Promise<NativeHTTPResponse | null> {
   const fn = window.go?.wailsapp?.App?.HTTPRequest;
   return fn ? fn(opts) : null;
+}
+
+/** A URL that shows `content` as the file at servePath, with that
+ *  file's folder served around it (see preview.go). Null outside the
+ *  native app. */
+export async function previewUrl(servePath: string, content: string): Promise<string | null> {
+  const fn = window.go?.wailsapp?.App?.PreviewURL;
+  return fn ? fn(servePath, content) : null;
 }
 
 /** Quits the app (also used to hand over to an updated build). */

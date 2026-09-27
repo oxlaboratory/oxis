@@ -63,7 +63,7 @@ import { checkPublishable, findExistingListing, prepareFreePublish, submitPaidPl
 import { commitAll, setupRemote, unlinkRemote, getRemotes, parseGitRemote, cancelActiveCommit, type GitProvider } from "./plugins/git";
 import { loadUserConfig } from "./terminal/userConfig";
 import { userConfigDir } from "./native";
-import { readFile, writeFile, listDir, makeDir, statPath, movePath, isNativeApp, openUrl, checkForUpdate, performUpdate, quitApp, windowGetSize, windowSetSize, systemInfo } from "./native";
+import { readFile, writeFile, listDir, makeDir, statPath, movePath, isNativeApp, openUrl, checkForUpdate, performUpdate, quitApp, windowGetSize, windowSetSize, systemInfo, previewUrl } from "./native";
 import type { NativeUpdateInfo } from "./native";
 import { BUILD, OXIS_VERSION, fullVersion, describe as describeBuild, shortCommit, channelLabel, formatStampDate } from "./buildInfo";
 import Titlebar from "./components/Titlebar";
@@ -2764,7 +2764,7 @@ function renderMarkdownPreview(markdown: string): string {
   th, td { border: 1px solid #30363d; padding: 6px 13px; }
   th { background: #161b22; font-weight: 600; }
   tr:nth-child(2n) { background: #161b22; }
-  img { max-width: 100%; background: #fff; border-radius: 6px; }
+  img { max-width: 100%; border-radius: 6px; }
   hr { border: none; border-top: 1px solid #21262d; margin: 24px 0; }
   ul, ol { padding-left: 2em; }
   li { margin: .25em 0; }
@@ -2901,15 +2901,24 @@ function Editor({ file, onClose, onSave }: {
   const isPreviewable = isHtmlFile || isMarkdownFile;
   const [previewOpen, setPreviewOpen] = useState(false);
   // Preview reloads are heavier than a diff, so always debounce them.
+  // In the desktop app the page is served from its own folder (preview.go),
+  // so it renders as it would on a real server: stylesheets, modules,
+  // images and fonts all load. A browser tab gets an inlined srcdoc.
   const [previewContent, setPreviewContent] = useState(content);
+  const [previewSrc, setPreviewSrc] = useState<string | null>(null);
   const previewRunId = useRef(0); // guards against an in-flight resolve landing after a NEWER one already started (fast typing, or a quick file switch)
   const buildPreview = useCallback((raw: string) => {
     const runId = ++previewRunId.current;
-    const build = isMarkdownFile
-      ? Promise.resolve(renderMarkdownPreview(raw))
-      : inlinePreviewAssets(raw, file.path);
-    build.then(resolved => {
-      if (previewRunId.current === runId) setPreviewContent(resolved);
+    const html = isMarkdownFile ? renderMarkdownPreview(raw) : raw;
+    // A README is rendered to HTML next to itself so its relative images resolve.
+    const servePath = isMarkdownFile ? `${file.path}.oxis-preview.html` : file.path;
+    previewUrl(servePath, html).catch(() => null).then(url => {
+      if (previewRunId.current !== runId) return;
+      if (url) { setPreviewSrc(`${url}?v=${runId}`); return; }
+      setPreviewSrc(null);
+      (isMarkdownFile ? Promise.resolve(html) : inlinePreviewAssets(raw, file.path)).then(resolved => {
+        if (previewRunId.current === runId) setPreviewContent(resolved);
+      });
     });
   }, [file.path, isMarkdownFile]);
   useEffect(() => {
@@ -3109,7 +3118,13 @@ function Editor({ file, onClose, onSave }: {
           <div className="editor-preview" style={previewFullscreen ? undefined : { width: `${previewWidthPct}%`, flex: "none" }}>
             <div className="editor-preview-bar">
               <span>{isMarkdownFile ? "markdown preview" : "live preview"}</span>
-              <span className="editor-preview-note">sandboxed — scripts run, but can't reach OXIS or your files</span>
+              <span className="editor-preview-note">{previewSrc
+                ? "served from this file's folder — can't reach OXIS"
+                : "sandboxed — scripts run, but can't reach OXIS or your files"}</span>
+              {previewSrc && !isMarkdownFile && (
+                <button className="editor-preview-exit" onClick={() => void openUrl(previewSrc.replace(/\?v=\d+$/, ""))}
+                  title="Open this preview in your web browser">↗ browser</button>
+              )}
               {previewFullscreen && (
                 <button className="editor-preview-exit" onClick={() => setPreviewFullscreen(false)} title="Exit full size (Esc)">
                   ⤡ exit full (Esc)
@@ -3126,13 +3141,25 @@ function Editor({ file, onClose, onSave }: {
                 storage, or make credentialed requests back to it —
                 same isolation model tools like CodePen/JSFiddle use
                 for exactly this kind of live preview. */}
-            <iframe
-              key={file.path}
-              className="editor-preview-frame"
-              srcDoc={previewContent}
-              sandbox="allow-scripts"
-              title={`Preview of ${file.path}`}
-            />
+            {previewSrc ? (
+              // Served on its own port (a different origin from OXIS), so
+              // same-origin inside the frame only reaches the page's own files.
+              <iframe
+                key={file.path}
+                className="editor-preview-frame"
+                src={previewSrc}
+                sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
+                title={`Preview of ${file.path}`}
+              />
+            ) : (
+              <iframe
+                key={file.path}
+                className="editor-preview-frame"
+                srcDoc={previewContent}
+                sandbox="allow-scripts"
+                title={`Preview of ${file.path}`}
+              />
+            )}
           </div>
         )}
       </div>
@@ -3809,6 +3836,18 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
   const focusPrompt = useCallback(() => {
     promptRef.current?.focus({ preventScroll: true });
   }, []);
+
+  // With only the file tree showing (no file open), Esc leaves the editor.
+  useEffect(() => {
+    if (!fileTreeOpen || editorFiles.length > 0) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      setFileTreeOpen(false);
+      setTimeout(focusPrompt, 50);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [fileTreeOpen, editorFiles.length, focusPrompt]);
 
   /** Text selected inside the output area, or "" (selections elsewhere,
    *  including inside the prompt, don't count). */
@@ -4609,7 +4648,12 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
     const f = editorFiles.find(e => e.path === path);
     if (f?.dirty && !await confirmDialog(`Discard unsaved changes to ${path}?`, { ok: "Discard", danger: true })) return;
     closeEditorTab(path);
-    if (editorFiles.length <= 1) setTimeout(focusPrompt, 50);
+    // Closing the last file leaves the editor; the file tree belongs to
+    // it and would otherwise keep an empty editor on screen.
+    if (editorFiles.length <= 1) {
+      setFileTreeOpen(false);
+      setTimeout(focusPrompt, 50);
+    }
   }, [editorFiles, closeEditorTab, focusPrompt]);
 
   const saveAllEditorTabs = useCallback(() => {
@@ -4786,6 +4830,8 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
           <div className="editor-empty-state">
             <div className="editor-empty-state-msg">No file open</div>
             <div className="editor-empty-state-hint">Pick one from the file tree, or <code>&apos;edit &lt;file&gt;</code></div>
+            <button className="editor-btn editor-empty-state-close" onClick={() => { setFileTreeOpen(false); setTimeout(focusPrompt, 50); }}
+              title="Close the editor (Esc)">close editor</button>
           </div>
         )}
         </div>

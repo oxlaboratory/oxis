@@ -89,9 +89,9 @@
   },
   {
     "name": "ai-devops",
-    "desc": "Code explain/fix/generate/review/debug, shell command generation, and Lua plugin scaffolding — real AI calls via any OpenAI-compatible endpoint once you set your own API key.",
+    "desc": "Explain, fix, generate, review and debug code, turn requests into shell commands, and scaffold Lua plugins. Works with any OpenAI-compatible API, or a local model with no key.",
     "category": "ai",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "author": "OXIS",
     "premium": true,
     "priceDisplay": "$4.99/mo",

@@ -146,8 +146,10 @@ Your personal config lives separately, in [`~/.oxis`](#your-config-folder-oxis).
 
 The Windows MSI defaults to `%USERPROFILE%\OXIS` so OXIS can write next
 to itself without administrator rights, and it won't install anywhere
-outside your profile. Installing over an older version upgrades it in
-place.
+outside your profile. Installing over an older version (or another copy
+of the same version) upgrades it in place. If an earlier MSI left your
+data in `~/Downloads/OXIS`, OXIS copies it into its own folder the first
+time it starts there; the old folder is left alone.
 
 If you run portable builds and extract a new zip over an old folder,
 old workspace data comes along with it. `scripts/clean-install.ps1`
@@ -297,9 +299,15 @@ Windows. Quote paths with spaces.
 - **Change gutter** marking lines changed since the last save.
 - **Live preview** for `.html` and `.md` files: a resizable split (or
   full view with Ctrl+Shift+Enter), refreshed shortly after you stop
-  typing. Markdown is rendered GitHub-style, including Mermaid
-  diagrams. The preview runs in a sandboxed iframe that can't reach
-  OXIS itself.
+  typing. In the desktop app the page is served from its own folder on
+  a private local address, so it looks the way it will on a real
+  server: stylesheets, ES modules, images and fonts all load, and
+  **↗ browser** opens it in your web browser. Markdown is rendered
+  GitHub-style, including Mermaid diagrams and the README's own
+  relative images. Your unsaved text is what's shown, and the page
+  can't reach OXIS itself.
+- Closing the last file closes the editor (and its file tree); with
+  only the file tree open, Esc or **close editor** leaves it.
 
 Saving a plugin's `.lua` file reloads the plugin immediately.
 

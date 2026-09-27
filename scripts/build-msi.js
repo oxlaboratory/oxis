@@ -142,7 +142,9 @@ function buildMSI(wixBinDir) {
     <!-- x64: oxis.exe is amd64; without this, registry writes land in
          WOW6432Node. -->
     <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" Platform="x64" />
-    <MajorUpgrade DowngradeErrorMessage="A newer version of OXIS is already installed." />
+    <!-- Every latest-build MSI has the same version, so same-version
+         installs must replace the old one instead of adding a second. -->
+    <MajorUpgrade AllowSameVersionUpgrades="yes" DowngradeErrorMessage="A newer version of OXIS is already installed." />
     <MediaTemplate EmbedCab="yes" />
     ${icoLine}
 
@@ -158,7 +160,7 @@ function buildMSI(wixBinDir) {
         Dim shell, profile
         Set shell = CreateObject("WScript.Shell")
         profile = shell.ExpandEnvironmentStrings("%USERPROFILE%")
-        Session.Property("INSTALLFOLDER") = profile & "\OXIS\"
+        Session.Property("INSTALLFOLDER") = profile & "\\OXIS\\"
       ]]>
     </CustomAction>
 
@@ -182,7 +184,7 @@ function buildMSI(wixBinDir) {
     <UI>
       <Dialog Id="OxisInvalidDirDlg" Width="370" Height="140" Title="OXIS Setup">
         <Control Id="Text" Type="Text" X="20" Y="15" Width="330" Height="70" NoPrefix="yes"
-                 Text="That location won't work — OXIS needs somewhere under your own user profile (C:\Users\[LogonUser]\...), not Program Files or another protected location, so it can create and write its own data without needing to run as administrator every time.&#10;&#10;Please choose a folder under your own profile instead." />
+                 Text="That location won't work — OXIS needs somewhere under your own user profile (C:\\Users\\[LogonUser]\\...), not Program Files or another protected location, so it can create and write its own data without needing to run as administrator every time.&#10;&#10;Please choose a folder under your own profile instead." />
         <Control Id="OK" Type="PushButton" X="145" Y="105" Width="80" Height="17" Default="yes" Cancel="yes" Text="OK">
           <Publish Event="EndDialog" Value="Return">1</Publish>
         </Control>
@@ -279,6 +281,10 @@ function buildMSI(wixBinDir) {
   </Product>
 </Wix>`.trim();
 
+  // Backslashes in the template must be doubled; a single one vanishes.
+  for (const bad of ['"OXIS"', "C:Users"]) {
+    if (product.includes(`profile & ${bad}`) || product.includes(`(${bad}`)) fail(`WiX script lost a backslash near ${bad}`);
+  }
   fs.writeFileSync(productWxs, product);
   ok("WiX product script: dist/wix/oxis-product.wxs");
 

@@ -263,8 +263,10 @@ html, body, #root {
   height: 24px; flex-shrink: 0; display: flex; align-items: center; gap: 8px;
   padding: 0 10px; background: var(--bg1); border-bottom: 1px solid var(--border);
   font-size: 9px; color: var(--purple2); letter-spacing: .05em; text-transform: uppercase;
+  white-space: nowrap; overflow: hidden;
 }
-.editor-preview-note { color: var(--dim); text-transform: none; letter-spacing: 0; font-style: italic; }
+.editor-preview-bar > span:first-child { flex-shrink: 0; }
+.editor-preview-note { color: var(--dim); text-transform: none; letter-spacing: 0; font-style: italic; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .editor-preview-exit {
   margin-left: auto; background: none; border: 1px solid var(--border); color: var(--dim);
   font-family: var(--font); font-size: 9px; text-transform: none; letter-spacing: 0;
@@ -437,6 +439,7 @@ html, body, #root {
 .editor-empty-state-msg { font-size: 14px; font-weight: 700; }
 .editor-empty-state-hint { font-size: 11px; }
 .editor-empty-state-hint code { color: var(--purple3); }
+.editor-empty-state-close { margin-top: 10px; }
 
 
 /* A persistent narrow rail holding just the toggle — a normal flex

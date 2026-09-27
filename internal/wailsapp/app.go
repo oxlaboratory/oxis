@@ -102,8 +102,9 @@ var (
 
 // AppDirPath is where OXIS keeps its data (workspaces, plugins, created
 // documents, window.json). Normally that's the executable's own folder
-// (portable install). If that folder isn't writable — e.g. an MSI
-// install under Program Files — it falls back to ~/Downloads/OXIS.
+// (portable install, or the MSI's folder in the user's profile). If
+// that folder isn't writable (a .deb in /usr/bin) it falls back to
+// ~/Downloads/OXIS.
 func AppDirPath() (string, error) {
 	appDirOnce.Do(func() {
 		exe, err := os.Executable()
@@ -114,6 +115,7 @@ func AppDirPath() (string, error) {
 		exeDir := filepath.Dir(exe)
 		if isWritableDir(exeDir) {
 			appDirCached = exeDir
+			migrateLegacyData(exeDir)
 			return
 		}
 		appDirCached, appDirErr = fallbackDataDir()

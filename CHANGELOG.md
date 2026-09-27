@@ -137,6 +137,18 @@ All notable changes to OXIS. The format follows
 - The npm launcher downloads from the GitHub `latest-build` release.
 
 ### Fixed
+- The MSI installed to `C:\Users\<name>OXIS` (a lost backslash) instead
+  of `C:\Users\<name>\OXIS`. That folder isn't writable, so OXIS put
+  its data in `~/Downloads/OXIS`. Installed properly it writes next to
+  itself again, and copies any data from `~/Downloads/OXIS` over once.
+  Installing another build of the same version now replaces the old
+  one instead of adding a second install.
+- The editor's live preview didn't look like the real page: module
+  scripts, images, fonts and CSS `url()`s didn't load, and a README's
+  images were missing. The page is now served from its own folder.
+- Closing the last file with the file tree open left an empty editor.
+- Website on phones: the menu was see-through, the code tabs and copy
+  button were cut off, and several texts wrapped badly.
 - A build of unpushed local work was told a "newer build" was
   available, because GitHub couldn't compare a commit it doesn't have.
   OXIS now compares commit dates in that case and says it's local work.
