@@ -68,3 +68,19 @@ func TestPreviewServer(t *testing.T) {
 		t.Errorf("second file in the same folder got another base: %s vs %s", u2, base)
 	}
 }
+
+func TestReadImage(t *testing.T) {
+	dir := t.TempDir()
+	png := filepath.Join(dir, "a.PNG")
+	os.WriteFile(png, []byte{0x89, 'P', 'N', 'G'}, 0o644)
+	a := &App{}
+	got, err := a.ReadImage(png)
+	if err != nil || got != "data:image/png;base64,iVBORw==" {
+		t.Errorf("png: %q %v", got, err)
+	}
+	txt := filepath.Join(dir, "a.txt")
+	os.WriteFile(txt, []byte("x"), 0o644)
+	if _, err := a.ReadImage(txt); err == nil {
+		t.Error("read a text file as an image")
+	}
+}

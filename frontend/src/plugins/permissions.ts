@@ -97,7 +97,7 @@ export function requestPermission(plugin: string, ns: PermissionNamespace): bool
     net: "make network requests",
     system: "read system information (OS, CPU, memory)",
     workspace: "switch/load OXIS workspaces",
-    editor: "open files in the built-in editor",
+    editor: "read and change the file open in the editor, and open files in it",
     terminal: "open new terminal tabs",
     shell: "run arbitrary shell commands",
   };

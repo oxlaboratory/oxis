@@ -14,6 +14,8 @@ export type OxisEvent =
   | "shell_started"
   | "shell_exited"
   | "editor_opened"
+  | "editor_changed"
+  | "editor_saved"
   | "editor_closed"
   | "mode_changed"
   | "workspace_loading";

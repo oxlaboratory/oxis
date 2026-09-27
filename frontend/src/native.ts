@@ -50,7 +50,18 @@ declare global {
           HTTPRequest?: (opts: NativeHTTPRequest) => Promise<NativeHTTPResponse>;
           PreviewURL?: (servePath: string, content: string) => Promise<string>;
           WindowGetSize?: () => Promise<NativeWindowSize>;
+          // Streams (streams.go): spawned processes, file watching and
+          // streamed HTTP, delivered through one long poll.
+          StreamsReset?: () => Promise<number>;
+          PollStreams?: (session: number, waitMs: number) => Promise<NativeStreamEvent[] | null>;
+          StreamClose?: (id: string) => Promise<boolean>;
+          ProcessStart?: (id: string, opts: NativeProcessOptions) => Promise<number>;
+          ProcessWrite?: (id: string, data: string) => Promise<void>;
+          ProcessCloseInput?: (id: string) => Promise<void>;
+          WatchStart?: (id: string, opts: NativeWatchOptions) => Promise<void>;
+          HTTPStreamStart?: (id: string, opts: NativeHTTPRequest) => Promise<void>;
           WindowSetSize?: (width: number, height: number) => Promise<NativeWindowSize>;
+          ReadImage?: (path: string) => Promise<string>;
         };
       };
     };
@@ -103,8 +114,18 @@ export interface NativeUpdateInfo {
   error?: string;
 }
 /** Mirror HTTPRequestOptions / HTTPResponse in internal/wailsapp/httprequest.go. */
-export interface NativeHTTPRequest { url: string; method: string; headers: Record<string, string>; body: string; timeoutSeconds: number; }
+export interface NativeHTTPRequest { url: string; method: string; headers: Record<string, string>; body: string; timeoutSeconds: number; idleSeconds?: number; }
 export interface NativeHTTPResponse { status: number; ok: boolean; body: string; headers: Record<string, string>; }
+/** Mirrors StreamEvent in internal/wailsapp/streams.go: "stdout",
+ *  "stderr", "change", "response", "data", "error", and a final "end". */
+export interface NativeStreamEvent {
+  id: string; type: string; data?: string; code: number;
+  path?: string; op?: string; headers?: Record<string, string>; error?: string;
+}
+/** Mirrors ProcessOptions in internal/wailsapp/process.go. */
+export interface NativeProcessOptions { cmd: string; args: string[]; shell: string; cwd: string; env: Record<string, string>; }
+/** Mirrors WatchOptions in internal/wailsapp/watch.go. */
+export interface NativeWatchOptions { path: string; recursive: boolean; ignore: string[] | null; debounceMs: number; }
 /** Mirrors UpdateResult in internal/wailsapp/selfupdate.go. */
 export interface NativeUpdateResult { installed: boolean; error: string; }
 
@@ -119,6 +140,21 @@ export function isNativeApp(): boolean {
 /** Read a file's contents. Relative paths resolve against the app's own working directory — see ReadFile in internal/wailsapp/app.go. */
 export async function readFile(path: string): Promise<string> {
   const fn = window.go?.wailsapp?.App?.ReadFile;
+  if (!fn) throw new NativeUnavailableError();
+  return fn(path);
+}
+
+/** Image files the editor shows as pictures (see ReadImage in app.go). */
+export const IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "gif", "webp", "avif", "bmp", "ico", "svg"];
+
+export function isImagePath(path: string): boolean {
+  const ext = /\.([a-z0-9]+)$/i.exec(path)?.[1]?.toLowerCase();
+  return !!ext && IMAGE_EXTENSIONS.includes(ext);
+}
+
+/** An image file as a data: URL, for the editor's image viewer. */
+export async function readImage(path: string): Promise<string> {
+  const fn = window.go?.wailsapp?.App?.ReadImage;
   if (!fn) throw new NativeUnavailableError();
   return fn(path);
 }
@@ -309,6 +345,59 @@ export async function nativeHttpRequest(opts: NativeHTTPRequest): Promise<Native
 export async function previewUrl(servePath: string, content: string): Promise<string | null> {
   const fn = window.go?.wailsapp?.App?.PreviewURL;
   return fn ? fn(servePath, content) : null;
+}
+
+// ── Streams (see plugins/streams.ts for the poll loop) ──
+
+/** Closes every stream and starts a new poll session. */
+export async function streamsReset(): Promise<number> {
+  const fn = window.go?.wailsapp?.App?.StreamsReset;
+  if (!fn) throw new NativeUnavailableError();
+  return fn();
+}
+
+export async function pollStreams(session: number, waitMs: number): Promise<NativeStreamEvent[]> {
+  const fn = window.go?.wailsapp?.App?.PollStreams;
+  if (!fn) throw new NativeUnavailableError();
+  return (await fn(session, waitMs)) ?? [];
+}
+
+/** Stops a stream; its "end" event still arrives. */
+export async function streamClose(id: string): Promise<boolean> {
+  const fn = window.go?.wailsapp?.App?.StreamClose;
+  return fn ? fn(id) : false;
+}
+
+/** Starts a process whose output streams back; resolves with its pid. */
+export async function processStart(id: string, opts: NativeProcessOptions): Promise<number> {
+  const fn = window.go?.wailsapp?.App?.ProcessStart;
+  if (!fn) throw new NativeUnavailableError();
+  return fn(id, opts);
+}
+
+export async function processWrite(id: string, data: string): Promise<void> {
+  const fn = window.go?.wailsapp?.App?.ProcessWrite;
+  if (!fn) throw new NativeUnavailableError();
+  return fn(id, data);
+}
+
+export async function processCloseInput(id: string): Promise<void> {
+  const fn = window.go?.wailsapp?.App?.ProcessCloseInput;
+  if (!fn) throw new NativeUnavailableError();
+  return fn(id);
+}
+
+export async function watchStart(id: string, opts: NativeWatchOptions): Promise<void> {
+  const fn = window.go?.wailsapp?.App?.WatchStart;
+  if (!fn) throw new NativeUnavailableError();
+  return fn(id, opts);
+}
+
+/** A streamed HTTP request made by OXIS itself (no CORS). */
+export async function httpStreamStart(id: string, opts: NativeHTTPRequest): Promise<void> {
+  const fn = window.go?.wailsapp?.App?.HTTPStreamStart;
+  if (!fn) throw new NativeUnavailableError();
+  return fn(id, opts);
 }
 
 /** Quits the app (also used to hand over to an updated build). */

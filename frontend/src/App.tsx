@@ -52,6 +52,7 @@ import {
   deleteSelection, selectedText,
 } from "./terminal/editorModes";
 import { highlight, detectLang, escapeHtml } from "./terminal/syntaxHighlight";
+import { editorBridge } from "./terminal/editorBridge";
 import type { EditorLang }       from "./terminal/syntaxHighlight";
 import { pluginManager }                   from "./plugins/pluginManager";
 import { UNDOCUMENTED_SENTINEL }           from "./plugins/pluginAPI";
@@ -64,7 +65,7 @@ import { checkPublishable, findExistingListing, prepareFreePublish, submitPaidPl
 import { commitAll, setupRemote, unlinkRemote, getRemotes, parseGitRemote, cancelActiveCommit, type GitProvider } from "./plugins/git";
 import { loadUserConfig } from "./terminal/userConfig";
 import { userConfigDir } from "./native";
-import { readFile, writeFile, listDir, makeDir, statPath, movePath, isNativeApp, openUrl, checkForUpdate, performUpdate, quitApp, windowGetSize, windowSetSize, systemInfo, previewUrl } from "./native";
+import { readFile, writeFile, listDir, makeDir, statPath, movePath, isNativeApp, openUrl, checkForUpdate, performUpdate, quitApp, windowGetSize, windowSetSize, systemInfo, previewUrl, isImagePath, readImage } from "./native";
 import type { NativeUpdateInfo } from "./native";
 import { BUILD, OXIS_VERSION, fullVersion, describe as describeBuild, shortCommit, channelLabel, formatStampDate } from "./buildInfo";
 import Titlebar from "./components/Titlebar";
@@ -339,6 +340,7 @@ const forwardingApiCtx: import("./plugins/pluginAPI").APIContext = {
   newTerminal: () => _apiCtxTarget.current.newTerminal(),
   getOption:   (k) => _apiCtxTarget.current.getOption(k),
   setOption:   (k, v) => _apiCtxTarget.current.setOption(k, v),
+  openEditor:  (p, l) => _apiCtxTarget.current.openEditor?.(p, l),
   pluginName:  "__core__", // pluginManager.load() overrides this per-plugin via spread
 };
 
@@ -2054,7 +2056,126 @@ Settings, workspace files, documents and plugins with the same name as ones in t
 // ══════════════════════════════════════════════════════════════
 // BUILT-IN EDITOR
 // ══════════════════════════════════════════════════════════════
-interface EditorFile { path: string; content: string; dirty: boolean; loading: boolean; loadError?: string; gotoLine?: number; }
+interface EditorFile {
+  path: string; content: string; dirty: boolean; loading: boolean; loadError?: string; gotoLine?: number;
+  /** Set for pictures (png, jpg, svg…): shown by ImageViewer, not edited. */
+  imageUrl?: string;
+  /** A file that isn't text (NUL bytes): shown as a notice, not garbage. */
+  binary?: boolean;
+}
+
+/** Text with NUL bytes near the start is a binary file (an .exe, a zip). */
+function looksBinary(text: string): boolean {
+  return text.slice(0, 8000).includes("\u0000");
+}
+
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(n < 10 * 1024 ? 1 : 0)} KB`;
+  return `${(n / 1024 / 1024).toFixed(1)} MB`;
+}
+
+// ══════════════════════════════════════════════════════════════
+// IMAGE VIEWER — what the editor shows for png, jpg, gif, webp, svg…
+// Fits the image to the pane (or 100%, or zoomed with Ctrl+wheel / + −),
+// on a checkerboard so transparency shows. An SVG can be opened as text
+// to edit it.
+// ══════════════════════════════════════════════════════════════
+function ImageViewer({ file, onClose, onEditSource }: {
+  file: EditorFile;
+  onClose: () => void;
+  onEditSource?: () => void;
+}) {
+  const [zoom, setZoom] = useState<number | "fit">("fit");
+  const [size, setSize] = useState<{ w: number; h: number } | null>(null);
+  const [backdrop, setBackdrop] = useState<"checker" | "dark" | "light">("checker");
+  const [fitScale, setFitScale] = useState(1);
+  const boxRef = useRef<HTMLDivElement>(null);
+  const url = file.imageUrl ?? "";
+  const ext = (/\.([a-z0-9]+)$/i.exec(file.path)?.[1] ?? "").toUpperCase();
+  // Decoded size of the base64 payload.
+  const b64 = url.slice(url.indexOf(",") + 1);
+  const bytes = Math.floor(b64.length * 3 / 4) - (b64.endsWith("==") ? 2 : b64.endsWith("=") ? 1 : 0);
+
+  // The scale "fit" shows at (never enlarging a small image).
+  useEffect(() => {
+    const box = boxRef.current;
+    if (!box || !size) return;
+    const measure = () => {
+      const s = Math.min(1, (box.clientWidth - 48) / size.w, (box.clientHeight - 48) / size.h);
+      setFitScale(s > 0 ? s : 1);
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(box);
+    return () => ro.disconnect();
+  }, [size]);
+
+  const scale = zoom === "fit" ? fitScale : zoom;
+  const step = (dir: 1 | -1) => setZoom(z => {
+    const cur = z === "fit" ? fitScale : z;
+    const next = dir > 0 ? cur * 1.25 : cur / 1.25;
+    return Math.min(32, Math.max(0.05, Math.round(next * 100) / 100));
+  });
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA")) return;
+      if (e.key === "Escape") { e.preventDefault(); onClose(); }
+      else if (e.key === "+" || e.key === "=") { e.preventDefault(); step(1); }
+      else if (e.key === "-") { e.preventDefault(); step(-1); }
+      else if (e.key === "0") { e.preventDefault(); setZoom("fit"); }
+      else if (e.key === "1") { e.preventDefault(); setZoom(1); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onClose, fitScale]);
+
+  return (
+    <div className="editor">
+      <div className="editor-bar">
+        <div className="editor-bar-left">
+          <span className="editor-icon">▣</span>
+          <span className="editor-path">{file.path}</span>
+        </div>
+        <div className="editor-bar-right">
+          <span className="editor-meta">
+            {[size ? `${size.w} × ${size.h}` : "", ext, url ? formatBytes(bytes) : ""].filter(Boolean).join(" · ")}
+          </span>
+          <button className={`editor-btn${zoom === "fit" ? " editor-btn--active" : ""}`} onClick={() => setZoom("fit")} title="Fit to the pane (0)">fit</button>
+          <button className={`editor-btn${zoom === 1 ? " editor-btn--active" : ""}`} onClick={() => setZoom(1)} title="Actual size (1)">1:1</button>
+          <button className="editor-btn" onClick={() => step(-1)} title="Zoom out (−, or Ctrl+wheel)">−</button>
+          <span className="editor-meta image-zoom">{Math.round(scale * 100)}%</span>
+          <button className="editor-btn" onClick={() => step(1)} title="Zoom in (+, or Ctrl+wheel)">+</button>
+          <button className="editor-btn" onClick={() => setBackdrop(b => b === "checker" ? "dark" : b === "dark" ? "light" : "checker")}
+            title="Background: checkerboard, dark or light">bg</button>
+          {onEditSource && <button className="editor-btn" onClick={onEditSource} title="Edit the SVG's source">edit source</button>}
+          <button className="editor-btn editor-btn--close" onClick={onClose} title="Close (Esc)">×</button>
+        </div>
+      </div>
+      <div
+        ref={boxRef}
+        className={`image-view image-view--${backdrop}${zoom === "fit" ? " image-view--fit" : ""}`}
+        onWheel={e => { if (e.ctrlKey || e.metaKey) { e.preventDefault(); step(e.deltaY < 0 ? 1 : -1); } }}
+      >
+        {url && (
+          <img
+            src={url}
+            alt={file.path}
+            draggable={false}
+            onLoad={e => { const i = e.currentTarget; setSize({ w: i.naturalWidth || 1, h: i.naturalHeight || 1 }); }}
+            style={size ? { width: size.w * scale, height: size.h * scale } : { visibility: "hidden" }}
+          />
+        )}
+      </div>
+      <div className="editor-footer">
+        <span>0  fit</span><span>1  actual size</span><span>+/−  zoom</span><span>Ctrl+wheel  zoom</span><span>Esc  close</span>
+      </div>
+    </div>
+  );
+}
 
 // ══════════════════════════════════════════════════════════════
 // ERROR BOUNDARY — shows what threw instead of a blank pane if the
@@ -2626,8 +2747,19 @@ function useModalEditor(opts: {
     }
   }, [mode, commit]);
 
+  // Plugin edits (oxis.editor.*). A run of them less than
+  // GROUP_TIMEOUT_MS apart is one undo step of its own, so an answer
+  // streamed in piece by piece undoes in one go.
+  const lastExternalAt = useRef(0);
+  const commitExternal = useCallback((next: string) => {
+    const now = Date.now();
+    if (now - lastExternalAt.current >= GROUP_TIMEOUT_MS) grouping.current = false;
+    lastExternalAt.current = now;
+    commit(next, true);
+  }, [commit]);
+
   return {
-    mode, setMode, resetModal, onKeyDown, handleChange, undo, redo,
+    mode, setMode, resetModal, onKeyDown, handleChange, commitExternal, undo, redo,
     findOpen, findMode, findQuery, setFindQuery, replaceWith, setReplaceWith,
     matches, matchIndex, findInputRef, openFind, closeFind, findNext, findPrev,
     replaceCurrent, replaceAll, goToLine,
@@ -2845,12 +2977,21 @@ async function inlinePreviewAssets(html: string, filePath: string): Promise<stri
 function Editor({ file, onClose, onSave }: {
   file:    EditorFile;
   onClose: () => void;
-  onSave:  (path: string, content: string) => void;
+  /** Resolves true once written (plugins' oxis.editor.save waits for it). */
+  onSave:  (path: string, content: string) => Promise<boolean>;
 }) {
   const [content, setContent] = useState(file.content);
   const [savedContent, setSavedContent] = useState(file.content); // the baseline the gutter diffs against — becomes `content` on every save, not the original-forever
   const [dirty,   setDirty]   = useState(false);
   const taRef = useRef<HTMLTextAreaElement>(null);
+  // Latest text and dirty flag for plugins (editorBridge), which may
+  // edit several times before React re-renders.
+  const contentRef = useRef(content);
+  contentRef.current = content;
+  const dirtyRef = useRef(dirty);
+  dirtyRef.current = dirty;
+  // Where a plugin edit left the caret, until the textarea shows it.
+  const selOverride = useRef<{ start: number; end: number } | null>(null);
 
   // Re-sync when a different file opens or the current one finishes
   // loading (the editor opens before the read completes).
@@ -2879,10 +3020,12 @@ function Editor({ file, onClose, onSave }: {
   }, [file.loading, file.gotoLine, content]);
 
   const save = useCallback(() => {
-    onSave(file.path, content);
-    setSavedContent(content); // new baseline — the gutter now shows changes since THIS save, not the original open
+    const text = contentRef.current; // includes plugin edits not rendered yet
+    const written = onSave(file.path, text);
+    setSavedContent(text); // new baseline — the gutter now shows changes since THIS save, not the original open
     setDirty(false);
-  }, [file.path, content, onSave]);
+    return written;
+  }, [file.path, onSave]);
 
   // The line diff is debounced for large files, like highlighting.
   const [debouncedContent, setDebouncedContent] = useState(content);
@@ -2896,8 +3039,13 @@ function Editor({ file, onClose, onSave }: {
     [savedContent, debouncedContent, content.length],
   );
 
+  // Marks the file dirty here, not inside setContent's updater, where it
+  // would land after a save queued in the same tick (a plugin editing
+  // then saving) and leave a saved file marked unsaved.
   const onEdit = useCallback((next: string) => {
-    setContent(prev => { if (next !== prev) setDirty(true); return next; });
+    if (next !== contentRef.current) setDirty(true);
+    contentRef.current = next;
+    setContent(next);
   }, []);
 
   // Live preview for .html/.htm/.md. Off until toggled, so opening a
@@ -3003,14 +3151,14 @@ function Editor({ file, onClose, onSave }: {
   }, [previewOpen, previewFullscreen]);
 
   const {
-    mode, resetModal, onKeyDown, handleChange,
+    mode, resetModal, onKeyDown, handleChange, commitExternal,
     findOpen, findMode, findQuery, setFindQuery, replaceWith, setReplaceWith,
     matches, matchIndex, findInputRef, closeFind, findNext, findPrev, replaceCurrent, replaceAll, goToLine,
   } = useModalEditor({
     taRef,
     content,
     onEdit,
-    onSave: save,
+    onSave: () => { void save(); },
     onEscapeNormal: async () => {
       if (dirty && !await confirmDialog("Discard unsaved changes?", { ok: "Discard", danger: true })) return;
       onClose();
@@ -3018,6 +3166,61 @@ function Editor({ file, onClose, onSave }: {
   });
 
   useEffect(() => { resetModal(); }, [file.path, file.loading, resetModal]);
+
+  // ── Plugin access (oxis.editor.*, see editorBridge.ts) ──
+  const saveRef = useRef(save);
+  saveRef.current = save;
+  const commitExternalRef = useRef(commitExternal);
+  commitExternalRef.current = commitExternal;
+  useEffect(() => {
+    if (file.loading || file.loadError) return;
+    return editorBridge.attach({
+      path: file.path,
+      language: detectLang(file.path),
+      getText: () => contentRef.current,
+      isDirty: () => dirtyRef.current,
+      getSelection: () => selOverride.current
+        ?? { start: taRef.current?.selectionStart ?? 0, end: taRef.current?.selectionEnd ?? 0 },
+      setSelection: (start, end) => {
+        selOverride.current = null;
+        const ta = taRef.current;
+        if (!ta) return;
+        ta.setSelectionRange(start, end);
+        const line = contentRef.current.slice(0, start).split("\n").length;
+        const lineHeight = parseFloat(window.getComputedStyle(ta).lineHeight) || 18;
+        const top = (line - 1) * lineHeight;
+        if (top < ta.scrollTop || top > ta.scrollTop + ta.clientHeight - lineHeight) {
+          ta.scrollTop = Math.max(0, top - ta.clientHeight / 2);
+        }
+      },
+      replace: (start, end, text) => {
+        const cur = contentRef.current;
+        const s = Math.max(0, Math.min(start, cur.length));
+        const e = Math.max(s, Math.min(end, cur.length));
+        const next = cur.slice(0, s) + text + cur.slice(e);
+        if (next === cur) return;
+        dirtyRef.current = true;
+        selOverride.current = { start: s + text.length, end: s + text.length };
+        commitExternalRef.current(next);
+      },
+      save: () => saveRef.current(),
+    });
+  }, [file.path, file.loading, file.loadError]);
+  // Put the caret where a plugin edit left it once the textarea shows
+  // the new text.
+  useLayoutEffect(() => {
+    const sel = selOverride.current;
+    const ta = taRef.current;
+    if (!sel || !ta || ta.value !== contentRef.current) return;
+    ta.setSelectionRange(sel.start, sel.end);
+    selOverride.current = null;
+  }, [content]);
+  // oxis.editor.on("change"): once typing (or a plugin) pauses.
+  useEffect(() => {
+    if (file.loading || !dirtyRef.current) return;
+    const t = setTimeout(() => events.emit("editor_changed", { path: file.path }), 300);
+    return () => clearTimeout(t);
+  }, [content, file.path, file.loading]);
 
   if (file.loading) {
     return (
@@ -3650,6 +3853,47 @@ const OutputLine = memo(function OutputLine({ line, match }: { line: Line; match
   );
 });
 
+/** Output is rendered in blocks of this many lines (by line id). A new
+ *  line re-renders only its own block, and the stylesheet lets the
+ *  browser skip laying out and painting blocks that are off screen
+ *  (content-visibility), so a 10,000-line scrollback costs about what
+ *  the visible part does. */
+const OUTPUT_BLOCK = 128;
+
+/** A flush of at least this many lines means a program is flooding
+ *  output; the screen then updates every FLOOD_FRAME_MS. */
+const FLOOD_LINES = 40;
+const FLOOD_FRAME_MS = 48;
+
+const OutputBlock = memo(function OutputBlock({ lines, matches }: { lines: Line[]; matches: Set<number> }) {
+  return (
+    <div className="term-block">
+      {lines.map(line => <OutputLine key={line.id} line={line} match={matches.has(line.id)} />)}
+    </div>
+  );
+}, (a, b) => a.lines === b.lines
+  && (a.matches === b.matches || !a.lines.some(l => a.matches.has(l.id) || b.matches.has(l.id))));
+
+/** Groups lines into OUTPUT_BLOCK-sized blocks, reusing the previous
+ *  array for a block whose lines haven't changed (so its memo holds). */
+function groupOutput(lines: Line[], cache: Map<number, Line[]>): { blocks: Array<{ key: number; lines: Line[] }>; cache: Map<number, Line[]> } {
+  const blocks: Array<{ key: number; lines: Line[] }> = [];
+  const next = new Map<number, Line[]>();
+  for (let i = 0; i < lines.length;) {
+    const key = Math.floor(lines[i].id / OUTPUT_BLOCK);
+    let j = i + 1;
+    while (j < lines.length && Math.floor(lines[j].id / OUTPUT_BLOCK) === key) j++;
+    const prev = cache.get(key);
+    let same = !!prev && prev.length === j - i;
+    for (let k = 0; same && k < j - i; k++) same = prev![k] === lines[i + k];
+    const arr = same ? prev! : lines.slice(i, j);
+    next.set(key, arr);
+    blocks.push({ key, lines: arr });
+    i = j;
+  }
+  return { blocks, cache: next };
+}
+
 /** An unfinished output line that asks for a secret: "[sudo] password
  *  for ana:", "Enter passphrase (empty for no passphrase):", "Password
  *  for 'https://github.com':", "Enter PIN:". */
@@ -3739,6 +3983,18 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
   const userScrolled  = useRef(false);
   const ctxRef        = useRef<ShellCtx | null>(null);
   const linesRef       = useRef<Line[]>(lines);
+  // Output waiting to be shown. Lines (from the shell and from OXIS, in
+  // the order they arrived) and the live partial line are applied at
+  // most once per frame, however fast a program prints.
+  const outQueue      = useRef<Line[]>([]);
+  const partialQueued = useRef<{ text: string; spans?: Span[] } | null>(null);
+  const flushTimers   = useRef<{ raf: number; timer: number } | null>(null);
+  // While a program floods output, the screen is updated every
+  // FLOOD_FRAME_MS instead of every frame, so the main thread spends its
+  // time taking the output in rather than repainting it.
+  const lastFlushAt   = useRef(0);
+  const flooding      = useRef(false);
+  const blockCache    = useRef(new Map<number, Line[]>());
 
   // ── restore scroll + focus when tab becomes visible ─────────
   useEffect(() => {
@@ -3809,28 +4065,60 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
   }, []);
 
   // ── output helpers ────────────────────────────────────────
-  const addLine = useCallback((text: string, kind?: LineKind) => {
-    setLines(prev => {
-      const next = prev.length >= 10_000 ? prev.slice(-8_000) : prev;
-      const result = [...next, mkLine(text, kind)];
-      linesRef.current = result;
-      return result;
-    });
-    scrollToBottom();
-  }, [scrollToBottom]);
+  /** Applies queued output (see outQueue). Scrolling to the bottom
+   *  happens in the layout effect below, before the frame is painted. */
+  const flushOutput = useCallback(() => {
+    const t = flushTimers.current;
+    if (t) { cancelAnimationFrame(t.raf); clearTimeout(t.timer); flushTimers.current = null; }
+    const queued = outQueue.current;
+    outQueue.current = [];
+    lastFlushAt.current = performance.now();
+    flooding.current = queued.length >= FLOOD_LINES;
+    const p = partialQueued.current;
+    partialQueued.current = null;
+    if (p) { setPartial(p.text); setPartialSpans(p.spans); }
+    if (queued.length) {
+      setLines(prev => {
+        const merged = prev.concat(queued);
+        const next = merged.length > 10_000 ? merged.slice(-8_000) : merged;
+        linesRef.current = next;
+        return next;
+      });
+    }
+  }, []);
+  // The next frame (or 100 ms, if frames aren't running because the
+  // window is minimised); during a flood, FLOOD_FRAME_MS after the last.
+  const scheduleFlush = useCallback(() => {
+    if (flushTimers.current) return;
+    const wait = flooding.current ? FLOOD_FRAME_MS - (performance.now() - lastFlushAt.current) : 0;
+    flushTimers.current = wait > 0
+      ? { raf: 0, timer: window.setTimeout(flushOutput, wait) }
+      : { raf: requestAnimationFrame(flushOutput), timer: window.setTimeout(flushOutput, 100) };
+  }, [flushOutput]);
+  const queueLines = useCallback((more: Line[]) => {
+    if (more.length === 0) return;
+    const q = outQueue.current;
+    for (const l of more) q.push(l);
+    if (q.length > 10_000) outQueue.current = q.slice(-8_000);
+    scheduleFlush();
+  }, [scheduleFlush]);
 
-  /** Adds several lines in one state update (each may have its own
-   *  kind). Cheaper than one addLine per line. */
+  const addLine = useCallback((text: string, kind?: LineKind) => {
+    queueLines([mkLine(text, kind)]);
+  }, [queueLines]);
+
+  /** Adds several lines at once (each may have its own kind). */
   const addLines = useCallback((entries: Array<[string, LineKind?]>) => {
-    if (entries.length === 0) return;
-    setLines(prev => {
-      const next = prev.length >= 10_000 ? prev.slice(-8_000) : prev;
-      const result = [...next, ...entries.map(([text, kind]) => mkLine(text, kind))];
-      linesRef.current = result;
-      return result;
-    });
-    scrollToBottom();
-  }, [scrollToBottom]);
+    queueLines(entries.map(([text, kind]) => mkLine(text, kind)));
+  }, [queueLines]);
+
+  // Follow new output unless the user has scrolled up to read (a hidden
+  // tab is scrolled when it's shown again).
+  useLayoutEffect(() => {
+    if (userScrolled.current || !isActiveRef.current) return;
+    const el = outRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [lines, partial]);
 
   // Real-time workspace auto-reload notifications — see
   // startAutoReload() in workspaceManager.ts. Only the ACTIVE
@@ -3857,6 +4145,8 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
   const clear = useCallback(() => {
     setPartial("");
     pending.current = "";
+    outQueue.current = [];
+    partialQueued.current = null;
     const fresh = initialLines();
     linesRef.current = fresh;
     setLines(fresh);
@@ -3904,6 +4194,11 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
     return lines.filter(l => l.text.toLowerCase().includes(q)).map(l => l.id);
   }, [lines, outputSearchQuery]);
   const outputSearchSet = useMemo(() => new Set(outputSearchMatches), [outputSearchMatches]);
+  const outputBlocks = useMemo(() => {
+    const g = groupOutput(lines, blockCache.current);
+    blockCache.current = g.cache;
+    return g.blocks;
+  }, [lines]);
 
   const jumpToOutputMatch = useCallback((idx: number) => {
     if (outputSearchMatches.length === 0) return;
@@ -4112,18 +4407,22 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
     const pendingVisible = visibleText(processed.newPending);
     const pendingPlain = stripSgr(pendingVisible);
     if (isProbeLine(pendingPlain)) {
-      setPartial(""); setPartialSpans(undefined);
+      partialQueued.current = { text: "" };
     } else {
       const shown = stripStepEcho(pendingPlain);
-      setPartial(shown);
-      setPartialSpans(colors && shown === pendingPlain ? ansiRef.current.preview(pendingVisible).spans : undefined);
+      partialQueued.current = {
+        text: shown,
+        spans: colors && shown === pendingPlain ? ansiRef.current.preview(pendingVisible).spans : undefined,
+      };
     }
+    scheduleFlush();
     // Drop probe echoes, and collapse runs of blank lines (the shell's
     // screen repaints turn into many of them once cursor moves are
     // stripped). Every check runs on the plain text; the colours are
     // only for display, and are dropped from a line OXIS rewrote.
     const completedLines: Array<{ text: string; spans?: Span[] }> = [];
-    let prevBlank = (linesRef.current[linesRef.current.length - 1]?.text ?? "x").trim() === "";
+    const lastLine = outQueue.current[outQueue.current.length - 1] ?? linesRef.current[linesRef.current.length - 1];
+    let prevBlank = (lastLine?.text ?? "x").trim() === "";
     for (const styled of processed.completedLines) {
       const parsed = ansiRef.current.parse(styled); // every line, so the style state stays right
       const plain = parsed.text;
@@ -4135,13 +4434,8 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
       prevBlank = blank;
     }
     if (!completedLines.length) return;
-    setLines(prev => {
-      const next = mergeOutput(prev, completedLines);
-      linesRef.current = next;
-      return next;
-    });
-    scrollToBottom();
-  }, [scrollToBottom]);
+    queueLines(mergeOutput([], completedLines));
+  }, [scheduleFlush, queueLines]);
 
   // ── OXIS command dispatcher ───────────────────────────────
   const dispatchOxisCmd = useCallback((raw: string): boolean => {
@@ -4304,8 +4598,11 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
         });
         setActiveEditorPath(path);
         events.emit("editor_opened", { path });
-        readFile(path)
-          .then(content => setEditorFiles(files => files.map(f => f.path === path ? { ...f, content, loading: false } : f)))
+        const loaded = isImagePath(path)
+          ? readImage(path).then(imageUrl => ({ imageUrl }))
+          : readFile(path).then(content => looksBinary(content) ? { binary: true } : { content });
+        loaded
+          .then(result => setEditorFiles(files => files.map(f => f.path === path ? { ...f, ...result, loading: false } : f)))
           .catch(e => setEditorFiles(files => files.map(f => f.path === path
             ? { ...f, loading: false, loadError: e instanceof Error ? e.message : String(e) }
             : f)));
@@ -4323,6 +4620,7 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
       newTerminal: onNewTab,
       getOption:   readPersistedOption,
       setOption:   writePersistedOption,
+      openEditor:  (path, line) => ctxRef.current?.openEditor(path, line),
       pluginName:  "__core__",
     };
 
@@ -4662,7 +4960,7 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
       const { persisted, persistError } = await pluginManager.saveLuaPlugin(pluginName, content);
       if (persisted) {
         addLine(`  ✓  saved & reloaded plugin: ${pluginName}`, "ok");
-        events.emit("editor_closed", { path });
+        events.emit("editor_saved", { path });
         return true;
       }
       addLine(`  ✗  save failed: ${persistError instanceof Error ? persistError.message : String(persistError ?? "unknown error")}`, "err");
@@ -4671,7 +4969,7 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
     try {
       await writeFile(path, content);
       addLine(`  ✓  saved: ${path}`, "ok");
-      events.emit("editor_closed", { path });
+      events.emit("editor_saved", { path });
       return true;
     } catch (e) {
       addLine(`  ✗  save failed: ${e instanceof Error ? e.message : String(e)}`, "err");
@@ -4680,6 +4978,7 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
   }, [addLine]);
 
   const closeEditorTab = useCallback((path: string) => {
+    events.emit("editor_closed", { path });
     setEditorFiles(files => {
       const remaining = files.filter(f => f.path !== path);
       setActiveEditorPath(cur => {
@@ -4858,17 +5157,44 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
             <button className="editor-tabs-saveall" onClick={saveAllEditorTabs} title="Save all dirty tabs">Save All</button>
           </div>
         )}
-        {activeFile ? (
+        {activeFile?.imageUrl ? (
+          <ImageViewer
+            key={activeFile.path}
+            file={activeFile}
+            onClose={() => requestCloseEditorTab(activeFile.path)}
+            onEditSource={/\.svg$/i.test(activeFile.path) ? () => {
+              const p = activeFile.path;
+              readFile(p)
+                .then(content => setEditorFiles(files => files.map(f => f.path === p ? { ...f, imageUrl: undefined, content } : f)))
+                .catch(e => addLine(`  ✗  couldn't read ${p}: ${e instanceof Error ? e.message : e}`, "err"));
+            } : undefined}
+          />
+        ) : activeFile?.binary ? (
+          <div className="editor">
+            <div className="editor-bar">
+              <div className="editor-bar-left">
+                <span className="editor-icon">◻</span>
+                <span className="editor-path">{activeFile.path}</span>
+              </div>
+              <div className="editor-bar-right">
+                <button className="editor-btn editor-btn--close" onClick={() => requestCloseEditorTab(activeFile.path)}>×</button>
+              </div>
+            </div>
+            <div className="editor-empty-state">
+              <div className="editor-empty-state-msg">Binary file</div>
+              <div className="editor-empty-state-hint">{activeFile.path.split(/[\\/]/).pop()} isn&apos;t text, so the editor won&apos;t open it.</div>
+            </div>
+          </div>
+        ) : activeFile ? (
           <ErrorBoundary onClose={() => requestCloseEditorTab(activeFile.path)}>
             <Editor
               key={activeFile.path}
               file={activeFile}
               onClose={() => requestCloseEditorTab(activeFile.path)}
-              onSave={(p, c) => {
-                editorSave(p, c).then(saved => {
-                  if (saved) setEditorFiles(files => files.map(f => f.path === p ? { ...f, content: c, dirty: false } : f));
-                });
-              }}
+              onSave={(p, c) => editorSave(p, c).then(saved => {
+                if (saved) setEditorFiles(files => files.map(f => f.path === p ? { ...f, content: c, dirty: false } : f));
+                return saved;
+              })}
             />
           </ErrorBoundary>
         ) : (
@@ -4901,7 +5227,7 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
         onContextMenu={openOutputMenu}
         tabIndex={-1}
       >
-        {lines.map(line => <OutputLine key={line.id} line={line} match={outputSearchSet.has(line.id)} />)}
+        {outputBlocks.map(b => <OutputBlock key={b.key} lines={b.lines} matches={outputSearchSet} />)}
         {partial && <div className="term-line">{partialSpans && !secretInput ? renderSpans(partialSpans) : partial}</div>}
       </div>
 
@@ -4960,28 +5286,8 @@ function ThemeTile({ name, theme, active, isCustom, onClick, onDelete }: {
 }
 
 // ── Sky widget: ASCII sun/clouds by day, ASCII moon/stars by night ──
-function getMoonPhase(date: Date): number {
-  // Returns 0-7 (new moon → waxing → full → waning)
-  const synodic = 29.53058867;
-  const known = new Date(Date.UTC(2000, 0, 6, 18, 14));
-  const days = (date.getTime() - known.getTime()) / 86400000;
-  const phase = ((days % synodic) + synodic) % synodic;
-  return Math.floor((phase / synodic) * 8) % 8;
-}
-
-// Pure ASCII moon phases — width-matched 3-line glyphs
-const MOON_ASCII: string[][] = [
-  ["()"],          // new moon
-  ["()"],          // waxing crescent
-  ["|)"],          // first quarter
-  ["()"],          // waxing gibbous
-  ["(_)"],       // full moon (drawn as circle below)
-  ["()"],          // waning gibbous
-  ["()"],       // last quarter
-  ["(("],          // waning crescent
-];
-
-const MOON_FULL = ["  _  ", " ( ) ", "  -  "];
+// One simple round moon, the same every night, about as tall as the sun.
+const MOON_ASCII = " _\n(_)";
 
 
 // Cloud glyph variants (day) — picked from randomly per cloud, not
@@ -5072,7 +5378,6 @@ function SkyWidget() {
   }, []);
   const hour = now.getHours();
   const isDay = hour >= 6 && hour < 18;
-  const moonPhase = getMoonPhase(now);
 
   // Clouds stay left of the sun, so measure where it actually is (the
   // estimate is only used for the first layout pass).
@@ -5103,10 +5408,9 @@ function SkyWidget() {
       </div>
     );
   }
-  const moonGlyph = moonPhase === 4 ? MOON_FULL.join("\n") : MOON_ASCII[moonPhase].join("\n");
   return (
     <div className="sky-widget sky-widget--night">
-      <pre className="sky-ascii sky-moon">{moonGlyph}</pre>
+      <pre className="sky-ascii sky-moon">{MOON_ASCII}</pre>
       {stars.map((s, i) => (
         <span key={i} className="sky-star" style={{
           top: `${s.top}px`, left: `${s.left}px`, fontSize: `${s.fontSize}px`,

@@ -5,6 +5,7 @@ package wailsapp
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"fmt"
 	"os"
 	"os/exec"
@@ -38,6 +39,13 @@ func (a *App) CheckForUpdate() update.Info { return update.Check(runtime.GOOS) }
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 	cleanupSelfUpdateBackup()
+}
+
+// shutdown stops what plugins started (processes, watchers, streamed
+// requests) so none of it outlives the window.
+func (a *App) shutdown(_ context.Context) {
+	stopAllProcesses()
+	streams.reset()
 }
 
 // cleanupSelfUpdateBackup deletes the previous executable once a
@@ -297,6 +305,37 @@ func (a *App) ReadFile(path string) (string, error) {
 		return "", err
 	}
 	return string(b), nil
+}
+
+// imageTypes are the images the editor shows instead of their bytes.
+var imageTypes = map[string]string{
+	".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif",
+	".webp": "image/webp", ".avif": "image/avif", ".bmp": "image/bmp", ".ico": "image/x-icon",
+	".svg": "image/svg+xml",
+}
+
+const maxImageSize = 64 << 20
+
+// ReadImage returns an image file as a data: URL for the editor's image
+// viewer. An SVG shown this way is an <img>, so its scripts don't run.
+func (a *App) ReadImage(path string) (string, error) {
+	full := resolvePath(path)
+	mime, ok := imageTypes[strings.ToLower(filepath.Ext(full))]
+	if !ok {
+		return "", fmt.Errorf("%s isn't an image OXIS can show", filepath.Base(full))
+	}
+	info, err := os.Stat(full)
+	if err != nil {
+		return "", err
+	}
+	if info.Size() > maxImageSize {
+		return "", fmt.Errorf("the image is larger than %d MB", maxImageSize>>20)
+	}
+	b, err := os.ReadFile(full)
+	if err != nil {
+		return "", err
+	}
+	return "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(b), nil
 }
 
 // WriteFile backs the editor's save, creating parent folders as needed.
@@ -626,7 +665,8 @@ func Run() error {
 		AssetServer: &assetserver.Options{
 			Assets: distFS,
 		},
-		OnStartup: app.startup,
+		OnStartup:  app.startup,
+		OnShutdown: app.shutdown,
 		Bind: []interface{}{
 			app,
 		},

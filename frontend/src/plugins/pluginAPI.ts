@@ -5,7 +5,9 @@
  * oxis.command(name, fn, description), oxis.task(name, cmd, description),
  * oxis.run, echo, cwd, theme, option, keymap, autocmd, plugin.enable/
  * disable, workspace, dashboard, workflow, newTerminal, and the fs,
- * process, net and system tables.
+ * process, net, system, json and editor tables. process.spawn, fs.watch
+ * and net.stream deliver their results over time (streams.ts); what a
+ * plugin starts is stopped when it's unloaded.
  *
  * Commands and tasks should have a description (it powers 'help). One
  * without gets UNDOCUMENTED_SENTINEL, which pluginManager replaces with
@@ -17,13 +19,16 @@ import { keybinds } from "../terminal/keybinds";
 import { themeManager } from "../terminal/themeManager";
 import { events } from "../terminal/events";
 import { isWindows } from "../terminal/terminal";
-import type { OxisBindings, LuaJSValue } from "./luaRuntime";
+import type { OxisBindings, LuaJSValue, LuaCallbacks, LuaHandle } from "./luaRuntime";
 import {
   readFile, writeFile, listDir, statPath, makeDir, deletePath,
   systemInfo as nativeSystemInfo, listProcesses, killProcess, isNativeApp,
   writeTempScript,
   nativeHttpRequest,
+  processStart, processWrite, processCloseInput, watchStart, httpStreamStart,
 } from "../native";
+import { openStream, closeStream, newStreamId, LineSplitter, SSEParser } from "./streams";
+import { editorBridge, offsetToLineCol, lineColToOffset, lineRange } from "../terminal/editorBridge";
 import { requirePermission, requireShellPermission, type PermissionNamespace } from "./permissions";
 import { scriptRunTracker, type RunResult } from "../terminal/scriptRunTracker";
 import { workflowRunner } from "./workflowRunner";
@@ -43,6 +48,8 @@ export interface APIContext {
   getCwd: () => string;
   /** Open a new terminal tab */
   newTerminal: () => void;
+  /** Open a file in the editor (optionally at a line) */
+  openEditor?: (path: string, line?: number) => void;
   /** Get/set runtime options */
   getOption: (key: string) => LuaJSValue;
   setOption: (key: string, value: LuaJSValue) => void;
@@ -130,11 +137,38 @@ const AUTOCMD_ALIASES: Record<string, string> = {
   terminal_close: "shell_exited",
 };
 
+/** oxis.editor.on() names → internal events. */
+const EDITOR_EVENTS: Record<string, string> = {
+  open: "editor_opened",
+  change: "editor_changed",
+  save: "editor_saved",
+  close: "editor_closed",
+};
+
+const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+/** A relative path is taken relative to the shell's current directory. */
+function fromCwd(path: string, cwd: string): string {
+  if (!cwd || /^([a-zA-Z]:)?[\\/]/.test(path) || /^~/.test(path)) return path;
+  const sep = cwd.includes("\\") ? "\\" : "/";
+  return cwd.replace(/[\\/]+$/, "") + sep + path;
+}
+
+/** Plain data for Lua (drops functions, keeps nested tables). */
+const toLua = (v: unknown) => v as LuaJSValue;
+
 export function buildLuaAPI(ctx: APIContext): OxisBindings {
   const options: Record<string, LuaJSValue> = {};
   // Trusted code (built-ins, the user's own config, workspace, task and
   // workflow files) never gets a permission prompt.
   const need = (ns: PermissionNamespace) => { if (!ctx.isTrusted) requirePermission(ctx.pluginName, ns); };
+  const nativeOnly = (what: string) => {
+    if (!isNativeApp()) throw new Error(`${what} needs the native OXIS app`);
+  };
+  // What this plugin started or subscribed to; undone when it unloads.
+  const cleanups = new Set<() => void>();
+  const track = (undo: () => void) => { cleanups.add(undo); return () => { cleanups.delete(undo); }; };
+  const buffer = () => { need("editor"); return editorBridge.active(); };
 
   return {
     platform: isWindows() ? "windows" : "unix",
@@ -185,7 +219,7 @@ export function buildLuaAPI(ctx: APIContext): OxisBindings {
     autocmd: (event, invoke) => {
       const snake = event.replace(/([A-Z])/g, "_$1").toLowerCase().replace(/^_/, "");
       const mapped = AUTOCMD_ALIASES[snake] ?? snake;
-      events.on(mapped, () => { try { invoke(); } catch { /* noop */ } });
+      cleanups.add(events.on(mapped, (payload) => { try { invoke(toLua(payload)); } catch { /* noop */ } }));
     },
 
     // Mode is "normal" / "insert" / "visual" (editor modes; the bind
@@ -288,5 +322,263 @@ export function buildLuaAPI(ctx: APIContext): OxisBindings {
       const info = await nativeSystemInfo();
       return info as unknown as LuaJSValue;
     },
+
+    // oxis.process.spawn({ cmd = "npm", args = {"run", "dev"} | shell = "…",
+    //   cwd, env, lines = true }, { stdout = fn, stderr = fn, exit = fn(code, err) })
+    // Runs a program, not the shell tab: needs the "shell" permission,
+    // like oxis.run(). The cwd defaults to the shell's current folder.
+    processSpawn: (opts, on) => spawnProcess(ctx, opts, on, track, nativeOnly),
+
+    // oxis.fs.watch(path, fn({ path, op }), { recursive, ignore, debounce })
+    fsWatch: (path, opts, on) => {
+      need("fs");
+      nativeOnly("oxis.fs.watch");
+      const o = (opts ?? {}) as { recursive?: boolean; ignore?: LuaJSValue[]; debounce?: number };
+      const id = newStreamId("watch");
+      const target = fromCwd(path, ctx.getCwd());
+      let active = true;
+      const untrack = track(() => closeStream(id));
+      const done = () => { active = false; untrack(); on.release(); };
+      openStream(id, (ev) => {
+        if (ev.type === "change") on.fns.change?.({ path: ev.path, op: ev.op });
+        else if (ev.type === "error") ctx.print(`  ⚠  ${ctx.pluginName}: watching ${target}: ${ev.error}`, "dim");
+        else if (ev.type === "end") done();
+      }, () => watchStart(id, {
+        path: target,
+        recursive: o.recursive !== false,
+        ignore: Array.isArray(o.ignore) ? o.ignore.map(String) : null,
+        debounceMs: typeof o.debounce === "number" ? o.debounce : 0,
+      })).then(() => { if (active) on.fns.ready?.(); }).catch((e) => {
+        ctx.print(`  ✗  ${ctx.pluginName}: oxis.fs.watch: ${message(e)}`, "err");
+        done();
+      });
+      return { close: () => { closeStream(id); }, active: () => active };
+    },
+
+    // oxis.net.stream({ url, method, headers, body, timeout, idle, sse },
+    //   { response = fn(status, headers), data = fn(text), line = fn(line),
+    //     event = fn({ event, data, id }), done = fn(err, { status, ok, headers }) })
+    netStream: (opts, on) => streamRequest(ctx, opts, on, track, need),
+
+    jsonEncode: (value) => JSON.stringify(value ?? null),
+    jsonDecode: (text) => {
+      try { return JSON.parse(text) as LuaJSValue; }
+      catch (e) { throw new Error(`oxis.json.decode: ${message(e)}`); }
+    },
+
+    // ── oxis.editor: lines and columns are 1-based ──
+    editorCurrent: () => {
+      const b = buffer();
+      if (!b) return undefined;
+      const text = b.getText();
+      const sel = b.getSelection();
+      const from = offsetToLineCol(text, sel.start);
+      const to = offsetToLineCol(text, sel.end);
+      return {
+        path: b.path, language: b.language, text, dirty: b.isDirty(),
+        lines: text.split("\n").length,
+        line: to.line, col: to.col,
+        selection: text.slice(sel.start, sel.end),
+        selectionStart: { line: from.line, col: from.col },
+        selectionEnd: { line: to.line, col: to.col },
+      };
+    },
+    editorOpen: (path, line) => {
+      need("editor");
+      if (!ctx.openEditor) throw new Error("oxis.editor.open isn't available here");
+      ctx.openEditor(fromCwd(path, ctx.getCwd()), line);
+    },
+    editorSetText: (text) => {
+      const b = buffer();
+      if (!b) return false;
+      b.replace(0, b.getText().length, text);
+      return true;
+    },
+    editorInsert: (text) => {
+      const b = buffer();
+      if (!b) return false;
+      const sel = b.getSelection();
+      b.replace(sel.start, sel.end, text);
+      return true;
+    },
+    editorReplaceLines: (first, last, text) => {
+      const b = buffer();
+      if (!b) return false;
+      const full = b.getText();
+      const r = lineRange(full, first, last);
+      // Replacing whole lines keeps the line break after them.
+      const keepBreak = r.end > r.start && full[r.end - 1] === "\n" && !text.endsWith("\n");
+      b.replace(r.start, r.end, keepBreak ? text + "\n" : text);
+      return true;
+    },
+    editorSelect: (line, col, toLine, toCol) => {
+      const b = buffer();
+      if (!b) return false;
+      const text = b.getText();
+      const start = lineColToOffset(text, line, col);
+      const end = toLine === undefined ? start : lineColToOffset(text, toLine, toCol ?? 1);
+      b.setSelection(Math.min(start, end), Math.max(start, end));
+      return true;
+    },
+    editorSave: async () => {
+      const b = buffer();
+      if (!b) throw new Error("no file is open in the editor");
+      if (!await b.save()) throw new Error(`couldn't save ${b.path}`);
+      return b.path;
+    },
+    editorOn: (event, cb) => {
+      need("editor");
+      const internal = EDITOR_EVENTS[event];
+      if (!internal) throw new Error(`oxis.editor.on: unknown event "${event}" (use ${Object.keys(EDITOR_EVENTS).join(", ")})`);
+      cleanups.add(events.on(internal, (payload) => cb(toLua(payload))));
+    },
+
+    reportError: (msg) => ctx.print(`  ✗  ${ctx.pluginName}: ${msg}`, "err"),
+    dispose: () => {
+      for (const undo of [...cleanups]) { try { undo(); } catch { /* keep going */ } }
+      cleanups.clear();
+    },
+  };
+}
+
+type Track = (undo: () => void) => () => void;
+
+function spawnProcess(ctx: APIContext, opts: LuaJSValue, on: LuaCallbacks, track: Track, nativeOnly: (what: string) => void): LuaHandle {
+  requireShellPermission(ctx.pluginName, !!ctx.isTrusted);
+  nativeOnly("oxis.process.spawn");
+  const o = (opts ?? {}) as {
+    cmd?: string; args?: LuaJSValue[]; shell?: string; cwd?: string;
+    env?: Record<string, LuaJSValue>; lines?: boolean;
+  };
+  if (!o.cmd && !o.shell) throw new Error('oxis.process.spawn needs { cmd = "program", args = {...} } or { shell = "command line" }');
+  const id = newStreamId("proc");
+  const { stdout, stderr, exit, start } = on.fns;
+  const splitters = o.lines ? { stdout: new LineSplitter(), stderr: new LineSplitter() } : null;
+  let pid: number | undefined;
+  let running = true;
+  // Input written before the process has started waits for it, in order.
+  let input: Promise<unknown>;
+
+  const deliver = (type: "stdout" | "stderr", text: string) => {
+    const cb = type === "stdout" ? stdout : stderr;
+    if (!cb) return;
+    if (!splitters) { cb(text); return; }
+    for (const line of splitters[type].push(text)) cb(line);
+  };
+  const untrack = track(() => closeStream(id));
+  const finish = (code: number | undefined, err: string | undefined) => {
+    if (!running) return;
+    running = false;
+    untrack();
+    if (splitters) {
+      const out = splitters.stdout.flush(), errText = splitters.stderr.flush();
+      if (out !== null) stdout?.(out);
+      if (errText !== null) stderr?.(errText);
+    }
+    try { exit?.(code, err); } finally { on.release(); }
+  };
+
+  input = openStream(id, (ev) => {
+    if (ev.type === "stdout" || ev.type === "stderr") deliver(ev.type, ev.data ?? "");
+    else if (ev.type === "end") finish(ev.code, ev.error || undefined);
+  }, () => processStart(id, {
+    cmd: o.cmd ?? "",
+    args: (o.args ?? []).map(String),
+    shell: o.shell ?? "",
+    cwd: o.cwd ? fromCwd(o.cwd, ctx.getCwd()) : ctx.getCwd(),
+    env: Object.fromEntries(Object.entries(o.env ?? {}).map(([k, v]) => [k, String(v)])),
+  })).then((p) => { pid = p; if (running) start?.(p); }, (e) => finish(undefined, message(e)));
+
+  const afterStart = (fn: () => Promise<void>) => {
+    input = input.then(() => (running ? fn() : undefined)).catch(() => { /* it exited */ });
+  };
+  return {
+    pid: () => pid,
+    running: () => running,
+    write: (text) => {
+      if (!running) return false;
+      const data = String(text ?? "");
+      afterStart(() => processWrite(id, data));
+      return true;
+    },
+    closeInput: () => { if (running) afterStart(() => processCloseInput(id)); },
+    kill: () => { if (running) closeStream(id); return running; },
+  };
+}
+
+function streamRequest(ctx: APIContext, opts: LuaJSValue, on: LuaCallbacks, track: Track, need: (ns: PermissionNamespace) => void): LuaHandle {
+  need("net");
+  const o = (opts ?? {}) as {
+    url?: string; method?: string; headers?: Record<string, LuaJSValue>; body?: string;
+    timeout?: number; idle?: number; sse?: boolean;
+  };
+  if (!o.url) throw new Error("oxis.net.stream requires { url = ... }");
+  const { response, data, line, event, done } = on.fns;
+  const headersIn = Object.fromEntries(Object.entries(o.headers ?? {}).map(([k, v]) => [k, String(v)]));
+  const lines = new LineSplitter();
+  let sse: SSEParser | null = null;
+  let status = 0;
+  let headers: Record<string, string> = {};
+  let finished = false;
+  let cancel = () => {};
+  const untrack = track(() => cancel());
+
+  const onResponse = (st: number, hd: Record<string, string>) => {
+    status = st;
+    headers = hd;
+    if (event && (o.sse === true || /text\/event-stream/i.test(hd["content-type"] ?? ""))) sse = new SSEParser();
+    response?.(st, hd);
+  };
+  const onData = (text: string) => {
+    data?.(text);
+    if (line) for (const l of lines.push(text)) line(l);
+    if (sse && event) for (const e of sse.push(text)) event({ ...e });
+  };
+  const onEnd = (err: string | undefined) => {
+    if (finished) return;
+    finished = true;
+    untrack();
+    if (line) { const rest = lines.flush(); if (rest !== null) line(rest); }
+    if (sse && event) for (const e of (sse as SSEParser).end()) event({ ...e });
+    try { done?.(err, { status, ok: status >= 200 && status < 300, headers }); } finally { on.release(); }
+  };
+
+  if (isNativeApp()) {
+    const id = newStreamId("http");
+    cancel = () => closeStream(id);
+    openStream(id, (ev) => {
+      if (ev.type === "response") onResponse(ev.code, ev.headers ?? {});
+      else if (ev.type === "data") onData(ev.data ?? "");
+      else if (ev.type === "end") onEnd(ev.error || undefined);
+    }, () => httpStreamStart(id, {
+      url: o.url!, method: o.method || "GET", headers: headersIn, body: o.body ?? "",
+      timeoutSeconds: typeof o.timeout === "number" ? o.timeout : 0,
+      idleSeconds: typeof o.idle === "number" ? o.idle : 0,
+    })).catch((e) => onEnd(message(e)));
+  } else {
+    // Browser tab: fetch's stream (CORS applies).
+    const ac = new AbortController();
+    cancel = () => ac.abort();
+    (async () => {
+      const res = await fetch(o.url!, { method: o.method || "GET", headers: headersIn, body: o.body, signal: ac.signal });
+      const hd: Record<string, string> = {};
+      res.headers.forEach((v, k) => { hd[k] = v; });
+      onResponse(res.status, hd);
+      const reader = res.body?.getReader();
+      const dec = new TextDecoder();
+      for (;;) {
+        const chunk = await reader?.read();
+        if (!chunk || chunk.done) break;
+        onData(dec.decode(chunk.value, { stream: true }));
+      }
+      const tail = dec.decode();
+      if (tail) onData(tail);
+      onEnd(undefined);
+    })().catch((e) => onEnd(ac.signal.aborted ? "cancelled" : message(e)));
+  }
+
+  return {
+    cancel: () => { if (!finished) cancel(); },
+    finished: () => finished,
   };
 }

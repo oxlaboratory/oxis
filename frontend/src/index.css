@@ -98,6 +98,14 @@ html, body, #root {
 }
 .term-out:focus { outline: none; }
 
+/* A block of output lines (OUTPUT_BLOCK in App.tsx). Off-screen blocks
+   are skipped for layout and paint; until one has been shown, it's
+   estimated at 128 lines tall. */
+.term-block {
+  content-visibility: auto;
+  contain-intrinsic-block-size: auto calc(var(--lh) * 128);
+}
+
 .term-line {
   white-space: pre-wrap;
   word-break: break-word;
@@ -168,7 +176,9 @@ html, body, #root {
   white-space: pre; pointer-events: none; border-radius: 1px;
   letter-spacing: var(--ls, 0);
 }
-.term-caret--on   { background: var(--caret, var(--purple)); color: var(--bg); animation: blink 1.1s step-end infinite; box-shadow: var(--glow-shadow, none); }
+/* will-change puts the blink on the compositor, so a blinking caret
+   doesn't restyle the page 60 times a second. */
+.term-caret--on   { background: var(--caret, var(--purple)); color: var(--bg); animation: blink 1.1s step-end infinite; box-shadow: var(--glow-shadow, none); will-change: opacity; }
 .term-caret--off  { background: var(--dim); color: var(--bg); opacity: .35; }
 :root[data-cursor-style="bar"] .term-caret {
   background: none; color: transparent; box-shadow: inset 2px 0 0 var(--caret, var(--purple));
@@ -396,6 +406,26 @@ html, body, #root {
   padding: 0 12px; background: var(--bg1); border-top: 1px solid var(--border);
   flex-shrink: 0; font-size: 9px; color: var(--comment); letter-spacing: .04em;
 }
+
+/* ── IMAGE VIEWER — see ImageViewer in App.tsx ── */
+.image-view {
+  flex: 1 1 0; min-height: 0; overflow: auto; display: grid; place-items: center;
+  padding: 24px;
+}
+.image-view img { display: block; image-rendering: auto; box-shadow: 0 0 0 1px var(--border); }
+.image-view--checker {
+  background-color: var(--bg);
+  background-image:
+    linear-gradient(45deg, var(--bg2) 25%, transparent 25%),
+    linear-gradient(-45deg, var(--bg2) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, var(--bg2) 75%),
+    linear-gradient(-45deg, transparent 75%, var(--bg2) 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+}
+.image-view--dark  { background: #0b0b0f; }
+.image-view--light { background: #f4f4f6; }
+.image-zoom { min-width: 38px; text-align: center; font-variant-numeric: tabular-nums; }
 
 /* ── EDITOR TABS — multiple open files, see the Terminal component's
    editorFiles state. Only rendered when more than one file is open;
@@ -836,8 +866,8 @@ html, body, #root {
 
 .sky-moon {
   position: absolute; top: 2px; right: 0px;
-  font-size: 11px; color: var(--moon, #ffffff); font-family: var(--font);
-  white-space: pre; line-height: 1.2;
+  font-size: 12px; color: var(--moon, #ffffff); font-family: var(--font);
+  white-space: pre; line-height: 1.2; font-weight: 600;
   text-shadow: 0 0 5px color-mix(in srgb, var(--moon, #ffffff) 28%, transparent);
   animation: moon-glow 5s ease-in-out infinite;
   z-index: 2;

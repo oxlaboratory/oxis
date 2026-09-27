@@ -405,6 +405,11 @@ Windows. Quote paths with spaces.
   GitHub-style, including Mermaid diagrams and the README's own
   relative images. Your unsaved text is what's shown, and the page
   can't reach OXIS itself.
+- **Images** (png, jpg, gif, webp, avif, bmp, ico, svg) open in an image
+  viewer: its size, type and file size, fit or actual size, zoom with
+  `+`/`−` or Ctrl+wheel, and a checkerboard, dark or light background.
+  An SVG can be opened as text with **edit source**. Other binary files
+  (an `.exe`, a zip) get a notice instead of a screen of garbage.
 - Closing the last file closes the editor (and its file tree); with
   only the file tree open, Esc or **close editor** leaves it.
 
@@ -668,14 +673,26 @@ Everything is on the global `oxis` table.
 | `oxis.newTerminal()` | Switch to the terminal view |
 | `oxis.dashboard{ header, theme, shortcuts }` | Customise Home: a header line, a theme, and extra hint lines |
 | `oxis.fs.read/write/list/stat/mkdir/remove(path, …, cb)` | File access; `cb(err, result)` |
+| `oxis.fs.watch(path, fn, opts)` | Changes to a file or folder, as they happen ([below](#watching-files)) |
+| `oxis.process.spawn(opts, callbacks)` | Run a program and get its output as it prints ([below](#running-programs)) |
 | `oxis.process.list(cb)` / `.kill(pid, cb)` | Processes |
 | `oxis.net.request(opts, cb)` | HTTP request: `{ url, method, headers, body, timeout }` (seconds, default 60) → `{ status, ok, body, headers }`. In the desktop app OXIS makes the request itself, so servers without CORS headers (local and self-hosted APIs) work |
+| `oxis.net.stream(opts, callbacks)` | HTTP response as it arrives: server-sent events and JSON lines, for AI answers that appear as they're written ([below](#streaming-http)) |
+| `oxis.json.encode(value)` / `.decode(text)` | JSON ↔ Lua tables |
+| `oxis.editor.*` | The file open in the editor ([below](#the-editor)) |
 | `oxis.system.info(cb)` | OS, architecture, CPU count, Go version, OXIS's own memory use |
 
 Events for `oxis.autocmd`: `ShellOpen` (alias `TerminalOpen`),
 `ShellExit`, `ThemeChanged`, `PluginLoaded`, `PluginUnloaded`,
 `WorkspaceLoaded`, `WorkspaceUnloaded`, `CommandExecuted`,
-`CommandError`, `EditorOpened`, `EditorClosed`, `ModeChanged`.
+`CommandError`, `EditorOpened`, `EditorChanged`, `EditorSaved`,
+`EditorClosed`, `ModeChanged`. The function gets the event's details as
+a table (`{ path = ... }` for the editor events).
+
+An error in a plugin's code, including a denied permission, is an
+ordinary Lua error: `pcall` catches it. What a plugin starts (programs,
+watchers, streamed requests, event handlers) is stopped when it's
+unloaded, reloaded or disabled.
 
 Branch on `oxis.platform` for shell commands that differ between
 PowerShell and bash:
@@ -690,8 +707,106 @@ oxis.command("health", function()
 end, "check the local server")
 ```
 
-Not available yet: `oxis.fs.watch`, `oxis.process.spawn`, cross-plugin
-calls, and editor buffer access.
+### Running programs
+
+`oxis.process.spawn` runs a program without the shell tab, and hands its
+output to the plugin as it's printed. It needs the `shell` permission,
+like `oxis.run`.
+
+```lua
+local server = oxis.process.spawn({
+  cmd = "npm", args = { "run", "dev" },   -- or shell = "npm run dev | tee dev.log"
+  cwd = oxis.cwd(),                        -- the default
+  env = { PORT = "3000" },
+  lines = true,                            -- whole lines instead of chunks
+}, {
+  start  = function(pid) oxis.echo("dev server pid " .. pid) end,
+  stdout = function(line) if line:find("ready") then oxis.echo("✓ up on :3000") end end,
+  stderr = function(line) oxis.echo("⚠ " .. line) end,
+  exit   = function(code, err) oxis.echo("dev server stopped: " .. tostring(err or code)) end,
+})
+
+server.write("rs\n")   -- to its stdin (server:write works too)
+server.closeInput()     -- end of input
+server.kill()           -- stops it and everything it started
+```
+
+`shell` runs a command line in PowerShell on Windows (pwsh when it's
+installed, with UTF-8 output) and `/bin/sh` elsewhere. `kill()` stops
+the whole process tree: a dev server started by `npm` goes too. Programs
+still running when OXIS closes are stopped.
+
+### Watching files
+
+```lua
+local w = oxis.fs.watch("src", function(change)
+  -- change.path (absolute), change.op: "create", "write", "remove", "rename"
+  oxis.echo(change.op .. " " .. change.path)
+end, {
+  recursive = true,                        -- the default for a folder
+  ignore = { ".git", "node_modules" },     -- the default; names skipped anywhere below
+  debounce = 100,                          -- ms; a burst is reported once per path
+})
+w.close()
+```
+
+A relative path is taken from the shell's current folder. Pass
+`{ change = fn, ready = fn }` instead of `fn` to know when watching has
+started. An editor's save (often a write, a rename and a chmod) is
+reported as one `write`.
+
+### Streaming HTTP
+
+`oxis.net.stream` delivers a response while it's still arriving, which is
+how AI APIs send an answer as they write it. Server-sent events
+(OpenAI, Anthropic and most hosted APIs) arrive as `event`s; JSON lines
+(Ollama) as `line`s; `data` gets the raw text.
+
+```lua
+oxis.command("ask", function(_, question)
+  local answer = {}
+  oxis.net.stream({
+    url = "http://localhost:11434/api/chat",   -- Ollama; no API key needed
+    method = "POST",
+    body = oxis.json.encode({ model = "llama3.2", messages = { { role = "user", content = question } } }),
+    timeout = 60,   -- seconds to wait for the answer to start
+    idle = 120,     -- seconds it may go quiet
+  }, {
+    line = function(l)
+      local piece = oxis.json.decode(l).message.content
+      answer[#answer + 1] = piece
+      oxis.editor.insert(piece)          -- write it into the open file as it arrives
+    end,
+    done = function(err, res)
+      oxis.echo(err and ("✗ " .. err) or ("✓ " .. #table.concat(answer) .. " characters"))
+    end,
+  })
+end, "ask a local model; the answer streams into the editor")
+```
+
+For a server-sent-events API, use `event = function(ev) ... end` (`ev.event`,
+`ev.data`, `ev.id`); `response = function(status, headers)` runs when the
+answer starts. The handle's `cancel()` stops it. In the desktop app OXIS
+makes the request itself, so CORS doesn't apply.
+
+### The editor
+
+Lines and columns count from 1. Every change is one step in the
+editor's undo history (a run of changes from a streamed answer undoes in
+one go). These need the `editor` permission.
+
+| Call | Does |
+|---|---|
+| `oxis.editor.current()` | `{ path, text, language, dirty, lines, line, col, selection, selectionStart, selectionEnd }`, or `nil` when no file is open |
+| `oxis.editor.open(path [, line])` | Open a file (a picture opens in the image viewer) |
+| `oxis.editor.insert(text)` | Insert at the cursor, replacing the selection |
+| `oxis.editor.replaceLines(first, last, text)` | Replace whole lines |
+| `oxis.editor.setText(text)` | Replace everything |
+| `oxis.editor.select(line, col [, toLine, toCol])` | Move the cursor, or select |
+| `oxis.editor.save([cb])` | Save; `cb(err, path)` |
+| `oxis.editor.on(event, fn)` | `"open"`, `"change"` (once typing pauses), `"save"`, `"close"`; `fn({ path = ... })` |
+
+Not available yet: cross-plugin calls.
 
 ### Plugin development guide
 

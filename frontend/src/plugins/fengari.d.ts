@@ -25,6 +25,7 @@ declare module "fengari" {
     lua_pushnil(L: LuaState): void;
     lua_pushstring(L: LuaState, s: Uint8Array): void;
     lua_pushnumber(L: LuaState, n: number): void;
+    lua_pushinteger(L: LuaState, n: number): void;
     lua_pushboolean(L: LuaState, b: boolean): void;
     lua_pushvalue(L: LuaState, idx: number): void;
     lua_pushcfunction(L: LuaState, fn: (L: LuaState) => number): void;
@@ -39,6 +40,11 @@ declare module "fengari" {
     lua_gettop(L: LuaState): number;
     lua_pcall(L: LuaState, nargs: number, nresults: number, msgh: number): number;
     lua_close(L: LuaState): void;
+    lua_getfield(L: LuaState, idx: number, k: Uint8Array): number;
+    lua_touserdata(L: LuaState, idx: number): unknown;
+    /** Sets a handler that turns a JS exception thrown under a Lua call
+     *  into a Lua error; it gets the exception as light userdata. */
+    lua_atnativeerror(L: LuaState, fn: (L: LuaState) => number): void;
   };
 
   export const lauxlib: {

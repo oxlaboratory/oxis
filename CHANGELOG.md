@@ -6,6 +6,29 @@ All notable changes to OXIS. The format follows
 ## [Unreleased]
 
 ### Added
+- Plugin APIs for things that happen over time:
+  - `oxis.process.spawn` runs a program (or a command line) and gives
+    the plugin its output as it's printed, line by line if asked, with
+    stdin, the exit code, and `kill()`, which stops the whole process
+    tree (job objects on Windows, process groups elsewhere).
+  - `oxis.fs.watch` reports changes to a file or folder (recursive,
+    with ignored names and debouncing; an editor's save is one `write`).
+  - `oxis.net.stream` delivers an HTTP response as it arrives, parsing
+    server-sent events and JSON lines, so an AI assistant's answer
+    appears as it's written. OXIS makes the request itself (no CORS).
+  - All three come from Go through one long poll with backpressure: a
+    program printing faster than the window can show it is slowed down
+    rather than filling memory. What a plugin starts stops when it's
+    unloaded, and when OXIS closes.
+- `oxis.editor`: read the open file, its cursor and selection; insert,
+  replace lines, select, save and open files; `oxis.editor.on("open" |
+  "change" | "save" | "close")`. A plugin's changes are undoable, and a
+  streamed run of them is one undo step.
+- `oxis.json.encode` / `oxis.json.decode`.
+- The editor shows pictures (png, jpg, gif, webp, avif, bmp, ico, svg)
+  in an image viewer with zoom and a transparency checkerboard, instead
+  of their bytes; an SVG can still be edited as text. Other binary files
+  get a notice.
 - Colour output: the colours and styles programs print (git diffs,
   test runners, linters, PowerShell errors) are shown instead of
   stripped: 16 theme colours, the 256-colour palette and 24-bit colour,
@@ -80,6 +103,15 @@ All notable changes to OXIS. The format follows
   of every built-in theme.
 
 ### Changed
+- Much faster terminal output. Output is applied at most once per frame
+  (every 48 ms while a program floods it) instead of once per message,
+  and the scrollback renders in blocks the browser skips while they're
+  off screen. Printing 20,000 lines went from frames of up to 617 ms
+  (4.5 s of the window frozen) to a steady 60 fps, and scrolling back
+  through a full scrollback no longer stalls for seconds. The blinking
+  prompt caret no longer restyles the page every frame while idle.
+- The night sky's moon is one simple round moon, the same every night,
+  instead of eight phase glyphs of different sizes.
 - The README's badge and the website show how many times OXIS has been
   downloaded. CI used to lose the count every time it replaced the
   `latest-build` files; it now carries it forward in the release notes.
@@ -160,6 +192,12 @@ All notable changes to OXIS. The format follows
 - The npm launcher downloads from the GitHub `latest-build` release.
 
 ### Fixed
+- `oxis.autocmd("EditorClosed")` fired when a file was saved, not when
+  it was closed. Saving now fires `EditorSaved`.
+- Numbers reached Lua as floats, so `"status " .. res.status` read
+  `status 200.0`. Whole numbers are Lua integers now.
+- An error in a plugin call (a denied permission, a bad argument)
+  escaped the Lua state instead of being a Lua error `pcall` can catch.
 - Spaces ConPTY draws by moving the cursor (after the prompt, between
   coloured runs) were lost, so `PS C:\> git` showed as `PS C:\>git`.
 - The MSI installed to `C:\Users\<name>OXIS` (a lost backslash) instead

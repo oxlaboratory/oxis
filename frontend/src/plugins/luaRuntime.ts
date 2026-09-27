@@ -19,6 +19,20 @@ type LuaState = any;
 
 export type LuaJSValue = string | number | boolean | undefined | LuaJSValue[] | { [k: string]: LuaJSValue };
 
+/** A Lua function a plugin passed in, callable from JS later. */
+export type LuaCallback = (...args: LuaJSValue[]) => void;
+
+/** Named Lua callbacks from a table like { stdout = fn, exit = fn }.
+ *  release() lets Lua collect them once the stream has ended. */
+export interface LuaCallbacks {
+  fns: Record<string, LuaCallback | undefined>;
+  release(): void;
+}
+
+/** What oxis.process.spawn / fs.watch / net.stream return: a table of
+ *  methods, callable as h.kill() or h:kill(). */
+export type LuaHandle = Record<string, (...args: LuaJSValue[]) => LuaJSValue | void>;
+
 /** What a Lua plugin can call into OXIS with. Implemented by pluginAPI.ts —
  *  this file only handles the Lua<->JS boundary, not what any of these
  *  calls actually DO inside OXIS. */
@@ -34,7 +48,7 @@ export interface OxisBindings {
   cwd(): string;
   getOption(key: string): LuaJSValue;
   setOption(key: string, value: LuaJSValue): void;
-  autocmd(event: string, invoke: () => void): void;
+  autocmd(event: string, invoke: (payload?: LuaJSValue) => void): void;
   keymap(mode: string, combo: string, invoke: () => void): void;
   pluginEnable(name: string): void;
   pluginDisable(name: string): void;
@@ -65,6 +79,32 @@ export interface OxisBindings {
   processKill(pid: number): Promise<void>;
   netRequest(opts: LuaJSValue): Promise<LuaJSValue>;
   systemInfo(): Promise<LuaJSValue>;
+
+  // ── Streams: output that arrives over time (streams.ts) ──
+  /** oxis.process.spawn(opts, { stdout, stderr, exit }) */
+  processSpawn(opts: LuaJSValue, on: LuaCallbacks): LuaHandle;
+  /** oxis.fs.watch(path, fn(change), opts) */
+  fsWatch(path: string, opts: LuaJSValue, on: LuaCallbacks): LuaHandle;
+  /** oxis.net.stream(opts, { response, data, line, event, done }) */
+  netStream(opts: LuaJSValue, on: LuaCallbacks): LuaHandle;
+
+  jsonEncode(value: LuaJSValue): string;
+  jsonDecode(text: string): LuaJSValue;
+
+  // ── oxis.editor: the file open in the editor ──
+  editorCurrent(): LuaJSValue;
+  editorOpen(path: string, line: number | undefined): void;
+  editorSetText(text: string): boolean;
+  editorInsert(text: string): boolean;
+  editorReplaceLines(first: number, last: number, text: string): boolean;
+  editorSelect(line: number, col: number, toLine: number | undefined, toCol: number | undefined): boolean;
+  editorSave(): Promise<LuaJSValue>;
+  editorOn(event: string, cb: LuaCallback): void;
+
+  /** A Lua callback raised an error (shown to the user). */
+  reportError?(message: string): void;
+  /** The plugin is being unloaded: stop what it started. */
+  dispose?(): void;
 }
 
 export interface LoadedLuaPlugin {
@@ -134,7 +174,13 @@ function luaToJS(L: LuaState, idx: number): LuaJSValue {
 function pushLuaValue(L: LuaState, v: LuaJSValue): void {
   if (v === undefined || v === null) { lua.lua_pushnil(L); return; }
   if (typeof v === "string")  { lua.lua_pushstring(L, to_luastring(v)); return; }
-  if (typeof v === "number")  { lua.lua_pushnumber(L, v); return; }
+  // Whole numbers become Lua integers, so "status " .. 200 reads "200",
+  // not "200.0" (fengari's integers are 32-bit; bigger ones stay floats).
+  if (typeof v === "number")  {
+    if (Number.isInteger(v) && v >= -0x80000000 && v <= 0x7fffffff) lua.lua_pushinteger(L, v);
+    else lua.lua_pushnumber(L, v);
+    return;
+  }
   if (typeof v === "boolean") { lua.lua_pushboolean(L, v); return; }
   if (Array.isArray(v)) {
     lua.lua_createtable(L, v.length, 0);
@@ -171,23 +217,86 @@ function makeInvoker(L: LuaState, valueIdx: number): () => void {
 
 /** Like makeInvoker, but passes arguments to Lua (async callbacks).
  *  Does nothing once the plugin's state has been disposed. */
-function makeInvokerWithArgs(L: LuaState, valueIdx: number, closedRef: { closed: boolean }): (...args: LuaJSValue[]) => void {
+interface StateRef { closed: boolean; report?: (message: string) => void }
+
+function makeInvokerWithArgs(L: LuaState, valueIdx: number, closedRef: StateRef): (...args: LuaJSValue[]) => void {
+  return makeCallback(L, valueIdx, closedRef).call;
+}
+
+/** A Lua function turned into a JS callback that can be released (its
+ *  registry reference dropped) when it's no longer needed. */
+function makeCallback(L: LuaState, valueIdx: number, state: StateRef): { call: LuaCallback; release: () => void } {
   lua.lua_pushvalue(L, valueIdx);
   const ref = lauxlib.luaL_ref(L, lua.LUA_REGISTRYINDEX);
-  return (...args: LuaJSValue[]) => {
-    if (closedRef.closed) return;
-    lua.lua_rawgeti(L, lua.LUA_REGISTRYINDEX, ref);
-    for (const a of args) pushLuaValue(L, a);
-    const status = lua.lua_pcall(L, args.length, 0, 0);
-    if (status !== lua.LUA_OK) {
-      const err = lua.lua_tojsstring(L, -1);
-      lua.lua_pop(L, 1);
-      console.warn("[oxis:lua] async callback error:", err);
-    }
+  let released = false;
+  return {
+    call: (...args: LuaJSValue[]) => {
+      if (state.closed || released) return;
+      lua.lua_rawgeti(L, lua.LUA_REGISTRYINDEX, ref);
+      for (const a of args) pushLuaValue(L, a);
+      const status = lua.lua_pcall(L, args.length, 0, 0);
+      if (status !== lua.LUA_OK) {
+        const err = lua.lua_tojsstring(L, -1);
+        lua.lua_pop(L, 1);
+        console.warn("[oxis:lua] callback error:", err);
+        state.report?.(err);
+      }
+    },
+    release: () => {
+      if (state.closed || released) return;
+      released = true;
+      lauxlib.luaL_unref(L, lua.LUA_REGISTRYINDEX, ref);
+    },
   };
 }
 
-function buildOxisTable(L: LuaState, b: OxisBindings, closedRef: { closed: boolean }): void {
+/** Callbacks from the value at idx: a table of named functions, or (when
+ *  `single` is given) one function, which becomes that name. */
+function callbacksAt(L: LuaState, idx: number, names: string[], state: StateRef, single?: string): LuaCallbacks {
+  const fns: Record<string, LuaCallback | undefined> = {};
+  const releases: (() => void)[] = [];
+  const t = lua.lua_type(L, idx);
+  if (t === lua.LUA_TFUNCTION && single) {
+    const c = makeCallback(L, idx, state);
+    fns[single] = c.call;
+    releases.push(c.release);
+  } else if (t === lua.LUA_TTABLE) {
+    for (const name of names) {
+      lua.lua_getfield(L, idx, to_luastring(name));
+      if (lua.lua_type(L, -1) === lua.LUA_TFUNCTION) {
+        const c = makeCallback(L, lua.lua_gettop(L), state);
+        fns[name] = c.call;
+        releases.push(c.release);
+      }
+      lua.lua_pop(L, 1);
+    }
+  }
+  return { fns, release: () => releases.forEach((r) => r()) };
+}
+
+/** Pushes a handle: a table of methods. A leading table argument (the
+ *  handle itself, from h:method()) is skipped, so h.kill() and h:kill()
+ *  both work. */
+function pushHandle(L: LuaState, handle: LuaHandle): void {
+  lua.lua_newtable(L);
+  for (const [name, fn] of Object.entries(handle)) {
+    lua.lua_pushcfunction(L, (L: LuaState) => {
+      const n = lua.lua_gettop(L);
+      const first = n >= 1 && lua.lua_type(L, 1) === lua.LUA_TTABLE ? 2 : 1;
+      const args: LuaJSValue[] = [];
+      for (let i = first; i <= n; i++) args.push(luaToJS(L, i));
+      pushLuaValue(L, fn(...args) ?? undefined);
+      return 1;
+    });
+    lua.lua_setfield(L, -2, to_luastring(name));
+  }
+}
+
+function argNumber(L: LuaState, i: number): number | undefined {
+  return lua.lua_type(L, i) === lua.LUA_TNUMBER ? lua.lua_tonumber(L, i) : undefined;
+}
+
+function buildOxisTable(L: LuaState, b: OxisBindings, closedRef: StateRef): void {
   lua.lua_newtable(L);
   const setfn = (name: string, cfn: (L: LuaState) => number) => {
     lua.lua_pushcfunction(L, cfn);
@@ -249,9 +358,11 @@ function buildOxisTable(L: LuaState, b: OxisBindings, closedRef: { closed: boole
     return 0;
   });
 
+  // The handler gets the event's details as a table ({ path = ... }
+  // for the editor events).
   setfn("autocmd", (L) => {
     const event = lua.lua_tojsstring(L, 1);
-    const invoke = makeInvoker(L, 2);
+    const invoke = makeInvokerWithArgs(L, 2, closedRef);
     b.autocmd(event, invoke);
     return 0;
   });
@@ -318,6 +429,22 @@ function buildOxisTable(L: LuaState, b: OxisBindings, closedRef: { closed: boole
     return 0;
   });
   lua.lua_setfield(L, -2, to_luastring("remove"));
+
+  // oxis.fs.watch(path, fn [, opts]), (path, opts, fn), or
+  // (path, { change = fn, ready = fn } [, opts])
+  lua.lua_pushcfunction(L, (L: LuaState) => {
+    const path = lua.lua_tojsstring(L, 1);
+    let cbIdx = 3, optsIdx = 2;
+    if (lua.lua_type(L, 2) === lua.LUA_TFUNCTION) { cbIdx = 2; optsIdx = 3; }
+    else if (lua.lua_type(L, 2) === lua.LUA_TTABLE) {
+      lua.lua_getfield(L, 2, to_luastring("change"));
+      if (lua.lua_type(L, -1) === lua.LUA_TFUNCTION) { cbIdx = 2; optsIdx = 3; }
+      lua.lua_pop(L, 1);
+    }
+    pushHandle(L, b.fsWatch(path, luaToJS(L, optsIdx), callbacksAt(L, cbIdx, ["change", "ready"], closedRef, "change")));
+    return 1;
+  });
+  lua.lua_setfield(L, -2, to_luastring("watch"));
   lua.lua_setfield(L, -2, to_luastring("fs"));
 
   lua.lua_newtable(L); // oxis.process
@@ -326,6 +453,15 @@ function buildOxisTable(L: LuaState, b: OxisBindings, closedRef: { closed: boole
     return 0;
   });
   lua.lua_setfield(L, -2, to_luastring("list"));
+  // oxis.process.spawn(opts, { stdout, stderr, exit }); the callbacks
+  // may also sit in opts itself.
+  lua.lua_pushcfunction(L, (L: LuaState) => {
+    const opts = luaToJS(L, 1);
+    const cbIdx = lua.lua_type(L, 2) === lua.LUA_TTABLE ? 2 : 1;
+    pushHandle(L, b.processSpawn(opts, callbacksAt(L, cbIdx, ["start", "stdout", "stderr", "exit"], closedRef)));
+    return 1;
+  });
+  lua.lua_setfield(L, -2, to_luastring("spawn"));
   lua.lua_pushcfunction(L, (L: LuaState) => {
     const pid = lua.lua_tonumber(L, 1);
     asyncCb(b.processKill(pid).then(() => undefined), makeInvokerWithArgs(L, 2, closedRef));
@@ -341,7 +477,41 @@ function buildOxisTable(L: LuaState, b: OxisBindings, closedRef: { closed: boole
     return 0;
   });
   lua.lua_setfield(L, -2, to_luastring("request"));
+  // oxis.net.stream(opts, { response, data, line, event, done })
+  lua.lua_pushcfunction(L, (L: LuaState) => {
+    const opts = luaToJS(L, 1);
+    const cbIdx = lua.lua_type(L, 2) === lua.LUA_TTABLE ? 2 : 1;
+    pushHandle(L, b.netStream(opts, callbacksAt(L, cbIdx, ["response", "data", "line", "event", "done"], closedRef)));
+    return 1;
+  });
+  lua.lua_setfield(L, -2, to_luastring("stream"));
   lua.lua_setfield(L, -2, to_luastring("net"));
+
+  lua.lua_newtable(L); // oxis.json
+  setfn("encode", (L) => { pushLuaValue(L, b.jsonEncode(luaToJS(L, 1))); return 1; });
+  setfn("decode", (L) => { pushLuaValue(L, b.jsonDecode(argString(L, 1) ?? "")); return 1; });
+  lua.lua_setfield(L, -2, to_luastring("json"));
+
+  lua.lua_newtable(L); // oxis.editor
+  setfn("current", (L) => { pushLuaValue(L, b.editorCurrent()); return 1; });
+  setfn("open", (L) => { b.editorOpen(lua.lua_tojsstring(L, 1), argNumber(L, 2)); return 0; });
+  setfn("setText", (L) => { pushLuaValue(L, b.editorSetText(argString(L, 1) ?? "")); return 1; });
+  setfn("insert", (L) => { pushLuaValue(L, b.editorInsert(argString(L, 1) ?? "")); return 1; });
+  setfn("replaceLines", (L) => {
+    pushLuaValue(L, b.editorReplaceLines(lua.lua_tonumber(L, 1), lua.lua_tonumber(L, 2), argString(L, 3) ?? ""));
+    return 1;
+  });
+  setfn("select", (L) => {
+    pushLuaValue(L, b.editorSelect(lua.lua_tonumber(L, 1), argNumber(L, 2) ?? 1, argNumber(L, 3), argNumber(L, 4)));
+    return 1;
+  });
+  setfn("save", (L) => {
+    const cb = lua.lua_type(L, 1) === lua.LUA_TFUNCTION ? makeInvokerWithArgs(L, 1, closedRef) : () => {};
+    asyncCb(b.editorSave(), cb);
+    return 0;
+  });
+  setfn("on", (L) => { b.editorOn(lua.lua_tojsstring(L, 1), makeInvokerWithArgs(L, 2, closedRef)); return 0; });
+  lua.lua_setfield(L, -2, to_luastring("editor"));
 
   lua.lua_newtable(L); // oxis.system
   lua.lua_pushcfunction(L, (L: LuaState) => {
@@ -359,12 +529,21 @@ function buildOxisTable(L: LuaState, b: OxisBindings, closedRef: { closed: boole
 export function loadLuaPlugin(source: string, bindings: OxisBindings): LuaLoadResult {
   const L = lauxlib.luaL_newstate();
   lualib.luaL_openlibs(L);
-  const closedRef = { closed: false };
+  // A JS error thrown under a Lua call (a denied permission, a bad
+  // argument) becomes an ordinary Lua error: pcall can catch it, and it
+  // can't escape and leave the state half-unwound.
+  lua.lua_atnativeerror(L, (L: LuaState) => {
+    const e = lua.lua_touserdata(L, 1) as unknown;
+    lua.lua_pushstring(L, to_luastring(e instanceof Error ? e.message : String(e)));
+    return 1;
+  });
+  const closedRef: StateRef = { closed: false, report: bindings.reportError };
   buildOxisTable(L, bindings, closedRef);
 
   const status = lauxlib.luaL_dostring(L, to_luastring(source));
   if (status !== lua.LUA_OK) {
     const err = lua.lua_tojsstring(L, -1);
+    try { bindings.dispose?.(); } catch { /* best effort */ }
     closedRef.closed = true;
     lua.lua_close(L);
     return { ok: false, error: err };
@@ -372,7 +551,14 @@ export function loadLuaPlugin(source: string, bindings: OxisBindings): LuaLoadRe
 
   return {
     ok: true,
-    plugin: { dispose: () => { closedRef.closed = true; lua.lua_close(L); } },
+    plugin: {
+      dispose: () => {
+        try { bindings.dispose?.(); } finally {
+          closedRef.closed = true;
+          lua.lua_close(L);
+        }
+      },
+    },
   };
 }
 

@@ -17,6 +17,9 @@ type HTTPRequestOptions struct {
 	Headers        map[string]string `json:"headers"`
 	Body           string            `json:"body"`
 	TimeoutSeconds int               `json:"timeoutSeconds"`
+	// IdleSeconds is for HTTPStreamStart: how long the response may go
+	// quiet before the stream gives up (default 120).
+	IdleSeconds int `json:"idleSeconds"`
 }
 
 // HTTPResponse mirrors the fields a fetch Response gives the plugin.
@@ -39,35 +42,14 @@ const (
 // the page can't reach them. The plugin's "net" permission is checked
 // before this is called (pluginAPI.ts).
 func (a *App) HTTPRequest(o HTTPRequestOptions) (HTTPResponse, error) {
-	u, err := url.Parse(o.URL)
-	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-		return HTTPResponse{}, fmt.Errorf("oxis.net.request needs an http:// or https:// URL, got %q", o.URL)
-	}
-	method := strings.ToUpper(strings.TrimSpace(o.Method))
-	if method == "" {
-		method = http.MethodGet
-	}
-	timeout := httpDefaultTimeout
-	if o.TimeoutSeconds > 0 {
-		timeout = min(time.Duration(o.TimeoutSeconds)*time.Second, httpMaxTimeout)
-	}
+	timeout := httpTimeout(o.TimeoutSeconds)
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-
-	var body io.Reader
-	if o.Body != "" {
-		body = strings.NewReader(o.Body)
-	}
-	req, err := http.NewRequestWithContext(ctx, method, u.String(), body)
+	req, err := newPluginRequest(ctx, o)
 	if err != nil {
-		return HTTPResponse{}, err
+		return HTTPResponse{}, fmt.Errorf("oxis.net.request %w", err)
 	}
-	for k, v := range o.Headers {
-		req.Header.Set(k, v)
-	}
-	if req.Header.Get("User-Agent") == "" {
-		req.Header.Set("User-Agent", "OXIS")
-	}
+	u := req.URL
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -84,16 +66,56 @@ func (a *App) HTTPRequest(o HTTPRequestOptions) (HTTPResponse, error) {
 	if len(data) > httpMaxBody {
 		return HTTPResponse{}, fmt.Errorf("the answer from %s is larger than %d MB", u.Host, httpMaxBody>>20)
 	}
-	headers := make(map[string]string, len(resp.Header))
-	for k, v := range resp.Header {
-		headers[strings.ToLower(k)] = strings.Join(v, ", ")
-	}
 	return HTTPResponse{
 		Status:  resp.StatusCode,
 		OK:      resp.StatusCode >= 200 && resp.StatusCode < 300,
 		Body:    string(data),
-		Headers: headers,
+		Headers: responseHeaders(resp),
 	}, nil
+}
+
+// newPluginRequest builds a plugin's request: http(s) only, GET by
+// default, with an OXIS User-Agent unless the plugin sets one.
+func newPluginRequest(ctx context.Context, o HTTPRequestOptions) (*http.Request, error) {
+	u, err := url.Parse(o.URL)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return nil, fmt.Errorf("needs an http:// or https:// URL, got %q", o.URL)
+	}
+	method := strings.ToUpper(strings.TrimSpace(o.Method))
+	if method == "" {
+		method = http.MethodGet
+	}
+	var body io.Reader
+	if o.Body != "" {
+		body = strings.NewReader(o.Body)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, u.String(), body)
+	if err != nil {
+		return nil, err
+	}
+	for k, v := range o.Headers {
+		req.Header.Set(k, v)
+	}
+	if req.Header.Get("User-Agent") == "" {
+		req.Header.Set("User-Agent", "OXIS")
+	}
+	return req, nil
+}
+
+func httpTimeout(seconds int) time.Duration {
+	if seconds > 0 {
+		return min(time.Duration(seconds)*time.Second, httpMaxTimeout)
+	}
+	return httpDefaultTimeout
+}
+
+// responseHeaders: lower-case names, repeated headers joined.
+func responseHeaders(resp *http.Response) map[string]string {
+	headers := make(map[string]string, len(resp.Header))
+	for k, v := range resp.Header {
+		headers[strings.ToLower(k)] = strings.Join(v, ", ")
+	}
+	return headers
 }
 
 // unwrapURLError drops net/http's `Post "https://…": ` prefix, which
