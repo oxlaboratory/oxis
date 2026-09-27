@@ -90,4 +90,4 @@ instead.
 ## License
 
 By contributing you agree that your contribution is licensed under the
-project's [Apache License 2.0](license).
+project's [Apache License 2.0](LICENSE).

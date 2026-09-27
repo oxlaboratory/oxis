@@ -80,6 +80,12 @@ All notable changes to OXIS. The format follows
   of every built-in theme.
 
 ### Changed
+- The README opens with what OXIS is and how to get it: a tagline, an
+  animated demo, a feature grid, one-line installs, a short tour, a Lua
+  example, screenshots and a roadmap; the full documentation follows.
+  `assets/social-preview.png` is the card for link previews.
+- The licence file is `LICENSE` (it was `license`, so links to
+  `LICENSE`, including the website's, were broken on GitHub).
 - The website's "watch demo" button only appears on plugins that have
   a demo video; `demoVideo` is optional.
 - The website (`cloudflare/`) is now a full landing page: an animated

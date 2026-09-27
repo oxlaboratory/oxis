@@ -1,32 +1,171 @@
+<div align="center">
+
+<a href="https://oxis-market.pages.dev"><img src="assets/logo.svg" width="58" alt="OXIS logo"></a>
+
 # OXIS
 
-<p align="center">
-  <a href="https://github.com/oxlaboratory/oxis"><img src="https://img.shields.io/badge/OXIS-Open%20Source-8B5CF6?style=for-the-badge" alt="OXIS"></a>
-  <a href="https://github.com/oxlaboratory/oxis"><img src="https://img.shields.io/github/stars/oxlaboratory/oxis?style=for-the-badge&logo=github" alt="GitHub stars"></a>
-  <a href="https://github.com/oxlaboratory/oxis"><img src="https://img.shields.io/github/license/oxlaboratory/oxis?style=for-the-badge" alt="License"></a>
-  <br>
-  <a href="https://github.com/oxlaboratory/oxis/releases"><img src="https://img.shields.io/github/downloads/oxlaboratory/oxis/total?style=for-the-badge&label=total%20downloads&color=3dff64" alt="Total downloads"></a>
-  <a href="https://github.com/oxlaboratory/oxis/actions/workflows/build.yml"><img src="https://img.shields.io/github/actions/workflow/status/oxlaboratory/oxis/build.yml?branch=main&style=for-the-badge&label=build" alt="Build status"></a>
-</p>
+### The terminal you can script.
+
+Your real **PowerShell, bash, zsh or fish** — plus a built-in editor, workspaces,<br>
+workflows, full-colour output, deep theming and Lua plugins.<br>
+One ~14&nbsp;MB binary for Windows and Linux. No account. No telemetry.
+
+[![Build](https://img.shields.io/github/actions/workflow/status/oxlaboratory/oxis/build.yml?branch=main&style=flat-square&label=build)](https://github.com/oxlaboratory/oxis/actions/workflows/build.yml)
+[![Download](https://img.shields.io/badge/download-latest--build-3dff64?style=flat-square)](https://github.com/oxlaboratory/oxis/releases/tag/latest-build)
+[![License](https://img.shields.io/github/license/oxlaboratory/oxis?style=flat-square)](LICENSE)
+[![Stars](https://img.shields.io/github/stars/oxlaboratory/oxis?style=flat-square&logo=github)](https://github.com/oxlaboratory/oxis/stargazers)
+![Windows and Linux](https://img.shields.io/badge/Windows%20%C2%B7%20Linux-x64-5b6078?style=flat-square)
+
+[**Download**](https://github.com/oxlaboratory/oxis/releases/tag/latest-build) &nbsp;·&nbsp;
+[**Website**](https://oxis-market.pages.dev) &nbsp;·&nbsp;
+[**Plugin Market**](https://oxis-market.pages.dev/#market) &nbsp;·&nbsp;
+[**Docs**](#documentation) &nbsp;·&nbsp;
+[**Changelog**](CHANGELOG.md)
+
+<br>
+
+<img src="assets/demo.svg" width="840" alt="OXIS in action: git, a task, a workflow, switching theme, 'version and installing a plugin">
+
+</div>
+
+## Why OXIS
+
+<table>
+<tr>
+<td width="33%" valign="top">
+
+**🐚 Your shell, unchanged**<br>
+PowerShell 7, Windows PowerShell, bash, zsh or fish, with your profile, aliases and tools, in full 24-bit colour.
+
+</td>
+<td width="33%" valign="top">
+
+**⚡ `'commands` on top**<br>
+Start a line with `'` for 50+ built-ins: history, reverse search, tab completion and a command palette.
+
+</td>
+<td width="33%" valign="top">
+
+**📝 An editor, built in**<br>
+Tabs, a file tree, Vim modes, find & replace, and a live preview that renders your page like a real server.
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+**🗂️ Workspaces**<br>
+Each project keeps its tasks, multi-step workflows (retries, conditions, exit codes), plugins and git remote.
+
+</td>
+<td valign="top">
+
+**🧩 Lua plugins**<br>
+Commands, keymaps and events in plain Lua, with declared permissions, a Market and one-command publishing.
+
+</td>
+<td valign="top">
+
+**🎨 Themes**<br>
+10 built in, 78 keys each, a live theme editor, and your Windows Terminal colour scheme imports straight in.
+
+</td>
+</tr>
+</table>
+
+## Get it
+
+**Windows 10/11** — [installer (.msi)](https://github.com/oxlaboratory/oxis/releases/tag/latest-build) or the portable exe:
+
+```powershell
+Invoke-WebRequest https://github.com/oxlaboratory/oxis/releases/download/latest-build/oxis.exe -OutFile oxis.exe; .\oxis.exe
+```
+
+**Linux x64** — [`.deb` or portable tarball](https://github.com/oxlaboratory/oxis/releases/tag/latest-build), or the bare binary (needs `libgtk-3-0` and `libwebkit2gtk-4.1-0`):
+
+```bash
+curl -Lo oxis https://github.com/oxlaboratory/oxis/releases/download/latest-build/oxis && chmod +x oxis && ./oxis
+```
+
+**From source** — Go 1.22+ and Node.js 24+:
+
+```bash
+git clone https://github.com/oxlaboratory/oxis.git && cd oxis && npm run setup && npm run build
+```
+
+Then keep it current from inside OXIS with `'update install`.
+
+## A minute with OXIS
+
+```text
+'help                      every command (Ctrl+Shift+P for the palette)
+'edit src/app.ts           open the built-in editor
+'theme ember               switch theme — 'theme set glow 0.4 tweaks one thing live
+'workspace switch api      jump to another project, with its tasks and git remote
+'task test                 run a project task
+'workflow release          build → test → deploy, with retries and exit codes
+'market install network    add a plugin from the Market
+'version                   exactly which build you're on
+```
+
+Anything that doesn't start with `'` goes to your shell, as usual.
+
+## Make it yours in Lua
+
+```lua
+--[[@manifest
+version: 1.0.0
+description: open a pull request for a branch
+permissions: shell
+]]
+oxis.command("pr", function(args, rest)
+  oxis.run("gh pr create --web --head " .. oxis.quote(rest ~= "" and rest or "HEAD"))
+end, "open a GitHub PR")
+```
+
+Save it in `created-plugins/` and `'pr my-branch` works. The same API
+drives tasks, workflows, keymaps, events and the Home screen — see the
+[Lua API](#lua-api).
+
+## Screenshots
+
+| | |
+|---|---|
+| <img src="assets/screenshots/app-terminal.png" alt="The terminal in colour: git log, git status, git diff and a passing test run"> | <img src="assets/screenshots/app-editor.png" alt="The built-in editor with TypeScript syntax highlighting"> |
+| Your shell in full colour, with `'` commands and one prompt | The built-in editor (`'edit src/cart.ts`) |
+| <img src="assets/screenshots/app-palette.png" alt="The command palette over the terminal"> | <img src="assets/screenshots/app-version.png" alt="'version showing the build number, commit, tag, channel and update status"> |
+| The command palette (Ctrl+Shift+P) | `'version` — the exact build you're running |
+| <img src="assets/screenshots/app-theme-custom.png" alt="midnight with a gradient background, glow and a custom prompt"> | <img src="assets/screenshots/app-theme-editor.png" alt="The theme editor"> |
+| A theme tweaked with four `'theme set` lines | `'theme edit` — every option with a live preview |
+
+**Browser mode** — the same UI in a browser tab at `http://127.0.0.1:1420`
+while the desktop app is running:
+
+| | |
+|---|---|
+| <img src="assets/screenshots/browser-home.png" alt="Home in a browser tab, dusk theme"> | <img src="assets/screenshots/browser-terminal.png" alt="The terminal in a browser tab, paper theme"> |
 
 <p align="center">
-  <img src="assets/demo.svg" alt="OXIS in action: git, a task, a workflow, switching theme, 'version and installing a plugin" width="820">
+  <img src="assets/screenshots/themes.png" alt="The ten built-in themes" width="100%">
 </p>
 
-**OXIS is a terminal app for Windows and Linux** — the same kind of
-program as Windows Terminal or iTerm2, built to be customized. Your
-normal shell (PowerShell or bash) works exactly as it always has; on
-top of it OXIS adds its own commands, a built-in code editor,
-workspaces, and a plugin system with a Market, all scriptable in
-[Lua](https://www.lua.org/). "OXIS" stands for **O**pen **X**enial
-**I**ntelligent **S**hell.
+## Roadmap
 
-> Terminals were the beginning.
+- [x] Colour output: 16, 256 and 24-bit colour
+- [x] Self-update from source with rollback, and `'version` build info
+- [x] Windows Terminal colour schemes via `'theme import`
+- [ ] A tested macOS build (Wails supports it; nobody has tried it yet)
+- [ ] Plugin APIs for the editor's open file, file watching and processes
+- [ ] Streaming HTTP for plugins, for AI assistants that answer as they write
+- [ ] Premium plugins in the Market (AI DevOps first)
 
-## Contents
+Ideas and bug reports are welcome in [issues](https://github.com/oxlaboratory/oxis/issues).
+**If OXIS is useful to you, a ⭐ helps other developers find it.**
 
-- [What it does](#what-it-does)
-- [Screenshots](#screenshots) — desktop app and browser mode
+---
+
+## Documentation
+
 - [Getting started](#getting-started)
 - [Using OXIS](#using-oxis) — the prompt, keys, copying, window size
 - [Commands](#commands)
@@ -42,50 +181,6 @@ workspaces, and a plugin system with a Market, all scriptable in
 - [Architecture](#architecture)
 - [Building and CI](#building-and-ci)
 - [Contributing](#contributing) · [License](#license)
-
----
-
-## What it does
-
-- **A real terminal.** Your PowerShell (7 if installed, otherwise
-  Windows PowerShell) or bash session runs unchanged, in full colour
-  (16 theme colours, 256 colours and 24-bit). Anything that doesn't
-  start with `'` goes straight to it.
-- **Its own commands.** Start a line with an apostrophe and OXIS
-  handles it: `'edit` opens the editor, `'market` browses plugins,
-  `'theme` restyles everything, `'help` lists the rest.
-- **One prompt everywhere.** A single command prompt sits at the bottom
-  of the window on every screen, with shared history, readline keys and
-  reverse search.
-- **A built-in editor** with syntax highlighting, tabs, a file tree,
-  find/replace, Vim-style modes and live HTML/Markdown preview.
-- **Workspaces** that remember a project's tasks, workflows, plugins
-  and documents, and can link to a real project folder and its git
-  remote.
-- **Lua plugins** with declared permissions, a Market to install them
-  from, and a publishing flow that opens a GitHub pull request for you.
-- **Runs as a desktop app** (Wails) on Windows and Linux, or in a
-  browser tab at `http://127.0.0.1:1420` while the app is running.
-
-## Screenshots
-
-**Desktop app**
-
-| | |
-|---|---|
-| <img src="assets/screenshots/app-terminal.png" alt="The terminal: git output, 'workspace info and the theme list"> | <img src="assets/screenshots/app-editor.png" alt="The built-in editor with TypeScript syntax highlighting"> |
-| The terminal: your shell plus `'` commands, one prompt at the bottom | The built-in editor (`'edit src/cart.ts`) |
-| <img src="assets/screenshots/app-palette.png" alt="The command palette over the terminal"> | <img src="assets/screenshots/app-theme-keys.png" alt="'theme keys listing every theme option and its value"> |
-| The command palette (Ctrl+Shift+P) | `'theme keys` — every theme option, and which the theme sets |
-
-**Browser mode** — the same UI in a browser tab at `http://127.0.0.1:1420`
-while the desktop app is running (no file access or updates there):
-
-| | |
-|---|---|
-| <img src="assets/screenshots/browser-home.png" alt="Home in a browser tab, dusk theme"> | <img src="assets/screenshots/browser-terminal.png" alt="The terminal in a browser tab, paper theme"> |
-
-More in [Themes](#themes).
 
 ---
 
@@ -944,7 +1039,7 @@ are welcome on [GitHub](https://github.com/oxlaboratory/oxis).
 
 ## License
 
-OXIS is licensed under the [Apache License 2.0](license).
+OXIS is licensed under the [Apache License 2.0](LICENSE).
 
 ---
 
