@@ -988,9 +988,10 @@ flowchart TB
   the OXIS window and its own origin, so other websites can't reach your
   shell.
 - `internal/pty` starts the shell (`OXIS_SHELL` overrides the choice),
-  strips terminal escape codes, and keeps UTF-8 characters intact
-  across reads. The frontend renders output as plain lines in its own
-  theme colours. Carriage-return progress bars update in place.
+  keeps colour and style codes but strips other escape sequences, and
+  keeps UTF-8 characters intact across reads. The frontend renders the
+  colours with the theme's terminal palette (`terminal/ansi.ts`).
+  Carriage-return progress bars and spinners update in place.
   Full-screen programs (vim, htop) aren't supported.
 - In the browser, the frontend has no native file access, so the editor
   and anything file-based need the desktop app.
