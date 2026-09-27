@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img src="assets/screenshots/app-home.png" alt="OXIS Home screen: a workspace linked to a project with a GitHub remote, its tasks and plugins" width="760">
+  <img src="assets/demo.svg" alt="OXIS in action: git, a task, a workflow, switching theme, 'version and installing a plugin" width="820">
 </p>
 
 **OXIS is a terminal app for Windows and Linux** — the same kind of
