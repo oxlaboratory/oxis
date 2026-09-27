@@ -1162,6 +1162,11 @@ npm/                     npm launcher package (downloads the prebuilt binary)
 Both build jobs also run the Go tests (`go test ./internal/...`), so the
 process, file-watching and streaming code is tested on Windows and Linux.
 
+The icons (`cmd/oxi/oxis.ico`, `frontend/public/favicon.ico` and
+`logo.png`) are drawn from the logo's geometry by
+`python scripts/make-icons.py`, sharp at every size from 16 px up; after
+changing them, the Windows build re-embeds the icon in `oxis.exe`.
+
 Every build is stamped by `scripts/buildstamp.js` with its version,
 commit, nearest release tag, build number and dates: into the binary
 (`-ldflags -X`, package `internal/buildinfo`), which the updater relies

@@ -60,13 +60,17 @@ DEB_STAGE="$OUT/deb/oxis_${VERSION}_amd64"
 rm -rf "$OUT/deb"
 mkdir -p "$DEB_STAGE/usr/bin" \
          "$DEB_STAGE/usr/share/applications" \
-         "$DEB_STAGE/usr/share/icons/hicolor/256x256/apps" \
+         "$DEB_STAGE/usr/share/icons/hicolor/512x512/apps" \
+         "$DEB_STAGE/usr/share/icons/hicolor/scalable/apps" \
          "$DEB_STAGE/DEBIAN"
 
 install -m 755 "$OUT/oxis" "$DEB_STAGE/usr/bin/oxis"
 ln -s /usr/bin/oxis "$DEB_STAGE/usr/bin/oxi"
+# The logo as a vector (sharp at any size) plus a 512 px PNG for
+# desktops that want a bitmap (scripts/make-icons.py draws it).
+cp "$ROOT/assets/logo.svg" "$DEB_STAGE/usr/share/icons/hicolor/scalable/apps/oxis.svg"
 if [ -f "$FRONTEND_DIR/public/logo.png" ]; then
-  cp "$FRONTEND_DIR/public/logo.png" "$DEB_STAGE/usr/share/icons/hicolor/256x256/apps/oxis.png"
+  cp "$FRONTEND_DIR/public/logo.png" "$DEB_STAGE/usr/share/icons/hicolor/512x512/apps/oxis.png"
 fi
 
 cat > "$DEB_STAGE/DEBIAN/control" << CTRL

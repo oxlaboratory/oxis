@@ -115,10 +115,19 @@ All notable changes to OXIS. The format follows
   (4.5 s of the window frozen) to a steady 60 fps, and scrolling back
   through a full scrollback no longer stalls for seconds. The blinking
   prompt caret no longer restyles the page every frame while idle.
+- A sharp app icon. The icon is drawn from the logo's own geometry at
+  every size Windows asks for (16 to 256 px, including the 16 and 20 px
+  it had none of) with the ring's edges on whole pixels, in the brand
+  green, with a thin rim on small sizes so it shows on light taskbars.
+  It used to be a muted green picture scaled down, blurry below 48 px.
+  The Linux package installs the vector logo and a 512 px icon instead
+  of a 1350×1165 picture in the 256 px folder. `scripts/make-icons.py`
+  regenerates them all.
 - The night sky's moon is one simple round moon, the same every night,
   instead of eight phase glyphs of different sizes.
-- The README's demo is a recording of the real app (`assets/demo.gif`):
-  every frame a screenshot of OXIS running git, a workflow, a Market
+- The README's demo is a recording of the real app (`assets/demo.gif`,
+  captured at 2x so it stays sharp on high-DPI screens): every frame a
+  screenshot of OXIS running git, a workflow, a Market
   install and a theme switch in a real project. It replaces a drawn SVG
   whose output was made up, and has no glow. New screenshots show
   `autotest` and the image viewer.
