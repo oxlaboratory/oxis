@@ -42,7 +42,7 @@
   ::selection{ background:var(--accent); color:var(--on-accent); }
   a{ color:inherit; }
   code, kbd, .mono{ font-family:var(--mono); }
-  img{ max-width:100%; display:block; }
+  img{ max-width:100%; height:auto; display:block; }
   :focus-visible{ outline:2px solid var(--accent); outline-offset:3px; border-radius:6px; }
   ::-webkit-scrollbar{ width:10px; height:10px; }
   ::-webkit-scrollbar-track{ background:var(--bg); }
@@ -253,8 +253,11 @@
   @media(max-width:640px){ .sec{ padding:84px 0; } .sec-head p{ font-size:16.5px; } }
 
   /* reveal on scroll */
-  .rv{ opacity:0; transform:translateY(26px); transition:opacity .9s var(--ease), transform .9s var(--ease); transition-delay:var(--d, 0s); }
-  .rv.in{ opacity:1; transform:none; }
+  /* An animation on `translate`, so it never fights hover effects,
+     which use `transform`. */
+  .rv{ opacity:0; }
+  .rv.in{ animation:rise .9s var(--ease) var(--d, 0s) both; }
+  @keyframes rise{ from{ opacity:0; translate:0 26px; } to{ opacity:1; translate:0 0; } }
 
   /* ── bento ─────────────────────────────────────────────────── */
   .bento{ display:grid; grid-template-columns:repeat(6, minmax(0,1fr)); gap:16px; }
@@ -399,7 +402,7 @@
   .grid{ padding:22px; display:grid; grid-template-columns:repeat(auto-fill, minmax(min(270px, 100%), 1fr)); gap:14px; }
   .card{ position:relative; overflow:hidden; isolation:isolate; border:1px solid var(--line); background:var(--surface); border-radius:16px; padding:18px;
     display:flex; flex-direction:column; gap:11px; transition:border-color .25s, transform .35s var(--ease), box-shadow .35s; animation:cardin .5s var(--ease) both; animation-delay:var(--i,0s); }
-  @keyframes cardin{ from{ opacity:0; transform:translateY(12px); } }
+  @keyframes cardin{ from{ opacity:0; translate:0 12px; } }
   .card:hover{ border-color:color-mix(in srgb, var(--accent) 38%, transparent); transform:translateY(-3px); box-shadow:0 20px 40px -24px var(--glow); }
   .card.paid{ border-color:color-mix(in srgb, var(--amber) 28%, transparent); background:linear-gradient(180deg, color-mix(in srgb, var(--amber) 6%, var(--surface)), var(--surface)); }
   .card.paid:hover{ border-color:color-mix(in srgb, var(--amber) 60%, transparent); box-shadow:0 20px 40px -24px color-mix(in srgb, var(--amber) 40%, transparent); }
@@ -519,7 +522,7 @@
   @media(prefers-reduced-motion: reduce){
     html{ scroll-behavior:auto; }
     *, *::before, *::after{ animation-duration:.001ms !important; animation-iteration-count:1 !important; transition-duration:.001ms !important; }
-    .rv{ opacity:1; transform:none; }
+    .rv, .rv.in{ opacity:1; animation:none; }
     .aurora, .shooting, .stars{ display:none; }
     .mq{ animation:none; flex-wrap:wrap; justify-content:center; width:auto; }
   }

@@ -1,0 +1,39 @@
+#!/bin/sh
+# Deploys the website (cloudflare/) to Cloudflare Pages when a push to
+# GitHub's main changes it, so the live site never lags the repository.
+# Cloudflare can't build it from GitHub itself: the Market backend in
+# cloudflare/functions/ is private and not in git.
+#
+# Turn it on in a clone that has cloudflare/functions/ and a wrangler
+# login:   git config core.hooksPath scripts/git-hooks
+# Skip once: OXIS_SKIP_DEPLOY=1 git push
+#
+# A failed deploy never blocks the push; run `npm run deploy:site` to
+# retry.
+
+remote_url="$2"
+case "$remote_url" in
+  *github.com*oxlaboratory/oxis*) ;;
+  *) exit 0 ;;
+esac
+[ -n "$OXIS_SKIP_DEPLOY" ] && exit 0
+[ -d cloudflare/functions ] || exit 0
+
+zero=0000000000000000000000000000000000000000
+deploy=0
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [ "$remote_ref" = "refs/heads/main" ] || continue
+  [ "$local_sha" = "$zero" ] && continue # deleting the branch
+  if [ "$remote_sha" = "$zero" ] || ! git cat-file -e "$remote_sha^{commit}" 2>/dev/null; then
+    deploy=1 # new branch, or a remote state we don't have: can't tell, so deploy
+  elif [ -n "$(git diff --name-only "$remote_sha" "$local_sha" -- cloudflare)" ]; then
+    deploy=1
+  fi
+done
+
+[ "$deploy" = 1 ] || exit 0
+echo "→ this push changes cloudflare/ — deploying the website"
+if ! node scripts/deploy-site.js; then
+  echo "⚠  the website deploy failed; the push continues. Retry with: npm run deploy:site" >&2
+fi
+exit 0
