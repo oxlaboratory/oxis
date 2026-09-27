@@ -25,6 +25,8 @@ All notable changes to OXIS. The format follows
   "change" | "save" | "close")`. A plugin's changes are undoable, and a
   streamed run of them is one undo step.
 - `oxis.json.encode` / `oxis.json.decode`.
+- `oxis.echo(text, kind)` colours a plugin's line like OXIS's own messages
+  (`"ok"`, `"err"`, `"warn"`, `"dim"`, `"accent"`).
 - `autotest` in the Market: `'autotest` re-runs a project's tests every
   time a file is saved (npm, Go, Cargo or pytest, detected; or any
   command) and prints one line, pass with the time taken or fail with

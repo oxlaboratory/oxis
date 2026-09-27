@@ -1,5 +1,5 @@
 --[[@manifest
-version: 1.0.0
+version: 1.0.1
 description: Re-runs your tests the moment you save a file and tells you in one line whether they pass. Finds the test command itself (npm, Go, Cargo, pytest) or takes yours.
 author: Oxide Labs
 category: devops
@@ -66,7 +66,7 @@ local function run()
   busy, dirty = true, false
   local started = now()
   local lines = {}
-  oxis.echo("⟳ " .. command)
+  oxis.echo("⟳ " .. command, "dim")
   proc = oxis.process.spawn({ shell = command, cwd = root, lines = true }, {
     stdout = function(l) lines[#lines + 1] = l end,
     stderr = function(l) lines[#lines + 1] = l end,
@@ -77,9 +77,9 @@ local function run()
       if err == "killed" then
         -- stopped by 'autotest stop
       elseif code == 0 then
-        oxis.echo("✓ tests pass (" .. took .. ")")
+        oxis.echo("✓ tests pass (" .. took .. ")", "ok")
       else
-        oxis.echo("✗ tests fail (exit " .. tostring(code or err) .. ", " .. took .. ")")
+        oxis.echo("✗ tests fail (exit " .. tostring(code or err) .. ", " .. took .. ")", "err")
         for _, l in ipairs(reasons(lines)) do oxis.echo("   " .. l) end
       end
       if dirty and watcher then run() end
@@ -95,18 +95,18 @@ end
 
 oxis.command("autotest", function(args, rest)
   if not (oxis.fs.watch and oxis.process.spawn) then
-    oxis.echo("autotest needs a newer OXIS (with oxis.fs.watch): 'update install")
+    oxis.echo("autotest needs a newer OXIS (with oxis.fs.watch): 'update install", "warn")
     return
   end
   if args[1] == "stop" then
-    if watcher then stop() oxis.echo("autotest stopped") else oxis.echo("autotest isn't running") end
+    if watcher then stop() oxis.echo("autotest stopped", "dim") else oxis.echo("autotest isn't running", "dim") end
     return
   end
   stop()
   root = oxis.cwd()
   local start = function(cmd)
     if not cmd then
-      oxis.echo("no test command found here — give one: 'autotest npm run test:unit")
+      oxis.echo("no test command found here — give one: 'autotest npm run test:unit", "warn")
       return
     end
     command = cmd
@@ -118,7 +118,7 @@ oxis.command("autotest", function(args, rest)
       end,
       ready = function()
         local name = root:match("[^/\\]+$") or root
-        oxis.echo("autotest: watching " .. name .. " — saving a file runs `" .. command .. "` ('autotest stop to end)")
+        oxis.echo("autotest: watching " .. name .. " — saving a file runs `" .. command .. "` ('autotest stop to end)", "accent")
         run()
       end,
     }, { debounce = 300, ignore = { ".git", "node_modules", "target", "__pycache__", ".venv" } })

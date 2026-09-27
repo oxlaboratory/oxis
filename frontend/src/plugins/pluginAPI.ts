@@ -137,6 +137,10 @@ const AUTOCMD_ALIASES: Record<string, string> = {
   terminal_close: "shell_exited",
 };
 
+/** Colours a plugin may give its oxis.echo lines. */
+const ECHO_KINDS = new Set(["ok", "err", "warn", "dim", "accent", "info"]);
+type LineKind = import("../terminal/terminal").LineKind;
+
 /** oxis.editor.on() names → internal events. */
 const EDITOR_EVENTS: Record<string, string> = {
   open: "editor_opened",
@@ -203,7 +207,9 @@ export function buildLuaAPI(ctx: APIContext): OxisBindings {
       });
     },
 
-    echo: (text) => ctx.print(`  ${text}`, "info"),
+    // oxis.echo(text [, kind]): kind colours the line like OXIS's own
+    // messages — "ok", "err", "warn", "dim" or "accent".
+    echo: (text, kind) => ctx.print(`  ${text}`, ECHO_KINDS.has(kind ?? "") ? kind as LineKind : "info"),
     run: (cmd) => runScript(ctx, cmd),
     quote: (text) => shellQuote(text),
     theme: (name) => { themeManager.apply(name); },

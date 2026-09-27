@@ -91,10 +91,10 @@
     "name": "autotest",
     "desc": "Re-runs your tests the moment you save a file and tells you in one line whether they pass. Finds the test command itself (npm, Go, Cargo, pytest) or takes yours.",
     "category": "devops",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "author": "Oxide Labs",
     "file": "plugins/autotest.lua",
-    "size": 3995,
+    "size": 4577,
     "permissions": [
       "fs",
       "shell"

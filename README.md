@@ -679,7 +679,7 @@ Everything is on the global `oxis` table.
 | `oxis.workflow(name, def, description)` | Register a workflow (see [Workspaces](#tasks-and-workflows)) |
 | `oxis.run(cmd)` | Run a command in the shell. Multi-line scripts run as one script file (`.ps1` on Windows, bash elsewhere), so a `Read-Host`/`read` prompt gets your answer rather than the next line; `&&` works on Windows PowerShell 5.1 too. |
 | `oxis.quote(text)` | `text` quoted as one argument for the platform's shell, safe to splice into `oxis.run()` (e.g. `oxis.run("git blame -- " .. oxis.quote(rest))`) |
-| `oxis.echo(text)` | Print a line in the terminal |
+| `oxis.echo(text [, kind])` | Print a line in the terminal; `kind` colours it like OXIS's own messages: `"ok"`, `"err"`, `"warn"`, `"dim"`, `"accent"` |
 | `oxis.cwd()` | The shell's current directory |
 | `oxis.platform` | `"windows"` or `"unix"` |
 | `oxis.theme(name)` | Switch theme |
