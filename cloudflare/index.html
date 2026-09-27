@@ -172,6 +172,7 @@
   .cta{ display:flex; gap:12px; flex-wrap:wrap; margin-top:34px; }
   .cta-note{ margin-top:14px; font-size:13px; color:var(--dim); }
   .cta-note a{ color:var(--muted); }
+  .cta-note b{ color:var(--text); font-weight:600; font-variant-numeric:tabular-nums; }
   .checks{ display:flex; flex-wrap:wrap; gap:8px 20px; margin-top:28px; font-size:13.5px; color:var(--muted); }
   .checks span{ display:inline-flex; align-items:center; gap:7px; }
   .checks svg{ width:15px; height:15px; color:var(--accent); }
@@ -606,7 +607,7 @@
           Star on GitHub <span id="heroStars" style="color:var(--muted); font-weight:500"></span>
         </a>
       </div>
-      <p class="cta-note rv" style="--d:.3s" id="dlNote">Free and open source under Apache 2.0 · <a href="#install">all downloads &amp; build from source</a></p>
+      <p class="cta-note rv" style="--d:.3s" id="dlNote">Free and open source · Apache 2.0 · <span id="dlCount"></span><a href="#install">all platforms &amp; source</a></p>
       <div class="checks rv" style="--d:.36s">
         <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5L20 7"/></svg>Windows 10 &amp; 11</span>
         <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5L20 7"/></svg>Linux x64</span>
@@ -1160,7 +1161,17 @@ function applyTheme(name, { demoOnly = false, remember = true } = {}){
    stars and the rolling release's downloads (cached for 10 minutes).
    ================================================================ */
 const REPO = 'oxlaboratory/oxis';
-const LIVE = { version: '1.2.1', build: 0, sha: '', date: '', stars: null, assets: {} };
+const LIVE = { version: '1.2.1', build: 0, sha: '', date: '', stars: null, downloads: null, assets: {} };
+
+// GitHub counts downloads per file and CI replaces the files on every
+// push, so CI keeps the count so far in a comment in the release notes
+// (see .github/workflows/build.yml); add what the current files gained.
+function countDownloads(rel){
+  let carried = {};
+  try{ carried = JSON.parse((/<!-- downloads: (\{[^>]*\}) -->/.exec(rel.body || '') || [])[1] || '{}'); }catch{}
+  const seen = carried.seen || {};
+  return (rel.assets || []).reduce((n, a) => n + Math.max(0, a.download_count - (seen[a.id] || 0)), Number(carried.total) || 0);
+}
 
 function ago(iso){
   const m = Math.round((Date.now() - Date.parse(iso)) / 60000);
@@ -1193,6 +1204,7 @@ async function loadLive(){
     LIVE.build = last ? +last[1] : 1;
   }
   if(rel.value){
+    LIVE.downloads = countDownloads(rel.value);
     for(const a of rel.value.assets || []){
       const n = a.name.toLowerCase(), u = a.browser_download_url;
       if(n.endsWith('.msi')) LIVE.assets.msi = u;
@@ -1217,6 +1229,10 @@ function renderLive(){
   if(LIVE.stars != null){
     $('#navStars').textContent = '★ ' + fmtStars(LIVE.stars); $('#navStars').classList.add('on');
     $('#heroStars').textContent = '· ' + fmtStars(LIVE.stars);
+  }
+  if(LIVE.downloads != null){
+    const n = LIVE.downloads;
+    $('#dlCount').innerHTML = `<b>${n.toLocaleString('en-US')}</b> ${n === 1 ? 'download' : 'downloads'} · `;
   }
   for(const a of $$('[data-asset]')){
     const url = LIVE.assets[a.dataset.asset];

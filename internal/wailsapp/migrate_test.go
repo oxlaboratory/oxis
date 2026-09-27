@@ -57,3 +57,28 @@ func TestMigrateLegacyData(t *testing.T) {
 		t.Error("migration ran twice")
 	}
 }
+
+func TestFallbackDataDirFor(t *testing.T) {
+	sep := string(filepath.Separator)
+	cases := []struct {
+		name, goos, xdg, local string
+		legacy                 bool
+		want                   string
+	}{
+		{"linux default", "linux", "", "", false, "H" + sep + ".local" + sep + "share" + sep + "oxis"},
+		{"linux XDG", "linux", sep + "data", "", false, sep + "data" + sep + "oxis"},
+		{"relative XDG is ignored", "linux", "rel", "", false, "H" + sep + ".local" + sep + "share" + sep + "oxis"},
+		{"windows", "windows", "", "L", false, "L" + sep + "OXIS"},
+		{"old Downloads folder stays", "linux", "", "", true, "H" + sep + "Downloads" + sep + "OXIS"},
+	}
+	for _, c := range cases {
+		xdg := c.xdg
+		if xdg == sep+"data" {
+			xdg, _ = filepath.Abs(xdg)
+			c.want = filepath.Join(xdg, "oxis")
+		}
+		if got := fallbackDataDirFor("H", c.goos, xdg, c.local, c.legacy); got != c.want {
+			t.Errorf("%s: got %q, want %q", c.name, got, c.want)
+		}
+	}
+}

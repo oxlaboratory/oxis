@@ -157,14 +157,42 @@ jobs:
             gh api -X POST "repos/${{ github.repository }}/git/refs" -f ref="refs/tags/v$VERSION" -f sha="${{ github.sha }}"
           fi
 
+      # GitHub counts downloads per file, and the next step replaces the
+      # files, which starts their counts from zero. The count so far is
+      # kept in a comment in the release notes: the total, and each
+      # current file's count by asset id (a file that doesn't get
+      # replaced keeps its id, so it isn't counted twice). The website
+      # and the README's downloads badge (cloudflare/functions/
+      # downloads.js) add the new files' downloads to it.
+      - name: Carry the download count forward
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! rel="$(gh api "repos/${{ github.repository }}/releases/tags/latest-build" 2>gh-error.txt)"; then
+            # No release yet starts from zero; anything else would lose the count.
+            grep -q "HTTP 404" gh-error.txt || { cat gh-error.txt; exit 1; }
+            rel='{}'
+          fi
+          count="$(jq -c '
+            (([(.body // "") | capture("<!-- downloads: (?<j>\\{[^>]*\\}) -->")][0].j // "{}") | try fromjson catch {}) as $m
+            | ($m.seen // {}) as $seen
+            | [(.assets // [])[] | {id: (.id | tostring), n: .download_count}] as $files
+            | {total: (($m.total // 0) + ([$files[] | [.n - ($seen[.id] // 0), 0] | max] | add // 0)),
+               seen: ($files | map({key: .id, value: .n}) | from_entries)}' <<<"$rel")"
+          echo "Downloads so far: $(jq .total <<<"$count")"
+          cat > release-notes.md <<EOF
+          Automatically built from commit ${{ github.sha }}: the most
+          recent successful build of main, not a tagged release.
+
+          <!-- downloads: $count -->
+          EOF
+
       - name: Publish rolling "latest-build" release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: latest-build
           name: "Latest build"
-          body: |
-            Automatically built from commit ${{ github.sha }}: the most
-            recent successful build of main, not a tagged release.
+          body_path: release-notes.md
           prerelease: true
           make_latest: false
           files: release-files/*

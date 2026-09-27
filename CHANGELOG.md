@@ -80,6 +80,14 @@ All notable changes to OXIS. The format follows
   of every built-in theme.
 
 ### Changed
+- The README's badge and the website show how many times OXIS has been
+  downloaded. CI used to lose the count every time it replaced the
+  `latest-build` files; it now carries it forward in the release notes.
+- When OXIS can't write next to its executable (a `.deb` in `/usr/bin`)
+  its data goes in the platform's per-user folder,
+  `$XDG_DATA_HOME/oxis` (`~/.local/share/oxis`) or
+  `%LOCALAPPDATA%\OXIS`, instead of `~/Downloads/OXIS`. An existing
+  `~/Downloads/OXIS` keeps being used, so nothing moves.
 - The README opens with what OXIS is and how to get it: a tagline, an
   animated demo, a feature grid, one-line installs, a short tour, a Lua
   example, screenshots and a roadmap; the full documentation follows.

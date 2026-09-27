@@ -11,7 +11,7 @@ workflows, full-colour output, deep theming and Lua plugins.<br>
 One ~14&nbsp;MB binary for Windows and Linux. No account. No telemetry.
 
 [![Build](https://img.shields.io/github/actions/workflow/status/oxlaboratory/oxis/build.yml?branch=main&style=flat-square&label=build)](https://github.com/oxlaboratory/oxis/actions/workflows/build.yml)
-[![Download](https://img.shields.io/badge/download-latest--build-3dff64?style=flat-square)](https://github.com/oxlaboratory/oxis/releases/tag/latest-build)
+[![Downloads](https://img.shields.io/endpoint?url=https%3A%2F%2Foxis-market.pages.dev%2Fdownloads&style=flat-square&cacheSeconds=600)](https://github.com/oxlaboratory/oxis/releases/tag/latest-build)
 [![License](https://img.shields.io/github/license/oxlaboratory/oxis?style=flat-square)](LICENSE)
 [![Stars](https://img.shields.io/github/stars/oxlaboratory/oxis?style=flat-square&logo=github)](https://github.com/oxlaboratory/oxis/stargazers)
 ![Windows and Linux](https://img.shields.io/badge/Windows%20%C2%B7%20Linux-x64-5b6078?style=flat-square)
@@ -224,9 +224,12 @@ rebuild on each change (a few seconds) rather than hot reloading.
 
 OXIS keeps its data next to `oxis.exe` when it can write there (a
 portable folder). If it can't — an install under Program Files or
-`/usr/bin` — it uses `~/Downloads/OXIS` instead, and clones this
-repository into `~/Downloads/OXIS/source` in the background the first
-time (skipped quietly without git or network).
+`/usr/bin` — it uses your per-user data folder instead:
+`~/.local/share/oxis` (or `$XDG_DATA_HOME/oxis`) on Linux and macOS,
+`%LOCALAPPDATA%\OXIS` on Windows. Installs from before this change used
+`~/Downloads/OXIS`; if that folder exists, OXIS keeps using it. The
+first time, it clones this repository into `<data folder>/source` in
+the background (skipped quietly without git or network).
 
 ```
 <data folder>/
@@ -1030,6 +1033,12 @@ on, and into the page, which `'version` shows. Locally, `npm run build`
 and `build-linux.sh` do the same. Bumping `version` in `package.json`
 makes CI tag the first build of `main` that carries it as
 `v<version>`.
+
+Replacing the release's files starts GitHub's download counts from
+zero, so `publish-release` first saves the count so far in a comment in
+the release notes (`<!-- downloads: … -->`; leave it in place if you
+edit them). The website and the README's downloads badge (the site's
+`/downloads` endpoint) add the current files' downloads to it.
 
 ---
 

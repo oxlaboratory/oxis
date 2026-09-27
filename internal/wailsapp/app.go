@@ -103,8 +103,8 @@ var (
 // AppDirPath is where OXIS keeps its data (workspaces, plugins, created
 // documents, window.json). Normally that's the executable's own folder
 // (portable install, or the MSI's folder in the user's profile). If
-// that folder isn't writable (a .deb in /usr/bin) it falls back to
-// ~/Downloads/OXIS.
+// that folder isn't writable (a .deb in /usr/bin) it falls back to the
+// per-user data folder (see fallbackDataDirFor).
 func AppDirPath() (string, error) {
 	appDirOnce.Do(func() {
 		exe, err := os.Executable()
@@ -141,7 +141,9 @@ func fallbackDataDir() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	dir := filepath.Join(home, "Downloads", "OXIS")
+	legacy := filepath.Join(home, "Downloads", "OXIS")
+	_, legacyErr := os.Stat(legacy)
+	dir := fallbackDataDirFor(home, runtime.GOOS, os.Getenv("XDG_DATA_HOME"), os.Getenv("LOCALAPPDATA"), legacyErr == nil)
 	_, statErr := os.Stat(dir)
 	firstRun := os.IsNotExist(statErr)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -151,6 +153,27 @@ func fallbackDataDir() (string, error) {
 		go cloneSourceInBackground(dir)
 	}
 	return dir, nil
+}
+
+// fallbackDataDirFor picks the data folder for an install that can't
+// write next to its executable (a .deb in /usr/bin): the platform's
+// per-user data folder, $XDG_DATA_HOME/oxis (~/.local/share/oxis) or
+// %LOCALAPPDATA%\OXIS. Earlier builds used ~/Downloads/OXIS; when that
+// exists it stays in use so nobody's data moves out from under them.
+func fallbackDataDirFor(home, goos, xdgDataHome, localAppData string, legacyExists bool) string {
+	if legacyExists {
+		return filepath.Join(home, "Downloads", "OXIS")
+	}
+	if goos == "windows" {
+		if localAppData == "" {
+			localAppData = filepath.Join(home, "AppData", "Local")
+		}
+		return filepath.Join(localAppData, "OXIS")
+	}
+	if xdgDataHome == "" || !filepath.IsAbs(xdgDataHome) {
+		xdgDataHome = filepath.Join(home, ".local", "share")
+	}
+	return filepath.Join(xdgDataHome, "oxis")
 }
 
 // cloneSourceInBackground gives installed users a copy of the source

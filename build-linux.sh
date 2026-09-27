@@ -95,15 +95,16 @@ Categories=System;TerminalEmulator;
 StartupWMClass=oxis
 DESK
 
-# /usr/bin isn't user-writable, so OXIS keeps its data in ~/Downloads/OXIS
-# (see AppDirPath in internal/wailsapp/app.go).
+# /usr/bin isn't user-writable, so OXIS keeps its data in
+# ~/.local/share/oxis (see AppDirPath in internal/wailsapp/app.go).
 cat > "$DEB_STAGE/DEBIAN/postinst" << 'POSTINST'
 #!/bin/sh
 update-desktop-database /usr/share/applications 2>/dev/null || true
 gtk-update-icon-cache /usr/share/icons/hicolor 2>/dev/null || true
 echo
 echo 'OXIS installed to /usr/bin/oxis.'
-echo 'Workspaces, plugins and documents are stored in ~/Downloads/OXIS.'
+echo 'Workspaces, plugins and documents are stored in ~/.local/share/oxis'
+echo '(or ~/Downloads/OXIS if an earlier version already created it).'
 echo
 exit 0
 POSTINST
