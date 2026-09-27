@@ -648,7 +648,9 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
   const resolveEditPath = async (path: string): Promise<string> => {
     const cwd = cwdTracker.get();
     if (!cwd || /^([A-Za-z]:)?[\\/]/.test(path) || path.startsWith("~")) return path;
-    const inCwd = `${cwd.replace(/[\\/]+$/, "")}${isWindows() ? "\\" : "/"}${path}`;
+    // One kind of separator on Windows: C:\proj\assets\logo.png, not C:\proj\assets/logo.png.
+    const rel = isWindows() ? path.replace(/\//g, "\\") : path;
+    const inCwd = `${cwd.replace(/[\\/]+$/, "")}${isWindows() ? "\\" : "/"}${rel}`;
     const exists = (p: string) => statPath(p).then(s => s.exists && !s.isDir, () => false);
     if (await exists(inCwd)) return inCwd;
     if (await exists(path)) return path;

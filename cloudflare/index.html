@@ -211,6 +211,7 @@
   .t-warn{ color:#f5c65b; }
   .t-dim{ color:var(--t-muted); }
   .t-mut{ color:var(--t-dim); }
+  .t-info{ color:#7aa2f7; }
   .t-mod{ color:#f5c65b; }
   .t-new{ color:#ff7a8a; }
   .t-link{ color:var(--t-a3); text-decoration:underline; text-underline-offset:3px; cursor:pointer; }
@@ -1287,12 +1288,15 @@ $('#codeCopy').addEventListener('click', async e => {
 });
 
 const SHOTS = [
+  ['demo', 'Recorded', 'Recorded from the app, not mocked up: git, a three-step workflow, a plugin from the Market and a theme switch in a real project.', 23000],
   ['app-home', 'Home', 'Home: the active workspace, its git remote, plugins and tasks at a glance.'],
   ['app-terminal', 'Terminal', 'Your real shell in full colour, with OXIS commands mixed in and one prompt at the bottom.'],
   ['app-editor', 'Editor', 'The built-in editor with Vim-style modes, find & replace and a file tree.'],
   ['app-palette', 'Palette', 'Ctrl+Shift+P: every command, shortcut and task, searchable.'],
   ['app-version', 'Version', "'version: the exact build — commit, tag, build number and update status."],
   ['app-theme-editor', 'Theme editor', "'theme edit: every option, with a live preview."],
+  ['app-autotest', 'autotest', "'autotest from the Market re-runs the tests on every save: pass, a real failure with actual versus expected, pass again."],
+  ['app-image-viewer', 'Images', 'Pictures open in an image viewer, with their size, type and zoom.'],
   ['browser-home', 'Browser mode', 'The same app in a browser tab at 127.0.0.1:1420 while OXIS runs.'],
 ];
 (function gallery(){
@@ -1306,7 +1310,8 @@ const SHOTS = [
     $$('.gtab', tabs).forEach((t, j) => t.classList.toggle('on', j === i));
     $('#gcap').textContent = SHOTS[i][2];
   };
-  const auto = () => { clearInterval(timer); if(!reduced()) timer = setInterval(() => show((cur + 1) % SHOTS.length), 5000); };
+  // Each slide stays 5 s; the recording stays long enough to play through.
+  const auto = () => { clearTimeout(timer); if(!reduced()) timer = setTimeout(() => { show((cur + 1) % SHOTS.length); auto(); }, SHOTS[cur][3] || 5000); };
   tabs.addEventListener('click', e => { const b = e.target.closest('.gtab'); if(b){ show(+b.dataset.i); auto(); } });
   show(0); auto();
   window.showShot = name => { const i = SHOTS.findIndex(s => s[0] === name); if(i >= 0){ show(i); auto(); } };
@@ -1354,20 +1359,43 @@ const Demo = (() => {
     return true;
   }
 
+  /* Everything the demo prints below is what OXIS printed running these
+     commands in the demo project (acme-web), copied from the app. */
+  const ps = cmd => `<span class="p">PS acme-web&gt;</span> ${e(cmd)}`;
+  const ms = n => `<span class="t-dim">(${n}ms)</span>`;
+  const TASK_CMDS = { test: 'npm run test', build: 'npm run build', lint: 'npm run lint', dev: 'npm run dev' };
   const TASKS = {
-    test:  [[`     npm test`, 't-dim', 200], [`     ✓ cart totals (14)   ✓ tax (9)   ✓ checkout (19)`, 't-ok', 700], [`  ✓  task test finished — 42 passed in 3.1s`, 't-ok', 250]],
-    build: [[`     npm run build`, 't-dim', 200], [`     vite v6 building for production…`, 't-dim', 500], [`     ✓ 214 modules transformed · dist/ 182 kB`, 't-ok', 700], [`  ✓  task build finished in 4.6s`, 't-ok', 200]],
-    lint:  [[`     npm run lint`, 't-dim', 200], [`     0 problems`, 't-ok', 600], [`  ✓  task lint finished in 1.2s`, 't-ok', 200]],
-    dev:   [[`     npm run dev`, 't-dim', 200], [`     ➜ Local: <span class="t-link">http://localhost:5173/</span>`, '', 600]],
+    test: [
+      [ps('npm run test'), '', 160], ['', '', 300],
+      ['&gt; acme-web@0.4.0 test'], ['&gt; node --test tests/*.test.ts', '', 120],
+      [`<span class="t-ok">✔ subtotal adds line items</span> ${ms('0.944')}`, '', 420],
+      [`<span class="t-ok">✔ total applies GST</span> ${ms('0.1857')}`, '', 60],
+      [`<span class="t-ok">✔ discounts never go below zero</span> ${ms('0.1347')}`, '', 60],
+      [`<span class="t-ok">✔ format prints dollars</span> ${ms('0.1467')}`, '', 60],
+      ['ℹ tests 4', 't-info', 60], ['ℹ suites 0', 't-info', 40], ['ℹ pass 4', 't-info', 40], ['ℹ fail 0', 't-info', 40],
+      ['ℹ cancelled 0', 't-info', 40], ['ℹ skipped 0', 't-info', 40], ['ℹ todo 0', 't-info', 40], ['ℹ duration_ms 299.8587', 't-info', 40],
+    ],
   };
+  const WORKFLOW = [
+    ['  ▶  workflow check — tests, pending changes and TODOs before a commit', 't-acc', 150],
+    ['  →  tests', 't-dim', 200], [ps('node --test --test-reporter=dot tests/*.test.ts'), '', 150],
+    ['....', 't-ok', 700], ['', '', 60], ['  ✓  tests', 't-ok', 120],
+    ['  →  changes', 't-dim', 200], [ps('git diff --stat'), '', 150],
+    [' .gitignore  | 1 <span class="t-ok">+</span>', '', 260], [' src/cart.ts | 2 <span class="t-ok">+</span><span class="t-err">-</span>', '', 40],
+    [' 2 files changed, 2 insertions(+), 1 deletion(-)', '', 40], ['', '', 60], ['  ✓  changes', 't-ok', 120],
+    ['  →  todos', 't-dim', 200], [ps("(Select-String -Path src/*.ts -Pattern 'TODO').Count"), '', 150],
+    ['0', '', 380], ['', '', 60], ['  ✓  todos', 't-ok', 120],
+    ['  ✓  workflow check finished', 't-ok', 200],
+  ];
 
   const CMDS = {
     help(){
       [
         ['  OXIS commands in this demo', 't-acc'],
         ["  <span class='t-cmd'>'theme</span> [name]        list or switch themes (try 'theme rose)"],
-        ["  <span class='t-cmd'>'task</span> &lt;name&gt;         run a workspace task: test, build, lint, dev"],
-        ["  <span class='t-cmd'>'workflow</span> release    run a multi-step workflow"],
+        ["  <span class='t-cmd'>'task</span> test           run the project's tests"],
+        ["  <span class='t-cmd'>'workflow</span> check      tests, pending changes and TODOs"],
+        ["  <span class='t-cmd'>'market install</span> games  add a plugin, then <span class='t-cmd'>'roll</span>"],
         ["  <span class='t-cmd'>'version</span>             what's running — commit, tag, build"],
         ["  <span class='t-cmd'>'edit</span> &lt;file&gt;         open the built-in editor"],
         ["  <span class='t-cmd'>'market</span>              browse plugins"],
@@ -1385,22 +1413,34 @@ const Demo = (() => {
         return;
       }
       if(!applyTheme(name)){ print(`  ✗  no theme named "${e(name)}" — 'theme lists them`, 't-err'); return; }
-      print(`  ✓  theme switched to "${e(name)}" — this whole page follows along`, 't-ok');
+      print(`  ✓  theme → ${e(name)}`, 't-ok');
+      print('     (the whole page follows along)', 't-dim');
     },
     async task(args){
       const n = (args[0] || '').toLowerCase();
-      if(!TASKS[n]){ print(`  ✗  ${n ? `no task named "${e(n)}"` : "usage: 'task &lt;name&gt;"} — tasks here: test, build, lint, dev`, 't-err'); return; }
-      await steps(TASKS[n]);
+      if(!TASK_CMDS[n]){ print(`  ✗  ${n ? `no task named "${e(n)}"` : "usage: 'task &lt;name&gt;"} — tasks here: test, build, lint, dev`, 't-err'); return; }
+      if(TASKS[n]){ await steps(TASKS[n]); return; }
+      print(ps(TASK_CMDS[n]));
+      print(`<span class="t-dim">(demo) in OXIS this runs ${e(TASK_CMDS[n])} in your real shell.</span>`);
     },
     async workflow(args){
-      if((args[0] || '').toLowerCase() !== 'release'){ print("  ✗  workflows here: release — try 'workflow release", 't-err'); return; }
-      await steps([
-        ['  ▶  workflow release · 3 steps', 't-acc', 150],
-        ['     [1/3] task install …', 't-dim', 400], ['     [1/3] ✓ exit 0 · 2.1s', 't-ok', 700],
-        ['     [2/3] npm run build …', 't-dim', 300], ['     [2/3] ✓ exit 0 · 4.6s', 't-ok', 900],
-        ['     [3/3] npm test …', 't-dim', 300], ['     [3/3] ✓ exit 0 · 3.1s', 't-ok', 800],
-        ['  ✓  workflow release finished — 3/3 steps in 9.8s', 't-ok', 250],
-      ]);
+      if((args[0] || '').toLowerCase() !== 'check'){ print("  ✗  workflows here: check — try 'workflow check", 't-err'); return; }
+      await steps(WORKFLOW);
+    },
+    async market(args){
+      if((args[0] || '').toLowerCase() === 'install' && args[1]){
+        const name = args[1].toLowerCase();
+        if(!PLUGINS.some(p => p.name === name && !p.premium)){ print(`  ✗  not found in marketplace: ${e(name)}`, 't-err'); return; }
+        await steps([[`  installing ${e(name)}…`, '', 200], [`  ✓  installed &amp; enabled ${e(name)} — 'plugin disable ${e(name)} to turn off`, 't-ok', 700]]);
+        installed.add(name);
+        return;
+      }
+      print(`  ✓  ${PLUGINS.length} plugins in the Market — ↓ scrolled there`, 't-ok');
+      $('#market').scrollIntoView({ behavior: reduced() ? 'auto' : 'smooth' });
+    },
+    roll(){
+      if(!installed.has('games')){ print("  ✗  unknown command — type 'help", 't-err'); return; }
+      print(`  🎲 You rolled a ${1 + Math.floor(Math.random() * 6)}`);
     },
     version(){
       const sha = LIVE.sha ? LIVE.sha.slice(0, 7) : 'fbbf05c';
@@ -1420,10 +1460,6 @@ const Demo = (() => {
       window.showShot('app-editor');
       $('#tour').scrollIntoView({ behavior: reduced() ? 'auto' : 'smooth' });
     },
-    market(){
-      print(`  ✓  ${PLUGINS.length} plugins in the Market — ↓ scrolled there`, 't-ok');
-      $('#market').scrollIntoView({ behavior: reduced() ? 'auto' : 'smooth' });
-    },
     install(){
       print('  ✓  ↓ downloads for Windows and Linux, or build from source', 't-ok');
       $('#install').scrollIntoView({ behavior: reduced() ? 'auto' : 'smooth' });
@@ -1432,16 +1468,24 @@ const Demo = (() => {
     cls(){ body.innerHTML = ''; },
   };
 
+  // The demo project's real git state.
+  const LOG = [
+    ['425902d', 'Fix rounding on discounted orders', true], ['ad4e508', 'Test cart totals with node --test'],
+    ['a926869', 'Add checkout flow'], ['affcc4f', 'Apply GST per line item'], ['9a8bed8', 'Add version constant'], ['1f35bbf', 'Initial storefront'],
+  ];
+  const logLines = n => LOG.slice(0, n).map(([h, m, head]) => [`<span class="t-warn">${h}</span> ${head ? '(<span class="t-link" style="text-decoration:none">HEAD</span> <span class="t-warn">-&gt;</span> <span class="t-ok">main</span>) ' : ''}${e(m)}`]);
   const SHELL = {
-    'git status': () => [['On branch main'], ['Changes not staged for commit:'], ['        <span class="t-err">modified:   src/cart.ts</span>'], ['Untracked files:'], ['        <span class="t-err">src/tax.ts</span>']],
-    'git status --short': () => [[' <span class="t-mod">M</span> src/cart.ts'], ['<span class="t-new">??</span> src/tax.ts']],
-    'git log --oneline': () => [['<span class="t-warn">9c1e4a2</span> Add per-order discount'], ['<span class="t-warn">41b7d0e</span> Tax at 10%'], ['<span class="t-warn">f2f3189</span> Initial storefront']],
-    'ls': () => [['<span class="t-link" style="text-decoration:none">src/</span>  <span class="t-link" style="text-decoration:none">public/</span>  package.json  README.md  vite.config.ts']],
-    'pwd': () => [['C:\\Users\\you\\projects\\acme-web']],
-    'whoami': () => [['you — about to install OXIS?']],
-    'node -v': () => [['v24.4.0']],
+    'git status': () => [['On branch main'], ['Changes not staged for commit:'],
+      ['  (use "git add &lt;file&gt;..." to update what will be committed)'], ['  (use "git restore &lt;file&gt;..." to discard changes in working directory)'],
+      ['        <span class="t-err">modified:   .gitignore</span>'], ['        <span class="t-err">modified:   src/cart.ts</span>'], [''],
+      ['Untracked files:'], ['  (use "git add &lt;file&gt;..." to include in what will be committed)'], ['        <span class="t-err">src/shipping.ts</span>'], [''],
+      ['no changes added to commit (use "git add" and/or "git commit -a")']],
+    'git status --short': () => [[' <span class="t-mod">M</span> .gitignore'], [' <span class="t-mod">M</span> src/cart.ts'], ['<span class="t-new">??</span> src/shipping.ts']],
+    'git log --oneline': () => logLines(6),
+    'git log --oneline -3': () => logLines(3),
   };
-  SHELL.dir = SHELL.ls; SHELL['get-childitem'] = SHELL.ls; SHELL['git log'] = SHELL['git log --oneline'];
+  SHELL['git log'] = SHELL['git log --oneline'];
+  const installed = new Set();
 
   async function exec(line){
     const cmd = line.trim();
@@ -1473,18 +1517,21 @@ const Demo = (() => {
     return alive(t);
   }
 
+  // The session recorded for the README (assets/demo.gif), with its real output.
   const SCRIPT = [
+    ['git log --oneline -3', 700],
     ['git status --short', 700],
-    ["'task test", 900],
-    ["'theme ember", 1300, () => applyTheme('ember', { demoOnly: true })],
-    ["'workflow release", 1200],
-    ["'version", 3200],
+    ["'workflow check", 1100],
+    ["'market install games", 700],
+    ["'roll", 900],
+    ["'theme ember", 3200, () => applyTheme('ember', { demoOnly: true })],
   ];
 
   async function autoplay(){
     const t = ++token;
     while(alive(t)){
       body.innerHTML = '';
+      installed.clear();
       applyTheme(currentTheme, { demoOnly: true });
       print('  type \'help for OXIS commands — anything else runs in your shell', 't-dim');
       await sleep(900);
@@ -1492,14 +1539,8 @@ const Demo = (() => {
         if(!alive(t)) return;
         if(!(await typeInto(cmd, t))) return;
         input.value = '';
-        if(fx){ echo(cmd); fx(); print('  ✓  theme switched to "ember"', 't-ok'); }
-        else if(cmd.startsWith("'task")){ echo(cmd); await steps(TASKS.test, t); }
-        else if(cmd.startsWith("'workflow")){ echo(cmd); await steps([
-          ['  ▶  workflow release · 3 steps', 't-acc', 150],
-          ['     [1/3] ✓ task install · 2.1s', 't-ok', 700],
-          ['     [2/3] ✓ npm run build · 4.6s', 't-ok', 800],
-          ['     [3/3] ✓ npm test · 3.1s', 't-ok', 800],
-          ['  ✓  workflow release finished — 3/3 steps in 9.8s', 't-ok', 250]], t); }
+        if(fx){ echo(cmd); fx(); print('  ✓  theme → ember', 't-ok'); }
+        else if(cmd.startsWith("'workflow")){ echo(cmd); await steps(WORKFLOW, t); }
         else await exec(cmd);
         await sleep(pause);
       }
@@ -1515,7 +1556,7 @@ const Demo = (() => {
     input.value = '';
     applyTheme(currentTheme, { demoOnly: true });
     body.innerHTML = '';
-    print("  your turn — try 'help, 'theme rose, 'task build or git status", 't-acc');
+    print("  your turn — try 'help, 'theme rose, 'task test or git status", 't-acc');
     $('#termHint').style.opacity = '.4';
     term.classList.add('focus');
   }

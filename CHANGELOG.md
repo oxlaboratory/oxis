@@ -25,6 +25,11 @@ All notable changes to OXIS. The format follows
   "change" | "save" | "close")`. A plugin's changes are undoable, and a
   streamed run of them is one undo step.
 - `oxis.json.encode` / `oxis.json.decode`.
+- `autotest` in the Market: `'autotest` re-runs a project's tests every
+  time a file is saved (npm, Go, Cargo or pytest, detected; or any
+  command) and prints one line, pass with the time taken or fail with
+  the failing test and actual versus expected. Built on `oxis.fs.watch`
+  and `oxis.process.spawn`.
 - The editor shows pictures (png, jpg, gif, webp, avif, bmp, ico, svg)
   in an image viewer with zoom and a transparency checkerboard, instead
   of their bytes; an SVG can still be edited as text. Other binary files
@@ -112,6 +117,15 @@ All notable changes to OXIS. The format follows
   prompt caret no longer restyles the page every frame while idle.
 - The night sky's moon is one simple round moon, the same every night,
   instead of eight phase glyphs of different sizes.
+- The README's demo is a recording of the real app (`assets/demo.gif`):
+  every frame a screenshot of OXIS running git, a workflow, a Market
+  install and a theme switch in a real project. It replaces a drawn SVG
+  whose output was made up, and has no glow. New screenshots show
+  `autotest` and the image viewer.
+- The website's live demo prints what OXIS actually prints for those
+  commands (the same session), instead of invented output; commands it
+  can't show honestly say they'd run in your shell. Its gallery opens
+  with the recording.
 - The README's badge and the website show how many times OXIS has been
   downloaded. CI used to lose the count every time it replaced the
   `latest-build` files; it now carries it forward in the release notes.
@@ -205,6 +219,8 @@ All notable changes to OXIS. The format follows
   now carries its permissions, platforms, size and minimum OXIS version.
 - The website's download button offered a made-up placeholder `.lua`
   when it couldn't fetch the real file.
+- `'edit assets/logo.png` on Windows opened `C:\proj\assets/logo.png`,
+  mixing separators; the path now uses backslashes throughout.
 - `oxis.autocmd("EditorClosed")` fired when a file was saved, not when
   it was closed. Saving now fires `EditorSaved`.
 - Numbers reached Lua as floats, so `"status " .. res.status` read

@@ -88,6 +88,24 @@
     "file": "plugins/games.lua"
   },
   {
+    "name": "autotest",
+    "desc": "Re-runs your tests the moment you save a file and tells you in one line whether they pass. Finds the test command itself (npm, Go, Cargo, pytest) or takes yours.",
+    "category": "devops",
+    "version": "1.0.0",
+    "author": "Oxide Labs",
+    "file": "plugins/autotest.lua",
+    "size": 3995,
+    "permissions": [
+      "fs",
+      "shell"
+    ],
+    "os": [
+      "windows",
+      "unix"
+    ],
+    "minOxisVersion": "1.2.1"
+  },
+  {
     "name": "ai-devops",
     "desc": "Explain, fix, generate, review and debug code, turn requests into shell commands, and scaffold Lua plugins. Works with any OpenAI-compatible API, or a local model with no key.",
     "category": "ai",

@@ -24,7 +24,9 @@ One ~14&nbsp;MB binary for Windows and Linux. No account. No telemetry.
 
 <br>
 
-<img src="assets/demo.svg" width="840" alt="OXIS in action: git, a task, a workflow, switching theme, 'version and installing a plugin">
+<img src="assets/demo.gif" width="880" alt="A real OXIS session: git log and status, 'task test running the project's node tests, a three-step workflow, installing a plugin from the Market and switching to the ember theme">
+
+<sub>Recorded from the app itself: every frame is a screenshot of OXIS running those commands in a real project.</sub>
 
 </div>
 
@@ -47,7 +49,7 @@ Start a line with `'` for 50+ built-ins: history, reverse search, tab completion
 <td width="33%" valign="top">
 
 **📝 An editor, built in**<br>
-Tabs, a file tree, Vim modes, find & replace, and a live preview that renders your page like a real server.
+Tabs, a file tree, Vim modes, find & replace, an image viewer, and a live preview that renders your page like a real server.
 
 </td>
 </tr>
@@ -61,7 +63,7 @@ Each project keeps its tasks, multi-step workflows (retries, conditions, exit co
 <td valign="top">
 
 **🧩 Lua plugins**<br>
-Commands, keymaps and events in plain Lua, with declared permissions, a Market and one-command publishing.
+Commands, keymaps and events in plain Lua — plus programs, file watching, the open file and streamed AI answers — with permissions, a Market and one-command publishing.
 
 </td>
 <td valign="top">
@@ -104,7 +106,7 @@ Then keep it current from inside OXIS with `'update install`.
 'workspace switch api      jump to another project, with its tasks and git remote
 'task test                 run a project task
 'workflow release          build → test → deploy, with retries and exit codes
-'market install network    add a plugin from the Market
+'market install autotest   add a plugin from the Market ('autotest then re-runs tests on save)
 'version                   exactly which build you're on
 ```
 
@@ -124,8 +126,10 @@ end, "open a GitHub PR")
 ```
 
 Save it in `created-plugins/` and `'pr my-branch` works. The same API
-drives tasks, workflows, keymaps, events and the Home screen — see the
-[Lua API](#lua-api).
+drives tasks, workflows, keymaps, events and the Home screen, runs
+programs and hands you their output as it prints, watches files, edits
+the open file, and streams HTTP — so an AI assistant's answer can type
+itself into your editor as it's written. See the [Lua API](#lua-api).
 
 ## Screenshots
 
@@ -137,6 +141,8 @@ drives tasks, workflows, keymaps, events and the Home screen — see the
 | The command palette (Ctrl+Shift+P) | `'version` — the exact build you're running |
 | <img src="assets/screenshots/app-theme-custom.png" alt="midnight with a gradient background, glow and a custom prompt"> | <img src="assets/screenshots/app-theme-editor.png" alt="The theme editor"> |
 | A theme tweaked with four `'theme set` lines | `'theme edit` — every option with a live preview |
+| <img src="assets/screenshots/app-autotest.png" alt="The autotest plugin re-running a project's tests on save: passing, then failing with the test name and actual versus expected values, then passing again"> | <img src="assets/screenshots/app-image-viewer.png" alt="The editor's image viewer showing a PNG with its size, type, file size and zoom controls"> |
+| `'autotest` from the Market: tests re-run on every save (a plugin built on `oxis.fs.watch` and `oxis.process.spawn`) | Pictures open in an image viewer, not as bytes |
 
 **Browser mode** — the same UI in a browser tab at `http://127.0.0.1:1420`
 while the desktop app is running:
