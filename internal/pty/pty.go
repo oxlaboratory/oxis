@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"log"
 	"os"
 	"regexp"
 	"strconv"
@@ -198,6 +199,23 @@ func splitForNextRead(data []byte) (complete, hold []byte) {
 // before being sent as it is.
 const heldFlushDelay = 30 * time.Millisecond
 
+// traceEnv names a file that gets a copy of the shell's raw output,
+// escape sequences included, for diagnosing rendering problems.
+const traceEnv = "OXIS_PTY_TRACE"
+
+func openTrace() *os.File {
+	path := os.Getenv(traceEnv)
+	if path == "" {
+		return nil
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		log.Printf("[oxis] %s: %v", traceEnv, err)
+		return nil
+	}
+	return f
+}
+
 // pumpOutput reads the PTY until it fails, sending cleaned-up output.
 // cols reports the current width (0 skips joinWrappedRows). Returns
 // the read error that ended it.
@@ -207,10 +225,17 @@ func pumpOutput(r io.Reader, cols func() int, send func(string)) error {
 		err  error
 	}
 	reads := make(chan readResult, 16)
+	trace := openTrace()
 	go func() {
+		if trace != nil {
+			defer trace.Close()
+		}
 		for {
 			buf := make([]byte, 8192)
 			n, err := r.Read(buf)
+			if trace != nil && n > 0 {
+				_, _ = trace.Write(buf[:n])
+			}
 			reads <- readResult{buf[:n], err}
 			if err != nil {
 				return

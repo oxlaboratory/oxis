@@ -24,7 +24,7 @@ import {
 } from "./terminal/terminal";
 import type { Line, LineKind } from "./terminal/terminal";
 
-import { history }                          from "./terminal/history";
+import { history, keepOutOfHistory }        from "./terminal/history";
 import type { SearchResult }               from "./terminal/history";
 import { themeManager, themeOption, optionValue, normalizeOption, THEME_OPTIONS, CORE_KEYS, resolveColor } from "./terminal/themeManager";
 import type { Theme, ThemeOption, ThemeValue } from "./terminal/themeManager";
@@ -4076,6 +4076,7 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
     const verb  = parts[0].toLowerCase();
     const args  = parts.slice(1);
     const rest  = args.join(" ");
+    const typed = body.replace(/^\S+\s*/, ""); // as typed, for plugins
     // Keep ctx callbacks current before dispatch
     if (ctxRef.current) {
       ctxRef.current.send  = sendToShell;
@@ -4083,7 +4084,7 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
       ctxRef.current.printLines = addLines;
       ctxRef.current.clear = clear;
     }
-    return registry.execute(verb, args, rest);
+    return registry.execute(verb, args, rest, typed);
   }, [addLine, sendToShell, clear]);
 
   // Asks the shell for its cwd (cwdTracker.ts); the probe's echo and
@@ -4098,7 +4099,7 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
   const runLine = useCallback((raw: string) => {
     const cmd = raw.trim();
     if (!cmd) { sendToShell("\r"); return; }
-    history.push(cmd);
+    if (!keepOutOfHistory(raw)) history.push(cmd);
 
     const isOxis = cmd.startsWith("'") || /^oxi(\s|$)/i.test(cmd);
     if (isOxis) {

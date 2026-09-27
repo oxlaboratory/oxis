@@ -442,7 +442,7 @@
   .demo-toggle:hover{ border-color:color-mix(in srgb, var(--accent) 40%, transparent); color:var(--text); }
   .demo-video{ border:1px solid var(--line); background:#000; line-height:0; border-radius:10px; overflow:hidden; }
   .demo-video video, .demo-video iframe{ display:block; width:100%; aspect-ratio:16/9; height:auto; border:none; }
-  .demo-empty{ border:1px dashed var(--line); color:var(--dim); font-size:11.5px; text-align:center; padding:20px 10px; border-radius:10px; }
+  .demo-soon{ border:1px dashed var(--line-2); color:var(--dim); font-family:var(--mono); font-size:11.5px; text-align:center; padding:8px 10px; border-radius:9px; }
   .empty{ grid-column:1/-1; text-align:center; color:var(--dim); padding:50px 10px; font-family:var(--mono); font-size:13px; display:none; }
   .market-foot{ padding:18px 22px; border-top:1px solid var(--line); display:flex; flex-wrap:wrap; gap:10px 24px; align-items:center; color:var(--muted); font-size:14px; }
   .market-foot a{ color:var(--accent); text-decoration:none; }
@@ -1566,8 +1566,10 @@ const Demo = (() => {
      stripeConnectAccountId – third-party plugins only (acct_...), for
                               the 75/25 split
 
-   Any plugin:
-     demoVideo – YouTube link or direct video URL (null for none)
+   Optional, any plugin:
+     demoVideo   – YouTube link or direct video URL; the card gets a
+                   "watch demo" button only when it's set
+     demoPlanned – true to say a demo is on the way (no button)
    ================================================================ */
 
 const CATEGORIES = [
@@ -1579,21 +1581,21 @@ const CATEGORIES = [
 const PLUGINS = [
 
   // ---- free plugins, one per category — real, working .lua files ----
-  { name: "network",    ver: "0.4.1", cat: "NETWORK",    creator: "Oxide Labs", desc: "Connection testing, traceroute, geolocation, and DNS checks — prompts for a target so you're not stuck with a hardcoded host. Commands: nettest, nettrace, geoip, dnscheck.", tags: ["net-test","geoip"],       size: "1kb", demoVideo: null },
-  { name: "crypto",     ver: "0.3.1", cat: "CRYPTO",     creator: "Oxide Labs", desc: "SHA256 hashing (any file, or the whole folder), base64 encode/decode, and a real cryptographically-random key generator. Commands: sha256, b64encode, b64decode, genkey.", tags: ["hash","base64"],        size: "1kb", demoVideo: null },
-  { name: "automation", ver: "0.3.1", cat: "AUTOMATION", creator: "Oxide Labs", desc: "Runs a lint -> test -> build chain in one call, with each step also available as its own task and a keymap shortcut. Command: chain.", tags: ["tasks","chain"],        size: "1kb", demoVideo: null },
-  { name: "system",     ver: "0.3.1", cat: "SYSTEM",     creator: "Oxide Labs", desc: "Disk space, battery status, and top-memory processes — fills the gaps the built-in sysmon plugin doesn't cover. Commands: diskspace, battery, topmem.", tags: ["disk","battery"],       size: "1kb", demoVideo: null },
-  { name: "ui",         ver: "0.3.1", cat: "UI",         creator: "Oxide Labs", desc: "Cycle through every built-in theme, jump straight to dark mode, and configure the home dashboard. Command: themecycle.", tags: ["theme","dashboard"],    size: "1kb", demoVideo: null },
-  { name: "security",   ver: "0.3.1", cat: "SECURITY",   creator: "Oxide Labs", desc: "Password generation (real crypto RNG, not a weak PRNG) and an ACL/permissions audit for any path you give it. Commands: genpass, perms, permaudit.", tags: ["password","acl"],       size: "1kb", demoVideo: null },
-  { name: "utility",    ver: "0.3.1", cat: "UTILITY",    creator: "Oxide Labs", desc: "Clipboard timestamp, date lookup, word count, and a calc command that only ever evaluates numbers you actually type in — never arbitrary clipboard content. Commands: timestamp, now, calc, wordcount.", tags: ["clipboard","date"],     size: "1kb", demoVideo: null },
-  { name: "filesystem", ver: "0.4.1", cat: "FILESYSTEM", creator: "Oxide Labs", desc: "Recursive file counts, empty-folder detection, most-recently-modified listing, and a by-extension filter that asks which extension you want. Commands: fcount, fempty, frecent, fext.", tags: ["cleanup","recent"],     size: "1kb", demoVideo: null },
-  { name: "devops",     ver: "0.3.1", cat: "DEVOPS",     creator: "Oxide Labs", desc: "A build-test-push deploy chain plus a pre-deploy git status check and a prefix-filtered env var listing. Commands: deploy, predeploy, envcheck.", tags: ["deploy","git"],         size: "1kb", demoVideo: null },
-  { name: "monitoring", ver: "0.3.1", cat: "MONITORING", creator: "Oxide Labs", desc: "Tails any log file (or the newest one), runs a one-shot health-check request, and a continuous memory watch you stop with Ctrl+C. Commands: tail, healthcheck.", tags: ["logs","healthcheck"],   size: "1kb", demoVideo: null },
-  { name: "games",      ver: "0.4.1", cat: "GAMES",      creator: "Oxide Labs", desc: "Dice, coin flips, a magic 8-ball, and a real interactive number-guessing game with higher/lower feedback. Commands: roll, coinflip, 8ball, guess.", tags: ["dice","fun"],           size: "1kb", demoVideo: null },
+  { name: "network",    ver: "0.4.1", cat: "NETWORK",    creator: "Oxide Labs", desc: "Connection testing, traceroute, geolocation, and DNS checks — prompts for a target so you're not stuck with a hardcoded host. Commands: nettest, nettrace, geoip, dnscheck.", tags: ["net-test","geoip"],       size: "1kb" },
+  { name: "crypto",     ver: "0.3.1", cat: "CRYPTO",     creator: "Oxide Labs", desc: "SHA256 hashing (any file, or the whole folder), base64 encode/decode, and a real cryptographically-random key generator. Commands: sha256, b64encode, b64decode, genkey.", tags: ["hash","base64"],        size: "1kb" },
+  { name: "automation", ver: "0.3.1", cat: "AUTOMATION", creator: "Oxide Labs", desc: "Runs a lint -> test -> build chain in one call, with each step also available as its own task and a keymap shortcut. Command: chain.", tags: ["tasks","chain"],        size: "1kb" },
+  { name: "system",     ver: "0.3.1", cat: "SYSTEM",     creator: "Oxide Labs", desc: "Disk space, battery status, and top-memory processes — fills the gaps the built-in sysmon plugin doesn't cover. Commands: diskspace, battery, topmem.", tags: ["disk","battery"],       size: "1kb" },
+  { name: "ui",         ver: "0.3.1", cat: "UI",         creator: "Oxide Labs", desc: "Cycle through every built-in theme, jump straight to dark mode, and configure the home dashboard. Command: themecycle.", tags: ["theme","dashboard"],    size: "1kb" },
+  { name: "security",   ver: "0.3.1", cat: "SECURITY",   creator: "Oxide Labs", desc: "Password generation (real crypto RNG, not a weak PRNG) and an ACL/permissions audit for any path you give it. Commands: genpass, perms, permaudit.", tags: ["password","acl"],       size: "1kb" },
+  { name: "utility",    ver: "0.3.1", cat: "UTILITY",    creator: "Oxide Labs", desc: "Clipboard timestamp, date lookup, word count, and a calc command that only ever evaluates numbers you actually type in — never arbitrary clipboard content. Commands: timestamp, now, calc, wordcount.", tags: ["clipboard","date"],     size: "1kb" },
+  { name: "filesystem", ver: "0.4.1", cat: "FILESYSTEM", creator: "Oxide Labs", desc: "Recursive file counts, empty-folder detection, most-recently-modified listing, and a by-extension filter that asks which extension you want. Commands: fcount, fempty, frecent, fext.", tags: ["cleanup","recent"],     size: "1kb" },
+  { name: "devops",     ver: "0.3.1", cat: "DEVOPS",     creator: "Oxide Labs", desc: "A build-test-push deploy chain plus a pre-deploy git status check and a prefix-filtered env var listing. Commands: deploy, predeploy, envcheck.", tags: ["deploy","git"],         size: "1kb" },
+  { name: "monitoring", ver: "0.3.1", cat: "MONITORING", creator: "Oxide Labs", desc: "Tails any log file (or the newest one), runs a one-shot health-check request, and a continuous memory watch you stop with Ctrl+C. Commands: tail, healthcheck.", tags: ["logs","healthcheck"],   size: "1kb" },
+  { name: "games",      ver: "0.4.1", cat: "GAMES",      creator: "Oxide Labs", desc: "Dice, coin flips, a magic 8-ball, and a real interactive number-guessing game with higher/lower feedback. Commands: roll, coinflip, 8ball, guess.", tags: ["dice","fun"],           size: "1kb" },
 
   // ---- premium plugins, Stripe subscriptions (see README § OXIS
   // Market) — comingSoon until each has a real stripePriceId ----
-  { name: "ai-devops",       ver: "1.0.0", cat: "AUTOMATION", creator: "OXIS",       desc: "Code explain/fix/generate/review/debug, shell command generation, and Lua plugin scaffolding — real AI calls via any OpenAI-compatible endpoint once you set your own API key.", tags: ["premium","ai"], size: "6kb", premium: true, priceDisplay: "$4.99/mo", stripePriceId: null, comingSoon: true, demoVideo: null },
+  { name: "ai-devops",       ver: "1.0.0", cat: "AUTOMATION", creator: "OXIS",       desc: "Code explain/fix/generate/review/debug, shell command generation, and Lua plugin scaffolding — real AI calls via any OpenAI-compatible endpoint once you set your own API key.", tags: ["premium","ai"], size: "6kb", premium: true, priceDisplay: "$4.99/mo", stripePriceId: null, comingSoon: true, demoPlanned: true },
 
 ];
 
@@ -1661,9 +1663,6 @@ const acquired = new Set(); // downloaded (free) plugins
 const demoOpen = new Set(); // plugin names with their demo video expanded
 
 function demoVideoHTML(p){
-  if(!p.demoVideo){
-    return `<div class="demo-empty">no demo video yet</div>`;
-  }
   const yt = p.demoVideo.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([\w-]+)/);
   if(yt){
     return `<div class="demo-video"><iframe src="https://www.youtube.com/embed/${escapeHtml(yt[1])}" allowfullscreen loading="lazy"></iframe></div>`;
@@ -1800,9 +1799,11 @@ function cardHTML(p, i){
       <button class="mbtn" data-action="subscribe" data-name="${name}">subscribe via Stripe</button>`;
   }
 
-  const demoSection = demoOpen.has(p.name)
-    ? `<button class="demo-toggle" data-action="toggle-demo" data-name="${name}">▲ hide demo</button>${demoVideoHTML(p)}`
-    : `<button class="demo-toggle" data-action="toggle-demo" data-name="${name}">▶ watch demo</button>`;
+  const demoSection = !p.demoVideo
+    ? (p.demoPlanned ? `<div class="demo-soon">▶ demo video coming soon</div>` : '')
+    : demoOpen.has(p.name)
+      ? `<button class="demo-toggle" data-action="toggle-demo" data-name="${name}">▲ hide demo</button>${demoVideoHTML(p)}`
+      : `<button class="demo-toggle" data-action="toggle-demo" data-name="${name}">▶ watch demo</button>`;
 
   return `
     <div class="card ${p.premium ? 'paid' : ''}" data-name="${name}" style="--i:${Math.min(i, 12) * 0.035}s">

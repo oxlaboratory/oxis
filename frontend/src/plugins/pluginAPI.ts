@@ -22,6 +22,7 @@ import {
   readFile, writeFile, listDir, statPath, makeDir, deletePath,
   systemInfo as nativeSystemInfo, listProcesses, killProcess, isNativeApp,
   writeTempScript,
+  nativeHttpRequest,
 } from "../native";
 import { requirePermission, requireShellPermission, type PermissionNamespace } from "./permissions";
 import { scriptRunTracker, type RunResult } from "../terminal/scriptRunTracker";
@@ -146,8 +147,8 @@ export function buildLuaAPI(ctx: APIContext): OxisBindings {
         description: hasDesc ? description!.trim() : UNDOCUMENTED_SENTINEL,
         category: "plugin",
         fromPlugin: ctx.pluginName,
-        handler: (args, rest) => {
-          try { invoke(args, rest); } catch (e) { ctx.print(`  ✗  ${name}: ${e}`, "err"); }
+        handler: (args, rest, raw) => {
+          try { invoke(args, rest, raw); } catch (e) { ctx.print(`  ✗  ${name}: ${e}`, "err"); }
         },
       });
     },
@@ -262,13 +263,19 @@ export function buildLuaAPI(ctx: APIContext): OxisBindings {
       await killProcess(pid);
     },
 
-    // oxis.net.request({ url=..., method="GET", headers={...}, body=... })
-    // Plain fetch() with no special credentials.
+    // oxis.net.request({ url=..., method="GET", headers={...}, body=..., timeout=60 })
+    // In the desktop app OXIS makes the request itself (no CORS, so local
+    // and self-hosted APIs work); in a browser tab it's a plain fetch().
     netRequest: async (opts) => {
       need("net");
-      const o = (opts ?? {}) as { url?: string; method?: string; headers?: Record<string, string>; body?: string };
+      const o = (opts ?? {}) as { url?: string; method?: string; headers?: Record<string, string>; body?: string; timeout?: number };
       if (!o.url) throw new Error("oxis.net.request requires { url = ... }");
-      const res = await fetch(o.url, { method: o.method || "GET", headers: o.headers, body: o.body });
+      const timeout = typeof o.timeout === "number" && o.timeout > 0 ? o.timeout : 60;
+      const native = await nativeHttpRequest({
+        url: o.url, method: o.method || "GET", headers: o.headers ?? {}, body: o.body ?? "", timeoutSeconds: timeout,
+      });
+      if (native) return native as unknown as LuaJSValue;
+      const res = await fetch(o.url, { method: o.method || "GET", headers: o.headers, body: o.body, signal: AbortSignal.timeout(timeout * 1000) });
       const body = await res.text();
       const headers: Record<string, string> = {};
       res.headers.forEach((v, k) => { headers[k] = v; });

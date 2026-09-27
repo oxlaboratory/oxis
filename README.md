@@ -183,6 +183,9 @@ scrolls above it and never goes underneath it.
 - Typing anywhere that isn't a text field puts the text in the prompt.
   **Ctrl+I** jumps to it from anywhere. Clicking into the editor or
   another field leaves focus there.
+- A line that starts with a space isn't saved to history, and neither
+  is one that hands over a secret (`'ai key sk-…`,
+  `$env:OPENAI_API_KEY = "…"`, `export GH_TOKEN=…`).
 - The terminal shows `OXIS` in its top-right corner. There's no startup
   splash; the app opens straight onto Home.
 
@@ -541,7 +544,7 @@ Everything is on the global `oxis` table.
 
 | Call | Does |
 |---|---|
-| `oxis.command(name, fn(args, rest), description)` | Register `'name`. `args` is a table of words, `rest` the raw text. |
+| `oxis.command(name, fn(args, rest, raw), description)` | Register `'name`. `args` is a table of words (quotes removed), `rest` the words joined by spaces, `raw` the text after the command name exactly as typed (quotes, backslashes and tabs kept). |
 | `oxis.task(name, cmd, description)` | Register a task (`'task name`) |
 | `oxis.workflow(name, def, description)` | Register a workflow (see [Workspaces](#tasks-and-workflows)) |
 | `oxis.run(cmd)` | Run a command in the shell. Multi-line scripts run as one script file (`.ps1` on Windows, bash elsewhere), so a `Read-Host`/`read` prompt gets your answer rather than the next line; `&&` works on Windows PowerShell 5.1 too. |
@@ -559,7 +562,7 @@ Everything is on the global `oxis` table.
 | `oxis.dashboard{ header, theme, shortcuts }` | Customise Home: a header line, a theme, and extra hint lines |
 | `oxis.fs.read/write/list/stat/mkdir/remove(path, …, cb)` | File access; `cb(err, result)` |
 | `oxis.process.list(cb)` / `.kill(pid, cb)` | Processes |
-| `oxis.net.request(opts, cb)` | HTTP request |
+| `oxis.net.request(opts, cb)` | HTTP request: `{ url, method, headers, body, timeout }` (seconds, default 60) → `{ status, ok, body, headers }`. In the desktop app OXIS makes the request itself, so servers without CORS headers (local and self-hosted APIs) work |
 | `oxis.system.info(cb)` | OS, architecture, CPU count, Go version, OXIS's own memory use |
 
 Events for `oxis.autocmd`: `ShellOpen` (alias `TerminalOpen`),
@@ -773,6 +776,10 @@ describe` form when the build is past it).
 `'diagnostics` shows the version, OS, runtime, plugin counts, active
 workspace and the last recorded errors. Nothing is sent anywhere; OXIS
 has no telemetry.
+
+For output that renders wrongly, start OXIS with `OXIS_PTY_TRACE` set
+to a file path: everything the shell sends, escape sequences included,
+is appended to it. Attach that file to the bug report.
 
 ---
 

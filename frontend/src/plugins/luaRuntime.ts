@@ -23,7 +23,7 @@ export type LuaJSValue = string | number | boolean | undefined | LuaJSValue[] | 
  *  this file only handles the Lua<->JS boundary, not what any of these
  *  calls actually DO inside OXIS. */
 export interface OxisBindings {
-  command(name: string, invoke: (args: string[], rest: string) => void, desc: string | undefined): void;
+  command(name: string, invoke: (args: string[], rest: string, raw: string) => void, desc: string | undefined): void;
   task(name: string, cmd: string, desc: string | undefined): void;
   echo(text: string): void;
   // Returns a promise; Lua never sees it, but the binding catches it.
@@ -201,9 +201,10 @@ function buildOxisTable(L: LuaState, b: OxisBindings, closedRef: { closed: boole
 
   setfn("command", (L) => {
     const name = lua.lua_tojsstring(L, 1);
-    // Handlers receive (args, rest): a table of words and the raw text.
+    // Handlers receive (args, rest, raw): a table of words, the words
+    // joined, and the text exactly as typed (quotes, backslashes, tabs).
     const invoke = makeInvokerWithArgs(L, 2, closedRef);
-    b.command(name, (args, rest) => invoke(args, rest), argString(L, 3));
+    b.command(name, (args, rest, raw) => invoke(args, rest, raw), argString(L, 3));
     return 0;
   });
 

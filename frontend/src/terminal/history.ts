@@ -4,6 +4,8 @@
  * One shared history for the global prompt: 2,000 entries persisted to
  * localStorage, consecutive duplicates dropped, Up/Down with the typed
  * draft preserved, prefix-filtered Up, and Ctrl+R reverse-i-search.
+ * Lines that start with a space, or that hand over a secret, are never
+ * saved (see keepOutOfHistory).
  */
 
 const KEY = "oxis-cmd-history-v2";
@@ -14,6 +16,17 @@ export interface SearchResult {
   idx:   number; // index in entries[]
   rank:  number; // 1-based display rank among filtered results
   total: number; // total filtered results
+}
+
+/** A line starting with a space is left out on purpose (like bash's
+ *  HISTCONTROL=ignorespace); so is one that sets a secret: an 'command
+ *  whose first argument is key/token/secret/password with a value
+ *  ('ai key sk-…), or a shell assignment to a variable named like one
+ *  ($env:OPENAI_API_KEY = "…", export GH_TOKEN=…). */
+export function keepOutOfHistory(line: string): boolean {
+  if (/^\s/.test(line)) return true;
+  if (/^'\S+\s+(api[-_]?key|key|token|secret|password|passwd)\s+\S/i.test(line)) return true;
+  return /\b[\w$:]*(api[-_]?key|token|secret|passw(or)?d)\w*["']?\s*[:=]\s*["']?[^\s"']{8,}/i.test(line);
 }
 
 class HistoryManager {

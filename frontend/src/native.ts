@@ -47,6 +47,7 @@ declare global {
            *  only if building isn't possible. */
           PerformUpdate?: (fallbackBinaryUrl: string) => Promise<NativeUpdateResult>;
           WriteTempScript?: (ext: string, content: string) => Promise<string>;
+          HTTPRequest?: (opts: NativeHTTPRequest) => Promise<NativeHTTPResponse>;
           WindowGetSize?: () => Promise<NativeWindowSize>;
           WindowSetSize?: (width: number, height: number) => Promise<NativeWindowSize>;
         };
@@ -100,6 +101,9 @@ export interface NativeUpdateInfo {
   /** Why the latest build couldn't be found (offline, rate limited). */
   error?: string;
 }
+/** Mirror HTTPRequestOptions / HTTPResponse in internal/wailsapp/httprequest.go. */
+export interface NativeHTTPRequest { url: string; method: string; headers: Record<string, string>; body: string; timeoutSeconds: number; }
+export interface NativeHTTPResponse { status: number; ok: boolean; body: string; headers: Record<string, string>; }
 /** Mirrors UpdateResult in internal/wailsapp/selfupdate.go. */
 export interface NativeUpdateResult { installed: boolean; error: string; }
 
@@ -289,6 +293,13 @@ export async function performUpdate(fallbackUrl: string): Promise<NativeUpdateRe
   const fn = window.go?.wailsapp?.App?.PerformUpdate;
   if (!fn) return { installed: false, error: "updating isn't available outside the native app" };
   return fn(fallbackUrl);
+}
+
+/** An HTTP request made by OXIS itself rather than the page, so CORS
+ *  doesn't apply (see HTTPRequest). Null when not in the native app. */
+export async function nativeHttpRequest(opts: NativeHTTPRequest): Promise<NativeHTTPResponse | null> {
+  const fn = window.go?.wailsapp?.App?.HTTPRequest;
+  return fn ? fn(opts) : null;
 }
 
 /** Quits the app (also used to hand over to an updated build). */

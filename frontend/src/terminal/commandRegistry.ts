@@ -6,7 +6,9 @@
 import { events } from "./events";
 import { recordError } from "./diagnostics";
 
-export type CommandHandler = (args: string[], rest: string) => unknown;
+/** args: the words, with quotes removed; rest: the words joined by
+ *  spaces; raw: everything after the command name exactly as typed. */
+export type CommandHandler = (args: string[], rest: string, raw: string) => unknown;
 
 export interface CommandEntry {
   name: string;
@@ -56,7 +58,7 @@ class CommandRegistry {
     return map;
   }
 
-  execute(name: string, args: string[], rest: string): boolean {
+  execute(name: string, args: string[], rest: string, raw = rest): boolean {
     const cmd = this.commands.get(name.toLowerCase());
     if (!cmd) return false;
     // Errors are recorded for 'diagnostics and surfaced in the terminal
@@ -69,7 +71,7 @@ class CommandRegistry {
       events.emit("command_error", { name, message });
     };
     try {
-      const result = cmd.handler(args, rest);
+      const result = cmd.handler(args, rest, raw);
       if (result instanceof Promise) result.catch(fail);
       events.emit("command_executed", { name, args });
     } catch (e) {

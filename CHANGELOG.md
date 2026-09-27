@@ -6,6 +6,15 @@ All notable changes to OXIS. The format follows
 ## [Unreleased]
 
 ### Added
+- `oxis.command` handlers get a third argument, `raw`: the text after
+  the command name exactly as typed, quotes, backslashes and tabs
+  included (`args` and `rest` stay as they were).
+- `oxis.net.request` takes a `timeout` (seconds, default 60). In the
+  desktop app OXIS makes the request itself, so local and self-hosted
+  servers without CORS headers are reachable.
+- Lines starting with a space, and lines that hand over a secret
+  (`'ai key …`, `export GH_TOKEN=…`), aren't saved to history.
+- `OXIS_PTY_TRACE=<file>` records the shell's raw output for bug reports.
 - `'version` shows the build number, commit, release tag (`git
   describe` style), channel (CI `latest-build`, self-update or local
   source build), build and commit dates, update status, OS release,
@@ -62,6 +71,8 @@ All notable changes to OXIS. The format follows
   of every built-in theme.
 
 ### Changed
+- The website's "watch demo" button only appears on plugins that have
+  a demo video; `demoVideo` is optional.
 - The website (`cloudflare/`) is now a full landing page: an animated
   hero with a live, typeable OXIS demo terminal, the current version,
   build number and commit pulled from GitHub, a download button for the
