@@ -126,6 +126,11 @@ All notable changes to OXIS. The format follows
 - The npm launcher downloads from the GitHub `latest-build` release.
 
 ### Fixed
+- A build of unpushed local work was told a "newer build" was
+  available, because GitHub couldn't compare a commit it doesn't have.
+  OXIS now compares commit dates in that case and says it's local work.
+- The website's screenshots were squashed and stretched their rows, and
+  the Market cards' hover lift never worked.
 - `'update install` ended with "(intermediate value) is not iterable":
   the update had installed and started, but the old window never
   closed. A Go test now rejects any bound method whose result the page

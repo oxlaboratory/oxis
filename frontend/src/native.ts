@@ -94,6 +94,9 @@ export interface NativeUpdateInfo {
    *  work); -1 when GitHub couldn't say. */
   behind: number;
   ahead: number;
+  /** GitHub doesn't have this build's commit (local work); the build
+   *  only counts as outdated when it was committed before main's tip. */
+  unpushed?: boolean;
   /** Why the latest build couldn't be found (offline, rate limited). */
   error?: string;
 }

@@ -114,3 +114,29 @@ func TestCheckCountsCommits(t *testing.T) {
 		})
 	}
 }
+
+func TestCheckUnpushedBuild(t *testing.T) {
+	cases := []struct {
+		name          string
+		commitDate    string
+		wantAvailable bool
+	}{
+		{"local work newer than main", "2026-09-27T10:00:00+09:30", false},
+		{"old local build", "2026-09-20T10:00:00Z", true},
+		{"unknown commit date", "", true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			withBuildCommit(t, "aaa111")
+			oldDate := buildinfo.CommitDate
+			buildinfo.CommitDate = c.commitDate
+			t.Cleanup(func() { buildinfo.CommitDate = oldDate })
+			// The tip is known; the build's commit isn't (404 on compare).
+			fakeGitHub(t, 200, `{"sha":"bbb222","commit":{"committer":{"date":"2026-09-26T23:00:00Z"}}}`)
+			got := Check("windows")
+			if got.Available != c.wantAvailable || !got.Unpushed {
+				t.Errorf("Available=%v Unpushed=%v, want %v true", got.Available, got.Unpushed, c.wantAvailable)
+			}
+		})
+	}
+}

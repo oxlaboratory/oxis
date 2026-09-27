@@ -665,6 +665,7 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
     u.behind > 0 && u.ahead > 0 ? `${commits(u.behind)} behind main, ${commits(u.ahead)} ahead`
     : u.behind > 0 ? `${commits(u.behind)} behind main`
     : u.ahead > 0 ? `${commits(u.ahead)} ahead of main`
+    : u.unpushed ? "this build's commit isn't on GitHub"
     : "";
 
   registry.register({ name:"update", category:"files", description:"Check for a newer OXIS build — 'update install installs it in place",
@@ -687,8 +688,8 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
           return;
         }
         if (!u.available) {
-          ok(u.ahead > 0
-            ? `nothing newer: this build (${short(u.currentCommit)}) is ${updateDistance(u)} — local work`
+          ok(u.ahead > 0 || u.unpushed
+            ? `nothing newer: this build (${short(u.currentCommit)}) is ${u.unpushed ? `local work, newer than main (${short(u.latestCommit)})` : `${updateDistance(u)} — local work`}`
             : `up to date (${short(u.currentCommit)})`);
           return;
         }
@@ -713,7 +714,7 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
       }
       if (u.currentCommit && !u.available && !force) {
         ok(`already up to date (${short(u.currentCommit)}) — nothing to install`);
-        if (u.ahead > 0) dim(`this build is ${updateDistance(u)}; 'update install --force replaces it with main anyway`);
+        if (u.ahead > 0 || u.unpushed) dim(`this build is local work (${updateDistance(u)}); 'update install --force replaces it with main anyway`);
         return;
       }
       const dist = updateDistance(u);
@@ -1798,7 +1799,7 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
     else if (!upd) updateText = getSetting("updateCheckOnStartup") === false ? "not checked — run 'update" : "checking… — run 'update";
     else if (upd.error) updateText = `couldn't check (${upd.error})`;
     else if (upd.available) { updateText = `${short(upd.latestCommit)} available${updateDistance(upd) ? ` — ${updateDistance(upd)}` : ""} · 'update install`; updateKind = "warn"; }
-    else { updateText = upd.ahead > 0 ? `nothing newer — ${updateDistance(upd)}` : "up to date with main"; updateKind = "ok"; }
+    else { updateText = upd.ahead > 0 || upd.unpushed ? `nothing newer — ${upd.unpushed ? "local work, newer than main" : updateDistance(upd)}` : "up to date with main"; updateKind = "ok"; }
 
     const tagText = describeBuild() || "none";
     const rows: Array<[string, string, LineKind?]> = [

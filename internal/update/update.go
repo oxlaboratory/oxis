@@ -13,6 +13,7 @@ package update
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -45,6 +46,9 @@ type Info struct {
 	// (a local build of unpushed work). -1 when GitHub couldn't say.
 	Behind int `json:"behind"`
 	Ahead  int `json:"ahead"`
+	// Unpushed: GitHub doesn't have this build's commit (a build of local
+	// work), so Behind/Ahead are unknown.
+	Unpushed bool `json:"unpushed"`
 	// Error says why the latest build couldn't be found (offline, rate
 	// limited); empty when the check worked.
 	Error string `json:"error,omitempty"`
@@ -70,7 +74,22 @@ var (
 )
 
 type ghCommit struct {
-	SHA string `json:"sha"`
+	SHA    string `json:"sha"`
+	Commit struct {
+		Committer struct {
+			Date time.Time `json:"date"`
+		} `json:"committer"`
+	} `json:"commit"`
+}
+
+// httpStatusError is a GitHub answer other than 200.
+type httpStatusError int
+
+func (e httpStatusError) Error() string {
+	if e == http.StatusForbidden || e == http.StatusTooManyRequests {
+		return "GitHub's API rate limit was reached; try again in a while"
+	}
+	return fmt.Sprintf("GitHub answered HTTP %d", int(e))
 }
 
 type ghCompare struct {
@@ -85,11 +104,12 @@ type ghCompare struct {
 func Check(goos string) Info {
 	current := buildinfo.CommitSHA()
 	info := Info{CurrentCommit: current, Behind: -1, Ahead: -1}
-	latestCommit, err := latestCommitOnDefaultBranch()
+	latest, err := latestCommitOnDefaultBranch()
 	if err != nil {
 		info.Error = err.Error()
 		return info
 	}
+	latestCommit := latest.SHA
 	info.LatestCommit = latestCommit
 	info.ReleaseURL = fmt.Sprintf("https://github.com/%s/commits/%s", ProjectPath, DefaultBranch)
 	if current == "" {
@@ -106,9 +126,13 @@ func Check(goos string) Info {
 		info.Available = c.AheadBy > 0
 		info.ReleaseURL = fmt.Sprintf("https://github.com/%s/compare/%s...%s", ProjectPath, shortSHA(current), shortSHA(latestCommit))
 	} else {
-		// GitHub doesn't know this build's commit (never pushed); the
-		// branch tip is still a different build.
-		info.Available = true
+		var status httpStatusError
+		info.Unpushed = errors.As(err, &status) && status == http.StatusNotFound
+		// How the two relate is unknown (GitHub doesn't have this
+		// commit, or didn't answer): a build committed after the branch
+		// tip is local work, not something to replace.
+		built, perr := time.Parse(time.RFC3339, buildinfo.CommitDate)
+		info.Available = perr != nil || latest.Commit.Committer.Date.IsZero() || built.Before(latest.Commit.Committer.Date)
 	}
 	if info.Available {
 		populateFallbackAssets(&info, goos)
@@ -143,11 +167,8 @@ func getJSON(endpoint string, v any) error {
 		return fmt.Errorf("couldn't reach GitHub (offline?)")
 	}
 	defer resp.Body.Close()
-	switch {
-	case resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusTooManyRequests:
-		return fmt.Errorf("GitHub's API rate limit was reached; try again in a while")
-	case resp.StatusCode != http.StatusOK:
-		return fmt.Errorf("GitHub answered HTTP %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusOK {
+		return httpStatusError(resp.StatusCode)
 	}
 	if err := json.NewDecoder(resp.Body).Decode(v); err != nil {
 		return fmt.Errorf("GitHub sent an unexpected response")
@@ -155,16 +176,16 @@ func getJSON(endpoint string, v any) error {
 	return nil
 }
 
-// latestCommitOnDefaultBranch returns the branch tip SHA.
-func latestCommitOnDefaultBranch() (string, error) {
+// latestCommitOnDefaultBranch returns the branch tip.
+func latestCommitOnDefaultBranch() (ghCommit, error) {
 	var c ghCommit
 	if err := getJSON(fmt.Sprintf("%s/repos/%s/commits/%s", apiBase, ProjectPath, DefaultBranch), &c); err != nil {
-		return "", err
+		return c, err
 	}
 	if c.SHA == "" {
-		return "", fmt.Errorf("GitHub sent an unexpected response")
+		return c, fmt.Errorf("GitHub sent an unexpected response")
 	}
-	return c.SHA, nil
+	return c, nil
 }
 
 // populateFallbackAssets fills the download fields from the rolling
