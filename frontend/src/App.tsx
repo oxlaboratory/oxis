@@ -13,7 +13,7 @@ import { openPty }    from "./pty/ptyClient";
 import type { PtySession } from "./pty/ptyClient";
 
 import {
-  mkLine, initialLines, processOutput, mergeOutput, visibleText,
+  mkLine, initialLines, processOutput, mergeOutput, visibleText, nextLineId,
   LINE_COLORS,
   wordLeft, wordRight,
   deleteWordLeft, deleteWordRight,
@@ -36,7 +36,7 @@ import type { CommandHandler }              from "./terminal/commandRegistry";
 import { workspaceState }                   from "./terminal/workspaceState";
 import { workspaceManager }                 from "./terminal/workspaceManager";
 import { getRecentErrors, clearRecentErrors, installGlobalErrorCapture } from "./terminal/diagnostics";
-import { cwdTracker, buildCwdProbe, looksLikeDirectoryChange, isProbeLine } from "./terminal/cwdTracker";
+import { cwdTracker, buildCwdProbe, looksLikeDirectoryChange, isProbeLine, cwdFromMark } from "./terminal/cwdTracker";
 import { scriptRunTracker, stripStepEcho } from "./terminal/scriptRunTracker";
 import { workflowRunner } from "./plugins/workflowRunner";
 import {
@@ -3849,12 +3849,34 @@ function cssText(text: string): React.CSSProperties {
 const OutputLine = memo(function OutputLine({ line, match }: { line: Line; match: boolean }) {
   return (
     <div data-line-id={line.id}
-      className={`term-line${match ? " term-line--match" : ""}`}
+      className={`term-line${match ? " term-line--match" : ""}${line.status ? " term-line--command" : ""}`}
       style={{ color: line.kind ? LINE_COLORS[line.kind] : undefined }}>
       {line.spans && line.text ? renderSpans(line.spans) : renderLineWithLinks(line.text, openLineUrl, openLinePath)}
+      {line.status && <CommandStatus {...line.status} />}
     </div>
   );
 });
+
+/** "340 ms", "2.4 s", "3m 05s". */
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `${Math.round(ms)} ms`;
+  if (ms < 60_000) return `${(ms / 1000).toFixed(1)} s`;
+  const s = Math.round(ms / 1000);
+  return `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`;
+}
+
+/** How a command ended, after its line: ✓, or ✗ and the exit code, and
+ *  the time it took if that was a second or more. Not part of the text
+ *  (search and copy leave it out). */
+function CommandStatus({ code, ms }: { code: number; ms: number }) {
+  const ok = code === 0;
+  return (
+    <span className={`term-status term-status--${ok ? "ok" : "err"}`}
+      title={`${ok ? "Succeeded" : `Exit code ${code}`} · took ${formatDuration(ms)} · Ctrl+↑/↓ jumps between commands`}>
+      {ok ? "✓" : `✗ ${code}`}{ms >= 1000 ? ` ${formatDuration(ms)}` : ""}
+    </span>
+  );
+}
 
 /** Output is rendered in blocks of this many lines (by line id). A new
  *  line re-renders only its own block, and the stylesheet lets the
@@ -4017,6 +4039,13 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
   // The program hid the cursor, as one drawing an arrow-key menu does:
   // with the prompt empty, the keys that drive a menu go to it.
   const programCursorHidden = useRef(false);
+  // Shell integration (pty/shellhooks.go): the shell's prompt hook
+  // reports each command's exit status and the directory. Once it has,
+  // the cwd probes aren't needed. runningCommand is the command the user
+  // ran that hasn't finished yet (lines typed while it runs are its
+  // input, not commands).
+  const shellIntegrated = useRef(false);
+  const runningCommand = useRef<{ text: string; afterId: number; startedAt: number } | null>(null);
   // A full-screen program (vim, less, htop…) is running: its output is
   // drawn by a real terminal grid (terminal/fullScreen.ts) over the
   // output, and keys go straight to it.
@@ -4186,6 +4215,7 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
     outQueue.current = [];
     shellLineIds.current = [];
     takenBack.current = new Set();
+    if (runningCommand.current) runningCommand.current.afterId = nextLineId();
     partialQueued.current = null;
     const fresh = initialLines();
     linesRef.current = fresh;
@@ -4499,6 +4529,61 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
     scheduleFlush();
   }, [scheduleFlush]);
 
+  /** Sets the status shown after a line (see CommandStatus). */
+  const setLineStatus = useCallback((id: number, status: { code: number; ms: number }) => {
+    const q = outQueue.current;
+    const qi = q.findIndex(l => l.id === id);
+    if (qi >= 0) { q[qi] = { ...q[qi], status }; scheduleFlush(); return; }
+    setLines(prev => {
+      let i = prev.length - 1;
+      while (i >= 0 && prev[i].id !== id) i--;
+      if (i < 0) return prev;
+      const next = prev.slice();
+      next[i] = { ...prev[i], status };
+      linesRef.current = next;
+      return next;
+    });
+  }, [scheduleFlush]);
+
+  // A shell-integration mark: the directory, or a command finishing.
+  const onMark = useCallback((mark: string) => {
+    shellIntegrated.current = true;
+    const cwd = cwdFromMark(mark, isWindows());
+    if (cwd !== null) { cwdTracker.set(cwd); return; }
+    const done = /^133;D(?:;(-?\d+))?/.exec(mark);
+    const cmd = runningCommand.current;
+    if (!done || !cmd) return;
+    runningCommand.current = null;
+    const status = { code: Number(done[1] ?? 0), ms: performance.now() - cmd.startedAt };
+    // The status goes on the command's line: the first line since it was
+    // run that ends with it (the shell's echo of it).
+    const all = linesRef.current.concat(outQueue.current);
+    const echo = all.find(l => l.id >= cmd.afterId && l.text.trimEnd().endsWith(cmd.text));
+    if (echo) setLineStatus(echo.id, status);
+    events.emit("shell_command_done", { command: cmd.text, code: status.code, ms: Math.round(status.ms) });
+  }, [setLineStatus]);
+
+  // Ctrl+Up / Ctrl+Down: scroll to the previous / next command run.
+  const jumpToCommand = useCallback((dir: -1 | 1) => {
+    const out = outRef.current;
+    if (!out) return;
+    const base = out.getBoundingClientRect().top - out.scrollTop;
+    const tops = [...out.querySelectorAll<HTMLElement>(".term-line--command")]
+      .map(el => ({ el, top: el.getBoundingClientRect().top - base }));
+    const now = out.scrollTop;
+    const target = dir < 0
+      ? tops.filter(t => t.top < now - 4).pop()
+      : tops.find(t => t.top > now + 4);
+    if (!target) {
+      if (dir > 0) { userScrolled.current = false; scrollToBottom(true); }
+      return;
+    }
+    out.scrollTop = Math.max(0, target.top - 6);
+    userScrolled.current = true;
+    target.el.classList.add("term-line--flash");
+    setTimeout(() => target.el.classList.remove("term-line--flash"), 700);
+  }, [scrollToBottom]);
+
   // ── OXIS command dispatcher ───────────────────────────────
   const dispatchOxisCmd = useCallback((raw: string): boolean => {
     let body = raw.trim();
@@ -4533,6 +4618,7 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
   // Asks the shell for its cwd (cwdTracker.ts); the probe's echo and
   // answer are filtered out of the output.
   const probeCwd = useCallback(() => {
+    if (shellIntegrated.current) return; // the shell reports it itself
     sendToShell(buildCwdProbe(isWindows()) + "\r");
   }, [sendToShell]);
 
@@ -4552,6 +4638,9 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
       addLine("  '" + disp, "cmd");
       if (!dispatchOxisCmd(cmd)) addLine("  ✗  unknown command — type 'help", "err");
     } else {
+      if (shellIntegrated.current && !runningCommand.current && !scriptRunTracker.isBusy()) {
+        runningCommand.current = { text: cmd, afterId: nextLineId(), startedAt: performance.now() };
+      }
       sendToShell(cmd + "\r");
       // Re-probe the cwd after a likely directory change so the
       // workspace there is detected; wait for the cd to finish first.
@@ -4593,6 +4682,7 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
       onOutput,
       onRewind,
       onCursor: (hidden) => { programCursorHidden.current = hidden; },
+      onMark,
       onScreen: (event, data) => {
         if (event === "start") { screenQueue.current = []; setScreenOn(true); return; }
         if (event === "data") {
@@ -4613,8 +4703,10 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
         events.emit("shell_started", { id });
         // Initial cwd probe — this is what makes automatic workspace
         // detection on launch actually automatic instead of requiring
-        // the user to run 'workspace reload by hand.
-        setTimeout(probeCwd, 500);
+        // the user to run 'workspace reload by hand. A shell with
+        // integration reports its directory at its first prompt, so the
+        // probe waits for that and is only sent if it doesn't come.
+        setTimeout(probeCwd, 3000);
 
         // A newer build is announced once, as a single line.
         setTimeout(() => {
@@ -4920,6 +5012,13 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
         if (common.length > body.length) syncInput(`'${common}`, common.length + 1);
         else addLine(`  ${matches.slice(0, 20).join("  ")}${matches.length > 20 ? "  …" : ""}`, "dim");
       }
+      return;
+    }
+
+    // ── JUMP BETWEEN COMMANDS ─────────────────────────────
+    if (ctrl && !e.shiftKey && (k === "ArrowUp" || k === "ArrowDown")) {
+      e.preventDefault();
+      jumpToCommand(k === "ArrowUp" ? -1 : 1);
       return;
     }
 

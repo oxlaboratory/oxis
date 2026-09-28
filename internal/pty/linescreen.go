@@ -16,6 +16,11 @@ const (
 	// kindCursor is "hidden" or "shown": whether the program hid the
 	// cursor, as one drawing an arrow-key menu does.
 	kindCursor = "cursor"
+	// kindMark is a shell-integration mark, as the shell's prompt hook
+	// sent it (shellhooks.go): "133;D;<exit code>" when a command has
+	// finished, "7;file://host/path" (or "9;9;path") for the working
+	// directory. It comes after the output printed before it.
+	kindMark = "mark"
 )
 
 // lineScreen turns a shell's output into lines for the line view by
@@ -286,15 +291,22 @@ func (m *lineScreen) escape(s string) int {
 		return k + 1
 	case ']', 'P', 'X', '^', '_':
 		for j := 2; j < len(s); j++ {
+			end, n := -1, 0
 			switch {
 			case s[j] == 0x07:
-				return j + 1
+				end, n = j, j+1
 			case s[j] == 0x1b && j+1 == len(s):
 				return 0
 			case s[j] == 0x1b && s[j+1] == '\\':
-				return j + 2
+				end, n = j, j+2
 			case s[j] == 0x1b:
-				return j
+				end, n = j, j
+			}
+			if end >= 0 {
+				if s[1] == ']' {
+					m.osc(s[2:end])
+				}
+				return n
 			}
 		}
 		return 0
@@ -331,6 +343,15 @@ func (m *lineScreen) escape(s string) int {
 		}
 	}
 	return 2
+}
+
+// osc passes shell-integration marks on to the page, after the output
+// before them. Other OSC strings (the window title…) are dropped.
+func (m *lineScreen) osc(payload string) {
+	if strings.HasPrefix(payload, "133;D") || strings.HasPrefix(payload, "7;") || strings.HasPrefix(payload, "9;9;") {
+		m.flush()
+		m.send(kindMark, payload)
+	}
 }
 
 // param returns the i-th numeric parameter, or def if it's missing or 0.

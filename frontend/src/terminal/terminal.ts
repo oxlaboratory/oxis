@@ -86,11 +86,18 @@ export interface Line {
   kind?: LineKind;
   /** Colours from the shell (ansi.ts); undefined for plain lines. */
   spans?: Span[];
+  /** On the line where a command was run: how it ended (from the
+   *  shell's integration mark) and how long it took. */
+  status?: { code: number; ms: number };
 }
 
 let _lid = 0;
 export const mkLine = (text = "", kind?: LineKind): Line =>
   ({ id: _lid++, text, kind });
+
+/** The id the next line will get: lines made from now on have ids at
+ *  least this. */
+export const nextLineId = (): number => _lid;
 
 export const LINE_COLORS: Record<string, string> = {
   ok:     "var(--green)",

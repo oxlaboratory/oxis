@@ -18,7 +18,11 @@ export type OxisEvent =
   | "editor_saved"
   | "editor_closed"
   | "mode_changed"
-  | "workspace_loading";
+  | "workspace_loading"
+  // Shell integration: a command the user ran finished ({ command, code,
+  // ms }); the shell's directory changed ({ path }).
+  | "shell_command_done"
+  | "directory_changed";
 
 export type EventPayload = Record<string, unknown>;
 export type EventHandler = (payload?: EventPayload) => void;

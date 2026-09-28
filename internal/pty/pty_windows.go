@@ -108,10 +108,8 @@ func buildShellCmd() string {
 	if custom := os.Getenv("OXIS_SHELL"); custom != "" {
 		return custom
 	}
-	// OXIS edits the command line itself and sends it whole, so
-	// PSReadLine's in-place redrawing only garbles the echo once escape
-	// codes are stripped; unload it for this session.
-	const psFlags = `-NoLogo -NoExit -Command "Remove-Module PSReadLine -ErrorAction SilentlyContinue"`
+	// PowerShell starts with shell integration (shellhooks.go).
+	psFlags := psArgs()
 	for _, c := range []struct{ path, flag string }{
 		{os.Getenv("ProgramFiles") + `\PowerShell\7\pwsh.exe`, psFlags},
 		{`C:\Program Files\PowerShell\7\pwsh.exe`, psFlags},

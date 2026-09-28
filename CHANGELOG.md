@@ -6,6 +6,17 @@ All notable changes to OXIS. The format follows
 ## [Unreleased]
 
 ### Added
+- Shell integration: PowerShell, bash, zsh and fish start with a prompt
+  hook (after the user's own startup files) that reports each command's
+  exit status and the working directory (OSC 133 and OSC 7, as VS Code
+  and Windows Terminal use). Every command run gets `✓` or `✗` and its
+  exit code at the end of its line, with the time it took if that was a
+  second or more; Ctrl+↑ / Ctrl+↓ jump between commands; the directory
+  is followed exactly, so OXIS no longer sends `Write-Host` probes to
+  the shell (they ended up in its history). Plugins get
+  `ShellCommandDone` ({ command, code, ms }) and `DirectoryChanged`.
+  `OXIS_SHELL_INTEGRATION=0` turns it off; without it OXIS probes for
+  the directory as before.
 - Arrow-key menus work: `npm create vite`, `gh`, and anything built on
   inquirer, clack, prompts, dialoguer or survey. While a program shows
   a menu (it hides the cursor), Up, Down and Space go to it; at the

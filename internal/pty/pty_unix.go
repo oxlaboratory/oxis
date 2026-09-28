@@ -60,8 +60,13 @@ func HandleSession(conn *websocket.Conn) {
 				shell = "/bin/bash"
 			}
 
-			cmd = exec.Command(shell)
-			cmd.Env = shellEnv("TERM=xterm-256color", "COLORTERM=truecolor")
+			// Shell integration (shellhooks.go), except for a custom shell.
+			var args, extra []string
+			if os.Getenv("OXIS_SHELL") == "" {
+				args, extra = shellStart(shell)
+			}
+			cmd = exec.Command(shell, args...)
+			cmd.Env = shellEnv(append([]string{"TERM=xterm-256color", "COLORTERM=truecolor"}, extra...)...)
 
 			ptmx, err = gpty.StartWithSize(cmd, &gpty.Winsize{
 				Rows: rows,

@@ -16,6 +16,8 @@
  *                    { type: "rewind", data: N }  (take back the unfinished line and
  *                      the N lines before it; the output that follows replaces them)
  *                    { type: "cursor", data: "hidden" | "shown" }
+ *                    { type: "mark", data }  (shell integration: "133;D;<exit code>" when a
+ *                      command has finished, "7;file://host/path" for the directory)
  *                    { type: "screen-start" } / { type: "screen", data } / { type: "screen-end" }
  *                      (a full-screen program's raw output, see terminal/fullScreen.ts)
  *                    { type: "ready" }
@@ -56,6 +58,8 @@ export interface PtyOptions {
   onRewind?: RewindCallback;
   /** The program hid the cursor (as one drawing a menu does) or showed it. */
   onCursor?: (hidden: boolean) => void;
+  /** A shell-integration mark (see the protocol above), in order with the output. */
+  onMark?: (mark: string) => void;
   /** Auto-reconnect on unexpected close. Default: false */
   reconnect?: boolean;
 }
@@ -82,7 +86,7 @@ async function wsURL(): Promise<string> {
 }
 
 export function openPty(opts: PtyOptions): PtySession {
-  const { onOutput, onReady, onExit, onError, onScreen, onRewind, onCursor, reconnect } = opts;
+  const { onOutput, onReady, onExit, onError, onScreen, onRewind, onCursor, onMark, reconnect } = opts;
   // Latest requested size; resizes before the socket opens are kept and
   // sent with init.
   let size = { cols: opts.cols, rows: opts.rows };
@@ -119,6 +123,7 @@ export function openPty(opts: PtyOptions): PtySession {
         case "screen-end":   onScreen?.("end", ""); break;
         case "rewind":       onRewind?.(Number(msg.data) || 0); break;
         case "cursor":       onCursor?.(msg.data === "hidden"); break;
+        case "mark":         if (msg.data) onMark?.(msg.data); break;
       }
     });
 

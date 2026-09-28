@@ -10,6 +10,7 @@
 
 import { stripSgr } from "./ansi";
 import { workspaceManager } from "./workspaceManager";
+import { events } from "./events";
 
 const MARK = "\u2063OXISCWD\u2063";
 const PROBE_RE = new RegExp(MARK + "([^\\r\\n]*?)" + MARK, "g");
@@ -79,13 +80,34 @@ class CwdTracker {
       this.carry = stripped.slice(-keep);
       stripped = stripped.slice(0, -keep);
     }
-    if (changed !== null && changed !== this.cwd) {
-      this.cwd = changed;
-      this.listeners.forEach((fn) => fn(changed as string));
-      workspaceManager.detectAndLoad(changed).catch(() => { /* 'workspace reload still works */ });
-    }
+    if (changed !== null) this.set(changed);
     return stripped;
+  }
+
+  /** The shell reported its directory (a probe's answer, or a shell
+   *  integration mark): tell the listeners and detect the workspace. */
+  set(cwd: string): void {
+    if (!cwd || cwd === this.cwd) return;
+    this.cwd = cwd;
+    this.listeners.forEach((fn) => fn(cwd));
+    events.emit("directory_changed", { path: cwd });
+    workspaceManager.detectAndLoad(cwd).catch(() => { /* 'workspace reload still works */ });
   }
 }
 
 export const cwdTracker = new CwdTracker();
+
+/** The directory in a shell-integration mark: "7;file://host/path"
+ *  (percent-encoded; on Windows "/C:/…" is a drive, and a host means a
+ *  network share) or Windows Terminal's "9;9;path". */
+export function cwdFromMark(mark: string, windows: boolean): string | null {
+  if (mark.startsWith("9;9;")) return mark.slice(4).replace(/^"|"$/g, "") || null;
+  const m = /^7;file:\/\/([^/]*)(\/.*)?$/.exec(mark);
+  if (!m) return null;
+  let path = m[2] ?? "/";
+  try { path = decodeURIComponent(path); } catch { /* not encoded */ }
+  if (!windows) return path;
+  if (/^\/[A-Za-z]:/.test(path)) return path.slice(1).replace(/\//g, "\\");
+  const host = m[1];
+  return host && host !== "localhost" ? "\\\\" + host + path.replace(/\//g, "\\") : path.replace(/\//g, "\\");
+}

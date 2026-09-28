@@ -162,9 +162,12 @@ while the desktop app is running:
 - [x] Colour output: 16, 256 and 24-bit colour
 - [x] Self-update from source with rollback, and `'version` build info
 - [x] Windows Terminal colour schemes via `'theme import`
+- [x] Full-screen programs (vim, less, htop, lazygit) in a real terminal grid
+- [x] Arrow-key menus, spinners and progress bars that redraw in place
+- [x] Shell integration: each command's status and time, jumping between commands
+- [x] Plugin APIs for the editor's open file, file watching and processes
+- [x] Streaming HTTP for plugins, for AI assistants that answer as they write
 - [ ] A tested macOS build (Wails supports it; nobody has tried it yet)
-- [ ] Plugin APIs for the editor's open file, file watching and processes
-- [ ] Streaming HTTP for plugins, for AI assistants that answer as they write
 - [ ] Premium plugins in the Market (AI DevOps first)
 
 Ideas and bug reports are welcome in [issues](https://github.com/oxlaboratory/oxis/issues).
@@ -319,6 +322,7 @@ scrolls above it and never goes underneath it.
 | PageUp / PageDown | Scroll the output |
 | Ctrl+= / Ctrl+- / Ctrl+0 | Zoom in / out / reset (saved as the `fontSize` setting) |
 | Ctrl+T / Ctrl+W | Show the terminal / go back to Home |
+| Ctrl+↑ / Ctrl+↓ | Jump to the previous / next command in the output |
 | Ctrl+Shift+P | Command palette |
 | Ctrl+Shift+M | Open the Market website |
 
@@ -339,6 +343,28 @@ underneath. When it's done, only the final state is left in the
 output: `✔ Project name · my-app`, not every frame of the menu. This
 holds when the window is resized mid-menu too. Cleared screens
 (`clear`, `cls`) stay in the history above.
+
+### Shell integration
+
+OXIS starts PowerShell, bash, zsh and fish with a small prompt hook
+(after your own profile or rc files, which run as usual) that reports
+each command's exit status and the working directory, as VS Code and
+Windows Terminal do. With it:
+
+- Every command you run gets a mark at the end of its line: `✓`, or
+  `✗` and the exit code, plus how long it took if that was a second or
+  more. Hover it for the details.
+- **Ctrl+↑ / Ctrl+↓** jump to the previous / next command.
+- OXIS follows the directory exactly (`cd`, `z`, `Push-Location`,
+  scripts that change it), so the workspace there is detected, without
+  sending anything to your shell.
+- Plugins get `ShellCommandDone` and `DirectoryChanged` events (see
+  [Lua API](#lua-api)).
+
+Set `OXIS_SHELL_INTEGRATION=0` to start shells without it; a custom
+`OXIS_SHELL` never gets it. Without it (or in `cmd.exe`) OXIS finds the
+directory by asking the shell after a `cd`, as before. The bash and zsh
+startup files OXIS uses are in `~/.oxis/shell`.
 
 ### Full-screen programs
 
@@ -736,8 +762,21 @@ Events for `oxis.autocmd`: `ShellOpen` (alias `TerminalOpen`),
 `ShellExit`, `ThemeChanged`, `PluginLoaded`, `PluginUnloaded`,
 `WorkspaceLoaded`, `WorkspaceUnloaded`, `CommandExecuted`,
 `CommandError`, `EditorOpened`, `EditorChanged`, `EditorSaved`,
-`EditorClosed`, `ModeChanged`. The function gets the event's details as
-a table (`{ path = ... }` for the editor events).
+`EditorClosed`, `ModeChanged`, `ShellCommandDone` and `DirectoryChanged`.
+The function gets the event's details as a table (`{ path = ... }` for
+the editor events and `DirectoryChanged`; `{ command, code, ms }` for
+`ShellCommandDone`, a command run at the prompt that finished, with its
+exit code and how long it took).
+
+```lua
+-- Say when a long build or test run is over.
+oxis.autocmd("ShellCommandDone", function(e)
+  if e.ms > 10000 then
+    oxis.echo(e.command .. (e.code == 0 and " finished" or " failed") ..
+      string.format(" after %.0f s", e.ms / 1000), e.code == 0 and "ok" or "err")
+  end
+end)
+```
 
 An error in a plugin's code, including a denied permission, is an
 ordinary Lua error: `pcall` catches it. What a plugin starts (programs,

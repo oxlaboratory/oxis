@@ -237,6 +237,20 @@ html, body, #root {
 }
 .term-line--match { background: rgba(203,166,247,.12); background: color-mix(in srgb, var(--purple) 14%, transparent); }
 
+/* How a command ended (shell integration), after its line. */
+.term-status {
+  margin-left: 2ch; font-size: .86em; opacity: .7;
+  user-select: none; -webkit-user-select: none; white-space: nowrap;
+}
+.term-status--ok  { color: var(--green); }
+.term-status--err { color: var(--err); opacity: .95; }
+.term-line--command:hover .term-status { opacity: 1; }
+.term-line--flash { animation: term-flash .7s ease-out; }
+@keyframes term-flash {
+  from { background: color-mix(in srgb, var(--purple) 26%, transparent); }
+  to   { background: transparent; }
+}
+
 /* ── BUILT-IN EDITOR ─────────────────────────────────────── */
 .editor { flex: 1 1 0; display: flex; flex-direction: column; min-height: 0; background: var(--bg); }
 
