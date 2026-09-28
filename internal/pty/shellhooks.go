@@ -24,20 +24,30 @@ func integrationOff() bool { return os.Getenv("OXIS_SHELL_INTEGRATION") == "0" }
 // before anything can change it. A failed command is a cmdlet (exit
 // status 1) if it added an error to $Error, else a native program,
 // whose exit code is in $LASTEXITCODE ($LASTEXITCODE alone can be left
-// over from an earlier program). PSReadLine is unloaded: OXIS edits the
-// command line itself and sends it whole, and PSReadLine's redrawing
-// would garble the echo.
+// over from an earlier program). The directory is made into a file URL
+// by hand (C:\a b → file:///C:/a%20b, \\host\share → file://host/share,
+// /tmp → file:///tmp): [uri] doesn't take every path on every platform.
+// Nothing here may break the user's prompt, so it's all in a try.
+// PSReadLine is unloaded: OXIS edits the command line itself and sends
+// it whole, and PSReadLine's redrawing would garble the echo.
 const psIntegration = `Remove-Module PSReadLine -ErrorAction SilentlyContinue
 $global:__oxisPrompt = $function:prompt
 $global:__oxisError = $Error[0]
 function global:prompt {
     $ok = $?
-    $newError = $Error.Count -gt 0 -and -not [object]::ReferenceEquals($Error[0], $global:__oxisError)
-    $global:__oxisError = $Error[0]
-    $code = if ($ok) { 0 } elseif (-not $newError -and $global:LASTEXITCODE) { $global:LASTEXITCODE } else { 1 }
-    $e = [char]27; $b = [char]7
-    $mark = "$e]133;D;$code$b"
-    if ($PWD.Provider.Name -eq 'FileSystem') { $mark += "$e]7;" + ([uri]$PWD.ProviderPath).AbsoluteUri + $b }
+    $mark = ''
+    try {
+        $newError = $Error.Count -gt 0 -and -not [object]::ReferenceEquals($Error[0], $global:__oxisError)
+        $global:__oxisError = $Error[0]
+        $code = if ($ok) { 0 } elseif (-not $newError -and $global:LASTEXITCODE) { $global:LASTEXITCODE } else { 1 }
+        $e = [char]27; $b = [char]7
+        $mark = "$e]133;D;$code$b"
+        if ($PWD.Provider.Name -eq 'FileSystem') {
+            $p = (($PWD.ProviderPath -replace '\\', '/') -split '/' | ForEach-Object { [uri]::EscapeDataString($_) -replace '%3A', ':' }) -join '/'
+            $url = if ($p.StartsWith('//')) { 'file:' + $p } elseif ($p.StartsWith('/')) { 'file://' + $p } else { 'file:///' + $p }
+            $mark += "$e]7;$url$b"
+        }
+    } catch { }
     $mark + (& $global:__oxisPrompt)
 }
 `

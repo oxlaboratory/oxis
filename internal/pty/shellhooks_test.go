@@ -29,7 +29,10 @@ func TestPowerShellIntegration(t *testing.T) {
 	if err != nil {
 		t.Skip("no PowerShell")
 	}
-	dir := t.TempDir()
+	dir := filepath.Join(t.TempDir(), "a b")
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
 	script := psIntegration + `
 cmd /c exit 3
 [Console]::Out.Write((prompt))
@@ -56,7 +59,8 @@ Set-Location -LiteralPath '` + dir + `'
 	if !strings.Contains(s, "\x1b]133;D;0\x07\x1b]7;file://") {
 		t.Errorf("no success mark and directory in %q", s)
 	}
-	if !strings.Contains(strings.ToLower(s), strings.ToLower(filepath.Base(dir))+"\x07") {
+	// The directory as a file URL, with the space encoded.
+	if !strings.Contains(s, "/a%20b\x07") || !strings.Contains(s, "\x1b]7;file:///") {
 		t.Errorf("directory %s not in %q", dir, s)
 	}
 }

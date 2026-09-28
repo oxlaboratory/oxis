@@ -53,8 +53,14 @@ jobs:
 
       # After the build: the tests compile the embedded frontend it copies
       # into internal/server/dist.
+      # A failing test's lines also become annotations, which anyone can
+      # read on the run's page (the log needs a sign-in).
       - name: Test
-        run: go test -tags desktop,production,webkit2_41 ./internal/...
+        run: |
+          if ! go test -tags desktop,production,webkit2_41 ./internal/... 2>&1 | tee test.log; then
+            grep -E '^\s+\S+_test\.go:[0-9]+:|^--- FAIL|^FAIL' test.log | head -30 | sed -E 's/^\s*/::error::/'
+            exit 1
+          fi
 
       - name: Stage release files
         run: |
@@ -102,7 +108,14 @@ jobs:
         shell: cmd
 
       - name: Test
-        run: go test -tags desktop,production ./internal/...
+        run: |
+          go test -tags desktop,production ./internal/... > test.log 2>&1
+          set status=%errorlevel%
+          type test.log
+          if not %status%==0 (
+            powershell -NoProfile -Command "Select-String -Path test.log -Pattern '^\s+\S+_test\.go:\d+:','^--- FAIL','^FAIL' | Select-Object -First 30 | ForEach-Object { '::error::' + $_.Line.Trim() }"
+            exit /b 1
+          )
         shell: cmd
 
       - name: Build MSI installer
