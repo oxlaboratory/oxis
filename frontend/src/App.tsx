@@ -54,7 +54,9 @@ import {
 import { highlight, detectLang, escapeHtml } from "./terminal/syntaxHighlight";
 import { checkCode, type Problem, type Severity } from "./terminal/codeCheck";
 import { lineStarts, lineAt, decorHtml, matchingBracket, wordOccurrences, type Mark } from "./terminal/editorDecor";
+import { wordIndex, suggest, wordBefore, wordAround, type Suggestion } from "./terminal/completion";
 import { CodeMinimap, MINIMAP_WIDTH } from "./components/CodeMinimap";
+import { QuickOpen } from "./components/QuickOpen";
 import {
   indentUnit, indentLines, outdentLines, toggleComment, moveLines, duplicateLines, deleteLines,
   newline, typePair, deletePair, smartHome, selectNext, selectLine, formatDocument, type EditState,
@@ -292,13 +294,18 @@ const SETTINGS: SettingDef[] = [
     apply: () => { /* read for each new line of output */ },
   },
   {
-    key: "editorVim", label: "Editor Vim Keys", default: false,
-    description: "Vim keys in the editor: Normal/Insert/Visual modes (i, hjkl, dd, v…). Off: the editor just types, like most editors",
+    key: "editorVim", label: "Editor Modes", default: true,
+    description: "The editor's modes, as in Vim: Normal (move around and read: hjkl, gg, dd…), Insert (type) and Visual (select). Off: the editor just types, like most editors",
     apply: () => { /* read when a file opens */ },
   },
   {
     key: "editorMinimap", label: "Editor Minimap", default: true,
     description: "Show the whole file in miniature beside the editor, marking where its mistakes, find matches and unsaved changes are",
+    apply: () => { /* read when the editor renders */ },
+  },
+  {
+    key: "editorSuggest", label: "Editor Suggestions", default: true,
+    description: "Suggest words from the file and the language's keywords while typing in the editor (Enter or Tab accepts, Ctrl+Space asks)",
     apply: () => { /* read when the editor renders */ },
   },
   {
@@ -657,7 +664,9 @@ const HOTKEYS: Array<{ section: string; keys: Array<[string, string]> }> = [
     ["Ctrl+S", "save"],
     ["Ctrl+F / Ctrl+H", "find / replace (every match highlighted)"],
     ["Enter / Shift+Enter", "next / previous match (in the find bar)"],
+    ["Ctrl+P", "go to a file (letters of its name or path)"],
     ["Ctrl+G", "go to a line"],
+    ["Ctrl+Space", "suggest words (they also appear as you type; Enter or Tab accepts)"],
     ["Ctrl+Z / Ctrl+Y", "undo / redo"],
     ["Ctrl+/", "comment or uncomment the lines"],
     ["Alt+↑ / Alt+↓", "move the lines up / down"],
@@ -674,8 +683,8 @@ const HOTKEYS: Array<{ section: string; keys: Array<[string, string]> }> = [
     ["Ctrl+Shift+Enter", "full-size preview (HTML, Markdown)"],
     ["( [ { \" ' `", "close themselves; typing the closer steps over it"],
   ] },
-  { section: "editor with Vim keys", keys: [
-    ["'config set editorVim true", "turns them on (or click EDIT in the editor bar)"],
+  { section: "editor modes (Normal, Insert, Visual)", keys: [
+    ["'config set editorVim false", "turns them off: the editor just types (or click the mode in the editor bar)"],
     ["Esc", "Normal mode (in Normal mode: close the editor)"],
     ["i a A I o O", "insert: before / after the caret, line end / start, new line below / above"],
     ["h j k l  w b  0 $  gg G", "move: left down up right, word, line start / end, file start / end"],
@@ -2529,11 +2538,14 @@ const CodeArea = React.forwardRef<HTMLTextAreaElement, {
   /** The selection (start, end) whenever it may have changed. */
   onCaret?: (start: number, end: number) => void;
   minimap?: boolean;
+  /** Suggest words while typing, with this file extension's keywords;
+   *  undefined turns suggestions off. */
+  suggestExt?: string;
   /** Style for the outer wrapper (preview split width, or hiding the
    *  code pane in full preview without unmounting it). */
   style?: React.CSSProperties;
   hidden?: boolean;
-}>(function CodeArea({ value, lang, className, onChange, onKeyDown, changedLines, starts: givenStarts, problems, marks, onCaret, minimap, style, hidden }, ref) {
+}>(function CodeArea({ value, lang, className, onChange, onKeyDown, changedLines, starts: givenStarts, problems, marks, onCaret, minimap, suggestExt, style, hidden }, ref) {
   const areaRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const preRef = useRef<HTMLPreElement>(null);
@@ -2706,6 +2718,86 @@ const CodeArea = React.forwardRef<HTMLTextAreaElement, {
     });
   }, [problems, starts, value, measure, tip]);
 
+  // ── Suggestions while typing ──
+  // Words already in the file and the language's keywords, in a list
+  // under the caret: ↑/↓ choose, Enter or Tab accept, Esc closes;
+  // Ctrl+Space asks for them. The word index is built from the
+  // debounced text, and only when a list is wanted.
+  const [sugg, setSugg] = useState<{ items: Suggestion[]; sel: number; start: number; x: number; y: number } | null>(null);
+  const wantSuggest = useRef(false);
+  const accepting = useRef(false);
+  const indexRef = useRef<{ text: string; words: Map<string, number> } | null>(null);
+  const openSuggestions = (manual: boolean) => {
+    const ta = taRef.current, area = areaRef.current;
+    if (!ta || !area || suggestExt === undefined || isHuge) { setSugg(null); return; }
+    const caret = ta.selectionStart;
+    const { start, prefix } = wordBefore(value, caret);
+    // Not with a selection, in the middle of a word, or for one letter
+    // (unless asked).
+    if (caret !== ta.selectionEnd || !prefix || (!manual && prefix.length < 2) || /[\w$]/.test(value[caret] ?? "")) { setSugg(null); return; }
+    let ix = indexRef.current;
+    if (!ix || ix.text !== debouncedValue) ix = indexRef.current = { text: debouncedValue, words: wordIndex(debouncedValue) };
+    const items = suggest(prefix, ix.words, suggestExt, wordAround(debouncedValue, Math.min(start, debouncedValue.length)), value[start - 1] === ".");
+    if (!items.length) { setSugg(null); return; }
+    const m = measure();
+    const line = lineAt(starts, start);
+    let col = 0;
+    for (let i = starts[line]; i < start; i++) col += value[i] === "\t" ? m.tab - (col % m.tab) : 1;
+    const tr = ta.getBoundingClientRect(), ar = area.getBoundingClientRect();
+    const x = tr.left - ar.left + m.padLeft + col * m.charW - ta.scrollLeft - 6;
+    const top = tr.top - ar.top + m.padTop + line * m.lineHeight - ta.scrollTop;
+    const height = items.length * 24 + 8;
+    const y = top + m.lineHeight + height <= ar.height ? top + m.lineHeight + 2 : Math.max(0, top - height - 2);
+    setSugg({ items, sel: 0, start, x: Math.max(0, Math.min(x, ar.width - 260)), y });
+  };
+  // After each change: typing a word's letters opens (or narrows) the
+  // list; anything else closes it.
+  useLayoutEffect(() => {
+    const want = wantSuggest.current;
+    wantSuggest.current = false;
+    if (want) openSuggestions(false);
+    else setSugg(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value]);
+  const acceptSuggestion = (word: string) => {
+    const ta = taRef.current;
+    if (!ta || !sugg) return;
+    ta.setSelectionRange(sugg.start, ta.selectionStart);
+    accepting.current = true;
+    // As if typed: the editor's undo and change tracking see it.
+    document.execCommand("insertText", false, word);
+    accepting.current = false;
+    setSugg(null);
+  };
+  const onAreaChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const ev = e.nativeEvent as InputEvent;
+    wantSuggest.current = suggestExt !== undefined && !accepting.current && (
+      (ev.inputType === "insertText" && ev.data?.length === 1 && /[\w$]$/.test(ev.data)) ||
+      (ev.inputType === "deleteContentBackward" && !!sugg));
+    onChange?.(e);
+  };
+  const onAreaKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (tip) setTip(null);
+    if (sugg) {
+      const n = sugg.items.length;
+      const plain = !e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey;
+      if (plain && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+        e.preventDefault();
+        setSugg({ ...sugg, sel: (sugg.sel + (e.key === "ArrowDown" ? 1 : n - 1)) % n });
+        return;
+      }
+      if (plain && (e.key === "Enter" || e.key === "Tab")) { e.preventDefault(); acceptSuggestion(sugg.items[sugg.sel].word); return; }
+      if (e.key === "Escape") { e.preventDefault(); setSugg(null); return; }
+      if (["ArrowLeft", "ArrowRight", "Home", "End", "PageUp", "PageDown"].includes(e.key)) setSugg(null);
+    }
+    if (e.key === " " && e.ctrlKey && !e.shiftKey && !e.altKey && suggestExt !== undefined) {
+      e.preventDefault();
+      openSuggestions(true);
+      return;
+    }
+    onKeyDown?.(e);
+  };
+
   const bodyLeft = `${gutterWidth + 3}ch`;
   return (
     <div ref={areaRef} className="code-area" style={style} hidden={hidden}>
@@ -2731,9 +2823,11 @@ const CodeArea = React.forwardRef<HTMLTextAreaElement, {
           ref={taRef}
           className={`code-area-input ${className ?? ""}`}
           value={value}
-          onChange={onChange}
-          onKeyDown={e => { if (tip) setTip(null); onKeyDown?.(e); }}
-          onScroll={e => { if (tip) setTip(null); syncScroll(e); }}
+          onChange={onAreaChange}
+          onKeyDown={onAreaKeyDown}
+          onScroll={e => { if (tip) setTip(null); if (sugg) setSugg(null); syncScroll(e); }}
+          onBlur={() => setSugg(null)}
+          onMouseDown={() => { if (sugg) setSugg(null); }}
           onSelect={reportCaret}
           onKeyUp={reportCaret}
           onMouseUp={reportCaret}
@@ -2747,6 +2841,18 @@ const CodeArea = React.forwardRef<HTMLTextAreaElement, {
         <CodeMinimap text={debouncedValue} starts={debouncedStarts} problems={problems ?? []}
           marks={minimapMarks} changedLines={changedLines} textareaRef={taRef} />
       )}
+      {sugg && (
+        <div className="code-suggest" style={{ left: sugg.x, top: sugg.y }} role="listbox">
+          {sugg.items.map((it, i) => (
+            <div key={it.word} role="option" aria-selected={i === sugg.sel}
+              className={`code-suggest-item${i === sugg.sel ? " code-suggest-item--sel" : ""}`}
+              onMouseDown={e => { e.preventDefault(); acceptSuggestion(it.word); }}>
+              <span className={`code-suggest-kind${it.keyword ? " code-suggest-kind--kw" : ""}`}>{it.keyword ? "kw" : "ab"}</span>
+              <span className="code-suggest-word">{[...it.word].map((ch, k) => it.at.includes(k) ? <b key={k}>{ch}</b> : ch)}</span>
+            </div>
+          ))}
+        </div>
+      )}
       {tip && (
         <div className="code-area-tip" style={{ left: tip.x, top: tip.y }}>
           {tip.items.map((p, i) => (
@@ -2759,6 +2865,29 @@ const CodeArea = React.forwardRef<HTMLTextAreaElement, {
     </div>
   );
 });
+
+/** Changes a large textarea's text to `next` by editing only the part
+ *  that differs (as if typed), not by assigning all of it: in a long
+ *  file, assigning .value lays out every line again (a quarter of a
+ *  second at 7,000 lines), where an edit touches only what changed.
+ *  Returns false, having changed nothing, when it doesn't apply (a
+ *  small file, the textarea not focused, CRLF text); the caller's value
+ *  is assigned as usual then. */
+function patchTextarea(ta: HTMLTextAreaElement, next: string): boolean {
+  const prev = ta.value;
+  if (prev === next) return true;
+  if (prev.length < 20_000 || document.activeElement !== ta || next.includes("\r")) return false;
+  const max = Math.min(prev.length, next.length);
+  let p = 0;
+  while (p < max && prev.charCodeAt(p) === next.charCodeAt(p)) p++;
+  let q = 0;
+  while (q < max - p && prev.charCodeAt(prev.length - 1 - q) === next.charCodeAt(next.length - 1 - q)) q++;
+  ta.setSelectionRange(p, prev.length - q);
+  const insert = next.slice(p, next.length - q);
+  if (insert) document.execCommand("insertText", false, insert);
+  else document.execCommand("delete");
+  return ta.value === next;
+}
 
 // ══════════════════════════════════════════════════════════════
 // MODAL EDITING — Normal/Insert/Visual mode logic for the editor.
@@ -2806,6 +2935,15 @@ function useModalEditor(opts: {
   const GROUP_TIMEOUT_MS = 700;
 
   const curPos = useCallback(() => taRef.current?.selectionStart ?? 0, [taRef]);
+  // While the textarea is being edited to match a change made here
+  // (patchTextarea), its input events aren't new typing.
+  const patching = useRef(false);
+  const patch = useCallback((next: string) => {
+    const ta = taRef.current;
+    if (!ta || ta.value === next) return;
+    patching.current = true;
+    try { patchTextarea(ta, next); } finally { patching.current = false; }
+  }, [taRef]);
 
   // Every content-changing action funnels through this instead of
   // calling onEdit directly, so nothing can mutate text without also
@@ -2820,16 +2958,18 @@ function useModalEditor(opts: {
       redoStack.current = [];
     }
     grouping.current = grouped;
+    patch(next);
     onEdit(next);
-  }, [content, curPos, onEdit]);
+  }, [content, curPos, onEdit, patch]);
 
   const restore = useCallback((snap: Snapshot) => {
+    patch(snap.content);
     onEdit(snap.content);
     requestAnimationFrame(() => {
       const ta = taRef.current; if (!ta) return;
       ta.selectionStart = ta.selectionEnd = Math.min(snap.pos, snap.content.length);
     });
-  }, [onEdit, taRef]);
+  }, [onEdit, taRef, patch]);
 
   const undo = useCallback(() => {
     const snap = undoStack.current.pop();
@@ -3219,6 +3359,7 @@ function useModalEditor(opts: {
   // Outside Insert mode typing is blocked at keydown; paste and cut
   // (menu, Ctrl+V/X) still apply, like Vim's p and d, as their own step.
   const handleChange = useCallback((next: string, inputType?: string) => {
+    if (patching.current) return;
     if (mode === "insert") { commit(next, true); return; }
     if (inputType === "insertFromPaste" || inputType === "deleteByCut" || inputType === "insertText") {
       commit(next, false);
@@ -3452,15 +3593,27 @@ async function inlinePreviewAssets(html: string, filePath: string): Promise<stri
   return html;
 }
 
-function Editor({ file, onClose, onSave }: {
+/** What each open tab had when another one was shown: its unsaved text
+ *  (only while it differs from the file), caret and scroll position.
+ *  Kept outside React so typing doesn't re-render the app. */
+const editorDrafts = new Map<string, { text?: string; caret?: number; scroll?: number }>();
+
+/** A file's text as the editor holds it: LF line endings, as a textarea
+ *  gives them (it turns CRLF into LF); saving puts CRLF back. */
+const toLF = (text: string) => text.replace(/\r\n/g, "\n");
+
+function Editor({ file, onClose, onSave, onDirtyChange }: {
   file:    EditorFile;
   onClose: () => void;
   /** Resolves true once written (plugins' oxis.editor.save waits for it). */
   onSave:  (path: string, content: string) => Promise<boolean>;
+  /** Whether there are unsaved changes, when that changes (the tab's ●). */
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
-  const [content, setContent] = useState(file.content);
-  const [savedContent, setSavedContent] = useState(file.content); // the baseline the gutter diffs against — becomes `content` on every save, not the original-forever
-  const [dirty,   setDirty]   = useState(false);
+  const fileEol = file.content.includes("\r\n") ? "CRLF" : "LF";
+  const [content, setContent] = useState(() => editorDrafts.get(file.path)?.text ?? toLF(file.content));
+  const [savedContent, setSavedContent] = useState(() => toLF(file.content)); // the baseline the gutter diffs against — becomes `content` on every save, not the original-forever
+  const [dirty,   setDirty]   = useState(() => editorDrafts.get(file.path)?.text !== undefined);
   const taRef = useRef<HTMLTextAreaElement>(null);
   // Latest text and dirty flag for plugins (editorBridge), which may
   // edit several times before React re-renders.
@@ -3473,8 +3626,51 @@ function Editor({ file, onClose, onSave }: {
 
   // Re-sync when a different file opens or the current one finishes
   // loading (the editor opens before the read completes).
-  useEffect(() => { setContent(file.content); setSavedContent(file.content); setDirty(false); }, [file.path, file.loading]);
-  useEffect(() => { if (!file.loading) setTimeout(() => taRef.current?.focus(), 40); }, [file.loading]);
+  useEffect(() => {
+    const draft = editorDrafts.get(file.path)?.text;
+    setContent(draft ?? toLF(file.content));
+    setSavedContent(toLF(file.content));
+    setDirty(draft !== undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [file.path, file.loading]);
+  useEffect(() => {
+    if (file.loading) return;
+    setTimeout(() => {
+      const ta = taRef.current;
+      if (!ta) return;
+      ta.focus();
+      // Back where it was when another tab was shown.
+      const view = editorDrafts.get(file.path);
+      if (view?.caret !== undefined && !file.gotoLine) {
+        ta.setSelectionRange(view.caret, view.caret);
+        ta.scrollTop = view.scroll ?? 0;
+      }
+    }, 40);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [file.loading]);
+  // Unsaved text survives switching tabs; the tab shows ● meanwhile.
+  useEffect(() => {
+    const entry = editorDrafts.get(file.path) ?? {};
+    entry.text = dirty ? content : undefined;
+    editorDrafts.set(file.path, entry);
+  }, [content, dirty, file.path]);
+  useEffect(() => { if (!file.loading) onDirtyChange?.(dirty); }, [dirty]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Saved from outside (Save All): the text written is the new baseline.
+  useEffect(() => {
+    if (!file.dirty && dirtyRef.current && editorDrafts.get(file.path)?.text === undefined) {
+      setSavedContent(contentRef.current);
+      setDirty(false);
+    }
+  }, [file.dirty]); // eslint-disable-line react-hooks/exhaustive-deps
+  // (A layout effect: its cleanup runs while the textarea is still there.)
+  useLayoutEffect(() => () => {
+    const ta = taRef.current;
+    if (!ta) return;
+    const entry = editorDrafts.get(file.path) ?? {};
+    entry.caret = ta.selectionStart;
+    entry.scroll = ta.scrollTop;
+    editorDrafts.set(file.path, entry);
+  }, [file.path]);
 
   // Jump to file.gotoLine once the content is in the textarea: caret at
   // the start of that line, scrolled to the middle of the view.
@@ -3499,11 +3695,11 @@ function Editor({ file, onClose, onSave }: {
 
   const save = useCallback(() => {
     const text = contentRef.current; // includes plugin edits not rendered yet
-    const written = onSave(file.path, text);
+    const written = onSave(file.path, fileEol === "CRLF" ? text.replace(/\n/g, "\r\n") : text);
     setSavedContent(text); // new baseline — the gutter now shows changes since THIS save, not the original open
     setDirty(false);
     return written;
-  }, [file.path, onSave]);
+  }, [file.path, onSave, fileEol]);
 
   // The line diff is debounced for large files, like highlighting.
   const [debouncedContent, setDebouncedContent] = useState(content);
@@ -3671,7 +3867,7 @@ function Editor({ file, onClose, onSave }: {
   }, [previewOpen, previewFullscreen]);
 
   // Vim keys, or an editor that's always typing (setting editorVim).
-  const [vim, setVim] = useState(() => getSetting("editorVim") === true);
+  const [vim, setVim] = useState(() => getSetting("editorVim") !== false);
   const [notice, setNotice] = useState("");
   useEffect(() => {
     if (!notice) return;
@@ -3730,7 +3926,11 @@ function Editor({ file, onClose, onSave }: {
   const caretCol = caret.start - starts[caretLineIdx] + 1;
   const selectedChars = Math.abs(caret.end - caret.start);
   const langLabel = (file.path.split(".").pop() ?? "").toUpperCase() || "TEXT";
-  const eol = content.includes("\r\n") ? "CRLF" : "LF";
+  // Suggestions while typing: code, not prose (and not in Vim's Normal mode).
+  const fileExt = (file.path.split(/[\\/]/).pop() ?? "").split(".").slice(1).pop()?.toLowerCase() ?? "";
+  const suggestExt = getSetting("editorSuggest") !== false && mode === "insert"
+    && !["md", "markdown", "txt", "text", "log", "csv", "tsv", ""].includes(fileExt) ? fileExt : undefined;
+  const eol = fileEol;
 
   // ── Plugin access (oxis.editor.*, see editorBridge.ts) ──
   const saveRef = useRef(save);
@@ -3901,6 +4101,7 @@ function Editor({ file, onClose, onSave }: {
           marks={marks}
           onCaret={onCaret}
           minimap={getSetting("editorMinimap") !== false}
+          suggestExt={suggestExt}
           onChange={e => handleChange(e.target.value, (e.nativeEvent as InputEvent).inputType)}
           onKeyDown={onEditorKeyDown}
           style={previewOpen && !previewFullscreen ? { width: `${100 - previewWidthPct}%`, flex: "none" } : undefined}
@@ -4847,6 +5048,44 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
   const focusPrompt = useCallback(() => {
     promptRef.current?.focus({ preventScroll: true });
   }, []);
+
+  // Ctrl+P in the editor: go to a file (QuickOpen). It searches the
+  // project the open file is in: the linked one if the file is inside
+  // it, else the nearest folder above the file with .git, package.json,
+  // go.mod…, else the file's own folder.
+  const [quickOpenRoot, setQuickOpenRoot] = useState<string | null>(null);
+  const editorShowing = editorFiles.length > 0 || fileTreeOpen;
+  const activeEditorPathRef = useRef(activeEditorPath);
+  activeEditorPathRef.current = activeEditorPath;
+  useEffect(() => {
+    if (!editorShowing) { setQuickOpenRoot(null); return; }
+    const findRoot = async (): Promise<string> => {
+      const active = activeEditorPathRef.current?.replace(/\\/g, "/");
+      if (!active || !/^([A-Za-z]:\/|\/)/.test(active)) return fileTreeRoot.dir;
+      const linked = fileTreeRoot.dir.replace(/\\/g, "/").replace(/\/+$/, "");
+      if (fileTreeRoot.dir !== "." && active.toLowerCase().startsWith(linked.toLowerCase() + "/")) return fileTreeRoot.dir;
+      const parts = active.split("/");
+      parts.pop();
+      const folder = parts.join("/");
+      for (let n = parts.length; n > 1; n--) {
+        const dir = parts.slice(0, n).join("/");
+        // A home folder is never the project, even with a .git in it.
+        if (/^([A-Za-z]:\/Users\/[^/]+|\/home\/[^/]+|\/Users\/[^/]+|\/root)$/i.test(dir)) break;
+        for (const marker of [".git", "package.json", "go.mod", "Cargo.toml", "pyproject.toml"]) {
+          try { if ((await statPath(`${dir}/${marker}`)).exists) return dir; } catch { /* keep looking */ }
+        }
+      }
+      return folder;
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey || e.key.toLowerCase() !== "p") return;
+      if (document.activeElement === promptRef.current) return; // the prompt's Ctrl+P is history
+      e.preventDefault();
+      findRoot().then(setQuickOpenRoot);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [editorShowing, fileTreeRoot.dir]);
 
   // With only the file tree showing (no file open), Esc leaves the editor.
   useEffect(() => {
@@ -5828,6 +6067,7 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
 
   const closeEditorTab = useCallback((path: string) => {
     events.emit("editor_closed", { path });
+    editorDrafts.delete(path);
     setEditorFiles(files => {
       const remaining = files.filter(f => f.path !== path);
       setActiveEditorPath(cur => {
@@ -5856,8 +6096,14 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
     const dirty = editorFiles.filter(f => f.dirty && !f.loading);
     if (dirty.length === 0) { addLine("  nothing to save — no dirty tabs", "dim"); return; }
     for (const f of dirty) {
-      editorSave(f.path, f.content).then(saved => {
-        if (saved) setEditorFiles(files => files.map(x => x.path === f.path ? { ...x, dirty: false } : x));
+      // The tab's unsaved text, with the file's own line endings.
+      const text = editorDrafts.get(f.path)?.text ?? toLF(f.content);
+      const disk = f.content.includes("\r\n") ? text.replace(/\n/g, "\r\n") : text;
+      editorSave(f.path, disk).then(saved => {
+        if (!saved) return;
+        const entry = editorDrafts.get(f.path);
+        if (entry?.text === text) entry.text = undefined;
+        setEditorFiles(files => files.map(x => x.path === f.path ? { ...x, content: disk, dirty: false } : x));
       });
     }
   }, [editorFiles, editorSave, addLine]);
@@ -5979,6 +6225,11 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
     return (
       <div className="app-pane app-pane--editor">
         {promptPortal}
+        {quickOpenRoot !== null && (
+          <QuickOpen root={quickOpenRoot} openPaths={editorFiles.map(f => f.path)}
+            onOpen={p => ctxRef.current?.openEditor(p)}
+            onClose={() => { setQuickOpenRoot(null); setTimeout(() => (document.querySelector(".code-area-input") as HTMLElement | null)?.focus(), 20); }} />
+        )}
         <div className="filetree-rail">
           <button className="filetree-toggle" onClick={() => setFileTreeOpen(o => !o)} title="Toggle file tree (Ctrl+B)">☰</button>
         </div>
@@ -6059,6 +6310,8 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
                 if (saved) setEditorFiles(files => files.map(f => f.path === p ? { ...f, content: c, dirty: false } : f));
                 return saved;
               })}
+              onDirtyChange={d => setEditorFiles(files => files.some(f => f.path === activeFile.path && f.dirty !== d)
+                ? files.map(f => f.path === activeFile.path ? { ...f, dirty: d } : f) : files)}
             />
           </ErrorBoundary>
         ) : (

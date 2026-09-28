@@ -49,7 +49,7 @@ Start a line with `'` for 50+ built-ins: history, reverse search, tab completion
 <td width="33%" valign="top">
 
 **📝 An editor, built in**<br>
-Mistakes underlined as you type, a minimap, VS Code's editing keys, find & replace, optional Vim keys, tabs, a file tree, an image viewer, and a live preview that renders your page like a real server.
+Mistakes underlined as you type, suggestions, Ctrl+P to any file, a minimap, VS Code's editing keys, find & replace, Vim-style Normal/Insert/Visual modes, tabs, a file tree, an image viewer, and a live preview that renders your page like a real server.
 
 </td>
 </tr>
@@ -462,6 +462,13 @@ Windows. Quote paths with spaces.
 - **Minimap** beside the text: the whole file in miniature with the
   visible part outlined, and markers for mistakes, find matches and
   unsaved changes. Click or drag it to scroll (setting `editorMinimap`).
+- **Suggestions while typing:** words already in the file and the
+  language's keywords, in a list under the caret (↑/↓ choose, Enter or
+  Tab accepts, Esc closes, Ctrl+Space asks). Letters can be skipped:
+  `gtU` finds `getUser` (setting `editorSuggest`).
+- **Go to a file** with Ctrl+P: type letters of its name or path. It
+  searches the project the open file is in (skipping `node_modules`,
+  `dist` and other build folders); open tabs come first.
 - **Find and replace** highlights every match, the current one
   brighter, and what a replace will change.
 - **Editing keys** like VS Code's: Ctrl+/ comments lines, Alt+↑/↓ moves
@@ -476,9 +483,11 @@ Windows. Quote paths with spaces.
 - **Keys.** Ctrl+S save, Ctrl+Z / Ctrl+Y (or Ctrl+Shift+Z) undo/redo,
   Ctrl+F find, Ctrl+H replace, Ctrl+G go to line, Ctrl+B file tree.
   `'help hotkeys` lists every key in OXIS.
-- **Vim keys** are off by default; click **EDIT** in the editor bar (or
-  `'config set editorVim true`) for Normal (hjkl, `0`/`$`, `gg`/`G`,
-  `w`/`b`, `x`, `dd`, `dw`, `o`/`O`), Insert and Visual modes.
+- **Modes.** Normal (hjkl, `0`/`$`, `gg`/`G`, `w`/`b`, `x`, `dd`, `dw`,
+  `o`/`O`), Insert (`i`, `a`, `o`…) and Visual (`v`, then `d`/`x`/`y`);
+  the editing keys above work in all of them. Click the mode in the
+  editor bar (or `'config set editorVim false`) for an editor that
+  just types.
 - **Tabs** for several open files, with unsaved markers and Save All.
 - **File tree** rooted at the data folder, or at the linked project
   when the active workspace has one. Fully keyboard-driven; drag a file
@@ -1087,8 +1096,9 @@ printed in the terminal and listed by `'diagnostics`.
 | `cursorBlink` | theme's (`true`) | Whether the prompt cursor blinks |
 | `updateCheckOnStartup` | `true` | Check for a newer build at startup |
 | `promptColors` | `true` | Colour the prompt and the commands you ran |
-| `editorVim` | `false` | Vim keys (Normal, Insert and Visual modes) in the editor |
+| `editorVim` | `true` | The editor's Normal, Insert and Visual modes; off, it just types |
 | `editorMinimap` | `true` | The minimap beside the editor's text |
+| `editorSuggest` | `true` | Suggest words and keywords while typing in the editor |
 
 Settings apply immediately and persist. The first three follow the
 theme until you set them; `'config reset` hands them back to it. Themes

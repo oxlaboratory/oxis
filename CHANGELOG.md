@@ -15,6 +15,11 @@ All notable changes to OXIS. The format follows
   styles inside), CSS, JSON, Lua, brackets and strings in Python, Go,
   Rust and C-like files, YAML tabs and merge-conflict markers are
   checked too.
+- Suggestions while typing in the editor: words from the file and the
+  language's keywords, matched even with letters skipped; ↑/↓, Enter or
+  Tab, Esc, and Ctrl+Space to ask (setting `editorSuggest`).
+- Ctrl+P in the editor goes to a file: fuzzy search over the project
+  the open file is in, open tabs first.
 - A minimap beside the editor's text, with the visible part outlined
   and markers for mistakes, find matches and unsaved changes; click or
   drag to scroll (setting `editorMinimap`).
@@ -176,9 +181,8 @@ All notable changes to OXIS. The format follows
   of every built-in theme.
 
 ### Changed
-- The editor types normally by default; Vim keys are a setting
-  (`editorVim`) or a click on **EDIT** in the editor bar. Esc no longer
-  closes the editor unless Vim keys are on.
+- The editor's modes can be turned off (setting `editorVim`, or a click
+  on the mode in the editor bar) for an editor that just types.
 - `oxis.dashboard` no longer changes the theme: that's the user's.
 - `'theme <name>` and `'theme edit <name>` find a theme whatever the
   case of its name.
@@ -289,6 +293,16 @@ All notable changes to OXIS. The format follows
 - The npm launcher downloads from the GitHub `latest-build` release.
 
 ### Fixed
+- Switching editor tabs lost unsaved changes, the tab's ● never showed,
+  closing a changed file didn't ask, and Save All saved nothing. Each
+  tab now keeps its unsaved text, caret and scroll position.
+- Editing a file with Windows (CRLF) line endings turned them all into
+  LF when it was saved, so every line showed as changed in git; the
+  editor now saves a file with the line endings it had. Mistakes and
+  find matches in such files were also marked in the wrong place.
+- Vim commands, moving lines, auto-indent and undo in a large file took
+  a quarter of a second each (the whole text was replaced); they now
+  change only what they change.
 - Home's stars and clouds could land on the title, depending on the
   window's height; the sky now has its own strip above it.
 - Stray `32m`, `?25h` and similar in the output: a read that ended
