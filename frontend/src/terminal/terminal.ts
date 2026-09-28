@@ -41,7 +41,9 @@ export function stripAnsiKeepSgr(s: string): string {
     .replace(/[\x00\x07\x08]/g, "");
 }
 
-/** Where the PTY erased the current line (lineErased in pty.go). */
+/** Where the current line was erased. The PTY sends finished lines
+ *  (pty/linescreen.go) so it doesn't use this any more; output from
+ *  elsewhere still may. */
 const LINE_ERASED = "\x1a";
 
 /** What a line with carriage returns shows: each bare \r returns to the

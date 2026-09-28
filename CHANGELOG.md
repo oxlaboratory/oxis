@@ -6,6 +6,19 @@ All notable changes to OXIS. The format follows
 ## [Unreleased]
 
 ### Added
+- Arrow-key menus work: `npm create vite`, `gh`, and anything built on
+  inquirer, clack, prompts, dialoguer or survey. While a program shows
+  a menu (it hides the cursor), Up, Down and Space go to it; at the
+  shell prompt Up and Down are still history.
+- The line view plays output on a model of the terminal's screen, so a
+  program that redraws what it drew (a menu, a spinner, progress bars,
+  a task list with spinners, a status line under scrolling output)
+  changes those lines instead of printing another copy below. When it
+  finishes, only the final state stays: `✔ Pick a framework · Vue`,
+  not every frame. Long lines stay one line, colours carry across lines
+  as they do in a terminal, and cleared screens stay in the history.
+  The model is checked against xterm.js on recorded random output, and
+  100,000 lines of output go through it in under 0.3 s.
 - Full-screen programs work: vim, less, htop, lazygit, fzf, Microsoft
   Edit… When a program switches to the terminal's alternate screen, its
   output goes untouched to a real terminal grid (xterm.js, loaded the
@@ -229,6 +242,9 @@ All notable changes to OXIS. The format follows
   the rest of the code showed up as text.
 - Lines printed twice after resizing the window (Windows): ConPTY
   repaints the whole screen after a resize, and OXIS showed it again.
+  Repaints that report the new size first, end without moving the
+  cursor, or happen with the cursor hidden (a menu is up) are caught
+  too, and the next command's echo is never taken for part of one.
   The same repaint after a full-screen program exits is dropped too.
 - `'plugin publish` (and unpublish, paid-plugin onboarding, checkout,
   license checks and premium downloads) couldn't reach the Market from

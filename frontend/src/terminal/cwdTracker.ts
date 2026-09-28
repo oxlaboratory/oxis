@@ -50,6 +50,12 @@ class CwdTracker {
     return () => this.listeners.delete(fn);
   }
 
+  /** Forgets output held back for the next chunk: the line it was on
+   *  is being redrawn, and comes again whole. */
+  dropCarry(): void {
+    this.carry = "";
+  }
+
   /** Strips probe answers from a raw output chunk and updates the cwd
    *  (triggering workspace detection) when it changed. */
   consume(raw: string): string {

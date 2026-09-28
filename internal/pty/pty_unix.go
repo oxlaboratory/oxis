@@ -25,6 +25,7 @@ func HandleSession(conn *websocket.Conn) {
 		// A real PTY doesn't repaint, so this is never armed; it's how
 		// the page leaves a full-screen view by hand.
 		screen RepaintGuard
+		size   = newTermSize(120, 30)
 	)
 
 	// Read the first message to init the PTY
@@ -48,6 +49,7 @@ func HandleSession(conn *websocket.Conn) {
 			if rows == 0 {
 				rows = 30
 			}
+			size.set(int(cols), int(rows))
 
 			// OXIS_SHELL overrides $SHELL; /bin/bash is the last resort.
 			shell := os.Getenv("OXIS_SHELL")
@@ -75,9 +77,7 @@ func HandleSession(conn *websocket.Conn) {
 
 			// PTY → WebSocket in background
 			go func() {
-				// A real PTY wraps without ConPTY's cursor jumps: width 0
-				// skips joinWrappedRows.
-				_ = pumpOutput(ptmx, func() int { return 0 }, func(kind, data string) {
+				_ = pumpOutput(ptmx, size, func(kind, data string) {
 					safeSend(conn, &mu, outMsg{Type: kind, Data: data})
 				}, &screen, false)
 				code := 0
@@ -120,6 +120,7 @@ readLoop:
 			}
 		case "resize":
 			if ptmx != nil && msg.Cols > 0 && msg.Rows > 0 {
+				size.set(int(msg.Cols), int(msg.Rows))
 				_ = gpty.Setsize(ptmx, &gpty.Winsize{
 					Rows: msg.Rows,
 					Cols: msg.Cols,

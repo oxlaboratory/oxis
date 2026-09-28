@@ -4,35 +4,8 @@ import (
 	"io"
 	"strings"
 	"testing"
+	"time"
 )
-
-func TestStripCtrl(t *testing.T) {
-	cases := map[string]string{
-		// Colours and styles survive; everything else goes.
-		"\x1b[32mgreen\x1b[0m":               "\x1b[32mgreen\x1b[0m",
-		"\x1b[1;38;5;208mx\x1b[m":            "\x1b[1;38;5;208mx\x1b[m",
-		"\x1b[38:2::255:0:0mrgb":             "\x1b[38:2::255:0:0mrgb",
-		"\x1b[?25l\x1b[?4mhidden":            "hidden",
-		"\x1b]0;title\x07prompt> ":           "prompt> ",
-		"Directory\x1b[9;1HMode\x1b[45X\r\n": "Directory\nMode\r\n",
-		"\x1b[?25l\x1b[2J\x1b[m\x1b[HPS> ":   "\x1b[mPS> ",
-		// npm's spinner on Windows, then its erase before the prompt.
-		"done\r\n\\\r\x1b[KPS> ": "done\r\n\\\r\x1aPS> ",
-		// Node readline on Linux: column 1, then erase.
-		"50%\x1b[1G\x1b[0K100%": "50%\r\x1a100%",
-		"a\x1b[2Kb":             "a\r\x1ab",
-		// Cursor-forward draws blank cells.
-		"PS C:\\>\x1b[1Cgit": "PS C:\\> git",
-		"a\x1b[3Cb\x1b[Cc":   "a   b c",
-		// Erase-to-end after text (not at column 1) erases nothing visible.
-		"text\x1b[K\r\n": "text\r\n",
-	}
-	for in, want := range cases {
-		if got := stripCtrl(in); got != want {
-			t.Errorf("stripCtrl(%q) = %q, want %q", in, got, want)
-		}
-	}
-}
 
 func TestSplitIncompleteUTF8(t *testing.T) {
 	emoji := []byte("hi 🎉")
@@ -50,31 +23,8 @@ func TestSplitIncompleteUTF8(t *testing.T) {
 	}
 }
 
-// conptyWrapScroll is what ConPTY (50 columns, cursor on the bottom
-// row) sent for a 123-character line followed by "after".
-const conptyWrapScroll = "3 \r\n" +
-	"abcdefghi-abcdefghi-abcdefghi-abcdefghi-abcdefghi-abcdefghi-abcdefghi-abcdefghi-abcdefghi-abcdefghi-" +
-	"\r\n\x1b[4;50H-abcdefghi-abcdefghi-END\r\nafter\r\n"
-
-var conptyWrapScrollWant = "3 \r\n" + strings.Repeat("abcdefghi-", 12) + "END\r\nafter\r\n"
-
-func TestJoinWrappedRows(t *testing.T) {
-	if got := stripCtrl(joinWrappedRows(conptyWrapScroll, 50)); got != conptyWrapScrollWant {
-		t.Errorf("got %q", got)
-	}
-	// Colour codes between the jump and the repeated character survive.
-	if got := joinWrappedRows("ab\r\n\x1b[4;10H\x1b[32mbcd", 10); got != "ab\x1b[32mcd" {
-		t.Errorf("with colour: got %q", got)
-	}
-	// Jumps to other columns aren't wrapped rows.
-	for _, s := range []string{"ab\r\n\x1b[4;5Hxy", "ab\r\n\x1b[4;1Hxy"} {
-		if got := joinWrappedRows(s, 50); got != s {
-			t.Errorf("joinWrappedRows(%q) = %q, want it unchanged", s, got)
-		}
-	}
-}
-
-// chunkReader hands out its chunks one per Read.
+// chunkReader hands out its chunks one per Read (a long one over
+// several).
 type chunkReader struct{ chunks []string }
 
 func (r *chunkReader) Read(p []byte) (int, error) {
@@ -82,23 +32,10 @@ func (r *chunkReader) Read(p []byte) (int, error) {
 		return 0, io.EOF
 	}
 	n := copy(p, r.chunks[0])
-	r.chunks = r.chunks[1:]
-	return n, nil
-}
-
-func TestPumpOutputJoinsAcrossReads(t *testing.T) {
-	// Cut the stream at every point: the result must not depend on
-	// where the reads end.
-	for cut := 1; cut < len(conptyWrapScroll); cut++ {
-		var out strings.Builder
-		r := &chunkReader{chunks: []string{conptyWrapScroll[:cut], conptyWrapScroll[cut:]}}
-		if err := pumpOutput(r, func() int { return 50 }, func(_, s string) { out.WriteString(s) }, &RepaintGuard{}, true); err != io.EOF {
-			t.Fatalf("cut %d: err = %v", cut, err)
-		}
-		if out.String() != conptyWrapScrollWant {
-			t.Errorf("cut %d: got %q", cut, out.String())
-		}
+	if r.chunks[0] = r.chunks[0][n:]; r.chunks[0] == "" {
+		r.chunks = r.chunks[1:]
 	}
+	return n, nil
 }
 
 func TestShellEnvDisablesPagers(t *testing.T) {
@@ -143,63 +80,40 @@ const fullScreenSession = "PS demo> node tui.js\r\n" +
 
 func TestFullScreenPrograms(t *testing.T) {
 	for cut := 1; cut < len(fullScreenSession); cut++ {
-		var got []string
-		r := &chunkReader{chunks: []string{fullScreenSession[:cut], fullScreenSession[cut:]}}
-		err := pumpOutput(r, func() int { return 80 }, func(kind, s string) {
-			// Consecutive pieces of one kind are one message for this test.
-			if n := len(got); n > 0 && strings.HasPrefix(got[n-1], kind+":") && kind != kindScreenStart && kind != kindScreenEnd {
-				got[n-1] += s
-				return
-			}
-			got = append(got, kind+":"+s)
-		}, &RepaintGuard{}, true)
-		if err != io.EOF {
-			t.Fatalf("cut %d: %v", cut, err)
-		}
+		p := pump(t, 80, 24, &RepaintGuard{}, true, fullScreenSession[:cut], fullScreenSession[cut:])
 		want := []string{
-			"output:PS demo> node tui.js\r\n",
 			"screen-start:",
 			"screen:\x1b[?1049h\x1b[?25l\x1b[H\x1b[K\r\n\x1b[2;4H\x1b[32mTUI\x1b[m\x1b[K\x1b[?25h\x1b[?1049l",
 			"screen-end:",
-			"output:PS demo> ",
 		}
-		if strings.Join(got, "|") != strings.Join(want, "|") {
-			t.Errorf("cut %d:\n got %q\nwant %q", cut, got, want)
+		if got := p.screenMessages(); strings.Join(got, "|") != strings.Join(want, "|") {
+			t.Errorf("cut %d: screen got %q\nwant %q", cut, got, want)
+		}
+		if got := p.text(); got != "PS demo> node tui.js\nPS demo> " {
+			t.Errorf("cut %d: line view got %q", cut, got)
 		}
 	}
 }
 
 func TestFullScreenWithoutRepaint(t *testing.T) {
 	// A real PTY (Linux, macOS) doesn't repaint: what follows is new.
-	var out strings.Builder
-	r := &chunkReader{chunks: []string{"\x1b[?1049hdraw\x1b[?1049l", "$ "}}
-	_ = pumpOutput(r, func() int { return 0 }, func(kind, s string) {
-		if kind == kindOutput {
-			out.WriteString(s)
-		}
-	}, nil, false)
-	if out.String() != "$ " {
-		t.Errorf("got %q", out.String())
+	p := pump(t, 80, 24, nil, false, "\x1b[?1049hdraw\x1b[?1049l", "$ ")
+	if p.text() != "$ " {
+		t.Errorf("got %q", p.text())
 	}
 }
 
 func TestRepaintAfterExitAndResize(t *testing.T) {
 	// Leaving the program repaints once; the terminal going back to its
 	// own size repaints again (from a trace). Neither may show twice.
-	session := "\x1b[?1049hdraw\x1b[?1049l" +
+	session := "PS demo> old line\r\n\x1b[?1049hdraw\x1b[?1049l" +
 		"\x1b[?25l\x1b[HPS demo> old line\x1b[K\r\n\x1b[K\x1b[2;1H\x1b[?25h" +
 		"\x1b[?25l\x1b[HPS demo> old line\x1b[K\r\n\x1b[K\x1b[2;1H\x1b[?25h" +
 		"PS demo> "
 	for cut := 1; cut < len(session); cut++ {
-		var out strings.Builder
-		r := &chunkReader{chunks: []string{session[:cut], session[cut:]}}
-		_ = pumpOutput(r, func() int { return 80 }, func(kind, s string) {
-			if kind == kindOutput {
-				out.WriteString(s)
-			}
-		}, &RepaintGuard{}, true)
-		if out.String() != "PS demo> " {
-			t.Errorf("cut %d: line view got %q", cut, out.String())
+		p := pump(t, 80, 24, &RepaintGuard{}, true, session[:cut], session[cut:])
+		if got := p.text(); got != "PS demo> old line\nPS demo> " {
+			t.Errorf("cut %d: line view got %q", cut, got)
 		}
 	}
 }
@@ -207,19 +121,117 @@ func TestRepaintAfterExitAndResize(t *testing.T) {
 func TestRepaintAfterResize(t *testing.T) {
 	var guard RepaintGuard
 	guard.Arm() // the window was just resized
-	var out strings.Builder
-	r := &chunkReader{chunks: []string{"\x1b[?25l\x1b[Hold\x1b[K\r\n\x1b[3;9H\x1b[?25h", "new output\r\n"}}
-	_ = pumpOutput(r, func() int { return 80 }, func(kind, s string) { out.WriteString(s) }, &guard, true)
-	if out.String() != "new output\r\n" {
-		t.Errorf("got %q", out.String())
+	p := pump(t, 80, 24, &guard, true, "PS demo> ",
+		"\x1b[?25l\x1b[HPS demo> \x1b[K\r\n\x1b[K\x1b[1;10H\x1b[?25h", "dir\r\nnew output\r\n")
+	if got := p.text(); got != "PS demo> dir\nnew output\n" {
+		t.Errorf("got %q", got)
 	}
 
 	// Without a resize, the same bytes are ordinary output.
-	out.Reset()
-	r = &chunkReader{chunks: []string{"\x1b[Hhello\r\n"}}
-	_ = pumpOutput(r, func() int { return 80 }, func(kind, s string) { out.WriteString(s) }, &RepaintGuard{}, true)
-	if out.String() != "hello\r\n" {
-		t.Errorf("unarmed: got %q", out.String())
+	p = pump(t, 80, 24, &RepaintGuard{}, true, "\x1b[Hhello\r\n")
+	if got := p.text(); got != "hello\n" {
+		t.Errorf("unarmed: got %q", got)
+	}
+}
+
+func TestRepaintWithSizeReport(t *testing.T) {
+	// From a trace: ConPTY reports the new size before repainting.
+	repaint := "\x1b[?25l\x1b[8;29;62t\x1b[HPS demo> 1..2\x1b[K\r\nbefore 1\x1b[K\r\nbefore 2\x1b[K\r\n" +
+		"PS demo>\x1b[K\r\n\x1b[K\r\n\x1b[K\x1b[4;10H\x1b[?25h"
+	for cut := 1; cut < len(repaint); cut++ {
+		var guard RepaintGuard
+		guard.Arm()
+		p := pump(t, 62, 29, &guard, true, "PS demo> 1..2\r\nbefore 1\r\nbefore 2\r\nPS demo> ",
+			repaint[:cut], repaint[cut:], "\"after\"\r\nafter\r\n")
+		if got, want := p.text(), "PS demo> 1..2\nbefore 1\nbefore 2\nPS demo> \"after\"\nafter\n"; got != want {
+			t.Fatalf("cut %d: got %q\nwant %q", cut, got, want)
+		}
+	}
+}
+
+func TestRepaintEndingWithoutACursorJump(t *testing.T) {
+	// From a trace: the cursor was already on the right row, so the
+	// repaint ends by moving it right and showing it. What follows (the
+	// echo of the next command) is output, not repaint.
+	for _, split := range []bool{false, true} {
+		var guard RepaintGuard
+		guard.Arm()
+		repaint := "\x1b[?25l\x1b[HPS demo> old\x1b[K\r\nPS demo>\x1b[K\x1b[1C\x1b[?25h"
+		chunks := []string{"PS demo> old\r\nPS demo> ", repaint, `"x"`, "\r\nx\r\nPS demo> "}
+		if split {
+			chunks = []string{"PS demo> old\r\nPS demo> ", repaint + `"x"`, "\r\nx\r\nPS demo> "}
+		}
+		p := pump(t, 62, 29, &guard, true, chunks...)
+		if got, want := p.text(), "PS demo> old\nPS demo> \"x\"\nx\nPS demo> "; got != want {
+			t.Errorf("split %v: got %q\nwant %q", split, got, want)
+		}
+	}
+}
+
+// slowReader is a chunkReader that waits before each chunk.
+type slowReader struct {
+	chunkReader
+	wait time.Duration
+}
+
+func (r *slowReader) Read(p []byte) (int, error) {
+	time.Sleep(r.wait)
+	return r.chunkReader.Read(p)
+}
+
+func TestRepaintWithTheCursorHidden(t *testing.T) {
+	// A menu hid the cursor, so the repaint doesn't end by showing it:
+	// it ends when the output stops.
+	var guard RepaintGuard
+	guard.Arm()
+	p := &page{t: t}
+	r := &slowReader{chunkReader{chunks: []string{
+		"? Pick\r\n❯ one\r\n  two",
+		"\x1b[?25l\x1b[H? Pick\x1b[K\r\n❯ one\x1b[K\r\n  two\x1b[K",
+		"\x1b[1;1H\x1b[K\r\n\x1b[K\r\n\x1b[K\x1b[1;1H? Pick\r\n  one\r\n❯ two",
+	}}, 3 * repaintQuiet}
+	_ = pumpOutput(r, newTermSize(40, 10), p.send, &guard, true)
+	if got, want := p.text(), "? Pick\n  one\n❯ two"; got != want {
+		t.Errorf("got %q\nwant %q", got, want)
+	}
+}
+
+// stepReader hands out its chunks one per Read, first running the step
+// that goes with each (a resize, say) and waiting a little.
+type stepReader struct {
+	chunks []string
+	steps  map[int]func()
+	n      int
+}
+
+func (r *stepReader) Read(p []byte) (int, error) {
+	time.Sleep(3 * repaintQuiet)
+	if r.n == len(r.chunks) {
+		return 0, io.EOF
+	}
+	if step := r.steps[r.n]; step != nil {
+		step()
+	}
+	r.n++
+	return copy(p, r.chunks[r.n-1]), nil
+}
+
+func TestResizeWhileAMenuIsUp(t *testing.T) {
+	// The window narrows while a menu (cursor hidden) waits for a key:
+	// ConPTY repaints, then the program redraws the menu. It must replace
+	// the menu, not add a second one.
+	var guard RepaintGuard
+	size := newTermSize(80, 10)
+	p := &page{t: t}
+	r := &stepReader{chunks: []string{
+		"$ node select.js\r\n\x1b[?25l? Pick\r\n❯ one\r\n  two",
+		"\x1b[H$ node select.js\x1b[K\r\n? Pick\x1b[K\r\n❯ one\x1b[K\r\n  two\x1b[K\r\n\x1b[K\r\n\x1b[K\r\n\x1b[K\r\n\x1b[K\r\n\x1b[K\r\n\x1b[K",
+		"\x1b[2;1H\x1b[K\r\n\x1b[K\r\n\x1b[K\x1b[2;1H? Pick\r\n  one\r\n❯ two",
+		"\x1b[2;1H\x1b[K\r\n\x1b[K\r\n\x1b[K\x1b[2;1H✔ Pick · two\r\n\x1b[?25h$ ",
+	}, steps: map[int]func(){1: func() { size.set(40, 10); guard.Arm() }}}
+	_ = pumpOutput(r, size, p.send, &guard, true)
+	if got, want := p.text(), "$ node select.js\n✔ Pick · two\n$ "; got != want {
+		t.Errorf("got %q\nwant %q", got, want)
 	}
 }
 
@@ -227,14 +239,16 @@ func TestLeaveScreenByHand(t *testing.T) {
 	// A program went full screen and died without switching back; the
 	// user leaves the view, and the shell's next output is lines again.
 	var guard RepaintGuard
-	var got []string
-	send := func(kind, s string) { got = append(got, kind+":"+s) }
-	sp := &screenSplitter{cols: func() int { return 80 }, send: send, guard: &guard}
+	p := &page{t: t}
+	sp := &screenSplitter{size: newTermSize(80, 24), send: p.send, guard: &guard}
 	sp.write("\x1b[?1049hcrashed")
 	guard.LeaveScreen()
 	sp.write("PS demo> ")
-	want := "screen-start:|screen:\x1b[?1049hcrashed|screen-end:|output:PS demo> "
-	if strings.Join(got, "|") != want {
+	want := "screen-start:|screen:\x1b[?1049hcrashed|screen-end:"
+	if got := strings.Join(p.screenMessages(), "|"); got != want {
 		t.Errorf("got %q", got)
+	}
+	if p.text() != "PS demo> " {
+		t.Errorf("line view got %q", p.text())
 	}
 }

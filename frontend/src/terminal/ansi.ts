@@ -1,8 +1,9 @@
 /**
  * ansi.ts — colours and text styles in shell output.
  *
- * The PTY passes SGR sequences (ESC [ … m) through and strips every
- * other escape (pty.go). This turns them into styled spans: the 16
+ * The PTY plays the shell's output on a model of the screen and sends
+ * its lines as text with SGR sequences (ESC [ … m) for their colours
+ * (pty/linescreen.go). This turns them into styled spans: the 16
  * base colours come from the theme (--ansi-0 … --ansi-15, the
  * "Terminal colours" theme keys), the 256-colour cube and 24-bit
  * colours are exact. A style carries across lines, as it does in a

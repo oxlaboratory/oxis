@@ -324,6 +324,21 @@ scrolls above it and never goes underneath it.
 
 With an empty prompt, arrow keys, Home/End, Delete, Tab, Esc and F1–F12
 go straight to the running program, so interactive tools still work.
+Up and Down are OXIS's history at the shell prompt; while a program
+shows an arrow-key menu (`npm create vite`, `gh`, inquirer, clack,
+prompts: anything that hides the cursor to draw one), they and Space
+go to the menu.
+
+### Menus, spinners and progress bars
+
+The line view plays the shell's output on a model of the terminal's
+screen, the way a terminal does, so a program that goes back and
+redraws (an arrow-key menu, a spinner, `docker pull`'s progress bars, a
+task list) changes the lines it drew instead of printing a new copy
+underneath. When it's done, only the final state is left in the
+output: `✔ Project name · my-app`, not every frame of the menu. This
+holds when the window is resized mid-menu too. Cleared screens
+(`clear`, `cls`) stay in the history above.
 
 ### Full-screen programs
 
@@ -1140,12 +1155,16 @@ flowchart TB
   (next free port if 1420 is taken). It only accepts connections from
   the OXIS window and its own origin, so other websites can't reach your
   shell.
-- `internal/pty` starts the shell (`OXIS_SHELL` overrides the choice),
-  keeps colour and style codes but strips other escape sequences, and
-  keeps UTF-8 characters intact across reads. The frontend renders the
-  colours with the theme's terminal palette (`terminal/ansi.ts`).
-  Carriage-return progress bars and spinners update in place.
-  Full-screen programs (vim, htop) aren't supported.
+- `internal/pty` starts the shell (`OXIS_SHELL` overrides the choice)
+  and plays its output on a screen model (`linescreen.go`) that sends
+  the page its lines with their colours: new text as it arrives, and a
+  "rewind" when a program redraws lines it already drew. The model is
+  checked against xterm.js on recorded random output
+  (`testdata/xterm_screens.json`). A full-screen program's output goes
+  to xterm.js untouched. The frontend renders colours with the theme's
+  terminal palette (`terminal/ansi.ts`). `OXIS_PTY_TRACE=<file>` records
+  the raw output, plus each read's length and the terminal size in
+  `<file>.reads`, for diagnosing rendering problems.
 - In the browser, the frontend has no native file access, so the editor
   and anything file-based need the desktop app.
 

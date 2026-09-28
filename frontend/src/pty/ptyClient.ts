@@ -12,7 +12,10 @@
  *                    { type: "resize", cols, rows }
  *                    { type: "screen-exit" }  (leave a full-screen view by hand)
  *                    { type: "kill" }
- *   Server → Client: { type: "output", data }
+ *   Server → Client: { type: "output", data }  (line view: text and colour codes)
+ *                    { type: "rewind", data: N }  (take back the unfinished line and
+ *                      the N lines before it; the output that follows replaces them)
+ *                    { type: "cursor", data: "hidden" | "shown" }
  *                    { type: "screen-start" } / { type: "screen", data } / { type: "screen-end" }
  *                      (a full-screen program's raw output, see terminal/fullScreen.ts)
  *                    { type: "ready" }
@@ -30,6 +33,9 @@ export type ExitCallback   = (code: number) => void;
 export type ErrorCallback  = (msg: string) => void;
 /** A full-screen program started, printed (raw output), or ended. */
 export type ScreenCallback = (event: "start" | "data" | "end", data: string) => void;
+/** A program redrew lines it had drawn: drop the unfinished line and
+ *  the `lines` finished ones before it; the next output replaces them. */
+export type RewindCallback = (lines: number) => void;
 
 export interface PtySession {
   write  : (data: string) => void;
@@ -47,6 +53,9 @@ export interface PtyOptions {
   onExit:   ExitCallback;
   onError:  ErrorCallback;
   onScreen?: ScreenCallback;
+  onRewind?: RewindCallback;
+  /** The program hid the cursor (as one drawing a menu does) or showed it. */
+  onCursor?: (hidden: boolean) => void;
   /** Auto-reconnect on unexpected close. Default: false */
   reconnect?: boolean;
 }
@@ -73,7 +82,7 @@ async function wsURL(): Promise<string> {
 }
 
 export function openPty(opts: PtyOptions): PtySession {
-  const { onOutput, onReady, onExit, onError, onScreen, reconnect } = opts;
+  const { onOutput, onReady, onExit, onError, onScreen, onRewind, onCursor, reconnect } = opts;
   // Latest requested size; resizes before the socket opens are kept and
   // sent with init.
   let size = { cols: opts.cols, rows: opts.rows };
@@ -108,6 +117,8 @@ export function openPty(opts: PtyOptions): PtySession {
         case "screen-start": onScreen?.("start", ""); break;
         case "screen":       if (msg.data) onScreen?.("data", msg.data); break;
         case "screen-end":   onScreen?.("end", ""); break;
+        case "rewind":       onRewind?.(Number(msg.data) || 0); break;
+        case "cursor":       onCursor?.(msg.data === "hidden"); break;
       }
     });
 

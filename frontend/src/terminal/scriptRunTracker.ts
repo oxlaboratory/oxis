@@ -94,6 +94,12 @@ class ScriptRunTracker {
     this.pending.clear();
   }
 
+  /** Forgets output held back for the next chunk: the line it was on
+   *  is being redrawn, and comes again whole. */
+  dropCarry(): void {
+    this.carry = "";
+  }
+
   /** Strips completed markers from raw output and resolves their calls.
    *  Output arrives in chunks, so a marker cut off at the end of one is
    *  held back and completed by the next. */

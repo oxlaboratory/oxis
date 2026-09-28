@@ -9,7 +9,6 @@ import (
 	"log"
 	"os"
 	"sync"
-	"sync/atomic"
 	"syscall"
 
 	"github.com/UserExistsError/conpty"
@@ -57,12 +56,11 @@ func HandleSession(conn *websocket.Conn) {
 
 	safeSend(conn, &mu, outMsg{Type: "ready", Shell: shellKind(shellCmd)})
 
-	var width atomic.Int32 // for joinWrappedRows
-	width.Store(int32(cols))
+	size := newTermSize(cols, rows)
 	var repaint RepaintGuard // ConPTY repaints the screen after a resize
 
 	go func() {
-		err := pumpOutput(cpty, func() int { return int(width.Load()) }, func(kind, data string) {
+		err := pumpOutput(cpty, size, func(kind, data string) {
 			safeSend(conn, &mu, outMsg{Type: kind, Data: data})
 		}, &repaint, true)
 		if err != io.EOF {
@@ -90,8 +88,8 @@ func HandleSession(conn *websocket.Conn) {
 		case "resize":
 			if m.Cols > 0 && m.Rows > 0 {
 				repaint.Arm()
+				size.set(int(m.Cols), int(m.Rows))
 				_ = cpty.Resize(int(m.Cols), int(m.Rows))
-				width.Store(int32(m.Cols))
 			}
 		case "screen-exit":
 			repaint.LeaveScreen()

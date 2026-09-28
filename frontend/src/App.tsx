@@ -3868,6 +3868,21 @@ const OUTPUT_BLOCK = 128;
 const FLOOD_LINES = 40;
 const FLOOD_FRAME_MS = 48;
 
+/** How many of the shell's latest lines a redraw can take back: more
+ *  than a screenful (pty/linescreen.go keeps the screen plus the start
+ *  of a long wrapped line). */
+const SHELL_LINES_KEPT = 2000;
+
+/** `lines` without the ones in `gone`, which are all near the end: ids
+ *  only grow, so the search stops at the oldest of them. */
+function withoutTail(lines: Line[], gone: Set<number>): Line[] {
+  let oldest = Infinity;
+  for (const id of gone) oldest = Math.min(oldest, id);
+  let i = lines.length;
+  while (i > 0 && lines[i - 1].id >= oldest) i--;
+  return i === lines.length ? lines : lines.slice(0, i).concat(lines.slice(i).filter(l => !gone.has(l.id)));
+}
+
 const OutputBlock = memo(function OutputBlock({ lines, matches }: { lines: Line[]; matches: Set<number> }) {
   return (
     <div className="term-block">
@@ -3992,6 +4007,16 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
   const outQueue      = useRef<Line[]>([]);
   const partialQueued = useRef<{ text: string; spans?: Span[] } | null>(null);
   const flushTimers   = useRef<{ raf: number; timer: number } | null>(null);
+  // The shell's recent finished lines, oldest first: the id of each
+  // line shown, or null for one left out (a probe, a repeated blank).
+  // A program redrawing lines it drew (a menu, progress bars) takes
+  // them back ("rewind"); shown ones already on screen are removed at
+  // the next flush.
+  const shellLineIds  = useRef<Array<number | null>>([]);
+  const takenBack     = useRef(new Set<number>());
+  // The program hid the cursor, as one drawing an arrow-key menu does:
+  // with the prompt empty, the keys that drive a menu go to it.
+  const programCursorHidden = useRef(false);
   // A full-screen program (vim, less, htop…) is running: its output is
   // drawn by a real terminal grid (terminal/fullScreen.ts) over the
   // output, and keys go straight to it.
@@ -4088,9 +4113,11 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
     const p = partialQueued.current;
     partialQueued.current = null;
     if (p) { setPartial(p.text); setPartialSpans(p.spans); }
-    if (queued.length) {
+    const gone = takenBack.current;
+    if (gone.size) takenBack.current = new Set();
+    if (queued.length || gone.size) {
       setLines(prev => {
-        const merged = prev.concat(queued);
+        const merged = (gone.size ? withoutTail(prev, gone) : prev).concat(queued);
         const next = merged.length > 10_000 ? merged.slice(-8_000) : merged;
         linesRef.current = next;
         return next;
@@ -4157,6 +4184,8 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
     setPartial("");
     pending.current = "";
     outQueue.current = [];
+    shellLineIds.current = [];
+    takenBack.current = new Set();
     partialQueued.current = null;
     const fresh = initialLines();
     linesRef.current = fresh;
@@ -4431,22 +4460,44 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
     // screen repaints turn into many of them once cursor moves are
     // stripped). Every check runs on the plain text; the colours are
     // only for display, and are dropped from a line OXIS rewrote.
-    const completedLines: Array<{ text: string; spans?: Span[] }> = [];
+    const shown: Line[] = [];
+    const ids = shellLineIds.current;
     const lastLine = outQueue.current[outQueue.current.length - 1] ?? linesRef.current[linesRef.current.length - 1];
     let prevBlank = (lastLine?.text ?? "x").trim() === "";
     for (const styled of processed.completedLines) {
       const parsed = ansiRef.current.parse(styled); // every line, so the style state stays right
       const plain = parsed.text;
-      if (isProbeLine(plain)) continue;
       const l = stripStepEcho(plain);
       const blank = l.trim() === "";
-      if (blank && prevBlank) continue;
-      completedLines.push(colors && l === plain ? parsed : { text: l });
+      if (isProbeLine(plain) || (blank && prevBlank)) { ids.push(null); continue; }
+      const line = mergeOutput([], [colors && l === plain ? parsed : { text: l }])[0];
+      shown.push(line);
+      ids.push(line.id);
       prevBlank = blank;
     }
-    if (!completedLines.length) return;
-    queueLines(mergeOutput([], completedLines));
+    if (ids.length > SHELL_LINES_KEPT) ids.splice(0, ids.length - SHELL_LINES_KEPT);
+    queueLines(shown);
   }, [scheduleFlush, queueLines]);
+
+  // A program went back over lines it had drawn: the unfinished line
+  // and the last `count` finished ones go; the output that follows is
+  // them as they are now.
+  const onRewind = useCallback((count: number) => {
+    cwdTracker.dropCarry();
+    scriptRunTracker.dropCarry();
+    pending.current = "";
+    partialQueued.current = { text: "" };
+    const ids = shellLineIds.current;
+    const gone = new Set<number>();
+    for (const id of ids.splice(Math.max(0, ids.length - count))) if (id !== null) gone.add(id);
+    if (gone.size) {
+      const q = outQueue.current;
+      outQueue.current = q.filter(l => !gone.has(l.id));
+      for (const l of q) gone.delete(l.id);
+      for (const id of gone) takenBack.current.add(id);
+    }
+    scheduleFlush();
+  }, [scheduleFlush]);
 
   // ── OXIS command dispatcher ───────────────────────────────
   const dispatchOxisCmd = useCallback((raw: string): boolean => {
@@ -4540,6 +4591,8 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
     session.current = openPty({
       ...ptySize.current,
       onOutput,
+      onRewind,
+      onCursor: (hidden) => { programCursorHidden.current = hidden; },
       onScreen: (event, data) => {
         if (event === "start") { screenQueue.current = []; setScreenOn(true); return; }
         if (event === "data") {
@@ -4826,8 +4879,14 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
     if (ctrl && k === "0") { e.preventDefault(); resetSetting("fontSize"); return; }
 
     // ── PASSTHROUGH with an empty prompt (a program is reading keys) ──
-    // Up/Down/PageUp/PageDown stay OXIS's history and scroll keys.
+    // Up/Down stay OXIS's history, unless the program hid the cursor to
+    // draw a menu: then they (and Space, to tick an option) are its.
+    // PageUp/PageDown always scroll.
     if (!val && !e.metaKey) {
+      if (programCursorHidden.current && !ctrl && !alt && !e.shiftKey) {
+        const menuSeq: Record<string, string> = { ArrowUp: "\x1b[A", ArrowDown: "\x1b[B", " ": " " };
+        if (menuSeq[k]) { e.preventDefault(); sendToShell(menuSeq[k]); return; }
+      }
       const passSeq: Record<string, string> = {
         ArrowRight:"\x1b[C", ArrowLeft:"\x1b[D",
         Home:"\x1b[H", End:"\x1b[F",
