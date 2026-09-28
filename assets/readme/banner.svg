@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 560" width="1280" height="560" role="img" aria-label="OXIS — the terminal you can script">
+  <title>OXIS — the terminal you can script</title>
+  <style>
+.t{font-family:'JetBrains Mono','Cascadia Code','SF Mono',Consolas,Menlo,'Liberation Mono',monospace;font-size:15px;white-space:pre}
+.h{font-family:'Segoe UI Variable Display','Segoe UI',Inter,-apple-system,BlinkMacSystemFont,'Helvetica Neue',Arial,sans-serif}
+@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
+@keyframes blink{0%,49%{opacity:1}50%,100%{opacity:0}}
+@keyframes sweep{0%{transform:translateX(-400px)}100%{transform:translateX(1400px)}}
+@keyframes pulse{0%,100%{opacity:.55}50%{opacity:1}}
+.float{animation:float 6s ease-in-out infinite}
+.sweep{animation:sweep 9s linear infinite}
+.pulse{animation:pulse 4s ease-in-out infinite}
+.cur{animation:blink 1s step-end infinite}
+@keyframes l0{0%,3.75%{clip-path:inset(0 100% 0 0);opacity:1}10.63%,85.00%{clip-path:inset(0 0 0 0);opacity:1}88.75%,100%{clip-path:inset(0 0 0 0);opacity:0}}.l0{animation:l0 16.0s steps(24) infinite}@keyframes p0{0%,1.56%{opacity:0}1.88%,85.00%{opacity:1}88.75%,100%{opacity:0}}.p0{animation:p0 16.0s linear infinite}@keyframes l1{0%,12.50%{clip-path:inset(0 100% 0 0);opacity:1}13.63%,85.00%{clip-path:inset(0 0 0 0);opacity:1}88.75%,100%{clip-path:inset(0 0 0 0);opacity:0}}.l1{animation:l1 16.0s ease-out infinite}@keyframes l2{0%,18.12%{clip-path:inset(0 100% 0 0);opacity:1}21.88%,85.00%{clip-path:inset(0 0 0 0);opacity:1}88.75%,100%{clip-path:inset(0 0 0 0);opacity:0}}.l2{animation:l2 16.0s steps(13) infinite}@keyframes p2{0%,15.94%{opacity:0}16.25%,85.00%{opacity:1}88.75%,100%{opacity:0}}.p2{animation:p2 16.0s linear infinite}@keyframes l3{0%,23.75%{clip-path:inset(0 100% 0 0);opacity:1}24.88%,85.00%{clip-path:inset(0 0 0 0);opacity:1}88.75%,100%{clip-path:inset(0 0 0 0);opacity:0}}.l3{animation:l3 16.0s ease-out infinite}@keyframes l4{0%,25.00%{clip-path:inset(0 100% 0 0);opacity:1}26.12%,85.00%{clip-path:inset(0 0 0 0);opacity:1}88.75%,100%{clip-path:inset(0 0 0 0);opacity:0}}.l4{animation:l4 16.0s ease-out infinite}@keyframes l5{0%,26.56%{clip-path:inset(0 100% 0 0);opacity:1}27.69%,85.00%{clip-path:inset(0 0 0 0);opacity:1}88.75%,100%{clip-path:inset(0 0 0 0);opacity:0}}.l5{animation:l5 16.0s ease-out infinite}@keyframes l6{0%,31.87%{clip-path:inset(0 100% 0 0);opacity:1}36.25%,85.00%{clip-path:inset(0 0 0 0);opacity:1}88.75%,100%{clip-path:inset(0 0 0 0);opacity:0}}.l6{animation:l6 16.0s steps(15) infinite}@keyframes p6{0%,29.69%{opacity:0}30.00%,85.00%{opacity:1}88.75%,100%{opacity:0}}.p6{animation:p6 16.0s linear infinite}@keyframes l7{0%,37.50%{clip-path:inset(0 100% 0 0);opacity:1}38.62%,85.00%{clip-path:inset(0 0 0 0);opacity:1}88.75%,100%{clip-path:inset(0 0 0 0);opacity:0}}.l7{animation:l7 16.0s ease-out infinite}@keyframes l8{0%,43.12%{clip-path:inset(0 100% 0 0);opacity:1}48.75%,85.00%{clip-path:inset(0 0 0 0);opacity:1}88.75%,100%{clip-path:inset(0 0 0 0);opacity:0}}.l8{animation:l8 16.0s steps(19) infinite}@keyframes p8{0%,40.94%{opacity:0}41.25%,85.00%{opacity:1}88.75%,100%{opacity:0}}.p8{animation:p8 16.0s linear infinite}@keyframes l9{0%,50.62%{clip-path:inset(0 100% 0 0);opacity:1}51.75%,85.00%{clip-path:inset(0 0 0 0);opacity:1}88.75%,100%{clip-path:inset(0 0 0 0);opacity:0}}.l9{animation:l9 16.0s ease-out infinite}@keyframes l10{0%,56.25%{clip-path:inset(0 100% 0 0);opacity:1}61.88%,85.00%{clip-path:inset(0 0 0 0);opacity:1}88.75%,100%{clip-path:inset(0 0 0 0);opacity:0}}.l10{animation:l10 16.0s steps(19) infinite}@keyframes p10{0%,54.06%{opacity:0}54.37%,85.00%{opacity:1}88.75%,100%{opacity:0}}.p10{animation:p10 16.0s linear infinite}@keyframes l11{0%,63.75%{clip-path:inset(0 100% 0 0);opacity:1}64.88%,85.00%{clip-path:inset(0 0 0 0);opacity:1}88.75%,100%{clip-path:inset(0 0 0 0);opacity:0}}.l11{animation:l11 16.0s ease-out infinite}@keyframes pz{0%,66.88%{opacity:0}67.19%,85.00%{opacity:1}88.75%,100%{opacity:0}}.pz{animation:pz 16.0s linear infinite}@media (prefers-reduced-motion:reduce){*{animation:none!important}}</style>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0a1a0e"/><stop offset=".45" stop-color="#0d1117"/><stop offset="1" stop-color="#130f22"/>
+    </linearGradient>
+    <radialGradient id="glow" cx=".18" cy=".2" r=".6"><stop offset="0" stop-color="#3dff64" stop-opacity=".22"/><stop offset="1" stop-color="#3dff64" stop-opacity="0"/></radialGradient>
+    <radialGradient id="glow2" cx=".85" cy=".9" r=".5"><stop offset="0" stop-color="#bb9af7" stop-opacity=".16"/><stop offset="1" stop-color="#bb9af7" stop-opacity="0"/></radialGradient>
+    <linearGradient id="beam" x1="0" x2="1"><stop offset="0" stop-color="#3dff64" stop-opacity="0"/><stop offset=".5" stop-color="#3dff64" stop-opacity=".10"/><stop offset="1" stop-color="#3dff64" stop-opacity="0"/></linearGradient>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M40 0H0V40" fill="none" stroke="#3dff64" stroke-opacity=".07" stroke-width="1"/></pattern>
+    <filter id="soft" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="14"/></filter>
+    <filter id="textglow" x="-10%" y="-40%" width="120%" height="180%"><feGaussianBlur stdDeviation="8" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+    <clipPath id="frame"><rect width="1280" height="560" rx="22"/></clipPath>
+  </defs>
+  <g clip-path="url(#frame)">
+    <rect width="1280" height="560" fill="url(#bg)"/>
+    <rect width="1280" height="560" fill="url(#grid)"/>
+    <rect width="1280" height="560" fill="url(#glow)"/>
+    <rect width="1280" height="560" fill="url(#glow2)"/>
+    <rect class="sweep" x="0" y="0" width="260" height="560" fill="url(#beam)"/>
+
+    <g transform="translate(80 72) scale(0.6400)"><path fill="#3dff64" fill-rule="evenodd" d="M37 0 74 19v62L37 100 0 81V19zm0 19-18.5 9.6v42.4L37 80.4l18.5-9.4V28.6z"/><path fill="#000" opacity=".22" d="M18.5 9.8 37 19l-18.5 9.6zM55.5 70.9 37 80.4 55.5 90z"/></g>
+    <text class="h" x="140" y="118" fill="#e6edf3" font-size="38" font-weight="700" letter-spacing="7">OXIS</text>
+
+    <text class="h" x="78" y="238" fill="#e6edf3" font-size="74" font-weight="800" letter-spacing="-1.5">The terminal</text>
+    <text class="h" x="78" y="322" fill="#3dff64" font-size="74" font-weight="800" letter-spacing="-1.5" filter="url(#textglow)">you can script.</text>
+    <text class="h" x="80" y="378" fill="#8b98a8" font-size="21">Your real PowerShell, bash, zsh or fish — plus an editor,</text>
+    <text class="h" x="80" y="408" fill="#8b98a8" font-size="21">workspaces, workflows, themes and Lua plugins.</text>
+    <rect x="80" y="452" width="90" height="36" rx="18" fill="#10151d" stroke="#232b36"/><text class="t" x="125" y="475" fill="#e6edf3" text-anchor="middle" font-size="15">Windows</text><rect x="182.39999999999998" y="452" width="72" height="36" rx="18" fill="#10151d" stroke="#232b36"/><text class="t" x="218" y="475" fill="#e6edf3" text-anchor="middle" font-size="15">Linux</text><rect x="266.4" y="452" width="127" height="36" rx="18" fill="#10151d" stroke="#232b36"/><text class="t" x="330" y="475" fill="#e6edf3" text-anchor="middle" font-size="15">Open source</text><rect x="405.59999999999997" y="452" width="136" height="36" rx="18" fill="#10151d" stroke="#232b36"/><text class="t" x="474" y="475" fill="#e6edf3" text-anchor="middle" font-size="15">No telemetry</text>
+
+    <g class="float">
+      <rect class="pulse" x="684" y="58" width="552" height="452" rx="20" fill="#3dff64" opacity=".5" filter="url(#soft)"/>
+      <rect x="690" y="64" width="540" height="440" rx="14" fill="#11131a" stroke="#3dff64" stroke-width="1.6"/>
+      <circle cx="712" cy="86" r="6" fill="#ff5f57"/><circle cx="732" cy="86" r="6" fill="#febc2e"/><circle cx="752" cy="86" r="6" fill="#28c840"/>
+      <text class="t" x="950.0" y="91" fill="#8b98a8" font-size="12" letter-spacing="3" text-anchor="end">OXIS</text>
+      <rect x="960.0" y="76" width="54" height="20" rx="10" fill="#3dff64"/>
+      <text class="t" x="987.0" y="90" fill="#06140a" font-size="10" font-weight="700" text-anchor="middle" letter-spacing="1">SHELL</text>
+      <line x1="690" y1="108" x2="1230" y2="108" stroke="#232b36"/>
+      <text class="t p0" x="714" y="142" fill="#8b98a8">PS acme-web&gt; </text><text class="t l0" x="832" y="142"><tspan fill="#3dff64">'market install autotest</tspan></text><text class="t l1" x="714" y="167"><tspan fill="#3dff64">  ✓ </tspan><tspan fill="#e6edf3">autotest 1.2.0 installed — tests re-run on save</tspan></text><text class="t p2" x="714" y="192" fill="#8b98a8">PS acme-web&gt; </text><text class="t l2" x="832" y="192"><tspan fill="#7dcfff">npm test</tspan></text><text class="t l3" x="714" y="217"><tspan fill="#3dff64">  ✓ </tspan><tspan fill="#e6edf3">subtotal adds line items</tspan><tspan fill="#8b98a8">  3.9ms</tspan></text><text class="t l4" x="714" y="242"><tspan fill="#3dff64">  ✓ </tspan><tspan fill="#e6edf3">discounts never go below zero</tspan><tspan fill="#8b98a8">  0.1ms</tspan></text><text class="t l5" x="714" y="267"><tspan fill="#3dff64">  pass 4  fail 0</tspan><tspan fill="#8b98a8">                        ✓ 0 · 1.2s</tspan></text><text class="t p6" x="714" y="292" fill="#8b98a8">PS acme-web&gt; </text><text class="t l6" x="832" y="292"><tspan fill="#3dff64">'theme ember</tspan></text><text class="t l7" x="714" y="317"><tspan fill="#ff9e64">  ◆ </tspan><tspan fill="#e6edf3">theme → ember</tspan><tspan fill="#8b98a8">   (78 keys, live)</tspan></text><text class="t p8" x="714" y="342" fill="#8b98a8">PS acme-web&gt; </text><text class="t l8" x="832" y="342"><tspan fill="#3dff64">'workflow release</tspan></text><text class="t l9" x="714" y="367"><tspan fill="#e6edf3">  build </tspan><tspan fill="#3dff64">✓</tspan><tspan fill="#e6edf3">   test </tspan><tspan fill="#3dff64">✓</tspan><tspan fill="#e6edf3">   deploy </tspan><tspan fill="#3dff64">✓</tspan><tspan fill="#8b98a8">     2.4s</tspan></text><text class="t p10" x="714" y="392" fill="#8b98a8">PS acme-web&gt; </text><text class="t l10" x="832" y="392"><tspan fill="#3dff64">'edit src/cart.ts</tspan></text><text class="t l11" x="714" y="417"><tspan fill="#f7768e">  ✗ </tspan><tspan fill="#8b98a8">line 12: </tspan><tspan fill="#e6edf3">')' expected</tspan><tspan fill="#8b98a8">  — caught as you type</tspan></text><g class="pz"><text class="t" x="714" y="442" fill="#8b98a8">PS acme-web&gt; </text><rect class="cur" x="833" y="428" width="9" height="18" fill="#3dff64"/></g>
+      <path d="M690 476h540v14a14 14 0 0 1-14 14H704a14 14 0 0 1-14-14z" fill="#3dff64"/>
+      <text class="t" x="706" y="495" fill="#06140a" font-size="12" font-weight="700">SHELL</text>
+      <text class="t" x="770" y="495" fill="#06140a" font-size="12">● connected · acme-web</text>
+      <text class="t" x="1214" y="495" fill="#06140a" font-size="12" text-anchor="end">ember</text>
+    </g>
+  </g>
+  <rect x=".5" y=".5" width="1279" height="559" rx="22" fill="none" stroke="#3dff64" stroke-opacity=".25"/>
+</svg>

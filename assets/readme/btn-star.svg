@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="211" height="56" viewBox="0 0 211 56" role="img" aria-label="Star on GitHub">
+  <title>Star on GitHub</title>
+  <defs><filter id="g" x="-20%" y="-50%" width="140%" height="200%"><feGaussianBlur stdDeviation="6"/></filter></defs>
+  <rect x="4" y="6" width="195" height="40" rx="20" fill="#3dff64" opacity=".45" filter="url(#g)"/>
+  <rect x="4" y="4" width="203" height="44" rx="22" fill="#3dff64" stroke="#3dff64" stroke-width="1.4"/>
+  <g transform="translate(26 17)" color="#06140a"><path d="M9 1.8l2.2 4.6 5 .7-3.6 3.5.9 5-4.5-2.4-4.5 2.4.9-5L1.8 7.1l5-.7z" fill="currentColor"/></g>
+  <text x="54" y="32" fill="#06140a" font-family="'Segoe UI Variable Display','Segoe UI',Inter,-apple-system,BlinkMacSystemFont,'Helvetica Neue',Arial,sans-serif" font-size="17" font-weight="650">Star on GitHub</text>
+</svg>

@@ -1,103 +1,89 @@
 <div align="center">
 
-<a href="https://oxis-market.pages.dev"><img src="assets/logo.svg" width="58" alt="OXIS logo"></a>
-
-# OXIS
-
-### The terminal you can script.
-
-Your real **PowerShell, bash, zsh or fish** — plus a built-in editor, workspaces,<br>
-workflows, full-colour output, deep theming and Lua plugins.<br>
-One ~14&nbsp;MB binary for Windows and Linux. No account. No telemetry.
-
-[![Build](https://img.shields.io/github/actions/workflow/status/oxlaboratory/oxis/build.yml?branch=main&style=flat-square&label=build)](https://github.com/oxlaboratory/oxis/actions/workflows/build.yml)
-[![Downloads](https://img.shields.io/endpoint?url=https%3A%2F%2Foxis-market.pages.dev%2Fdownloads&style=flat-square&cacheSeconds=600)](https://github.com/oxlaboratory/oxis/releases/tag/latest-build)
-[![License](https://img.shields.io/github/license/oxlaboratory/oxis?style=flat-square)](LICENSE)
-[![Stars](https://img.shields.io/github/stars/oxlaboratory/oxis?style=flat-square&logo=github)](https://github.com/oxlaboratory/oxis/stargazers)
-![Windows and Linux](https://img.shields.io/badge/Windows%20%C2%B7%20Linux-x64-5b6078?style=flat-square)
-
-[**Download**](https://github.com/oxlaboratory/oxis/releases/tag/latest-build) &nbsp;·&nbsp;
-[**Website**](https://oxis-market.pages.dev) &nbsp;·&nbsp;
-[**Plugin Market**](https://oxis-market.pages.dev/#market) &nbsp;·&nbsp;
-[**Docs**](#documentation) &nbsp;·&nbsp;
-[**Changelog**](CHANGELOG.md)
+<a href="https://oxis-market.pages.dev"><img src="assets/readme/banner.svg" width="100%" alt="OXIS — the terminal you can script. Your real PowerShell, bash, zsh or fish, plus an editor, workspaces, workflows, themes and Lua plugins."></a>
 
 <br>
 
-<img src="assets/demo.gif" width="880" alt="A real OXIS session: git log and status, 'task test running the project's node tests, a three-step workflow, installing a plugin from the Market and switching to the ember theme">
+<a href="https://github.com/oxlaboratory/oxis/releases/tag/latest-build"><img src="assets/readme/btn-download.svg" height="54" alt="Download"></a>
+<a href="https://oxis-market.pages.dev"><img src="assets/readme/btn-website.svg" height="54" alt="Website"></a>
+<a href="https://oxis-market.pages.dev/#market"><img src="assets/readme/btn-market.svg" height="54" alt="Plugin Market"></a>
+<a href="#documentation"><img src="assets/readme/btn-docs.svg" height="54" alt="Docs"></a>
+<a href="CHANGELOG.md"><img src="assets/readme/btn-changelog.svg" height="54" alt="Changelog"></a>
 
-<sub>Recorded from the app itself: every frame is a screenshot of OXIS running those commands in a real project.</sub>
+<br><br>
+
+<a href="https://github.com/oxlaboratory/oxis/releases/tag/latest-build"><img src="https://img.shields.io/endpoint?url=https%3A%2F%2Foxis-market.pages.dev%2Fdownloads&style=for-the-badge&labelColor=0d1117&color=3dff64&logo=icloud&logoColor=3dff64&cacheSeconds=600" alt="Downloads"></a>
+<a href="https://github.com/oxlaboratory/oxis/actions/workflows/build.yml"><img src="https://img.shields.io/github/actions/workflow/status/oxlaboratory/oxis/build.yml?branch=main&style=for-the-badge&label=build&labelColor=0d1117&color=3dff64&logo=githubactions&logoColor=3dff64" alt="Build"></a>
+<a href="https://github.com/oxlaboratory/oxis/stargazers"><img src="https://img.shields.io/github/stars/oxlaboratory/oxis?style=for-the-badge&labelColor=0d1117&color=e0af68&logo=github&logoColor=e0af68" alt="Stars"></a>
+<a href="https://github.com/oxlaboratory/oxis"><img src="https://api.visitorbadge.io/api/visitors?path=oxlaboratory%2Foxis&label=VIEWS&labelColor=%230d1117&countColor=%237dcfff&style=for-the-badge" alt="Views"></a>
+<a href="LICENSE"><img src="https://img.shields.io/github/license/oxlaboratory/oxis?style=for-the-badge&labelColor=0d1117&color=bb9af7" alt="Apache-2.0"></a>
+
+<img src="https://img.shields.io/badge/Windows-10%20%C2%B7%2011-0d1117?style=flat-square&logo=windows&logoColor=7dcfff" alt="Windows 10 and 11">
+<img src="https://img.shields.io/badge/Linux-x64-0d1117?style=flat-square&logo=linux&logoColor=e0af68" alt="Linux x64">
+<img src="https://img.shields.io/badge/Go-backend-0d1117?style=flat-square&logo=go&logoColor=7dcfff" alt="Go">
+<img src="https://img.shields.io/badge/React-UI-0d1117?style=flat-square&logo=react&logoColor=7dcfff" alt="React">
+<img src="https://img.shields.io/badge/Lua-plugins-0d1117?style=flat-square&logo=lua&logoColor=bb9af7" alt="Lua">
+
+<br><br>
+
+<img src="assets/demo.gif" width="100%" alt="A real OXIS session: git log and status, 'task test running the project's node tests, a three-step workflow, installing a plugin from the Market and switching to the ember theme">
+
+<sub>▲ Recorded from the app itself: every frame is OXIS running those commands in a real project.</sub>
+
+<br><br>
+
+<img src="assets/readme/stats.svg" width="100%" alt="About 14 MB, one binary · 50+ built-in commands · 10 themes with 78 keys each · no accounts, no telemetry">
 
 </div>
 
-## Why OXIS
+<br>
+
+<img src="assets/readme/h-why.svg" width="100%" alt="01 · Why OXIS">
+
+<img src="assets/readme/features.svg" width="100%" alt="Your shell, unchanged: PowerShell, bash, zsh or fish in 24-bit colour, with vim, htop and lazygit. 'commands on top: 50+ built-ins, history search, completion, a palette, and each command's status and time. An editor that helps: errors underlined as you type, suggestions, Ctrl+P, a minimap, VS Code keys, Vim modes and a live preview. Workspaces: tasks, workflows, plugins and git remote per project. Lua plugins: commands, keymaps, events, processes, file watching and streamed AI answers, with permissions and a Market. Themes: 10 built in, 78 keys each, a live editor, Windows Terminal schemes.">
+
+<br>
+
+<img src="assets/readme/h-get.svg" width="100%" alt="02 · Get it">
 
 <table>
 <tr>
-<td width="33%" valign="top">
+<td width="50%" valign="top">
 
-**🐚 Your shell, unchanged**<br>
-PowerShell 7, Windows PowerShell, bash, zsh or fish, with your profile, aliases and tools, in full 24-bit colour — vim, less, htop and other full-screen programs included.
+#### 🪟 Windows 10 / 11
 
-</td>
-<td width="33%" valign="top">
-
-**⚡ `'commands` on top**<br>
-Start a line with `'` for 50+ built-ins: history, reverse search, tab completion and a command palette.
-
-</td>
-<td width="33%" valign="top">
-
-**📝 An editor, built in**<br>
-Mistakes underlined as you type, suggestions, Ctrl+P to any file, a minimap, VS Code's editing keys, find & replace, Vim-style Normal/Insert/Visual modes, tabs, a file tree, an image viewer, and a live preview that renders your page like a real server.
-
-</td>
-</tr>
-<tr>
-<td valign="top">
-
-**🗂️ Workspaces**<br>
-Each project keeps its tasks, multi-step workflows (retries, conditions, exit codes), plugins and git remote.
-
-</td>
-<td valign="top">
-
-**🧩 Lua plugins**<br>
-Commands, keymaps and events in plain Lua — plus programs, file watching, the open file and streamed AI answers — with permissions, a Market and one-command publishing.
-
-</td>
-<td valign="top">
-
-**🎨 Themes**<br>
-10 built in, 78 keys each, a live theme editor, and your Windows Terminal colour scheme imports straight in.
-
-</td>
-</tr>
-</table>
-
-## Get it
-
-**Windows 10/11** — [installer (.msi)](https://github.com/oxlaboratory/oxis/releases/tag/latest-build) or the portable exe:
+The [installer (.msi)](https://github.com/oxlaboratory/oxis/releases/tag/latest-build), or the portable exe:
 
 ```powershell
 Invoke-WebRequest https://github.com/oxlaboratory/oxis/releases/download/latest-build/oxis.exe -OutFile oxis.exe; .\oxis.exe
 ```
 
-**Linux x64** — [`.deb` or portable tarball](https://github.com/oxlaboratory/oxis/releases/tag/latest-build), or the bare binary (needs `libgtk-3-0` and `libwebkit2gtk-4.1-0`):
+</td>
+<td width="50%" valign="top">
+
+#### 🐧 Linux x64
+
+A [`.deb` or portable tarball](https://github.com/oxlaboratory/oxis/releases/tag/latest-build), or the bare binary (needs `libgtk-3-0` and `libwebkit2gtk-4.1-0`):
 
 ```bash
 curl -Lo oxis https://github.com/oxlaboratory/oxis/releases/download/latest-build/oxis && chmod +x oxis && ./oxis
 ```
 
-**From source** — Go 1.22+ and Node.js 24+:
+</td>
+</tr>
+</table>
+
+**🛠️ From source** — Go 1.22+ and Node.js 24+:
 
 ```bash
 git clone https://github.com/oxlaboratory/oxis.git && cd oxis && npm run setup && npm run build
 ```
 
-Then keep it current from inside OXIS with `'update install`.
+Then keep it current from inside OXIS with `'update install`. Every release is on the [releases page](https://github.com/oxlaboratory/oxis/releases).
 
-## A minute with OXIS
+<br>
+
+<img src="assets/readme/h-tour.svg" width="100%" alt="03 · A minute with OXIS">
 
 ```text
 'help                      every command (Ctrl+Shift+P for the palette)
@@ -112,7 +98,9 @@ Then keep it current from inside OXIS with `'update install`.
 
 Anything that doesn't start with `'` goes to your shell, as usual.
 
-## Make it yours in Lua
+<br>
+
+<img src="assets/readme/h-lua.svg" width="100%" alt="04 · Make it yours in Lua">
 
 ```lua
 --[[@manifest
@@ -131,7 +119,9 @@ programs and hands you their output as it prints, watches files, edits
 the open file, and streams HTTP — so an AI assistant's answer can type
 itself into your editor as it's written. See the [Lua API](#lua-api).
 
-## Screenshots
+<br>
+
+<img src="assets/readme/h-shots.svg" width="100%" alt="05 · Screenshots">
 
 | | |
 |---|---|
@@ -157,7 +147,9 @@ while the desktop app is running:
   <img src="assets/screenshots/themes.png" alt="The ten built-in themes" width="100%">
 </p>
 
-## Roadmap
+<br>
+
+<img src="assets/readme/h-roadmap.svg" width="100%" alt="06 · Roadmap">
 
 - [x] Colour output: 16, 256 and 24-bit colour
 - [x] Self-update from source with rollback, and `'version` build info
@@ -171,7 +163,25 @@ while the desktop app is running:
 - [ ] Premium plugins in the Market (AI DevOps first)
 
 Ideas and bug reports are welcome in [issues](https://github.com/oxlaboratory/oxis/issues).
-**If OXIS is useful to you, a ⭐ helps other developers find it.**
+
+<div align="center">
+
+<br>
+
+<a href="https://star-history.com/#oxlaboratory/oxis&Date">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=oxlaboratory/oxis&type=Date&theme=dark">
+    <img src="https://api.star-history.com/svg?repos=oxlaboratory/oxis&type=Date" width="720" alt="OXIS stars over time">
+  </picture>
+</a>
+
+<br><br>
+
+**If OXIS is useful to you, a star helps other developers find it.**
+
+<a href="https://github.com/oxlaboratory/oxis/stargazers"><img src="assets/readme/btn-star.svg" height="54" alt="Star OXIS on GitHub"></a>
+
+</div>
 
 ---
 
@@ -1307,6 +1317,8 @@ are welcome on [GitHub](https://github.com/oxlaboratory/oxis).
 
 OXIS is licensed under the [Apache License 2.0](LICENSE).
 
----
+<br>
 
-*OXIS — terminals were the beginning.*
+<a href="https://github.com/oxlaboratory/oxis/stargazers"><img src="assets/readme/footer.svg" width="100%" alt="OXIS — built for developers who live in the terminal. If OXIS saves you time, a star helps other developers find it."></a>
+
+<p align="center"><sub><i>OXIS — terminals were the beginning.</i></sub></p>

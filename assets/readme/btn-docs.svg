@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="113" height="56" viewBox="0 0 113 56" role="img" aria-label="Docs">
+  <title>Docs</title>
+  <defs><filter id="g" x="-20%" y="-50%" width="140%" height="200%"><feGaussianBlur stdDeviation="6"/></filter></defs>
+  
+  <rect x="4" y="4" width="105" height="44" rx="22" fill="#10151d" stroke="#2d3848" stroke-width="1.4"/>
+  <g transform="translate(26 17)" color="#3dff64"><path d="M2 3.5C4.5 2.5 7 2.5 9 4c2-1.5 4.5-1.5 7-.5V15c-2.5-1-5-1-7 .5-2-1.5-4.5-1.5-7-.5z M9 4v11.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></g>
+  <text x="54" y="32" fill="#e6edf3" font-family="'Segoe UI Variable Display','Segoe UI',Inter,-apple-system,BlinkMacSystemFont,'Helvetica Neue',Arial,sans-serif" font-size="17" font-weight="650">Docs</text>
+</svg>

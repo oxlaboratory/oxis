@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 110" width="1280" height="110" role="img" aria-label="A minute with OXIS">
+  <title>A minute with OXIS</title>
+  <defs>
+    <linearGradient id="hl" x1="0" x2="1"><stop offset="0" stop-color="#3dff64"/><stop offset=".35" stop-color="#3dff64" stop-opacity=".25"/><stop offset="1" stop-color="#3dff64" stop-opacity="0"/></linearGradient>
+    <linearGradient id="hb" x1="0" x2="1"><stop offset="0" stop-color="#0c1a10"/><stop offset=".6" stop-color="#0d1117"/><stop offset="1" stop-color="#0d1117"/></linearGradient>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M40 0H0V40" fill="none" stroke="#3dff64" stroke-opacity=".07" stroke-width="1"/></pattern>
+  </defs>
+  <rect x="1" y="1" width="1278" height="108" rx="16" fill="url(#hb)" stroke="#232b36"/>
+  <rect x="1" y="1" width="1278" height="108" rx="16" fill="url(#grid)"/>
+  <g transform="translate(34 30) scale(0.5000)"><path fill="#3dff64" fill-rule="evenodd" d="M37 0 74 19v62L37 100 0 81V19zm0 19-18.5 9.6v42.4L37 80.4l18.5-9.4V28.6z"/><path fill="#000" opacity=".22" d="M18.5 9.8 37 19l-18.5 9.6zM55.5 70.9 37 80.4 55.5 90z"/></g>
+  <text x="90" y="52" fill="#3dff64" font-family="'JetBrains Mono','Cascadia Code','SF Mono',Consolas,Menlo,'Liberation Mono',monospace" font-size="16" font-weight="700" letter-spacing="2">03</text>
+  <text x="132" y="52" fill="#e6edf3" font-family="'Segoe UI Variable Display','Segoe UI',Inter,-apple-system,BlinkMacSystemFont,'Helvetica Neue',Arial,sans-serif" font-size="32" font-weight="750">A minute with OXIS</text>
+  <text x="90" y="82" fill="#8b98a8" font-family="'JetBrains Mono','Cascadia Code','SF Mono',Consolas,Menlo,'Liberation Mono',monospace" font-size="15">// anything without a ' goes to your shell, as usual</text>
+  <rect x="90" y="96" width="1100" height="2" rx="1" fill="url(#hl)"/>
+</svg>

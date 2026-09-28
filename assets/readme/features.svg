@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 524" width="1280" height="524" role="img" aria-label="Your shell unchanged; 'commands on top; an editor that helps; workspaces; Lua plugins; themes">
+  <defs><radialGradient id="c0" cx=".1" cy="0" r=".9"><stop offset="0" stop-color="#3dff64" stop-opacity=".13"/><stop offset="1" stop-color="#3dff64" stop-opacity="0"/></radialGradient><radialGradient id="c1" cx=".1" cy="0" r=".9"><stop offset="0" stop-color="#7dcfff" stop-opacity=".13"/><stop offset="1" stop-color="#7dcfff" stop-opacity="0"/></radialGradient><radialGradient id="c2" cx=".1" cy="0" r=".9"><stop offset="0" stop-color="#bb9af7" stop-opacity=".13"/><stop offset="1" stop-color="#bb9af7" stop-opacity="0"/></radialGradient><radialGradient id="c3" cx=".1" cy="0" r=".9"><stop offset="0" stop-color="#e0af68" stop-opacity=".13"/><stop offset="1" stop-color="#e0af68" stop-opacity="0"/></radialGradient><radialGradient id="c4" cx=".1" cy="0" r=".9"><stop offset="0" stop-color="#ff9e64" stop-opacity=".13"/><stop offset="1" stop-color="#ff9e64" stop-opacity="0"/></radialGradient><radialGradient id="c5" cx=".1" cy="0" r=".9"><stop offset="0" stop-color="#f7768e" stop-opacity=".13"/><stop offset="1" stop-color="#f7768e" stop-opacity="0"/></radialGradient></defs>
+  <g>
+    <rect x="1" y="1" width="409" height="248" rx="18" fill="#0d1117" stroke="#232b36"/>
+    <rect x="1" y="1" width="409" height="248" rx="18" fill="url(#c0)"/>
+    <path d="M30 1h351" stroke="#3dff64" stroke-width="3" stroke-linecap="round"/>
+    <g transform="translate(30 34)"><rect x="2" y="6" width="44" height="36" rx="7" fill="none" stroke="#3dff64" stroke-width="3"/><path d="M11 18l7 6-7 6" fill="none" stroke="#3dff64" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><path d="M22 31h13" stroke="#3dff64" stroke-width="3" stroke-linecap="round"/></g>
+    <text x="32" y="128" fill="#e6edf3" font-family="'Segoe UI Variable Display','Segoe UI',Inter,-apple-system,BlinkMacSystemFont,'Helvetica Neue',Arial,sans-serif" font-size="25" font-weight="700">Your shell, unchanged</text>
+    <text y="166" fill="#8b98a8" font-family="'Segoe UI Variable Display','Segoe UI',Inter,-apple-system,BlinkMacSystemFont,'Helvetica Neue',Arial,sans-serif" font-size="17"><tspan x="32" dy="0">PowerShell, bash, zsh or fish — your</tspan><tspan x="32" dy="26">profile, aliases and tools in 24-bit</tspan><tspan x="32" dy="26">colour. vim, htop and lazygit run too.</tspan></text>
+  </g><g>
+    <rect x="436" y="1" width="409" height="248" rx="18" fill="#0d1117" stroke="#232b36"/>
+    <rect x="436" y="1" width="409" height="248" rx="18" fill="url(#c1)"/>
+    <path d="M465 1h351" stroke="#7dcfff" stroke-width="3" stroke-linecap="round"/>
+    <g transform="translate(465 34)"><rect x="2" y="2" width="44" height="44" rx="10" fill="none" stroke="#7dcfff" stroke-width="3"/><path d="M19 12v12" stroke="#7dcfff" stroke-width="5" stroke-linecap="round"/><path d="M26 30h10M26 36h6" stroke="#7dcfff" stroke-width="3" stroke-linecap="round"/></g>
+    <text x="467" y="128" fill="#e6edf3" font-family="'Segoe UI Variable Display','Segoe UI',Inter,-apple-system,BlinkMacSystemFont,'Helvetica Neue',Arial,sans-serif" font-size="25" font-weight="700">'commands on top</text>
+    <text y="166" fill="#8b98a8" font-family="'Segoe UI Variable Display','Segoe UI',Inter,-apple-system,BlinkMacSystemFont,'Helvetica Neue',Arial,sans-serif" font-size="17"><tspan x="467" dy="0">Start a line with ' for 50+ built-ins:</tspan><tspan x="467" dy="26">history search, completion, a palette,</tspan><tspan x="467" dy="26">and ✓/✗ with the time on every command.</tspan></text>
+  </g><g>
+    <rect x="870" y="1" width="409" height="248" rx="18" fill="#0d1117" stroke="#232b36"/>
+    <rect x="870" y="1" width="409" height="248" rx="18" fill="url(#c2)"/>
+    <path d="M899 1h351" stroke="#bb9af7" stroke-width="3" stroke-linecap="round"/>
+    <g transform="translate(899 34)"><rect x="2" y="4" width="44" height="40" rx="7" fill="none" stroke="#bb9af7" stroke-width="3"/><path d="M10 15h16M10 23h24M10 31h10" stroke="#bb9af7" stroke-width="3" stroke-linecap="round"/><path d="M22 36q2-3 4 0t4 0 4 0" fill="none" stroke="#f7768e" stroke-width="2.4" stroke-linecap="round"/></g>
+    <text x="901" y="128" fill="#e6edf3" font-family="'Segoe UI Variable Display','Segoe UI',Inter,-apple-system,BlinkMacSystemFont,'Helvetica Neue',Arial,sans-serif" font-size="25" font-weight="700">An editor that helps</text>
+    <text y="166" fill="#8b98a8" font-family="'Segoe UI Variable Display','Segoe UI',Inter,-apple-system,BlinkMacSystemFont,'Helvetica Neue',Arial,sans-serif" font-size="17"><tspan x="901" dy="0">Errors underlined as you type, word</tspan><tspan x="901" dy="26">suggestions, Ctrl+P, a minimap, VS Code</tspan><tspan x="901" dy="26">keys, Vim modes and a live preview.</tspan></text>
+  </g><g>
+    <rect x="1" y="275" width="409" height="248" rx="18" fill="#0d1117" stroke="#232b36"/>
+    <rect x="1" y="275" width="409" height="248" rx="18" fill="url(#c3)"/>
+    <path d="M30 275h351" stroke="#e0af68" stroke-width="3" stroke-linecap="round"/>
+    <g transform="translate(30 308)"><path d="M3 12a4 4 0 0 1 4-4h11l5 5h18a4 4 0 0 1 4 4v20a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4z" fill="none" stroke="#e0af68" stroke-width="3" stroke-linejoin="round"/><path d="M14 28l5 5 10-10" fill="none" stroke="#e0af68" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></g>
+    <text x="32" y="402" fill="#e6edf3" font-family="'Segoe UI Variable Display','Segoe UI',Inter,-apple-system,BlinkMacSystemFont,'Helvetica Neue',Arial,sans-serif" font-size="25" font-weight="700">Workspaces</text>
+    <text y="440" fill="#8b98a8" font-family="'Segoe UI Variable Display','Segoe UI',Inter,-apple-system,BlinkMacSystemFont,'Helvetica Neue',Arial,sans-serif" font-size="17"><tspan x="32" dy="0">Each project keeps its tasks, workflows</tspan><tspan x="32" dy="26">(retries, conditions, exit codes),</tspan><tspan x="32" dy="26">plugins and git remote.</tspan></text>
+  </g><g>
+    <rect x="436" y="275" width="409" height="248" rx="18" fill="#0d1117" stroke="#232b36"/>
+    <rect x="436" y="275" width="409" height="248" rx="18" fill="url(#c4)"/>
+    <path d="M465 275h351" stroke="#ff9e64" stroke-width="3" stroke-linecap="round"/>
+    <g transform="translate(465 308)"><path d="M24 3l19 11v20L24 45 5 34V14z" fill="none" stroke="#ff9e64" stroke-width="3" stroke-linejoin="round"/><path d="M17 20l7-4 7 4v8l-7 4-7-4z" fill="#ff9e64" opacity=".85"/></g>
+    <text x="467" y="402" fill="#e6edf3" font-family="'Segoe UI Variable Display','Segoe UI',Inter,-apple-system,BlinkMacSystemFont,'Helvetica Neue',Arial,sans-serif" font-size="25" font-weight="700">Lua plugins</text>
+    <text y="440" fill="#8b98a8" font-family="'Segoe UI Variable Display','Segoe UI',Inter,-apple-system,BlinkMacSystemFont,'Helvetica Neue',Arial,sans-serif" font-size="17"><tspan x="467" dy="0">Commands, keymaps, events, processes,</tspan><tspan x="467" dy="26">file watching and streamed AI answers,</tspan><tspan x="467" dy="26">with permissions and a Market.</tspan></text>
+  </g><g>
+    <rect x="870" y="275" width="409" height="248" rx="18" fill="#0d1117" stroke="#232b36"/>
+    <rect x="870" y="275" width="409" height="248" rx="18" fill="url(#c5)"/>
+    <path d="M899 275h351" stroke="#f7768e" stroke-width="3" stroke-linecap="round"/>
+    <g transform="translate(899 308)"><path d="M24 3a21 21 0 1 0 0 42c3 0 4-2 4-4 0-3-3-4-1-7 1.5-2 4-2 7-2 6 0 11-3 11-10C45 11 36 3 24 3z" fill="none" stroke="#f7768e" stroke-width="3" stroke-linejoin="round"/><circle cx="14" cy="22" r="3.5" fill="#f7768e"/><circle cx="21" cy="13" r="3.5" fill="#e0af68"/><circle cx="31" cy="13" r="3.5" fill="#3dff64"/><circle cx="36" cy="22" r="3.5" fill="#7dcfff"/></g>
+    <text x="901" y="402" fill="#e6edf3" font-family="'Segoe UI Variable Display','Segoe UI',Inter,-apple-system,BlinkMacSystemFont,'Helvetica Neue',Arial,sans-serif" font-size="25" font-weight="700">Themes</text>
+    <text y="440" fill="#8b98a8" font-family="'Segoe UI Variable Display','Segoe UI',Inter,-apple-system,BlinkMacSystemFont,'Helvetica Neue',Arial,sans-serif" font-size="17"><tspan x="901" dy="0">10 built in, 78 keys each, a live theme</tspan><tspan x="901" dy="26">editor, and Windows Terminal schemes</tspan><tspan x="901" dy="26">import straight in.</tspan></text>
+  </g>
+</svg>

@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 240" width="1280" height="240" role="img" aria-label="If OXIS saves you time, a star helps other developers find it">
+  <style>@keyframes sweep{0%{transform:translateX(-400px)}100%{transform:translateX(1500px)}}.sweep{animation:sweep 7s linear infinite}</style>
+  <defs>
+    <linearGradient id="fb" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0a1a0e"/><stop offset=".5" stop-color="#0d1117"/><stop offset="1" stop-color="#130f22"/></linearGradient>
+    <linearGradient id="beam" x1="0" x2="1"><stop offset="0" stop-color="#3dff64" stop-opacity="0"/><stop offset=".5" stop-color="#3dff64" stop-opacity=".12"/><stop offset="1" stop-color="#3dff64" stop-opacity="0"/></linearGradient>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M40 0H0V40" fill="none" stroke="#3dff64" stroke-opacity=".07" stroke-width="1"/></pattern>
+    <clipPath id="fc"><rect width="1280" height="240" rx="22"/></clipPath>
+  </defs>
+  <g clip-path="url(#fc)">
+    <rect width="1280" height="240" fill="url(#fb)"/>
+    <rect width="1280" height="240" fill="url(#grid)"/>
+    <rect class="sweep" width="300" height="240" fill="url(#beam)"/>
+    <g transform="translate(618.0 34) scale(0.5800)"><path fill="#3dff64" fill-rule="evenodd" d="M37 0 74 19v62L37 100 0 81V19zm0 19-18.5 9.6v42.4L37 80.4l18.5-9.4V28.6z"/><path fill="#000" opacity=".22" d="M18.5 9.8 37 19l-18.5 9.6zM55.5 70.9 37 80.4 55.5 90z"/></g>
+    <text x="640.0" y="140" text-anchor="middle" fill="#e6edf3" font-family="'Segoe UI Variable Display','Segoe UI',Inter,-apple-system,BlinkMacSystemFont,'Helvetica Neue',Arial,sans-serif" font-size="30" font-weight="750">Built for developers who live in the terminal.</text>
+    <text x="640.0" y="178" text-anchor="middle" fill="#8b98a8" font-family="'Segoe UI Variable Display','Segoe UI',Inter,-apple-system,BlinkMacSystemFont,'Helvetica Neue',Arial,sans-serif" font-size="18">If OXIS saves you time, a <tspan fill="#3dff64">★ star</tspan> helps other developers find it.</text>
+    <text x="640.0" y="212" text-anchor="middle" fill="#56606e" font-family="'JetBrains Mono','Cascadia Code','SF Mono',Consolas,Menlo,'Liberation Mono',monospace" font-size="13">Apache-2.0 · no account · no telemetry · github.com/oxlaboratory/oxis</text>
+  </g>
+  <rect x=".5" y=".5" width="1279" height="239" rx="22" fill="none" stroke="#3dff64" stroke-opacity=".25"/>
+</svg>
