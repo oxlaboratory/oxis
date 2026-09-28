@@ -6,6 +6,15 @@ All notable changes to OXIS. The format follows
 ## [Unreleased]
 
 ### Added
+- `'market` shows the Market as a table: grouped by category, with each
+  plugin's version, whether it's installed, its price if it has one,
+  and search matches picked out; `'market info` is a card with what the
+  plugin asks for, where it works and how to install it.
+- More colour: `'help` and OXIS's other output show commands, arguments
+  and descriptions in different colours, and the shell's prompt and the
+  commands you ran are coloured too (the path, the command, options,
+  strings, variables and numbers, in the theme's terminal colours;
+  setting "Colour Prompts", on by default).
 - Shell integration: PowerShell, bash, zsh and fish start with a prompt
   hook (after the user's own startup files) that reports each command's
   exit status and the working directory (OSC 133 and OSC 7, as VS Code
@@ -141,6 +150,9 @@ All notable changes to OXIS. The format follows
   of every built-in theme.
 
 ### Changed
+- `oxis.dashboard` no longer changes the theme: that's the user's.
+- `'theme <name>` and `'theme edit <name>` find a theme whatever the
+  case of its name.
 - Much faster terminal output. Output is applied at most once per frame
   (every 48 ms while a program floods it) instead of once per message,
   and the scrollback renders in blocks the browser skips while they're
@@ -248,6 +260,8 @@ All notable changes to OXIS. The format follows
 - The npm launcher downloads from the GitHub `latest-build` release.
 
 ### Fixed
+- Home's stars and clouds could land on the title, depending on the
+  window's height; the sky now has its own strip above it.
 - Stray `32m`, `?25h` and similar in the output: a read that ended
   right after the `ESC [` of a colour or cursor code sent it early, and
   the rest of the code showed up as text.
@@ -396,6 +410,9 @@ All notable changes to OXIS. The format follows
   Windows version resource said 1.2.0.
 
 ### Removed
+- The Market plugin `ui`: it switched the theme and changed Home every
+  time OXIS started. A copy that's already installed is removed at
+  startup, with a note in the terminal saying so.
 - Unused modules (`tabs.ts`, `sessionManager.ts`), 11 unused `.lua`
   copies of the shortcut plugins, and the train/splash CSS.
 - Build scripts no longer delete `go.sum` and run `go mod tidy` on every

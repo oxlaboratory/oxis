@@ -618,6 +618,17 @@ class PluginManager {
     return result;
   }
 
+  // Messages for the terminal from startup (it isn't showing yet then);
+  // it prints them once the shell is ready (takeNotices).
+  private notices: Array<{ text: string; kind: "warn" | "dim" }> = [];
+
+  /** The startup messages not printed yet (and forgets them). */
+  takeNotices(): Array<{ text: string; kind: "warn" | "dim" }> {
+    const n = this.notices;
+    this.notices = [];
+    return n;
+  }
+
   /** Loads every user/Market plugin file from disk and runs the enabled
    *  ones (native app only). Called once at startup after restoreState(). */
   async loadUserPlugins(): Promise<void> {
@@ -628,6 +639,12 @@ class PluginManager {
     try { marketNames = await listPluginFiles(); }
     catch { marketNames = []; }
     for (const name of marketNames) {
+      if (WITHDRAWN[name]) {
+        // Taken off the Market: an installed copy goes too.
+        void deletePluginFile(name).catch(() => { /* try again next start */ });
+        this.notices.push({ text: `  ⚠  removed the Market plugin "${name}": it was withdrawn from the Market because ${WITHDRAWN[name]}`, kind: "warn" });
+        continue;
+      }
       if (this.plugins.has(name)) continue; // already registered (e.g. re-init)
       let lua: string;
       try { lua = await readPluginFile(name); }
@@ -665,5 +682,11 @@ class PluginManager {
     }
   }
 }
+
+/** Market plugins taken off the Market because they did harm, and why:
+ *  an installed copy is removed at startup instead of being loaded. */
+const WITHDRAWN: Record<string, string> = {
+  ui: "it switched the theme and changed Home every time OXIS started",
+};
 
 export const pluginManager = new PluginManager();

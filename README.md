@@ -747,7 +747,7 @@ Everything is on the global `oxis` table.
 | `oxis.plugin.enable(name)` / `.disable(name)` | Toggle a plugin |
 | `oxis.workspace(path)` | Mark `path` as the current project (shown on Home) |
 | `oxis.newTerminal()` | Switch to the terminal view |
-| `oxis.dashboard{ header, theme, shortcuts }` | Customise Home: a header line, a theme, and extra hint lines |
+| `oxis.dashboard{ header, shortcuts }` | Customise Home: a header line and extra hint lines (the theme stays the user's; use `oxis.theme` in a command for that) |
 | `oxis.fs.read/write/list/stat/mkdir/remove(path, …, cb)` | File access; `cb(err, result)` |
 | `oxis.fs.watch(path, fn, opts)` | Changes to a file or folder, as they happen ([below](#watching-files)) |
 | `oxis.process.spawn(opts, callbacks)` | Run a program and get its output as it prints ([below](#running-programs)) |

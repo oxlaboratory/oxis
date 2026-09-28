@@ -859,13 +859,16 @@ html, body, #root {
   .oxis-ver-row { font-size: 10px; }
 }
 
-/* ── Sky widget — top-right corner of home, sun/moon by time ──── */
+/* ── Sky widget — above the title on Home, sun/moon by time ──── */
+/* In the flow, in a strip of its own right above the title, so the
+   stars and clouds can never land on the title whatever the window's
+   height (positioned absolutely, they did). */
 .sky-widget {
-  position: absolute;
-  top: 26px; left: 50%; transform: translateX(-50%);
-  width: 280px; height: 50px;
+  position: relative; flex: none;
+  width: 280px; height: 50px; margin: 0 auto 10px;
   pointer-events: none;
   display: var(--sky-display, block);
+  overflow: hidden;
 }
 
 /* ── ASCII Sky widget ───────────────────────────────────── */

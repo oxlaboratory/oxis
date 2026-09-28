@@ -85,6 +85,8 @@ interface ShellCtx {
    *  instead of one per line. See addLines in Terminal for why this
    *  exists (a real performance finding, not just a convenience). */
   printLines:  (entries: Array<[string, LineKind?]>) => void;
+  /** A line in several colours: [text, tone] parts (see TONE_CSS). */
+  printRich:   (parts: RichPart[]) => void;
   clear:       () => void;
   /** `line`, when given, is a 1-based line number the editor jumps
    *  the cursor/scroll position to once the file finishes loading —
@@ -92,6 +94,83 @@ interface ShellCtx {
    *  the exact window-size constant instead of making them search). */
   openEditor:  (path: string, line?: number) => void;
   newTerminal: () => void;
+}
+
+// ── Colours for OXIS's own output ───────────────────────────
+/** A part of a line and how it's coloured: a line kind, or one of the
+ *  extra tones for commands, their arguments, keys and so on. */
+type Tone = LineKind | "cmd" | "arg" | "text" | "muted" | "key" | "num" | "head"
+  // A typed command's parts, in the theme's terminal colours.
+  | "shCmd" | "shOpt" | "shStr" | "shVar" | "shNum";
+type RichPart = [string, Tone?];
+
+const TONE_CSS: Record<Tone, string> = {
+  ok:     "color:var(--green)",
+  err:    "color:var(--err)",
+  warn:   "color:var(--warn)",
+  info:   "color:var(--text)",
+  dim:    "color:var(--dim)",
+  accent: "color:var(--purple)",
+  cmd:    "color:var(--purple3);font-weight:700",
+  shell:  "color:var(--text)",
+  search: "color:var(--purple2)",
+  arg:    "color:var(--purple)",
+  text:   "color:var(--text)",
+  muted:  "color:var(--muted)",
+  key:    "color:var(--purple3);font-weight:700",
+  num:    "color:var(--warn)",
+  head:   "color:var(--purple);font-weight:700",
+  shCmd:  "color:var(--ansi-12, var(--purple3));font-weight:700",
+  shOpt:  "color:var(--ansi-6, var(--purple))",
+  shStr:  "color:var(--ansi-10, var(--green))",
+  shVar:  "color:var(--ansi-11, var(--warn))",
+  shNum:  "color:var(--ansi-13, var(--warn))",
+};
+
+function richSpans(parts: RichPart[]): Span[] {
+  return parts.filter(p => p[0]).map(([t, tone]) => ({ t, s: tone ? TONE_CSS[tone] : undefined }));
+}
+
+/** An output line made of coloured parts. */
+function richLine(parts: RichPart[]): Line {
+  const line = mkLine(parts.map(p => p[0]).join(""), "info");
+  line.spans = richSpans(parts);
+  return line;
+}
+
+/** A command line's parts: the command (and each one after a pipe or
+ *  separator), options, strings, variables and numbers, each in its
+ *  own colour. */
+function shellCommandParts(cmd: string): RichPart[] {
+  const out: RichPart[] = [];
+  let expectCommand = true;
+  const re = /("(?:[^"`\\]|[`\\].)*"?|'[^']*'?|\$\{[^}]*\}|\$[\w:]+|\|\||&&|[|;&]|\s+|--?[A-Za-z][\w-]*|[^\s|;&"'$]+|\$)/g;
+  for (const m of cmd.matchAll(re)) {
+    const t = m[0];
+    if (/^\s+$/.test(t)) out.push([t]);
+    else if (/^(\|\||&&|[|;&])$/.test(t)) { out.push([t, "dim"]); expectCommand = true; }
+    else if (/^["']/.test(t)) { out.push([t, "shStr"]); expectCommand = false; }
+    else if (t.startsWith("$")) { out.push([t, "shVar"]); expectCommand = false; }
+    else if (expectCommand) { out.push([t, "shCmd"]); expectCommand = false; }
+    else if (/^--?[A-Za-z]/.test(t)) out.push([t, "shOpt"]);
+    else if (/^\d+(\.\d+)?$/.test(t)) out.push([t, "shNum"]);
+    else out.push([t, "text"]);
+  }
+  return out;
+}
+
+const PS_PROMPT_RE = /^(PS )((?:[A-Za-z]:|[A-Za-z][\w.]*::|\/|~)[^>]*)(> ?)(.*)$/;
+const SH_PROMPT_RE = /^([\w.-]+@[\w.-]+)(:)([^$#\s]*)([$#] )(.*)$/;
+
+/** Colours for a shell prompt line (PowerShell's "PS C:\\dir> cmd", or
+ *  bash's "user@host:~/dir$ cmd") and the command typed after it; none
+ *  for any other line. */
+function promptSpans(text: string): Span[] | undefined {
+  const ps = PS_PROMPT_RE.exec(text);
+  if (ps) return richSpans([[ps[1], "dim"], [ps[2], "accent"], [ps[3], "cmd"], ...shellCommandParts(ps[4])]);
+  const sh = SH_PROMPT_RE.exec(text);
+  if (sh) return richSpans([[sh[1], "ok"], [sh[2], "dim"], [sh[3], "accent"], [sh[4], "cmd"], ...shellCommandParts(sh[5])]);
+  return undefined;
 }
 
 // Persisted plugin options (oxis.getOption/setOption) and settings.
@@ -203,6 +282,11 @@ const SETTINGS: SettingDef[] = [
   {
     key: "ansiColors", label: "Colour Output", default: true,
     description: "Show the colours programs print (git, test runners, linters); off shows plain text",
+    apply: () => { /* read for each new line of output */ },
+  },
+  {
+    key: "promptColors", label: "Colour Prompts", default: true,
+    description: "Colour the shell's prompt and the commands you ran in the output: the path, the command, its options, strings and variables",
     apply: () => { /* read for each new line of output */ },
   },
   {
@@ -527,7 +611,16 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
   const dim  = (s: string) => _ctxRef.current?.print("     " + s, "dim");
   const info = (s: string) => _ctxRef.current?.print("  " + s, "info");
   const sep  = ()          => _ctxRef.current?.print("  " + "─".repeat(54), "dim");
-  const h    = (cmd: string, d: string) => _ctxRef.current?.print("  " + cmd.padEnd(32) + d, "info");
+  const rich = (parts: RichPart[]) => _ctxRef.current?.printRich(parts);
+  /** A command's syntax in colour: the command words, then <arguments>,
+   *  [options], --flags and "quoted" parts. */
+  const syntaxParts = (syntax: string): RichPart[] => [...syntax.matchAll(/<[^>]*>|\[[^\]]*\]|"[^"]*"|\s+|[^\s]+/g)]
+    .map(m => [m[0], /^\s+$/.test(m[0]) ? undefined : /^[<["]|^--?[A-Za-z]/.test(m[0]) || m[0] === "|" ? "arg" : "cmd"] as RichPart);
+  /** One help row (a "── section ──" heading when there's no description). */
+  const h    = (cmd: string, d: string) => {
+    if (!d && cmd.startsWith("──")) { rich([["  " + cmd, "head"]]); return; }
+    rich([["  "], ...syntaxParts(cmd), [" ".repeat(Math.max(2, 32 - cmd.length))], [d, "muted"]]);
+  };
   const shellCmd = (winCmd: string, unixCmd: string) => isWindows() ? winCmd : unixCmd;
   /** Prints a multi-line message with ✓/✗ prefixes in one state
    *  update rather than one per line. */
@@ -864,9 +957,11 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
       if(sub==="new"){
         if(!args[1]){err("usage: 'theme new <name>");return;}
         events.emit("open_theme_editor",{name:args[1]}); return; }
+      // Theme names match whatever their case ('theme edit main → "MAIN").
+      const findTheme = (n: string) => all[n] !== undefined ? n : Object.keys(all).find(k => k.toLowerCase() === n.toLowerCase());
       if(sub==="edit"){
-        const target = args[1] || cur;
-        if(!all[target]){err(`not found: ${target}`);return;}
+        const target = findTheme(args[1] || cur);
+        if(!target){err(`no theme called "${args[1]}" — 'theme lists them`);return;}
         // Built-in themes can't be overwritten; edit a copy.
         events.emit("open_theme_editor",{name: themeManager.builtins()[target] ? `${target}-custom` : target});
         return; }
@@ -917,7 +1012,8 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
           else err(`import failed: ${r.error}`);
         }).catch(e => err(`couldn't read ${args[1]}: ${e instanceof Error ? e.message : e}`));
         return; }
-      if(themeManager.apply(rest)) ok(`theme → ${rest}`);
+      const named = findTheme(rest);
+      if(named && themeManager.apply(named)) ok(`theme → ${named}`);
       else err(`not found: '${rest}' — run 'theme to list`); }});
 
   // ── oxis (application settings) ───────────────────────────
@@ -1243,19 +1339,56 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
       const sub = args[0]?.toLowerCase();
       const rest = args.slice(1).join(" ");
 
+      // ── listing: one row per plugin, grouped by category, in colour ──
+      const host = market.MARKET_BASE.replace(/^https?:\/\//, "");
+      const installedNames = () => new Set(pluginManager.all().filter(p => !p.builtin).map(p => p.name));
+      /** Text with each occurrence of `query` picked out. */
+      const marked = (text: string, query: string, tone: Tone): RichPart[] => {
+        if (!query) return [[text, tone]];
+        const out: RichPart[] = [];
+        const lower = text.toLowerCase(), q = query.toLowerCase();
+        let at = 0;
+        for (let i = lower.indexOf(q); i >= 0; i = lower.indexOf(q, at)) {
+          if (i > at) out.push([text.slice(at, i), tone]);
+          out.push([text.slice(i, i + q.length), "key"]);
+          at = i + q.length;
+        }
+        if (at < text.length) out.push([text.slice(at), tone]);
+        return out;
+      };
+      const row = (e: market.MarketEntry, installed: Set<string>, query = "") => {
+        const have = installed.has(e.name);
+        const status: RichPart = have ? ["✓ installed ", "ok"]
+          : e.comingSoon ? ["coming soon ", "dim"]
+          : e.premium ? [(e.priceDisplay || "premium").padEnd(12), "warn"]
+          : ["            "];
+        const desc = e.desc.length > 84 ? e.desc.slice(0, 83).trimEnd() + "…" : e.desc;
+        rich([["  "], [have ? "● " : "○ ", have ? "ok" : "dim"],
+          ...marked(e.name, query, "cmd"), [" ".repeat(Math.max(1, 15 - e.name.length))],
+          [(e.version ? `v${e.version}` : "").padEnd(8), "dim"], status, ...marked(desc, query, "muted")]);
+      };
+      const listing = (entries: market.MarketEntry[], title: RichPart[], query = "") => {
+        const installed = installedNames();
+        const have = entries.filter(e => installed.has(e.name)).length;
+        sep();
+        rich([["  "], ...title, ["   "], [`${entries.length} plugin${entries.length === 1 ? "" : "s"}`, "text"],
+          ...(have ? [["  ·  ", "dim"], [`${have} installed`, "ok"]] as RichPart[] : []), ["  ·  ", "dim"], [host, "dim"]]);
+        sep();
+        const cats = [...new Set(entries.map(e => e.category))];
+        for (const cat of cats) {
+          const inCat = entries.filter(e => e.category === cat);
+          rich([["  " + cat.toUpperCase(), "head"], [`  ${inCat.length}`, "dim"]]);
+          for (const e of inCat) row(e, installed, query);
+        }
+        sep();
+        rich([["  'market install ", "cmd"], ["<name>", "arg"], ["   ·   ", "dim"], ["'market info ", "cmd"], ["<name>", "arg"],
+          ["   ·   ", "dim"], ["'market search ", "cmd"], ["<words>", "arg"], ["   ·   ", "dim"], ["'market open", "cmd"]]);
+      };
+
       if (!sub || sub === "list") {
         market.fetchIndex().then(entries => {
-          sep(); ctx.print(`  OXIS Market  ·  ${market.MARKET_BASE}`, "accent"); sep();
-          if (!entries.length) { dim("(no plugins listed)"); sep(); return; }
-          const cats = [...new Set(entries.map(e => e.category))];
-          for (const cat of cats) {
-            ctx.print(`  ─ ${cat}`, "dim");
-            entries.filter(e => e.category === cat).forEach(e => {
-              const badge = e.comingSoon ? "  (coming soon)" : e.premium ? `  (${e.priceDisplay || "premium"})` : "";
-              ctx.print(`  ○  ${e.name.padEnd(16)} ${e.desc}${e.author ? `  (by ${e.author})` : ""}${badge}`, e.comingSoon ? "dim" : "dim");
-            });
-          }
-          sep(); dim("'market install <n>  ·  'market search <query>  ·  'market info <n>  ·  'market open  ·  'market subscribe <n>  ·  'market license <email>");
+          if (!entries.length) { sep(); dim("(no plugins listed)"); sep(); return; }
+          listing(entries, [["OXIS Market", "head"]]);
         }).catch(e => err(`marketplace unreachable: ${e instanceof Error ? e.message : e}`));
         return;
       }
@@ -1264,10 +1397,11 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
         if (!rest) { err("usage: 'market search <query>"); return; }
         market.fetchIndex().then(entries => {
           const hits = market.searchIndex(entries, rest);
-          sep(); ctx.print(`  Marketplace search: "${rest}"`, "accent"); sep();
-          if (!hits.length) { dim("(no matches)"); sep(); return; }
-          hits.forEach(e => ctx.print(`  ○  ${e.name.padEnd(16)} ${e.desc}`, "dim"));
-          sep();
+          if (!hits.length) {
+            rich([["  ✗  ", "err"], ["nothing in the Market matches ", "text"], [`"${rest}"`, "key"], [" — 'market list shows everything", "dim"]]);
+            return;
+          }
+          listing(hits, [["Market search ", "head"], [`"${rest}"`, "key"]], rest);
         }).catch(e => err(`marketplace unreachable: ${e instanceof Error ? e.message : e}`));
         return;
       }
@@ -1277,20 +1411,35 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
         if (!name) { err("usage: 'market info <n>"); return; }
         market.findEntry(name).then(async entry => {
           if (!entry) { err(`not found in marketplace: ${name}`); return; }
-          sep(); ctx.print(`  ${entry.name}`, "accent");
-          dim(entry.desc);
-          dim(`category: ${entry.category}${entry.version ? `  ·  v${entry.version}` : ""}${entry.author ? `  ·  by ${entry.author}` : ""}`);
-          if (entry.premium) {
-            dim(`${entry.priceDisplay || "premium"} — ${entry.comingSoon ? "coming soon, not purchasable yet" : "subscription"}`);
-            if (!entry.comingSoon) {
-              const count = await market.fetchSubscriberCount(entry.name);
-              if (count !== null) dim(`${count} active subscriber${count === 1 ? "" : "s"}`);
-              // count === null (network hiccup, KV not bound yet on
-              // the Market backend) — say nothing rather than
-              // guessing at a number that might be wrong.
-            }
+          const have = installedNames().has(entry.name);
+          sep();
+          rich([["  "], [entry.name, "cmd"], ["  "], [entry.version ? `v${entry.version}` : "", "dim"], ["   "],
+            have ? ["✓ installed", "ok"] : entry.comingSoon ? ["coming soon", "dim"] : entry.premium ? [entry.priceDisplay || "premium", "warn"] : ["free", "ok"],
+            ...(entry.author ? [["   by ", "dim"], [entry.author, "text"]] as RichPart[] : [])]);
+          sep();
+          // The description, wrapped to the width of the rule above.
+          let lineText = "";
+          for (const word of entry.desc.split(/\s+/)) {
+            if (lineText && lineText.length + word.length + 1 > 76) { rich([["  " + lineText, "text"]]); lineText = word; }
+            else lineText = lineText ? `${lineText} ${word}` : word;
           }
-          sep(); dim(`'market install ${entry.name}`);
+          if (lineText) rich([["  " + lineText, "text"]]);
+          info("");
+          const field = (label: string, value: string, tone: Tone = "text") => rich([["  " + label.padEnd(12), "dim"], [value, tone]]);
+          field("category", entry.category, "accent");
+          if (entry.permissions?.length) field("asks for", entry.permissions.join(", "), "warn");
+          if (entry.os?.length) field("works on", entry.os.join(", "));
+          if (entry.minOxisVersion) field("needs", `OXIS ${entry.minOxisVersion} or newer`);
+          if (entry.size) field("size", entry.size < 1024 ? `${entry.size} bytes` : `${(entry.size / 1024).toFixed(1)} KB`);
+          if (entry.premium && !entry.comingSoon) {
+            const count = await market.fetchSubscriberCount(entry.name);
+            // null (network hiccup, KV not bound yet on the Market
+            // backend): say nothing rather than guess a number.
+            if (count !== null) field("subscribers", String(count));
+          }
+          sep();
+          if (have) rich([["  already installed — ", "dim"], ["'help " + entry.name, "cmd"], [" lists its commands", "dim"]]);
+          else if (!entry.comingSoon) rich([["  "], ["'market install " + entry.name, "cmd"]]);
         }).catch(e => err(`marketplace unreachable: ${e instanceof Error ? e.message : e}`));
         return;
       }
@@ -1298,7 +1447,7 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
       if (sub === "install") {
         const name = args[1];
         if (!name) { err("usage: 'market install <n>"); return; }
-        info(`installing ${name}…`);
+        rich([["  ↓  ", "accent"], ["installing ", "text"], [name, "cmd"], ["…", "dim"]]);
         market.findEntry(name).then(entry => {
           if (!entry) { err(`not found in marketplace: ${name}`); return; }
           if (entry.comingSoon) { dim(`${name} isn't available yet — coming in a future update`); return; }
@@ -4174,6 +4323,11 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
     queueLines([mkLine(text, kind)]);
   }, [queueLines]);
 
+  /** A line in several colours (OXIS's own output). */
+  const addRich = useCallback((parts: RichPart[]) => {
+    queueLines([richLine(parts)]);
+  }, [queueLines]);
+
   /** Adds several lines at once (each may have its own kind). */
   const addLines = useCallback((entries: Array<[string, LineKind?]>) => {
     queueLines(entries.map(([text, kind]) => mkLine(text, kind)));
@@ -4471,6 +4625,7 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
     const processed = processOutput(raw, pending.current);
     pending.current = processed.newPending;
     const colors = getSetting("ansiColors") !== false;
+    const promptColors = colors && getSetting("promptColors") !== false;
     // The unfinished last line (the shell prompt, or a program asking
     // for input) is shown live below the completed lines, in colour
     // too (without committing its style: it isn't finished).
@@ -4480,9 +4635,10 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
       partialQueued.current = { text: "" };
     } else {
       const shown = stripStepEcho(pendingPlain);
+      const own = colors && shown === pendingPlain ? ansiRef.current.preview(pendingVisible).spans : undefined;
       partialQueued.current = {
         text: shown,
-        spans: colors && shown === pendingPlain ? ansiRef.current.preview(pendingVisible).spans : undefined,
+        spans: own ?? (promptColors ? promptSpans(shown) : undefined),
       };
     }
     scheduleFlush();
@@ -4500,7 +4656,12 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
       const l = stripStepEcho(plain);
       const blank = l.trim() === "";
       if (isProbeLine(plain) || (blank && prevBlank)) { ids.push(null); continue; }
-      const line = mergeOutput([], [colors && l === plain ? parsed : { text: l }])[0];
+      let entry: { text: string; spans?: Span[] } = colors && l === plain ? parsed : { text: l };
+      if (!entry.spans && promptColors) {
+        const spans = promptSpans(l);
+        if (spans) entry = { text: l, spans };
+      }
+      const line = mergeOutput([], [entry])[0];
       shown.push(line);
       ids.push(line.id);
       prevBlank = blank;
@@ -4610,10 +4771,11 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
       ctxRef.current.send  = sendToShell;
       ctxRef.current.print = addLine;
       ctxRef.current.printLines = addLines;
+      ctxRef.current.printRich = addRich;
       ctxRef.current.clear = clear;
     }
     return registry.execute(verb, args, rest, typed);
-  }, [addLine, sendToShell, clear]);
+  }, [addLine, addRich, sendToShell, clear]);
 
   // Asks the shell for its cwd (cwdTracker.ts); the probe's echo and
   // answer are filtered out of the output.
@@ -4699,6 +4861,7 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
         setCurrentShell(shell);
         setReady(true);
         onReady();
+        for (const n of pluginManager.takeNotices()) addLine(n.text, n.kind);
         setTimeout(focusPrompt, 60);
         events.emit("shell_started", { id });
         // Initial cwd probe — this is what makes automatic workspace
@@ -4794,6 +4957,7 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
       runLine,
       print: addLine,
       printLines: addLines,
+      printRich: addRich,
       clear,
       openEditor: (path, line) => {
         setEditorFiles(files => {
@@ -5672,16 +5836,17 @@ function Home({ currentTheme, onTheme, onOpenThemeEditor, onOpenPluginCreator }:
   const [activeWorkspacePath, setActiveWorkspacePath] = useState<string | null>(null);
   // 'hide workspace / 'show workspace, persisted in the option store.
   const [workspacePanelHidden, setWorkspacePanelHidden] = useState(() => !!readPersistedOption("ui.hideWorkspacePanel"));
-  // oxis.dashboard({ header, theme, shortcuts }) from a plugin or config.lua.
+  // oxis.dashboard({ header, shortcuts }) from a plugin or config.lua.
+  // It doesn't change the theme: that's the user's choice, and a plugin
+  // doing it at every start overrode it.
   const [dashboard, setDashboard] = useState<{ header?: string; shortcuts?: string[] }>({});
   useEffect(() => events.on("dashboard_config", (p) => {
     const c = ((p as { config?: Record<string, unknown> } | undefined)?.config ?? {}) as Record<string, unknown>;
-    if (typeof c.theme === "string" && themeManager.apply(c.theme)) onTheme(c.theme);
     const shortcuts = Array.isArray(c.shortcuts) ? c.shortcuts.map(String)
       : c.shortcuts && typeof c.shortcuts === "object" ? Object.values(c.shortcuts as Record<string, unknown>).map(String)
       : undefined;
     setDashboard({ header: typeof c.header === "string" ? c.header : undefined, shortcuts });
-  }), [onTheme]);
+  }), []);
   useEffect(() => events.on("ui_workspace_panel_visibility_changed", (p) => {
     setWorkspacePanelHidden(!!(p as { hidden?: boolean } | undefined)?.hidden);
   }), []);
@@ -5794,8 +5959,8 @@ function Home({ currentTheme, onTheme, onOpenThemeEditor, onOpenPluginCreator }:
   } else {
     body = (
       <>
-        <SkyWidget />
         <div className="oxis-home">
+          <SkyWidget />
           <div className="oxis-sub-row">
     <span><strong className="oxis-letter">O</strong>pen</span>
     <span><strong className="oxis-letter">X</strong>enial</span>

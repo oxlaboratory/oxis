@@ -32,14 +32,6 @@
     "file": "plugins/system.lua"
   },
   {
-    "name": "ui",
-    "desc": "Cycle through every built-in theme, jump straight to dark mode, and configure the home dashboard.",
-    "category": "ui",
-    "version": "0.3.1",
-    "author": "Oxide Labs",
-    "file": "plugins/ui.lua"
-  },
-  {
     "name": "security",
     "desc": "Password generation (real crypto RNG, not a weak PRNG) and an ACL/permissions audit for any path you give it.",
     "category": "security",
