@@ -49,7 +49,7 @@ Start a line with `'` for 50+ built-ins: history, reverse search, tab completion
 <td width="33%" valign="top">
 
 **📝 An editor, built in**<br>
-Tabs, a file tree, Vim modes, find & replace, an image viewer, and a live preview that renders your page like a real server.
+Mistakes underlined as you type, a minimap, VS Code's editing keys, find & replace, optional Vim keys, tabs, a file tree, an image viewer, and a live preview that renders your page like a real server.
 
 </td>
 </tr>
@@ -421,7 +421,9 @@ command only reports it.
 ## Commands
 
 `'help` lists everything, `'help <command>` shows every form of a
-command with examples, and `'help <plugin>` lists a plugin's commands.
+command with examples, `'help <plugin>` lists a plugin's commands, and
+`'help hotkeys` every keyboard shortcut (the terminal, the app, the editor
+and plugins' own).
 The command palette (Ctrl+Shift+P) searches the same list.
 
 | Area | Commands |
@@ -447,11 +449,36 @@ new file is created in the current folder. Absolute paths open that
 exact file, and a leading `/` means the root of the app's drive on
 Windows. Quote paths with spaces.
 
-- **Modes.** Normal (hjkl, `0`/`$`, `gg`/`G`, `w`/`b`, `x`, `dd`, `dw`,
-  `o`/`O`), Insert (`i`, `a`, `o`…) and Visual (`v`, then `d`/`x`/`y`).
+- **Mistakes shown as you type.** Syntax errors are underlined with the
+  message at the end of the line, a count in the editor bar, a list
+  under the text (click one to go there) and red or yellow line numbers.
+  Hover a squiggle for the message; F8 / Shift+F8 step through them.
+  Checked: JavaScript and TypeScript (JSX too; parsed off the main
+  thread), HTML (an attribute left open like `src="js/app.js</script>`,
+  unclosed or mismatched tags, duplicate ids, and the scripts and styles
+  inside), CSS, JSON (comments allowed in `tsconfig.json` and
+  `.vscode/`), Lua, brackets and strings in Python, Go, Rust and C-like
+  languages, tabs in YAML, and leftover merge-conflict markers.
+- **Minimap** beside the text: the whole file in miniature with the
+  visible part outlined, and markers for mistakes, find matches and
+  unsaved changes. Click or drag it to scroll (setting `editorMinimap`).
+- **Find and replace** highlights every match, the current one
+  brighter, and what a replace will change.
+- **Editing keys** like VS Code's: Ctrl+/ comments lines, Alt+↑/↓ moves
+  them, Shift+Alt+↑/↓ copies them, Ctrl+Shift+K deletes them, Ctrl+D
+  selects the word and then its next appearance, Ctrl+L selects lines,
+  Tab/Shift+Tab indent and outdent a selection, Enter keeps the
+  indentation, brackets and quotes close themselves, Home goes to the
+  first character, Shift+Alt+F formats JSON. The caret's line, matching
+  bracket and other uses of the word under it are highlighted.
+- **Status line:** line and column, the selection's size, the language,
+  line endings and encoding.
 - **Keys.** Ctrl+S save, Ctrl+Z / Ctrl+Y (or Ctrl+Shift+Z) undo/redo,
-  Ctrl+F find, Ctrl+H replace, Ctrl+G go to line, Ctrl+B file tree,
-  Tab inserts two spaces, Esc closes (asks if there are unsaved changes).
+  Ctrl+F find, Ctrl+H replace, Ctrl+G go to line, Ctrl+B file tree.
+  `'help hotkeys` lists every key in OXIS.
+- **Vim keys** are off by default; click **EDIT** in the editor bar (or
+  `'config set editorVim true`) for Normal (hjkl, `0`/`$`, `gg`/`G`,
+  `w`/`b`, `x`, `dd`, `dw`, `o`/`O`), Insert and Visual modes.
 - **Tabs** for several open files, with unsaved markers and Save All.
 - **File tree** rooted at the data folder, or at the linked project
   when the active workspace has one. Fully keyboard-driven; drag a file
@@ -1059,6 +1086,9 @@ printed in the terminal and listed by `'diagnostics`.
 | `cursorStyle` | theme's (`block`) | Prompt cursor: `block`, `bar` or `underline` |
 | `cursorBlink` | theme's (`true`) | Whether the prompt cursor blinks |
 | `updateCheckOnStartup` | `true` | Check for a newer build at startup |
+| `promptColors` | `true` | Colour the prompt and the commands you ran |
+| `editorVim` | `false` | Vim keys (Normal, Insert and Visual modes) in the editor |
+| `editorMinimap` | `true` | The minimap beside the editor's text |
 
 Settings apply immediately and persist. The first three follow the
 theme until you set them; `'config reset` hands them back to it. Themes

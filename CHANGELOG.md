@@ -6,6 +6,32 @@ All notable changes to OXIS. The format follows
 ## [Unreleased]
 
 ### Added
+- The editor shows mistakes as you type: a red or yellow squiggle, the
+  message at the end of the line, a count in the editor bar, a list of
+  problems under the text, coloured line numbers, a tooltip on hover,
+  and F8 / Shift+F8 to step through them. JavaScript and TypeScript are
+  parsed with Babel in a worker; HTML (an attribute left open, unclosed
+  or mismatched tags, duplicate ids and attributes, and the scripts and
+  styles inside), CSS, JSON, Lua, brackets and strings in Python, Go,
+  Rust and C-like files, YAML tabs and merge-conflict markers are
+  checked too.
+- A minimap beside the editor's text, with the visible part outlined
+  and markers for mistakes, find matches and unsaved changes; click or
+  drag to scroll (setting `editorMinimap`).
+- Find and replace highlight every match in the text, the current one
+  brighter.
+- VS Code's editing keys: Ctrl+/ comment, Alt+↑/↓ move lines,
+  Shift+Alt+↑/↓ copy lines, Ctrl+Shift+K delete lines, Ctrl+D select the
+  next match, Ctrl+L select lines, Ctrl+Enter new line below, Ctrl+] /
+  Ctrl+[ and Tab / Shift+Tab indent and outdent, smart Home, Enter keeps
+  the indentation, brackets and quotes close themselves, Backspace
+  removes an empty pair, Shift+Alt+F formats JSON. The caret's line,
+  its matching bracket and other uses of the word under it are
+  highlighted.
+- An editor status line: line and column, selection size, language,
+  line endings, encoding.
+- `'help hotkeys` lists every keyboard shortcut: the prompt, the output,
+  the app, the editor, Vim keys and plugins' key bindings.
 - `'market` shows the Market as a table: grouped by category, with each
   plugin's version, whether it's installed, its price if it has one,
   and search matches picked out; `'market info` is a card with what the
@@ -150,6 +176,9 @@ All notable changes to OXIS. The format follows
   of every built-in theme.
 
 ### Changed
+- The editor types normally by default; Vim keys are a setting
+  (`editorVim`) or a click on **EDIT** in the editor bar. Esc no longer
+  closes the editor unless Vim keys are on.
 - `oxis.dashboard` no longer changes the theme: that's the user's.
 - `'theme <name>` and `'theme edit <name>` find a theme whatever the
   case of its name.

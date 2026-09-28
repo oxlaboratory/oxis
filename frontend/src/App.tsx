@@ -4,7 +4,7 @@
  */
 
 import React, {
-  memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState,
+  memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState,
 } from "react";
 import { createPortal } from "react-dom";
 import { marked } from "marked";
@@ -52,6 +52,13 @@ import {
   deleteSelection, selectedText,
 } from "./terminal/editorModes";
 import { highlight, detectLang, escapeHtml } from "./terminal/syntaxHighlight";
+import { checkCode, type Problem, type Severity } from "./terminal/codeCheck";
+import { lineStarts, lineAt, decorHtml, matchingBracket, wordOccurrences, type Mark } from "./terminal/editorDecor";
+import { CodeMinimap, MINIMAP_WIDTH } from "./components/CodeMinimap";
+import {
+  indentUnit, indentLines, outdentLines, toggleComment, moveLines, duplicateLines, deleteLines,
+  newline, typePair, deletePair, smartHome, selectNext, selectLine, formatDocument, type EditState,
+} from "./terminal/editorCommands";
 import { editorBridge } from "./terminal/editorBridge";
 import { openFullScreen, inFullScreen, type FullScreenView } from "./terminal/fullScreen";
 import type { EditorLang }       from "./terminal/syntaxHighlight";
@@ -283,6 +290,16 @@ const SETTINGS: SettingDef[] = [
     key: "ansiColors", label: "Colour Output", default: true,
     description: "Show the colours programs print (git, test runners, linters); off shows plain text",
     apply: () => { /* read for each new line of output */ },
+  },
+  {
+    key: "editorVim", label: "Editor Vim Keys", default: false,
+    description: "Vim keys in the editor: Normal/Insert/Visual modes (i, hjkl, dd, v…). Off: the editor just types, like most editors",
+    apply: () => { /* read when a file opens */ },
+  },
+  {
+    key: "editorMinimap", label: "Editor Minimap", default: true,
+    description: "Show the whole file in miniature beside the editor, marking where its mistakes, find matches and unsaved changes are",
+    apply: () => { /* read when the editor renders */ },
   },
   {
     key: "promptColors", label: "Colour Prompts", default: true,
@@ -600,6 +617,72 @@ const COMMAND_DETAILS: Record<string, CommandDetail> = {
     notes: "Deliberately thin — these are wrappers around the exact same load()/task/workflow machinery 'workspace and 'workflow already use, not a second system. A project's tasks/workflows live in .oxis/tasks/ and .oxis/workflows/ (each file just calling oxis.task(...)/oxis.workflow(...), same as anywhere else), in addition to whatever workspace.lua registers directly.",
   },
 };
+
+/** Every keyboard shortcut, for 'help hotkeys (plugins' own are added
+ *  from the keybind registry when it's shown). */
+const HOTKEYS: Array<{ section: string; keys: Array<[string, string]> }> = [
+  { section: "prompt and shell", keys: [
+    ["Enter", "run the command (with the prompt empty: Enter for the running program)"],
+    ["↑ / ↓", "previous / next command from history — to a program's menu when it shows one"],
+    ["Ctrl+R", "search command history"],
+    ["Tab", "complete a 'command, or your shell's completion"],
+    ["Ctrl+C", "copy the selection, or interrupt the running program"],
+    ["Ctrl+Shift+C / Ctrl+V", "copy / paste"],
+    ["Ctrl+L", "clear the output"],
+    ["Ctrl+D / Ctrl+Z", "end of input (EOF) / suspend, sent to the program"],
+    ["Ctrl+A / Ctrl+E", "start / end of the line"],
+    ["Ctrl+F / Ctrl+B", "forward / back a character"],
+    ["Alt+F / Alt+B", "forward / back a word"],
+    ["Ctrl+H", "delete the character before the caret"],
+    ["Ctrl+K / Ctrl+U", "cut to the end / start of the line"],
+    ["Alt+D / Alt+Backspace", "cut the word after / before the caret"],
+    ["Ctrl+Y", "paste what was cut"],
+    ["Alt+U / Alt+L / Alt+C", "upper-case / lower-case / capitalise the word"],
+    ["Ctrl+P / Ctrl+N", "previous / next command (like ↑ / ↓)"],
+    ["Esc", "Esc to the running program"],
+  ] },
+  { section: "output", keys: [
+    ["Ctrl+↑ / Ctrl+↓", "previous / next command in the output"],
+    ["PageUp / PageDown", "scroll"],
+    ["Ctrl+Shift+F", "search the output"],
+  ] },
+  { section: "app", keys: [
+    ["Ctrl+Shift+P", "command palette"],
+    ["Ctrl+Shift+M", "the OXIS Market website"],
+    ["Ctrl+T / Ctrl+W", "the terminal / back to Home"],
+    ["Ctrl+= / Ctrl+- / Ctrl+0", "zoom in / out / reset"],
+    ["Ctrl+B", "show or hide the file tree (with a file open)"],
+  ] },
+  { section: "editor", keys: [
+    ["Ctrl+S", "save"],
+    ["Ctrl+F / Ctrl+H", "find / replace (every match highlighted)"],
+    ["Enter / Shift+Enter", "next / previous match (in the find bar)"],
+    ["Ctrl+G", "go to a line"],
+    ["Ctrl+Z / Ctrl+Y", "undo / redo"],
+    ["Ctrl+/", "comment or uncomment the lines"],
+    ["Alt+↑ / Alt+↓", "move the lines up / down"],
+    ["Shift+Alt+↑ / ↓", "copy the lines above / below"],
+    ["Ctrl+Shift+K", "delete the lines"],
+    ["Ctrl+D", "select the word, then the next place it appears"],
+    ["Ctrl+L", "select the line (again: the next one too)"],
+    ["Ctrl+Enter", "a new line below"],
+    ["Tab / Shift+Tab", "indent / outdent (all selected lines)"],
+    ["Ctrl+] / Ctrl+[", "indent / outdent the lines"],
+    ["Home", "first character of the line, then its very start"],
+    ["F8 / Shift+F8", "next / previous problem"],
+    ["Shift+Alt+F", "format the file (JSON)"],
+    ["Ctrl+Shift+Enter", "full-size preview (HTML, Markdown)"],
+    ["( [ { \" ' `", "close themselves; typing the closer steps over it"],
+  ] },
+  { section: "editor with Vim keys", keys: [
+    ["'config set editorVim true", "turns them on (or click EDIT in the editor bar)"],
+    ["Esc", "Normal mode (in Normal mode: close the editor)"],
+    ["i a A I o O", "insert: before / after the caret, line end / start, new line below / above"],
+    ["h j k l  w b  0 $  gg G", "move: left down up right, word, line start / end, file start / end"],
+    ["v  y  d x", "select (Visual), copy it, delete it"],
+    ["dd  dw  x", "delete the line / word / character"],
+  ] },
+];
 
 function registerBuiltinCommands(ctx: ShellCtx): void {
   if (_commandsRegistered) return;
@@ -2067,6 +2150,23 @@ Settings, workspace files, documents and plugins with the same name as ones in t
   registry.register({ name:"help",    category:"info", description:"All commands — 'help <command> for details on one, 'help <plugin> for a plugin's commands",
     handler:(args)=>{
       const query = args[0];
+      if (query && /^(hotkeys|keys|shortcuts|keyboard)$/i.test(query)) {
+        sep(); rich([["  Keyboard shortcuts", "head"]]); sep();
+        const row = (keys: string, what: string) => rich([["  "], [keys.padEnd(26), "key"], [what, "muted"]]);
+        for (const group of HOTKEYS) {
+          info(""); rich([["  " + group.section.toUpperCase(), "head"]]);
+          for (const [keys, what] of group.keys) row(keys, what);
+        }
+        const fromPlugins = keybinds.all().filter(b => b.fromLua);
+        if (fromPlugins.length) {
+          info(""); rich([["  FROM PLUGINS", "head"]]);
+          for (const b of fromPlugins) {
+            const combo = [b.ctrl && "Ctrl", b.alt && "Alt", b.shift && "Shift", b.key.length === 1 ? b.key.toUpperCase() : b.key].filter(Boolean).join("+");
+            row(combo + (b.mode && b.mode !== "normal" ? ` (${b.mode})` : ""), b.description || "(no description)");
+          }
+        }
+        sep(); return;
+      }
       if (query) {
         // 1. A command with real subcommand structure (see COMMAND_DETAILS).
         const detail = COMMAND_DETAILS[query.toLowerCase()];
@@ -2112,6 +2212,7 @@ Settings, workspace files, documents and plugins with the same name as ones in t
       sep(); ctx.print("  OXIS commands  (prefix: ')","accent"); sep();
       dim("'help <command>   — details + every way to use one command (e.g. 'help workspace)");
       dim("'help <plugin>    — one plugin's commands (e.g. 'help git)");
+      dim("'help hotkeys     — every keyboard shortcut");
       dim("'? or 'help       — this list"); info("");
       h("── files ────────────────────────────","");
       h("'ls [dir]","list directory"); h("'cd [dir]","change directory"); h("'pwd","current path");
@@ -2418,13 +2519,28 @@ const CodeArea = React.forwardRef<HTMLTextAreaElement, {
   /** 1-based line numbers changed since the last save. Omit when
    *  there's no baseline (an empty Set would mean "nothing changed"). */
   changedLines?: Set<number>;
+  /** Line starts of `value` (editorDecor.lineStarts), if the caller has them. */
+  starts?: number[];
+  /** Mistakes: underlined, coloured in the gutter and the minimap, and
+   *  described at the end of their line and when hovered. */
+  problems?: Problem[];
+  /** Find matches, the bracket pair, the word at the caret. */
+  marks?: Mark[];
+  /** The selection (start, end) whenever it may have changed. */
+  onCaret?: (start: number, end: number) => void;
+  minimap?: boolean;
   /** Style for the outer wrapper (preview split width, or hiding the
    *  code pane in full preview without unmounting it). */
   style?: React.CSSProperties;
   hidden?: boolean;
-}>(function CodeArea({ value, lang, className, onChange, onKeyDown, changedLines, style, hidden }, ref) {
+}>(function CodeArea({ value, lang, className, onChange, onKeyDown, changedLines, starts: givenStarts, problems, marks, onCaret, minimap, style, hidden }, ref) {
+  const areaRef = useRef<HTMLDivElement>(null);
+  const taRef = useRef<HTMLTextAreaElement>(null);
   const preRef = useRef<HTMLPreElement>(null);
+  const decorRef = useRef<HTMLPreElement>(null);
   const gutterRef = useRef<HTMLDivElement>(null);
+  const curlineRef = useRef<HTMLDivElement>(null);
+  useImperativeHandle(ref, () => taRef.current!, []);
 
   // Highlighting a large file on every keystroke causes lag, so below
   // HARD_CUTOFF_CHARS it runs on a debounced copy (the textarea itself
@@ -2439,6 +2555,17 @@ const CodeArea = React.forwardRef<HTMLTextAreaElement, {
     const t = setTimeout(() => setDebouncedValue(value), 150);
     return () => clearTimeout(t);
   }, [value]);
+  // The decorations follow the same way: in a large file they're built
+  // once typing pauses, not at every keystroke (the caret's marks change
+  // with each one).
+  const [decorInput, setDecorInput] = useState({ problems, marks });
+  useEffect(() => {
+    if (value.length < DEBOUNCE_THRESHOLD_CHARS) { setDecorInput({ problems, marks }); return; }
+    const t = setTimeout(() => setDecorInput({ problems, marks }), 150);
+    return () => clearTimeout(t);
+  }, [problems, marks, value.length]);
+  // Only find matches go on the minimap; the rest are about the caret.
+  const minimapMarks = useMemo(() => (decorInput.marks ?? []).filter(m => m.kind !== "word" && m.kind !== "bracket"), [decorInput.marks]);
 
   const html = useMemo(() => {
     if (isHuge) return escapeHtml(debouncedValue); // plain, escaped text — no tokenizing at all
@@ -2449,6 +2576,28 @@ const CodeArea = React.forwardRef<HTMLTextAreaElement, {
     return debouncedValue.endsWith("\n") ? h + "\n" : h;
   }, [debouncedValue, lang, isHuge]);
 
+  const starts = useMemo(() => givenStarts ?? lineStarts(value), [givenStarts, value]);
+
+  // The decoration layer (squiggles, matches, messages), behind the text.
+  const decor = useMemo(() => {
+    const { problems: ps, marks: ms } = decorInput;
+    if (isHuge || (!ps?.length && !ms?.length)) return "";
+    return decorHtml(debouncedValue, ps ?? [], ms ?? []);
+  }, [debouncedValue, decorInput, isHuge]);
+
+  const debouncedStarts = useMemo(() => lineStarts(debouncedValue), [debouncedValue]);
+  // Which lines have problems, for the gutter.
+  const problemLines = useMemo(() => {
+    const byLine = new Map<number, Severity>();
+    if (!problems?.length) return byLine;
+    const st = debouncedStarts;
+    for (const p of problems) {
+      const line = lineAt(st, Math.min(p.from, Math.max(0, debouncedValue.length - 1))) + 1;
+      if (byLine.get(line) !== "error") byLine.set(line, p.severity);
+    }
+    return byLine;
+  }, [problems, debouncedValue, debouncedStarts]);
+
   // Line-number gutter, scrolled with the other layers and sized to the
   // line count. One row per line so change markers can attach to rows.
   // Built from the debounced value so large files don't rebuild it on
@@ -2458,46 +2607,155 @@ const CodeArea = React.forwardRef<HTMLTextAreaElement, {
   const gutterLines = useMemo(() => {
     const rows: React.ReactNode[] = [];
     for (let i = 1; i <= lineCount; i++) {
+      const sev = problemLines.get(i);
       rows.push(
-        <div key={i} className={`code-area-gutter-line${changedLines?.has(i) ? " code-area-gutter-line--changed" : ""}`}>
+        <div key={i} className={`code-area-gutter-line${changedLines?.has(i) ? " code-area-gutter-line--changed" : ""}${sev ? ` code-area-gutter-line--${sev}` : ""}`}>
           {i}
         </div>,
       );
     }
     return rows;
-  }, [lineCount, changedLines]);
+  }, [lineCount, changedLines, problemLines]);
 
-  const syncScroll = useCallback((e: React.UIEvent<HTMLTextAreaElement>) => {
-    const pre = preRef.current, gutter = gutterRef.current;
-    if (pre) { pre.scrollTop = e.currentTarget.scrollTop; pre.scrollLeft = e.currentTarget.scrollLeft; }
-    if (gutter) gutter.scrollTop = e.currentTarget.scrollTop;
+  // Line height, padding and character width of the text, for placing
+  // the current-line band and finding what's under the mouse.
+  const metrics = useRef({ lineHeight: 20, padTop: 12, padLeft: 18, charW: 8, tab: 2, font: "" });
+  const measure = useCallback(() => {
+    const ta = taRef.current;
+    if (!ta) return metrics.current;
+    const cs = getComputedStyle(ta);
+    const font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}|${cs.letterSpacing}|${cs.lineHeight}`;
+    if (font === metrics.current.font) return metrics.current;
+    const g = document.createElement("canvas").getContext("2d");
+    let charW = 8;
+    if (g) { g.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`; charW = g.measureText("M".repeat(50)).width / 50; }
+    const ls = parseFloat(cs.letterSpacing);
+    metrics.current = {
+      lineHeight: parseFloat(cs.lineHeight) || 20,
+      padTop: parseFloat(cs.paddingTop) || 0,
+      padLeft: parseFloat(cs.paddingLeft) || 0,
+      charW: charW + (Number.isFinite(ls) ? ls : 0),
+      tab: parseInt(cs.tabSize, 10) || 2,
+      font,
+    };
+    return metrics.current;
   }, []);
 
+  // The band behind the caret's line (across the gutter too).
+  const caretLine = useRef(0);
+  const placeCurline = useCallback(() => {
+    const el = curlineRef.current, ta = taRef.current;
+    if (!el || !ta) return;
+    const m = measure();
+    el.style.height = `${m.lineHeight}px`;
+    el.style.transform = `translateY(${m.padTop + caretLine.current * m.lineHeight - ta.scrollTop}px)`;
+  }, [measure]);
+
+  const reportCaret = useCallback(() => {
+    const ta = taRef.current;
+    if (!ta) return;
+    caretLine.current = lineAt(starts, ta.selectionStart);
+    placeCurline();
+    onCaret?.(ta.selectionStart, ta.selectionEnd);
+  }, [starts, placeCurline, onCaret]);
+  useLayoutEffect(() => { reportCaret(); }, [value, reportCaret]);
+
+  const syncScroll = useCallback((e: React.UIEvent<HTMLTextAreaElement>) => {
+    const { scrollTop, scrollLeft } = e.currentTarget;
+    for (const el of [preRef.current, decorRef.current]) if (el) { el.scrollTop = scrollTop; el.scrollLeft = scrollLeft; }
+    if (gutterRef.current) gutterRef.current.scrollTop = scrollTop;
+    placeCurline();
+  }, [placeCurline]);
+  // The decoration layer is re-rendered after scrolling may have happened.
+  useLayoutEffect(() => {
+    const ta = taRef.current, d = decorRef.current;
+    if (ta && d) { d.scrollTop = ta.scrollTop; d.scrollLeft = ta.scrollLeft; }
+  }, [decor]);
+
+  // Hovering a mistake shows what's wrong.
+  const [tip, setTip] = useState<{ x: number; y: number; items: Problem[] } | null>(null);
+  const hoverFrame = useRef(0);
+  const onMouseMove = useCallback((e: React.MouseEvent<HTMLTextAreaElement>) => {
+    if (!problems?.length) { if (tip) setTip(null); return; }
+    const { clientX, clientY } = e;
+    cancelAnimationFrame(hoverFrame.current);
+    hoverFrame.current = requestAnimationFrame(() => {
+      const ta = taRef.current, area = areaRef.current;
+      if (!ta || !area) return;
+      const m = measure();
+      const rect = ta.getBoundingClientRect();
+      const line = Math.floor((clientY - rect.top + ta.scrollTop - m.padTop) / m.lineHeight);
+      if (line < 0 || line >= starts.length) { setTip(null); return; }
+      const lineStart = starts[line];
+      const lineEnd = line + 1 < starts.length ? starts[line + 1] - 1 : value.length;
+      const x = clientX - rect.left + ta.scrollLeft - m.padLeft;
+      // Columns to characters (a tab is several columns wide).
+      let col = 0, at = lineStart;
+      while (at < lineEnd) {
+        const w = value[at] === "\t" ? m.tab - (col % m.tab) : 1;
+        if ((col + w) * m.charW > x) break;
+        col += w;
+        at++;
+      }
+      const pastEnd = at >= lineEnd;
+      const hits = problems.filter(p => pastEnd
+        ? lineAt(starts, Math.min(p.from, Math.max(0, value.length - 1))) === line
+        : p.from <= at && at < p.to);
+      const areaRect = area.getBoundingClientRect();
+      setTip(hits.length ? { x: clientX - areaRect.left + 14, y: clientY - areaRect.top + 16, items: hits.slice(0, 4) } : null);
+    });
+  }, [problems, starts, value, measure, tip]);
+
+  const bodyLeft = `${gutterWidth + 3}ch`;
   return (
-    <div className="code-area" style={style} hidden={hidden}>
+    <div ref={areaRef} className="code-area" style={style} hidden={hidden}>
       {isHuge && (
         <div className="code-area-large-file-notice" title={`${value.length.toLocaleString()} characters`}>
           Large file — syntax highlighting disabled to keep typing responsive
         </div>
       )}
+      <div ref={curlineRef} className="code-area-curline" aria-hidden="true" />
       <div ref={gutterRef} className="code-area-gutter" style={{ width: `${gutterWidth + 3}ch` }} aria-hidden="true">
         {gutterLines}
       </div>
-      <div className="code-area-body" style={{ left: `${gutterWidth + 3}ch` }}>
+      <div className="code-area-body" style={{ left: bodyLeft, right: minimap ? MINIMAP_WIDTH : 0 }}>
+        {decor && (
+          <pre ref={decorRef} className="code-area-highlight code-area-decor" aria-hidden="true">
+            <code dangerouslySetInnerHTML={{ __html: decor }} />
+          </pre>
+        )}
         <pre ref={preRef} className="code-area-highlight" aria-hidden="true">
           <code dangerouslySetInnerHTML={{ __html: html }} />
         </pre>
         <textarea
-          ref={ref}
+          ref={taRef}
           className={`code-area-input ${className ?? ""}`}
           value={value}
           onChange={onChange}
-          onKeyDown={onKeyDown}
-          onScroll={syncScroll}
+          onKeyDown={e => { if (tip) setTip(null); onKeyDown?.(e); }}
+          onScroll={e => { if (tip) setTip(null); syncScroll(e); }}
+          onSelect={reportCaret}
+          onKeyUp={reportCaret}
+          onMouseUp={reportCaret}
+          onMouseMove={onMouseMove}
+          onMouseLeave={() => { cancelAnimationFrame(hoverFrame.current); setTip(null); }}
           spellCheck={false}
           autoComplete="off" autoCorrect="off" autoCapitalize="off"
         />
       </div>
+      {minimap && !isHuge && (
+        <CodeMinimap text={debouncedValue} starts={debouncedStarts} problems={problems ?? []}
+          marks={minimapMarks} changedLines={changedLines} textareaRef={taRef} />
+      )}
+      {tip && (
+        <div className="code-area-tip" style={{ left: tip.x, top: tip.y }}>
+          {tip.items.map((p, i) => (
+            <div key={i} className={`code-area-tip-row code-area-tip-row--${p.severity}`}>
+              <span className="code-area-tip-icon">{p.severity === "error" ? "✗" : "⚠"}</span>{p.message}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 });
@@ -2518,11 +2776,18 @@ function useModalEditor(opts: {
    *  (e.g. the file Editor confirms first if dirty; Plugin Creator
    *  just closes). */
   onEscapeNormal: () => void;
+  /** The file's path (comment style, formatting, indentation rules). */
+  path?: string;
+  /** Vim keys (Normal/Insert/Visual modes); otherwise the editor is
+   *  always typing, like most editors. */
+  vim?: boolean;
+  /** A short message about a command that couldn't run (formatting). */
+  onNotice?: (message: string) => void;
 }) {
-  const { taRef, content, onEdit, onSave, onEscapeNormal } = opts;
+  const { taRef, content, onEdit, onSave, onEscapeNormal, path = "", vim = true, onNotice } = opts;
   // Normal Mode is the default; 'i'/'a'/'o'/etc. drop into Insert,
   // Escape returns to Normal, 'v' starts Visual selection.
-  const [mode, setMode] = useState<EditorMode>("normal");
+  const [mode, setMode] = useState<EditorMode>(vim ? "normal" : "insert");
   const [anchor, setAnchor] = useState<number | null>(null);
   const pendingKeyRef = useRef<string>(""); // for two-key commands: dd, dw, gg
 
@@ -2627,6 +2892,14 @@ function useModalEditor(opts: {
       grouping.current = true;
     }
   }, [commit, taRef]);
+
+  /** Applies an editing command's result (editorCommands.ts): the text as
+   *  one undo step (grouped with the typing around it if `grouped`),
+   *  then the selection. */
+  const applyState = useCallback((next: EditState, grouped = false) => {
+    if (next.text !== content) commit(next.text, grouped);
+    requestAnimationFrame(() => { taRef.current?.setSelectionRange(next.start, next.end); });
+  }, [content, commit, taRef]);
 
   // ── Normal / Visual mode command dispatch ────────────────────
   const handleModalKey = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -2861,30 +3134,83 @@ function useModalEditor(opts: {
       return;
     }
 
+    // ── Editing commands, in any mode (editorCommands.ts) ──
+    const ta = taRef.current!;
+    const st: EditState = { text: content, start: ta.selectionStart, end: ta.selectionEnd };
+    const key = e.key.toLowerCase();
+    const ctrlOnly = e.ctrlKey && !e.altKey && !e.metaKey;
+    if (ctrlOnly && !e.shiftKey && e.key === "/") { e.preventDefault(); applyState(toggleComment(st, path)); return; }
+    if (e.altKey && !e.ctrlKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
+      e.preventDefault();
+      const dir = e.key === "ArrowUp" ? -1 : 1;
+      applyState(e.shiftKey ? duplicateLines(st, dir) : moveLines(st, dir));
+      return;
+    }
+    if (ctrlOnly && e.shiftKey && key === "k") { e.preventDefault(); applyState(deleteLines(st)); return; }
+    if (ctrlOnly && !e.shiftKey && key === "d") { e.preventDefault(); const n = selectNext(st); if (n) applyState(n); return; }
+    if (ctrlOnly && !e.shiftKey && key === "l") { e.preventDefault(); applyState(selectLine(st)); return; }
+    if (ctrlOnly && (e.key === "]" || e.key === "[")) {
+      e.preventDefault();
+      const unit = indentUnit(content);
+      applyState(e.key === "]" ? indentLines(st, unit) : outdentLines(st, unit));
+      return;
+    }
+    if (e.shiftKey && e.altKey && !e.ctrlKey && key === "f") {
+      e.preventDefault();
+      const r = formatDocument(st, path, indentUnit(content));
+      if (r.state) applyState(r.state); else if (r.error) onNotice?.(r.error);
+      return;
+    }
+    if (ctrlOnly && !e.shiftKey && e.key === "Enter") {
+      // A new line below this one, whatever the caret's place in it.
+      e.preventDefault();
+      const eol = content.indexOf("\n", st.end);
+      const at = eol < 0 ? content.length : eol;
+      applyState(newline({ text: content, start: at, end: at }, indentUnit(content), path));
+      if (mode !== "insert") setMode("insert");
+      return;
+    }
+
     if (mode !== "insert") { handleModalKey(e); return; }
 
     // Insert Mode — ordinary typing, same behavior as before modes existed.
     if (e.key === "Escape") {
+      if (!vim) return; // no modes: nothing to leave
       e.preventDefault();
-      const ta = taRef.current!;
       setPos(Math.max(0, ta.selectionStart - 1));
       setMode("normal");
       return;
     }
-    if (e.key === "Tab") {
+    const plain = !e.ctrlKey && !e.altKey && !e.metaKey;
+    if (e.key === "Tab" && !e.ctrlKey && !e.altKey) {
       e.preventDefault();
-      const ta = taRef.current!;
-      const s = ta.selectionStart, en = ta.selectionEnd;
-      const next = content.slice(0, s) + "  " + content.slice(en);
-      commit(next, true); // part of the same Insert-mode undo group as the surrounding typing
-      requestAnimationFrame(() => { ta.selectionStart = ta.selectionEnd = s + 2; });
+      const unit = indentUnit(content);
+      if (e.shiftKey) applyState(outdentLines(st, unit));
+      else if (st.start !== st.end && content.slice(st.start, st.end).includes("\n")) applyState(indentLines(st, unit));
+      else applyState({ text: content.slice(0, st.start) + unit + content.slice(st.end), start: st.start + unit.length, end: st.start + unit.length }, true);
+      return;
     }
-  }, [onSave, openFind, undo, redo, mode, handleModalKey, content, setPos, commit, taRef]);
+    if (e.key === "Enter" && plain && !e.shiftKey) { e.preventDefault(); applyState(newline(st, indentUnit(content), path), true); return; }
+    if (e.key === "Backspace" && plain) { const n = deletePair(st); if (n) { e.preventDefault(); applyState(n, true); } return; }
+    if (e.key === "Home" && plain) {
+      e.preventDefault();
+      const pos = smartHome(st);
+      if (e.shiftKey) {
+        const anchor = ta.selectionDirection === "backward" ? st.end : st.start;
+        ta.setSelectionRange(Math.min(pos, anchor), Math.max(pos, anchor), pos < anchor ? "backward" : "forward");
+      } else ta.setSelectionRange(pos, pos);
+      return;
+    }
+    if (e.key.length === 1 && plain) {
+      const n = typePair(st, e.key);
+      if (n) { e.preventDefault(); applyState(n, true); }
+    }
+  }, [onSave, openFind, undo, redo, mode, handleModalKey, content, setPos, taRef, applyState, path, vim, onNotice]);
 
   const resetModal = useCallback(() => {
-    setMode("normal"); setAnchor(null);
+    setMode(vim ? "normal" : "insert"); setAnchor(null);
     undoStack.current = []; redoStack.current = []; grouping.current = false;
-  }, []);
+  }, [vim]);
 
   // Typing in Insert mode (the textarea's own onChange) — routed
   // through here instead of the caller setting content directly, so
@@ -3187,9 +3513,51 @@ function Editor({ file, onClose, onSave }: {
     return () => clearTimeout(t);
   }, [content]);
   const changedLines = useMemo(
-    () => content.length > 500_000 ? new Set<number>() : computeChangedLines(savedContent, debouncedContent),
-    [savedContent, debouncedContent, content.length],
+    () => debouncedContent.length > 500_000 ? new Set<number>() : computeChangedLines(savedContent, debouncedContent),
+    [savedContent, debouncedContent], // not content: a new Set at each keystroke redrew the gutter and minimap
   );
+
+  // Mistakes in the file (codeCheck.ts), checked once typing pauses.
+  const [problems, setProblems] = useState<Problem[]>([]);
+  useEffect(() => {
+    if (file.loading || file.loadError) { setProblems([]); return; }
+    let live = true;
+    const t = setTimeout(() => {
+      void checkCode(content, file.path).then(p => { if (live) setProblems(p); }).catch(() => { /* a checker bug mustn't break editing */ });
+    }, content.length > 200_000 ? 900 : 350);
+    return () => { live = false; clearTimeout(t); };
+  }, [content, file.path, file.loading, file.loadError]);
+  const errorCount = problems.filter(p => p.severity === "error").length;
+  const warningCount = problems.length - errorCount;
+  const [problemsOpen, setProblemsOpen] = useState(false);
+
+  // Where the caret is (the status line, the bracket and word marks).
+  const starts = useMemo(() => lineStarts(content), [content]);
+  const [caret, setCaret] = useState({ start: 0, end: 0 });
+  const onCaret = useCallback((start: number, end: number) => {
+    setCaret(c => (c.start === start && c.end === end ? c : { start, end }));
+  }, []);
+
+  /** Selects a range and brings it to the middle of the view. */
+  const reveal = useCallback((from: number, to: number) => {
+    const ta = taRef.current;
+    if (!ta) return;
+    ta.focus();
+    ta.setSelectionRange(from, to);
+    const lh = parseFloat(getComputedStyle(ta).lineHeight) || 18;
+    ta.scrollTop = Math.max(0, lineAt(starts, from) * lh - ta.clientHeight / 2);
+    setCaret({ start: from, end: to });
+  }, [starts]);
+
+  /** F8 / Shift+F8: the next / previous problem from the caret. */
+  const nextProblem = useCallback((dir: 1 | -1) => {
+    if (!problems.length) return;
+    const at = caret.start;
+    const p = dir > 0
+      ? (problems.find(q => q.from > at) ?? problems[0])
+      : ([...problems].reverse().find(q => q.from < at) ?? problems[problems.length - 1]);
+    reveal(p.from, Math.min(p.to, content.length));
+  }, [problems, caret.start, reveal, content.length]);
 
   // Marks the file dirty here, not inside setContent's updater, where it
   // would land after a save queued in the same tick (a plugin editing
@@ -3302,8 +3670,17 @@ function Editor({ file, onClose, onSave }: {
     return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [previewOpen, previewFullscreen]);
 
+  // Vim keys, or an editor that's always typing (setting editorVim).
+  const [vim, setVim] = useState(() => getSetting("editorVim") === true);
+  const [notice, setNotice] = useState("");
+  useEffect(() => {
+    if (!notice) return;
+    const t = setTimeout(() => setNotice(""), 3500);
+    return () => clearTimeout(t);
+  }, [notice]);
+
   const {
-    mode, resetModal, onKeyDown, handleChange, commitExternal,
+    mode, setMode, resetModal, onKeyDown, handleChange, commitExternal,
     findOpen, findMode, findQuery, setFindQuery, replaceWith, setReplaceWith,
     matches, matchIndex, findInputRef, closeFind, findNext, findPrev, replaceCurrent, replaceAll, goToLine,
   } = useModalEditor({
@@ -3315,9 +3692,45 @@ function Editor({ file, onClose, onSave }: {
       if (dirty && !await confirmDialog("Discard unsaved changes?", { ok: "Discard", danger: true })) return;
       onClose();
     },
+    path: file.path,
+    vim,
+    onNotice: setNotice,
   });
 
   useEffect(() => { resetModal(); }, [file.path, file.loading, resetModal]);
+
+  // What to paint behind the text: find/replace matches (the current
+  // one stronger; in replace mode, in the colour of what goes), the
+  // bracket pair at the caret, the other places the word at it appears.
+  const marks = useMemo(() => {
+    const out: Mark[] = [];
+    if (findOpen && findMode !== "goto" && findQuery) {
+      const now = matches.length ? ((matchIndex % matches.length) + matches.length) % matches.length : -1;
+      const replacing = findMode === "replace";
+      matches.slice(0, 5000).forEach((pos, k) => out.push({
+        from: pos, to: pos + findQuery.length,
+        kind: replacing ? (k === now ? "replace-now" : "replace") : (k === now ? "find-now" : "find"),
+      }));
+    }
+    if (caret.start === caret.end && content.length < 400_000) {
+      const pair = matchingBracket(content, caret.start);
+      if (pair) out.push({ from: pair[0], to: pair[0] + 1, kind: "bracket" }, { from: pair[1], to: pair[1] + 1, kind: "bracket" });
+      if (!findOpen) for (const [from, to] of wordOccurrences(content, caret.start)) out.push({ from, to, kind: "word" });
+    }
+    return out;
+  }, [findOpen, findMode, findQuery, matches, matchIndex, caret, content]);
+
+  const onEditorKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "F8") { e.preventDefault(); nextProblem(e.shiftKey ? -1 : 1); return; }
+    onKeyDown(e);
+  }, [nextProblem, onKeyDown]);
+
+  // The status line.
+  const caretLineIdx = lineAt(starts, caret.start);
+  const caretCol = caret.start - starts[caretLineIdx] + 1;
+  const selectedChars = Math.abs(caret.end - caret.start);
+  const langLabel = (file.path.split(".").pop() ?? "").toUpperCase() || "TEXT";
+  const eol = content.includes("\r\n") ? "CRLF" : "LF";
 
   // ── Plugin access (oxis.editor.*, see editorBridge.ts) ──
   const saveRef = useRef(save);
@@ -3420,8 +3833,25 @@ function Editor({ file, onClose, onSave }: {
           {dirty && <span className="editor-dirty">●</span>}
         </div>
         <div className="editor-bar-right">
-          <span className={`editor-mode editor-mode--${mode}`}>{mode.toUpperCase()}</span>
-          <span className="editor-meta">{content.split("\n").length} lines</span>
+          {(errorCount > 0 || warningCount > 0) && (
+            <button className={`editor-problems-badge editor-problems-badge--${errorCount ? "error" : "warning"}`}
+              onClick={() => { setProblemsOpen(true); nextProblem(1); }}
+              title="Show the problems in this file (F8: next one)">
+              {errorCount ? `✗ ${errorCount} error${errorCount === 1 ? "" : "s"}` : `⚠ ${warningCount} warning${warningCount === 1 ? "" : "s"}`}
+            </button>
+          )}
+          <button className={`editor-mode editor-mode--${vim ? mode : "edit"}`}
+            title={vim ? "Vim keys are on — click to turn them off (the editor then just types)" : "Click to use Vim keys (Normal/Insert/Visual modes)"}
+            onClick={() => {
+              const next = !vim;
+              setVim(next);
+              setSetting("editorVim", String(next));
+              setMode(next ? "normal" : "insert");
+              taRef.current?.focus();
+            }}>
+            {vim ? mode.toUpperCase() : "EDIT"}
+          </button>
+          <span className="editor-meta">{starts.length} lines</span>
           {isPreviewable && (
             <button className={`editor-btn${previewOpen ? " editor-btn--active" : ""}`}
               onClick={() => setPreviewOpen(o => !o)}
@@ -3466,8 +3896,13 @@ function Editor({ file, onClose, onSave }: {
         <CodeArea ref={taRef} className={`editor-ta editor-ta--${mode}`} value={content}
           lang={detectLang(file.path)}
           changedLines={changedLines}
+          starts={starts}
+          problems={problems}
+          marks={marks}
+          onCaret={onCaret}
+          minimap={getSetting("editorMinimap") !== false}
           onChange={e => handleChange(e.target.value, (e.nativeEvent as InputEvent).inputType)}
-          onKeyDown={onKeyDown}
+          onKeyDown={onEditorKeyDown}
           style={previewOpen && !previewFullscreen ? { width: `${100 - previewWidthPct}%`, flex: "none" } : undefined}
           hidden={previewFullscreen} />
         {previewOpen && !previewFullscreen && (
@@ -3524,10 +3959,37 @@ function Editor({ file, onClose, onSave }: {
           </div>
         )}
       </div>
+      {problemsOpen && problems.length > 0 && (
+        <div className="editor-problems">
+          {problems.slice(0, 300).map((p, i) => {
+            const line = lineAt(starts, Math.min(p.from, Math.max(0, content.length - 1)));
+            return (
+              <button key={i} className={`editor-problem editor-problem--${p.severity}`} onClick={() => reveal(p.from, Math.min(p.to, content.length))}>
+                <span className="editor-problem-icon">{p.severity === "error" ? "✗" : "⚠"}</span>
+                <span className="editor-problem-msg">{p.message}</span>
+                <span className="editor-problem-at">line {line + 1}, col {p.from - starts[line] + 1}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
       <div className="editor-footer">
-        {mode === "insert" && <><span>Esc  normal mode</span><span>Ctrl+S  save</span><span>Tab  2 spaces</span></>}
-        {mode === "normal" && <><span>i/a/o  insert</span><span>hjkl  move</span><span>v  visual</span><span>dd/dw/x  delete</span><span>Ctrl+Z/Y  undo/redo</span><span>Ctrl+F/H/G  find/replace/go to</span><span>Esc  close</span></>}
-        {mode === "visual" && <><span>hjkl  extend</span><span>d/x  delete</span><span>y  yank</span><span>Esc  cancel</span></>}
+        {!vim && <><span>Ctrl+S  save</span><span>Ctrl+F/H  find/replace</span><span>Ctrl+/  comment</span><span>Alt+↑↓  move line</span><span>Ctrl+D  next match</span><span>F8  next problem</span><span>&apos;help hotkeys  all keys</span></>}
+        {vim && mode === "insert" && <><span>Esc  normal mode</span><span>Ctrl+S  save</span><span>Tab  indent</span><span>Ctrl+/  comment</span><span>F8  next problem</span></>}
+        {vim && mode === "normal" && <><span>i/a/o  insert</span><span>hjkl  move</span><span>v  visual</span><span>dd/dw/x  delete</span><span>Ctrl+Z/Y  undo/redo</span><span>Ctrl+F/H/G  find/replace/go to</span><span>Esc  close</span></>}
+        {vim && mode === "visual" && <><span>hjkl  extend</span><span>d/x  delete</span><span>y  yank</span><span>Esc  cancel</span></>}
+        <div className="editor-status">
+          {notice && <span className="editor-notice">{notice}</span>}
+          <button className={`editor-status-problems${errorCount ? " editor-status-problems--error" : warningCount ? " editor-status-problems--warning" : ""}`}
+            onClick={() => setProblemsOpen(o => !o)} title="Problems in this file — F8 goes to the next one, Shift+F8 the previous">
+            ✗ {errorCount}  ⚠ {warningCount}
+          </button>
+          <span>Ln {caretLineIdx + 1}, Col {caretCol}</span>
+          {selectedChars > 0 && <span>{selectedChars} selected</span>}
+          <span>{langLabel}</span>
+          <span>{eol}</span>
+          <span>UTF-8</span>
+        </div>
       </div>
     </div>
   );

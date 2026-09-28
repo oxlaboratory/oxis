@@ -277,6 +277,10 @@ html, body, #root {
   font-size: 9px; font-weight: 700; letter-spacing: .06em;
   padding: 2px 6px; border-radius: var(--r); border: 1px solid var(--border);
 }
+button.editor-mode { background: none; font-family: var(--font); cursor: pointer; }
+button.editor-mode:hover { filter: brightness(1.25); }
+.editor-mode--edit   { color: var(--muted); border-color: var(--border2); }
+.editor-notice { color: var(--warn); }
 .editor-mode--normal { color: var(--purple3); border-color: var(--purple3); }
 .editor-mode--insert { color: var(--ok, var(--purple2)); border-color: var(--purple2); }
 .editor-mode--visual { color: var(--accent, var(--purple)); border-color: var(--purple); }
@@ -350,7 +354,7 @@ html, body, #root {
 /* ── CODE AREA — a highlighted <pre> behind a transparent <textarea>,
    stacked in the same box; the textarea's scroll is copied to the <pre>
    and the line-number gutter. ── */
-.code-area { position: relative; flex: 1 1 0; min-height: 0; overflow: hidden; }
+.code-area { position: relative; flex: 1 1 0; min-height: 0; overflow: hidden; background: var(--bg); }
 
 /* Large-file notice — see CodeArea's isHuge in App.tsx. Floats over
    the top of the code area rather than pushing content down, so it
@@ -408,9 +412,52 @@ html, body, #root {
 }
 
 .code-area-highlight {
-  color: var(--text); background: var(--bg);
+  color: var(--text); background: transparent;
   pointer-events: none; overflow: hidden; /* scrolled via JS, see syncScroll */
 }
+
+/* The band behind the caret's line, across the gutter and the text. */
+.code-area-curline {
+  position: absolute; left: 0; right: 0; top: 0; height: var(--lh);
+  pointer-events: none; will-change: transform;
+  background: color-mix(in srgb, var(--text) 5%, transparent);
+}
+
+/* Decorations (editorDecor.ts): a layer laid out exactly like the text,
+   behind it, whose text is invisible — only the marks show. */
+.code-area-decor, .code-area-decor code { color: transparent; }
+.dx-err  { text-decoration: underline wavy var(--err); text-decoration-skip-ink: none; text-underline-offset: 3px; text-decoration-thickness: 1px; }
+.dx-warn { text-decoration: underline wavy var(--warn); text-decoration-skip-ink: none; text-underline-offset: 3px; text-decoration-thickness: 1px; }
+.dx-find        { background: color-mix(in srgb, var(--warn) 30%, transparent); border-radius: 2px; }
+.dx-find-now    { background: color-mix(in srgb, var(--warn) 62%, transparent); box-shadow: 0 0 0 1px var(--warn); border-radius: 2px; }
+.dx-replace     { background: color-mix(in srgb, var(--err) 26%, transparent); border-radius: 2px; }
+.dx-replace-now { background: color-mix(in srgb, var(--err) 52%, transparent); box-shadow: 0 0 0 1px var(--err); border-radius: 2px; }
+.dx-bracket     { background: color-mix(in srgb, var(--purple3) 20%, transparent); box-shadow: 0 0 0 1px var(--purple3); border-radius: 2px; }
+.dx-word        { background: color-mix(in srgb, var(--text) 12%, transparent); border-radius: 2px; }
+/* A problem's message at the end of its line. */
+.dx-lens { color: var(--err); opacity: .8; font-style: italic; }
+.dx-lens--warning { color: var(--warn); }
+
+.code-area-gutter-line--error   { color: var(--err); font-weight: 700; }
+.code-area-gutter-line--warning { color: var(--warn); }
+
+/* The whole file in miniature (CodeMinimap.tsx). */
+.code-minimap {
+  position: absolute; top: 0; right: 0; bottom: 0; height: 100%;
+  cursor: pointer; border-left: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg) 88%, #000);
+}
+
+/* What's wrong, when a mistake is hovered. */
+.code-area-tip {
+  position: absolute; z-index: 20; max-width: min(560px, 80%);
+  background: var(--bg2); border: 1px solid var(--border2); border-radius: var(--r);
+  padding: 6px 10px; box-shadow: 0 6px 22px rgba(0,0,0,.4); pointer-events: none;
+  font-family: var(--font); font-size: 11px;
+}
+.code-area-tip-row { display: flex; gap: 8px; color: var(--text); line-height: 1.55; }
+.code-area-tip-row--error .code-area-tip-icon   { color: var(--err); }
+.code-area-tip-row--warning .code-area-tip-icon { color: var(--warn); }
 .code-area-highlight code { font: inherit; white-space: inherit; }
 
 .code-area-input {
@@ -443,7 +490,40 @@ html, body, #root {
   height: 18px; display: flex; align-items: center; gap: 18px;
   padding: 0 12px; background: var(--bg1); border-top: 1px solid var(--border);
   flex-shrink: 0; font-size: 9px; color: var(--comment); letter-spacing: .04em;
+  white-space: nowrap; overflow: hidden;
 }
+.editor-status { margin-left: auto; display: flex; align-items: center; gap: 14px; color: var(--muted); }
+.editor-status-problems {
+  background: none; border: none; padding: 0; cursor: pointer;
+  font: inherit; letter-spacing: inherit; color: var(--dim); white-space: pre;
+}
+.editor-status-problems:hover { color: var(--text); }
+.editor-status-problems--error   { color: var(--err); }
+.editor-status-problems--warning { color: var(--warn); }
+
+/* The file's mistakes, above the status line. */
+.editor-problems {
+  max-height: 150px; overflow-y: auto; flex-shrink: 0;
+  background: var(--bg1); border-top: 1px solid var(--border);
+}
+.editor-problem {
+  display: flex; align-items: baseline; gap: 10px; width: 100%;
+  padding: 3px 12px; background: none; border: none; text-align: left; cursor: pointer;
+  font-family: var(--font); font-size: 11px; color: var(--text);
+}
+.editor-problem:hover { background: var(--bg2); }
+.editor-problem--error .editor-problem-icon   { color: var(--err); }
+.editor-problem--warning .editor-problem-icon { color: var(--warn); }
+.editor-problem-msg { flex: 1; min-width: 0; }
+.editor-problem-at { color: var(--dim); font-size: 10px; }
+
+/* In the editor bar when the file has mistakes. */
+.editor-problems-badge {
+  font-family: var(--font); font-size: 10px; border-radius: var(--r); padding: 1px 8px; cursor: pointer;
+  border: 1px solid var(--err); color: var(--err); background: color-mix(in srgb, var(--err) 12%, transparent);
+}
+.editor-problems-badge--warning { border-color: var(--warn); color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, transparent); }
+.editor-problems-badge:hover { filter: brightness(1.2); }
 
 /* ── IMAGE VIEWER — see ImageViewer in App.tsx ── */
 .image-view {
