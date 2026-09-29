@@ -26,7 +26,7 @@
 
 <br><br>
 
-<img src="assets/demo.gif" width="100%" alt="A real OXIS session: git log and status, 'task test running the project's node tests, a three-step workflow, installing a plugin from the Market and switching to the ember theme">
+<img src="assets/demo.gif" width="100%" alt="A real OXIS session: git log and status, 'task test running the project's tests, the editor catching a missing bracket as it's typed and suggesting a function name, installing a plugin from the Market and switching to the ember theme">
 
 <sub>▲ Recorded from the app itself: every frame is OXIS running those commands in a real project.</sub>
 
