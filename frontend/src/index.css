@@ -995,15 +995,13 @@ button.editor-mode:hover { filter: brightness(1.25); }
   -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 16%, #000 74%, transparent 100%);
           mask-image: linear-gradient(90deg, transparent 0, #000 16%, #000 74%, transparent 100%);
 }
+/* Moved by SkyWidget (Web Animations); the inline transform is where
+   each one starts. */
 .sky-cloud {
   position: absolute; left: 0; display: block;
   fill: var(--cloud, #ffffff);
-  animation: cloud-drift linear infinite;
   will-change: transform;
-}
-@keyframes cloud-drift {
-  from { transform: translateX(var(--from)); }
-  to   { transform: translateX(var(--to)); }
+  backface-visibility: hidden;
 }
 
 .sky-moon {
@@ -1027,7 +1025,6 @@ button.editor-mode:hover { filter: brightness(1.25); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .sky-cloud { animation: none; transform: translateX(var(--rest)); }
   .sky-sun-tips, .sky-moon, .sky-star { animation: none; }
 }
 

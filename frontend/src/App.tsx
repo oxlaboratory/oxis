@@ -6432,9 +6432,11 @@ function pixelShape(cols: number, rows: number, shade: (x: number, y: number) =>
 
 const SKY_PIXEL = 2; // screen px per pixel
 
-function Pixels({ shape, className, style }: { shape: PixelShape; className?: string; style?: React.CSSProperties }) {
+function Pixels({ shape, className, style, svgRef }: {
+  shape: PixelShape; className?: string; style?: React.CSSProperties; svgRef?: (el: SVGSVGElement | null) => void;
+}) {
   return (
-    <svg className={className} style={style} width={shape.cols * SKY_PIXEL} height={shape.rows * SKY_PIXEL}
+    <svg ref={svgRef} className={className} style={style} width={shape.cols * SKY_PIXEL} height={shape.rows * SKY_PIXEL}
       viewBox={`0 0 ${shape.cols} ${shape.rows}`} shapeRendering="crispEdges" aria-hidden="true">
       {shape.runs.map((r, k) => <rect key={k} x={r.x} y={r.y} width={r.w} height={1} fillOpacity={r.a} />)}
     </svg>
@@ -6577,6 +6579,26 @@ function SkyWidget() {
   const clouds = useMemo(() => layoutClouds(room), [room]);
   const stars = useMemo(() => layoutStars(Math.floor(rand(6, 9)), SKY_WIDGET_WIDTH - 44), []);
 
+  // The clouds move by Web Animations with plain pixel values (CSS
+  // keyframes built from variables can't always run off the main
+  // thread), as 3D translations, so the compositor glides them a
+  // fraction of a pixel at a time and nothing else the app does can make
+  // them stutter. With reduced motion they stay where they start.
+  const cloudEls = useRef<Array<SVGSVGElement | null>>([]);
+  useEffect(() => {
+    if (!isDay) return;
+    const still = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    const running = clouds.map((c, i) => {
+      const el = cloudEls.current[i];
+      if (!el || still || typeof el.animate !== "function") return null;
+      return el.animate(
+        [{ transform: `translate3d(${c.from}px, 0, 0)` }, { transform: `translate3d(${c.to}px, 0, 0)` }],
+        { duration: c.duration * 1000, delay: c.delay * 1000, iterations: Infinity, easing: "linear" },
+      );
+    });
+    return () => running.forEach(a => a?.cancel());
+  }, [clouds, isDay]);
+
   if (isDay) {
     return (
       <div className="sky-widget sky-widget--day">
@@ -6588,11 +6610,8 @@ function SkyWidget() {
         </div>
         <div className="sky-clouds" style={{ width: room }}>
           {clouds.map((c, i) => (
-            <Pixels key={i} shape={c.shape} className="sky-cloud" style={{
-              top: `${c.top}px`, opacity: c.opacity,
-              animationDuration: `${c.duration}s`, animationDelay: `${c.delay}s`,
-              ["--from" as string]: `${c.from}px`, ["--to" as string]: `${c.to}px`, ["--rest" as string]: `${c.rest}px`,
-            } as React.CSSProperties} />
+            <Pixels key={i} shape={c.shape} className="sky-cloud" svgRef={el => { cloudEls.current[i] = el; }}
+              style={{ top: `${c.top}px`, opacity: c.opacity, transform: `translate3d(${c.rest}px, 0, 0)` }} />
           ))}
         </div>
       </div>
