@@ -57,6 +57,7 @@ import { lineStarts, lineAt, decorHtml, matchingBracket, wordOccurrences, type M
 import { wordIndex, suggest, wordBefore, wordAround, type Suggestion } from "./terminal/completion";
 import { CodeMinimap, MINIMAP_WIDTH } from "./components/CodeMinimap";
 import { QuickOpen } from "./components/QuickOpen";
+import { SearchInFiles } from "./components/SearchInFiles";
 import {
   indentUnit, indentLines, outdentLines, toggleComment, moveLines, duplicateLines, deleteLines,
   newline, typePair, deletePair, smartHome, selectNext, selectLine, formatDocument, type EditState,
@@ -101,7 +102,7 @@ interface ShellCtx {
    *  the cursor/scroll position to once the file finishes loading —
    *  see 'oxis resize for the motivating case (pointing the user at
    *  the exact window-size constant instead of making them search). */
-  openEditor:  (path: string, line?: number) => void;
+  openEditor:  (path: string, line?: number, col?: number, len?: number) => void;
   newTerminal: () => void;
 }
 
@@ -669,6 +670,7 @@ const HOTKEYS: Array<{ section: string; keys: Array<[string, string]> }> = [
     ["Ctrl+F / Ctrl+H", "find / replace (every match highlighted)"],
     ["Enter / Shift+Enter", "next / previous match (in the find bar)"],
     ["Ctrl+P", "go to a file (letters of its name or path)"],
+    ["Ctrl+Shift+F", "search in files (Alt+C / W / R: case, whole word, regex)"],
     ["Ctrl+G", "go to a line"],
     ["Ctrl+Space", "suggest words (they also appear as you type; Enter or Tab accepts)"],
     ["Ctrl+Z / Ctrl+Y", "undo / redo"],
@@ -2346,6 +2348,10 @@ Settings, workspace files, documents and plugins with the same name as ones in t
 // ══════════════════════════════════════════════════════════════
 interface EditorFile {
   path: string; content: string; dirty: boolean; loading: boolean; loadError?: string; gotoLine?: number;
+  /** With gotoLine: select gotoLen characters from this column (a search
+   *  match) instead of the whole line. gotoN changes with each request, so
+   *  going to the same place twice still goes there. */
+  gotoCol?: number; gotoLen?: number; gotoN?: number;
   /** Set for pictures (png, jpg, svg…): shown by ImageViewer, not edited. */
   imageUrl?: string;
   /** A file that isn't text (NUL bytes): shown as a notice, not garbage. */
@@ -3292,7 +3298,7 @@ function useModalEditor(opts: {
     // Find / Find & Replace / Go to line — work in any mode, same as
     // Ctrl+Z/Y below, since "I want to search" shouldn't depend on
     // which mode you happen to be in.
-    if (e.ctrlKey && !e.altKey && e.key.toLowerCase() === "f") { e.preventDefault(); openFind("find"); return; }
+    if (e.ctrlKey && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "f") { e.preventDefault(); openFind("find"); return; }
     if (e.ctrlKey && !e.altKey && e.key.toLowerCase() === "h") { e.preventDefault(); openFind("replace"); return; }
     if (e.ctrlKey && !e.altKey && e.key.toLowerCase() === "g") { e.preventDefault(); openFind("goto"); return; }
 
@@ -3721,14 +3727,20 @@ function Editor({ file, onClose, onSave, onDirtyChange, pluginTarget = true }: {
       let offset = 0;
       for (let i = 0; i < target - 1; i++) offset += lines[i].length + 1;
       ta.focus();
-      ta.setSelectionRange(offset, offset + lines[target - 1].length);
+      const lineText = lines[target - 1];
+      if (file.gotoCol != null) {
+        const from = offset + Math.min(file.gotoCol, lineText.length);
+        ta.setSelectionRange(from, Math.min(from + (file.gotoLen ?? 0), offset + lineText.length));
+      } else {
+        ta.setSelectionRange(offset, offset + lineText.length);
+      }
       const style = window.getComputedStyle(ta);
       const lineHeight = parseFloat(style.lineHeight) || 18;
       ta.scrollTop = Math.max(0, (target - 1) * lineHeight - ta.clientHeight / 2);
     }, 60); // after the focus effect above and the first paint of `content`
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [file.loading, file.gotoLine, content]);
+  }, [file.loading, file.gotoLine, file.gotoN, content]);
 
   const save = useCallback(() => {
     const text = contentRef.current; // includes plugin edits not rendered yet
@@ -4897,6 +4909,7 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, promptHo
   const inputRef      = useRef<InputState>({ value: "", cursor: 0 });
   const userScrolled  = useRef(false);
   const ctxRef        = useRef<ShellCtx | null>(null);
+  const gotoCounter   = useRef(0);
   const apiCtxRef     = useRef<import("./plugins/pluginAPI").APIContext | null>(null);
   const linesRef       = useRef<Line[]>(lines);
   // Output waiting to be shown. Lines (from the shell and from OXIS, in
@@ -5113,16 +5126,18 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, promptHo
     promptRef.current?.focus({ preventScroll: true });
   }, []);
 
-  // Ctrl+P in the editor: go to a file (QuickOpen). It searches the
-  // project the open file is in: the linked one if the file is inside
-  // it, else the nearest folder above the file with .git, package.json,
-  // go.mod…, else the file's own folder.
+  // Ctrl+P in the editor: go to a file (QuickOpen); Ctrl+Shift+F: search
+  // in files (SearchInFiles). Both search the project the open file is
+  // in: the linked one if the file is inside it, else the nearest folder
+  // above the file with .git, package.json, go.mod…, else the file's own
+  // folder.
   const [quickOpenRoot, setQuickOpenRoot] = useState<string | null>(null);
+  const [searchIn, setSearchIn] = useState<{ root: string; query: string } | null>(null);
   const editorShowing = editorFiles.length > 0 || fileTreeOpen;
   const activeEditorPathRef = useRef(activeEditorPath);
   activeEditorPathRef.current = activeEditorPath;
   useEffect(() => {
-    if (!editorShowing) { setQuickOpenRoot(null); return; }
+    if (!editorShowing) { setQuickOpenRoot(null); setSearchIn(null); return; }
     const findRoot = async (): Promise<string> => {
       const active = activeEditorPathRef.current?.replace(/\\/g, "/");
       if (!active || !/^([A-Za-z]:\/|\/)/.test(active)) return fileTreeRoot.dir;
@@ -5142,10 +5157,18 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, promptHo
       return folder;
     };
     const onKey = (e: KeyboardEvent) => {
-      if (!isActiveRef.current || !(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey || e.key.toLowerCase() !== "p") return;
-      if (document.activeElement === promptRef.current) return; // the prompt's Ctrl+P is history
-      e.preventDefault();
-      findRoot().then(setQuickOpenRoot);
+      if (!isActiveRef.current || !(e.ctrlKey || e.metaKey) || e.altKey) return;
+      if (document.activeElement === promptRef.current) return; // the prompt's Ctrl+P is history, Ctrl+Shift+F the output
+      const k = e.key.toLowerCase();
+      if (!e.shiftKey && k === "p") { e.preventDefault(); findRoot().then(setQuickOpenRoot); return; }
+      if (e.shiftKey && k === "f") {
+        e.preventDefault();
+        // What's selected in the editor (on one line) is what to look for.
+        const ta = document.querySelector(".code-area-input") as HTMLTextAreaElement | null;
+        const picked = ta ? ta.value.slice(ta.selectionStart, ta.selectionEnd) : "";
+        const query = picked && !picked.includes("\n") && picked.length <= 200 ? picked : "";
+        findRoot().then(root => setSearchIn({ root, query }));
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -5727,16 +5750,17 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, promptHo
       printLines: addLines,
       printRich: addRich,
       clear,
-      openEditor: (path, line) => {
+      openEditor: (path, line, col, len) => {
+        const go = { gotoLine: line, gotoCol: col, gotoLen: len, gotoN: ++gotoCounter.current };
         setEditorFiles(files => {
           // Already open — still record the new gotoLine (e.g. a
           // second 'oxis resize while the file's already sitting in
           // a background tab should still jump there), just don't
           // re-open or re-read it.
           if (files.some(f => f.path === path)) {
-            return line == null ? files : files.map(f => f.path === path ? { ...f, gotoLine: line } : f);
+            return line == null ? files : files.map(f => f.path === path ? { ...f, ...go } : f);
           }
-          return [...files, { path, content: "", dirty: false, loading: true, gotoLine: line }];
+          return [...files, { path, content: "", dirty: false, loading: true, ...go }];
         });
         setActiveEditorPath(path);
         events.emit("editor_opened", { path });
@@ -6302,6 +6326,11 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, promptHo
     return (
       <div className="app-pane app-pane--editor">
         {promptPortal}
+        {searchIn !== null && (
+          <SearchInFiles root={searchIn.root} initialQuery={searchIn.query}
+            onOpen={(p, line, col, len) => ctxRef.current?.openEditor(p, line, col, len)}
+            onClose={() => { setSearchIn(null); setTimeout(() => (document.querySelector(".code-area-input") as HTMLElement | null)?.focus(), 20); }} />
+        )}
         {quickOpenRoot !== null && (
           <QuickOpen root={quickOpenRoot} openPaths={editorFiles.map(f => f.path)}
             onOpen={p => ctxRef.current?.openEditor(p)}
@@ -6864,14 +6893,17 @@ function Home({ currentTheme, onTheme, onOpenThemeEditor, onOpenPluginCreator }:
           {dashboard.header && <div className="oxis-dash-header">{dashboard.header}</div>}
           {!workspacePanelHidden && <WorkspacePanel ws={ws} plugins={plugins} activeWorkspace={activeWorkspace} activeWorkspacePath={activeWorkspacePath} />}
           <div className="oxis-box oxis-help-box">
-            <div className="oxis-help-row"><span className="oht">Type</span> <span className="ohc">&apos;help</span><span className="ohr"> in the prompt below for every command</span></div>
-            <div className="oxis-help-row"><span className="oht">Type</span> <span className="ohc">&apos;edit</span> <span className="oha">&lt;file&gt;</span><span className="ohr"> to open the built-in editor</span></div>
-            <div className="oxis-help-row"><span className="oht">Type</span> <span className="ohc">&apos;market list</span><span className="ohr"> to browse plugins you can install</span></div>
-            <div className="oxis-help-row"><span className="oht">Press</span> <span className="ohc">Ctrl+Shift+P</span><span className="ohr"> to open the command palette</span></div>
-            <div className="oxis-help-row"><span className="oht">Press</span> <span className="ohc">Ctrl+Shift+M</span><span className="ohr"> to open the OXIS Market website in your browser</span></div>
-            {dashboard.shortcuts?.map(sc => (
-              <div key={sc} className="oxis-help-row"><span className="oht">Try</span> <span className="ohc">{sc}</span></div>
-            ))}
+            <div className="oxis-box-title"><span>GET STARTED</span><span className="oxis-box-title-note">type in the prompt below</span></div>
+            <div className="oxis-help-grid">
+              <span className="ohc">&apos;help</span><span className="ohr">every command</span>
+              <span className="ohc">&apos;edit <span className="oha">&lt;file&gt;</span></span><span className="ohr">open the built-in editor</span>
+              <span className="ohc">&apos;market list</span><span className="ohr">plugins you can install</span>
+              <span className="ohk"><Keys combo="Ctrl+Shift+P" /></span><span className="ohr">the command palette</span>
+              <span className="ohk"><Keys combo="Ctrl+Shift+M" /></span><span className="ohr">the OXIS Market website</span>
+              {dashboard.shortcuts?.map(sc => (
+                <span key={sc} className="oxis-help-extra"><span className="ohc">{sc}</span></span>
+              ))}
+            </div>
           </div>
         </div>
       </>
@@ -6889,6 +6921,12 @@ function Home({ currentTheme, onTheme, onOpenThemeEditor, onOpenPluginCreator }:
       <div className="home-scroll">{body}</div>
     </div>
   );
+}
+
+/** A shortcut as pixel keycaps: Ctrl+Shift+P → [Ctrl] + [Shift] + [P]. */
+function Keys({ combo }: { combo: string }) {
+  const keys = combo.split("+");
+  return <>{keys.map((k, i) => <span key={i}>{i > 0 && <span className="kplus">+</span>}<kbd className="kcap">{k}</kbd></span>)}</>;
 }
 
 // ── Workspace panel — Home screen, replaces the old permanent
@@ -6924,11 +6962,11 @@ function WorkspacePanel({ ws, plugins, activeWorkspace, activeWorkspacePath }: {
     return () => { cancelled = true; };
   }, [activeWorkspacePath, remoteVersion]);
   return (
-    <div className="oxis-box oxis-workspace-box">
-      <div className="oxis-box-row oxis-workspace-header">
-        <span className="oxis-wl">WORKSPACE</span>
+    <div className={`oxis-box oxis-workspace-box${ws.status === "ready" ? " oxis-box--lit" : ""}`}>
+      <div className="oxis-box-title">
+        <span>WORKSPACE</span>
         <span className={`oxis-workspace-status oxis-workspace-status--${ws.status}`}>
-          {ws.status === "ready" ? "● ready" : ws.status === "loading" ? "◐ loading" : "○ no workspace"}
+          <span className="px-dot" />{ws.status === "ready" ? "ready" : ws.status === "loading" ? "loading" : "no workspace"}
         </span>
       </div>
       <div className="oxis-box-row"><span className="oxis-wl">workspace</span><span className="oxis-we"> = </span><span className="oxis-wa oxis-wa--name">{activeWorkspace || "default"}</span></div>

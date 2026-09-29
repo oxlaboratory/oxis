@@ -492,6 +492,11 @@ Windows. Quote paths with spaces.
 - **Go to a file** with Ctrl+P: type letters of its name or path. It
   searches the project the open file is in (skipping `node_modules`,
   `dist` and other build folders); open tabs come first.
+- **Search in files** with Ctrl+Shift+F: every matching line in the
+  project, grouped by file with the match picked out; Enter opens the
+  file with the match selected. Match case, whole words and regular
+  expressions (Alt+C / Alt+W / Alt+R). Text selected in the editor is
+  searched for straight away.
 - **Find and replace** highlights every match, the current one
   brighter, and what a replace will change.
 - **Editing keys** like VS Code's: Ctrl+/ comments lines, Alt+↑/↓ moves

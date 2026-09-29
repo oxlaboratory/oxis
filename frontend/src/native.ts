@@ -29,6 +29,7 @@ declare global {
           // internal/wailsapp/app.go. Backs oxis.fs.*/oxis.process.*/
           // oxis.system.* in pluginAPI.ts.
           ListDir?: (path: string) => Promise<NativeFileEntry[]>;
+          SearchFiles?: (root: string, query: string, opts: NativeSearchOptions) => Promise<NativeSearchResult>;
           StatPath?: (path: string) => Promise<NativeStatResult>;
           MakeDir?: (path: string) => Promise<void>;
           DeletePath?: (path: string) => Promise<void>;
@@ -82,6 +83,11 @@ export class NativeUnavailableError extends Error {
 // ── Core System API types (mirror internal/wailsapp/app.go's Go structs) ──
 export interface NativeFileEntry { name: string; isDir: boolean; size: number; modTime: number; }
 export interface NativeStatResult { exists: boolean; isDir: boolean; size: number; modTime: number; }
+/** Mirrors internal/wailsapp/search.go. */
+export interface NativeSearchOptions { caseSensitive: boolean; wholeWord: boolean; regex: boolean; maxResults?: number; }
+/** col and len are in the line (UTF-16, as JS counts); at is len's start in text. */
+export interface NativeSearchMatch { path: string; line: number; col: number; len: number; text: string; at: number; }
+export interface NativeSearchResult { matches: NativeSearchMatch[]; files: number; truncated: boolean; superseded: boolean; error?: string; }
 export interface NativeRunCommandResult { stdout: string; stderr: string; exitCode: number; }
 /** osName is readable, e.g. "Windows 11 24H2 (build 26100)". */
 export interface NativeSystemInfo { os: string; osName: string; arch: string; numCPU: number; goVersion: string; allocMB: number; numGoroutine: number; }
@@ -230,6 +236,14 @@ export async function listDir(path: string): Promise<NativeFileEntry[]> {
   const fn = window.go?.wailsapp?.App?.ListDir;
   if (!fn) throw new NativeUnavailableError();
   return fn(path);
+}
+
+/** Every line under `root` matching `query` (the editor's search in
+ *  files). A search still running when another starts stops early. */
+export async function searchFiles(root: string, query: string, opts: NativeSearchOptions): Promise<NativeSearchResult> {
+  const fn = window.go?.wailsapp?.App?.SearchFiles;
+  if (!fn) throw new NativeUnavailableError();
+  return fn(root, query, opts);
 }
 
 export async function statPath(path: string): Promise<NativeStatResult> {

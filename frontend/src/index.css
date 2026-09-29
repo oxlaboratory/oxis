@@ -885,20 +885,21 @@ button.editor-mode:hover { filter: brightness(1.25); }
   white-space: nowrap;
 }
 
+/* ── Home, in the pixel-art style of the sky: frames with notched
+   corners (box-shadows one "pixel" out on each side, none at the
+   corners), a pixel drop shadow, title strips, keycaps. No glows. ── */
 .oxis-letter {
-  color: var(--purple); text-shadow: var(--glow-shadow, none);
-  font-weight: 900;
-  display: inline-block;
-  text-shadow:
-    0 0 2px rgba(57,255,20,.32),
-    0 0 4px rgba(57,255,20,.20),
-    0 0 7px rgba(57,255,20,.12);
+  display: inline-block; margin-right: 2px; padding: 0 3px;
+  color: var(--bg); background: var(--purple); font-weight: 900;
+  box-shadow: 0 -2px 0 0 var(--purple), 0 2px 0 0 var(--purple);
 }
 
 .oxis-ver-row {
-  display: flex; align-items: baseline; gap: 8px; margin-top: 1px;
-  font-size: var(--home-fs); font-style: italic; color: var(--muted);
+  display: flex; align-items: baseline; gap: 8px; margin: 8px 0 10px;
+  font-size: var(--home-fs); color: var(--muted);
 }
+.oxis-ver-label { color: var(--dim); letter-spacing: .12em; font-size: 10px; }
+.oxis-ver-num { color: var(--text); font-weight: 700; }
 
 .oxis-ver-build {
   font-size: 10px; font-style: normal; color: var(--dim); opacity: .75;
@@ -913,39 +914,64 @@ button.editor-mode:hover { filter: brightness(1.25); }
 }
 .oxis-github-btn:hover { opacity: 1; color: var(--muted); background: transparent; text-decoration: underline; }
 
-/* Bordered info boxes on Home, compact enough to fit without scrolling. */
 .oxis-box {
-  border: 1px solid var(--border2);
-  border-radius: 2px; padding: 6px 12px;
-  width: 100%; max-width: 620px; margin-bottom: 6px;
-  display: flex; flex-direction: column; gap: 2px;
+  --frame: var(--border2);
+  width: 100%; max-width: 620px; margin: 6px 0 14px;
+  padding: 10px 14px 10px;
+  display: flex; flex-direction: column; gap: 3px;
+  background: color-mix(in srgb, var(--bg1) 80%, transparent);
+  box-shadow:
+    0 -2px 0 0 var(--frame), 0 2px 0 0 var(--frame),
+    -2px 0 0 0 var(--frame), 2px 0 0 0 var(--frame),
+    6px 6px 0 0 color-mix(in srgb, #000 30%, transparent);
 }
+.oxis-box--lit { --frame: color-mix(in srgb, var(--purple3) 55%, var(--border2)); }
+.oxis-box-title {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  margin: -10px -14px 8px; padding: 5px 14px;
+  background: color-mix(in srgb, var(--purple3) 13%, transparent);
+  box-shadow: 0 2px 0 0 var(--frame);
+  color: var(--purple3); font-size: 11px; font-weight: 800; letter-spacing: .18em;
+}
+.oxis-box-title-note { color: var(--dim); font-size: 10px; font-weight: 400; letter-spacing: .04em; }
+.px-dot { display: inline-block; width: 6px; height: 6px; margin-right: 7px; background: currentColor; vertical-align: 1px; }
+
 .oxis-box-row { display: flex; align-items: baseline; font-size: var(--home-fs); white-space: nowrap; }
-.oxis-wl { color: var(--purple3); font-weight: 700; font-style: italic; min-width: 80px; }
-.oxis-we { color: var(--dim); padding: 0 4px; }
-.oxis-wa { color: var(--purple2); font-weight: 700; font-style: italic; letter-spacing: .01em; }
-.oxis-wa--name { color: var(--purple); } /* the active workspace's own name — slightly brighter, first thing to scan for */
-.oxis-wa--connected { color: var(--green, #7cd992); font-weight: 700; font-style: italic; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 420px; }
-.oxis-wa--disconnected { color: var(--dim); font-style: italic; font-size: 12px; }
-.oxis-wa--disconnected code { color: var(--purple3); font-style: normal; white-space: nowrap; }
+.oxis-wl { color: var(--purple3); font-weight: 700; min-width: 96px; }
+.oxis-we { color: var(--dim); padding: 0 6px 0 0; }
+.oxis-wa { color: var(--text); letter-spacing: .01em; }
+.oxis-wa--name { color: var(--purple); font-weight: 700; }
+.oxis-wa--connected { color: var(--green, #7cd992); font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 420px; }
+.oxis-wa--disconnected { color: var(--dim); font-size: 12px; }
+.oxis-wa--disconnected code { color: var(--purple3); white-space: nowrap; }
 
 /* Workspace panel — Home screen (see README § Home Screen & Workspace Panel) */
-.oxis-workspace-box { margin-top: 6px; }
 .oxis-workspace-box .oxis-box-row { white-space: normal; word-break: break-all; }
-.oxis-workspace-header { justify-content: space-between; margin-bottom: 2px; }
-.oxis-workspace-status { font-size: var(--home-fs); font-style: italic; color: var(--dim); }
+.oxis-workspace-status { display: inline-flex; align-items: center; font-size: 10px; letter-spacing: .08em; font-weight: 700; color: var(--dim); }
 .oxis-workspace-status--ready   { color: var(--purple3); }
 .oxis-workspace-status--loading { color: var(--muted); }
 .oxis-workspace-footer { justify-content: flex-end; margin-top: 4px; }
-.oxis-workspace-hint { font-size: var(--home-fs); font-style: italic; color: var(--dim); }
+.oxis-workspace-hint { font-size: var(--home-fs); color: var(--dim); }
 .oxis-workspace-hint code { color: var(--purple2); }
 
-.oxis-help-box { margin-top: 0; }
-.oxis-help-row { display: flex; align-items: baseline; gap: 4px; font-size: var(--home-fs); font-style: italic; }
-.oht { color: var(--dim);    font-style: italic; }
-.ohc { color: var(--purple3); font-weight: 700; font-style: italic; }
-.oha { color: var(--purple);  font-weight: 700; font-style: italic; }
-.ohr { color: var(--muted);   font-style: italic; }
+.oxis-help-grid {
+  display: grid; grid-template-columns: max-content 1fr; column-gap: 18px; row-gap: 7px;
+  align-items: center; font-size: var(--home-fs);
+}
+.oxis-help-extra { grid-column: 1 / -1; }
+.ohc { color: var(--purple3); font-weight: 700; }
+.oha { color: var(--purple); font-weight: 700; }
+.ohr { color: var(--muted); }
+.ohk { display: inline-flex; align-items: center; }
+.kplus { color: var(--dim); margin: 0 4px; font-size: 10px; }
+.kcap {
+  display: inline-block; padding: 0 5px; min-width: 12px; text-align: center;
+  font-family: var(--font); font-size: 10px; font-weight: 700; line-height: 16px;
+  color: var(--text); background: var(--bg3);
+  box-shadow: 0 -2px 0 0 var(--border2), 0 2px 0 0 var(--border2), -2px 0 0 0 var(--border2), 2px 0 0 0 var(--border2),
+    0 4px 0 0 color-mix(in srgb, #000 35%, transparent);
+  margin: 2px 2px 4px;
+}
 
 /* Compact Home on short windows. */
 @media (max-height: 700px) {
@@ -1224,3 +1250,29 @@ input, textarea { font-family: var(--font); }
 }
 .term-tabs-new:hover    { color: var(--purple3); background: var(--bg3); }
 .term-tab-pane { flex: 1 1 0; flex-direction: column; min-height: 0; overflow: hidden; }
+
+/* Search in files (Ctrl+Shift+F in the editor). */
+.sif { width: min(860px, 92vw); max-height: 76vh; }
+.sif-opt {
+  flex-shrink: 0; min-width: 26px; height: 22px; margin-left: 4px; padding: 0 5px;
+  border: 1px solid var(--border); border-radius: 4px; background: none; cursor: pointer;
+  color: var(--dim); font-family: var(--font); font-size: 11px;
+}
+.sif-opt--word { text-decoration: underline; text-underline-offset: 3px; }
+.sif-opt:hover { color: var(--text); }
+.sif-opt--on { color: var(--purple3); border-color: var(--purple3); background: var(--bg3); }
+.sif-summary { padding: 4px 14px 6px; font-size: 11px; color: var(--dim); border-bottom: 1px solid var(--border); min-height: 14px; }
+.sif-summary--err { color: var(--err); }
+.sif-list { max-height: min(60vh, 520px); }
+.sif-file {
+  display: flex; align-items: baseline; gap: 8px; padding: 7px 14px 3px;
+  font-size: 12px; position: sticky; top: 0; background: var(--bg1);
+}
+.sif-file-name { color: var(--text); font-weight: 600; }
+.sif-file-dir { color: var(--dim); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+.sif-file-count { color: var(--dim); font-size: 10px; border: 1px solid var(--border); border-radius: 8px; padding: 0 6px; }
+.sif-row { display: flex; gap: 10px; padding: 2px 14px 2px 22px; cursor: pointer; font-size: 12px; white-space: pre; }
+.sif-row--sel { background: var(--bg3); }
+.sif-line { color: var(--dim); min-width: 3ch; text-align: right; flex-shrink: 0; }
+.sif-text { color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
+.sif-text b { color: var(--text); background: color-mix(in srgb, var(--purple3) 28%, transparent); border-radius: 2px; font-weight: 600; }

@@ -6,6 +6,11 @@ All notable changes to OXIS. The format follows
 ## [Unreleased]
 
 ### Added
+- Search in files (Ctrl+Shift+F in the editor): every matching line in
+  the project, grouped by file, with case, whole-word and regex options;
+  opening a result selects the match. The search runs in Go, skips
+  dependency and build folders and binary files, and stops as soon as
+  a newer query starts.
 - Terminal tabs, each its own shell: Ctrl+T in the terminal (or
   `'tab new`, or +) opens one, Ctrl+Tab / Ctrl+1…9 switch, Ctrl+Shift+W
   closes one (and its shell). Tabs are named after their directory and
@@ -186,6 +191,9 @@ All notable changes to OXIS. The format follows
   of every built-in theme.
 
 ### Changed
+- Home's panels match the pixel-art sky: frames with notched corners
+  and a pixel shadow, title strips, a pixel status dot, shortcuts as
+  keycaps, and the O, X, I, S letters as blocks.
 - Home's sky is pixel art. By day, a sun whose ray tips shimmer in
   turn, and clouds with a new shape each time (a big round puff with
   smaller ones either side, lit from above) drifting across: far ones
