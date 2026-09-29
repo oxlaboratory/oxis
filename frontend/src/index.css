@@ -979,19 +979,8 @@ button.editor-mode:hover { filter: brightness(1.25); }
 .sky-sun {
   position: absolute; top: 6px; right: 0px;
   font-size: 9px; color: var(--sun, #ffd24a);
-  text-shadow: 0 0 5px color-mix(in srgb, var(--sun, #ffd24a) 40%, transparent);
   line-height: 1.2;
   z-index: 2;
-}
-/* A warm halo behind the sun, breathing slowly. */
-.sky-sun::before {
-  content: ""; position: absolute; inset: -12px -8px; z-index: -1; border-radius: 50%;
-  background: radial-gradient(closest-side, color-mix(in srgb, var(--sun, #ffd24a) 26%, transparent), transparent);
-  animation: sun-halo 5s ease-in-out infinite;
-}
-@keyframes sun-halo {
-  0%, 100% { transform: scale(.85); opacity: .6; }
-  50%      { transform: scale(1.05); opacity: 1; }
 }
 
 /* The clouds' strip of sky, up to the sun: they fade in at the left
@@ -1002,24 +991,21 @@ button.editor-mode:hover { filter: brightness(1.25); }
   -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 16%, #000 74%, transparent 100%);
           mask-image: linear-gradient(90deg, transparent 0, #000 16%, #000 74%, transparent 100%);
 }
+/* Pixel-art clouds (SVG, a rect per run of pixels; shading is each
+   run's fill-opacity). */
 .sky-cloud {
-  position: absolute; left: 0; font-family: var(--font); white-space: pre; line-height: 1.15;
-  font-weight: 600;
-  /* Lit from above: full colour on top, softer underneath. */
-  color: transparent;
-  background: linear-gradient(180deg, var(--cloud, #ffffff) 30%, color-mix(in srgb, var(--cloud, #ffffff) 50%, transparent) 100%);
-  -webkit-background-clip: text; background-clip: text;
+  position: absolute; left: 0; display: block; overflow: visible;
+  fill: var(--cloud, #ffffff);
   animation: cloud-drift linear infinite;
   will-change: transform;
 }
-.sky-cloud--near { filter: drop-shadow(0 0 4px color-mix(in srgb, var(--cloud, #ffffff) 22%, transparent)); }
 @keyframes cloud-drift {
   from { transform: translateX(var(--from)); }
   to   { transform: translateX(var(--to)); }
 }
 @media (prefers-reduced-motion: reduce) {
   .sky-cloud { animation: none; transform: translateX(var(--rest)); }
-  .sky-sun::before, .sky-star { animation: none; }
+  .sky-star { animation: none; }
 }
 
 .sky-moon {

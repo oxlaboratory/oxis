@@ -6403,52 +6403,83 @@ function ThemeTile({ name, theme, active, isCustom, onClick, onDelete }: {
   );
 }
 
-// ── Sky widget: ASCII sun/clouds by day, ASCII moon/stars by night ──
+// ── Sky widget: ASCII sun and pixel clouds by day, ASCII moon/stars by night ──
 // One simple round moon, the same every night, about as tall as the sun.
 const MOON_ASCII = " _\n(_)";
 
 
-// Clouds (day) drift left to right in two lanes: far clouds high up,
-// small, faint and slow; near ones lower, bigger, brighter and faster.
-// They fade in at the left and thin out before the sun (a mask on
-// .sky-clouds). Every cloud in a lane moves at the same speed and they
-// start evenly spaced, so they never run into one another.
-const CLOUDS_NEAR = [
-  "    .--.\n .-(    ).\n(___.__)__)",
-  "   .-.\n .(   ).\n(___.___)",
-  "   .-~~-.\n .(      ).\n(__________)",
-];
-const CLOUDS_FAR = [
-  " .--.\n(____)",
-  " .~~.\n(____)",
-  " .-. .-.\n(___(___)",
-];
+// Clouds (day) are pixel art: a few round puffs on a flat base, lit
+// from above (the top edge brightest, the underside shaded), a new shape
+// each time. They drift left to right in two lanes: far clouds high up,
+// small, faint and slow; near ones lower, bigger and faster. They fade
+// in at the left and thin out before the sun (a mask on .sky-clouds).
+// Every cloud in a lane moves at the same speed and they start evenly
+// spaced, so they never run into one another.
 
 function rand(min: number, max: number): number { return min + Math.random() * (max - min); }
 
+/** A row of same-shade pixels: x, y and width in pixels, and opacity. */
+type CloudRun = { x: number; y: number; w: number; a: number };
+interface CloudShape { cols: number; rows: number; runs: CloudRun[] }
+
+/** A cumulus: a big round puff in the middle, smaller ones either side
+ *  (and on a wide cloud, one more at an end), all sitting on the same
+ *  flat bottom. */
+function makeCloud(cols: number, rows: number): CloudShape {
+  const R = rows / 2;
+  const puffs = [
+    { cx: cols * rand(0.44, 0.56), r: R * rand(0.93, 1) },
+    { cx: cols * rand(0.22, 0.3), r: R * rand(0.6, 0.74) },
+    { cx: cols * rand(0.7, 0.78), r: R * rand(0.66, 0.8) },
+  ];
+  if (cols >= 24) {
+    puffs.push(Math.random() < 0.5
+      ? { cx: cols * rand(0.1, 0.14), r: R * rand(0.4, 0.5) }
+      : { cx: cols * rand(0.86, 0.9), r: R * rand(0.4, 0.5) });
+  }
+  const left = Math.min(...puffs.map(p => p.cx)), right = Math.max(...puffs.map(p => p.cx));
+  const baseTop = rows - Math.min(...puffs.map(p => p.r));
+  const filled = (x: number, y: number): boolean => {
+    if (x < 0 || y < 0 || x >= cols || y >= rows) return false;
+    const px = x + 0.5, py = y + 0.5;
+    if (py >= baseTop && px >= left && px <= right) return true; // fills the dips between puffs
+    return puffs.some(p => (px - p.cx) ** 2 + (py - (rows - p.r)) ** 2 <= p.r * p.r);
+  };
+  const shade = (x: number, y: number): number =>
+    !filled(x, y) ? 0 : !filled(x, y - 1) ? 1 : y === rows - 1 ? 0.45 : y >= rows - 3 ? 0.68 : 0.86;
+  const runs: CloudRun[] = [];
+  for (let y = 0; y < rows; y++) {
+    let run: CloudRun | null = null;
+    for (let x = 0; x <= cols; x++) {
+      const a = x < cols ? shade(x, y) : -1;
+      if (run && run.a === a) { run.w++; continue; }
+      if (run && run.a > 0) runs.push(run);
+      run = { x, y, w: 1, a };
+    }
+  }
+  return { cols, rows, runs };
+}
+
 interface CloudLayout {
-  glyph: string; top: number; fontSize: number; opacity: number; near: boolean;
+  shape: CloudShape; pixel: number; top: number; opacity: number; near: boolean;
   /** translateX at the start and end of a crossing, and where it rests
    *  when motion is reduced. */
   from: number; to: number; rest: number;
   duration: number; delay: number;
 }
 
-// Monospace glyph width as a fraction of font size (JetBrains Mono ≈ 0.6).
-const GLYPH_WIDTH_EM = 0.62;
 const SUN_CLEARANCE = 10;
 const CLOUD_LANES = [
-  { near: false, count: 3, glyphs: CLOUDS_FAR,  fontSize: 8,   top: 1,  opacity: 0.55, seconds: 150 },
-  { near: true,  count: 2, glyphs: CLOUDS_NEAR, fontSize: 9.5, top: 22, opacity: 0.92, seconds: 95 },
+  { near: false, count: 3, cols: [14, 20], rows: 7,  pixel: 2, top: 3,  opacity: 0.5,  seconds: 150 },
+  { near: true,  count: 2, cols: [24, 30], rows: 12, pixel: 2, top: 30, opacity: 0.95, seconds: 95 },
 ];
 
 /** The clouds crossing `room` px of sky (up to the sun). */
 function layoutClouds(room: number): CloudLayout[] {
   const out: CloudLayout[] = [];
   for (const lane of CLOUD_LANES) {
-    const shapes = Array.from({ length: lane.count }, () => lane.glyphs[Math.floor(Math.random() * lane.glyphs.length)]);
-    const widths = shapes.map(g => Math.max(...g.split("\n").map(l => l.length)) * lane.fontSize * GLYPH_WIDTH_EM);
-    const widest = Math.max(...widths);
+    const shapes = Array.from({ length: lane.count }, () => makeCloud(Math.round(rand(lane.cols[0], lane.cols[1])), lane.rows));
+    const widest = Math.max(...shapes.map(s => s.cols * lane.pixel));
     // Each crossing starts just off the left edge and ends at the sun.
     const travel = room + widest;
     // Evenly spaced along the crossing, each nudged by no more than
@@ -6456,11 +6487,11 @@ function layoutClouds(room: number): CloudLayout[] {
     const slot = 1 / lane.count;
     const slack = Math.max(0, slot - (widest + 12) / travel);
     const phase = Math.random();
-    shapes.forEach((glyph, k) => {
+    shapes.forEach((shape, k) => {
       const at = (phase + k * slot + rand(0, slack)) % 1;
       out.push({
-        glyph, near: lane.near, fontSize: lane.fontSize, opacity: lane.opacity,
-        top: lane.top + rand(-1.5, 1.5),
+        shape, pixel: lane.pixel, near: lane.near, opacity: lane.opacity,
+        top: lane.top + Math.round(rand(-2, 2)),
         from: -widest, to: room, rest: -widest + at * travel,
         duration: lane.seconds, delay: -at * lane.seconds,
       });
@@ -6519,11 +6550,15 @@ function SkyWidget() {
         <pre ref={sunRef} className="sky-ascii sky-sun">{"  \\ | /\n -- O --\n  / | \\"}</pre>
         <div className="sky-clouds" style={{ width: room }}>
           {clouds.map((c, i) => (
-            <pre key={i} className={`sky-ascii sky-cloud${c.near ? " sky-cloud--near" : ""}`} style={{
-              top: `${c.top}px`, fontSize: `${c.fontSize}px`, opacity: c.opacity,
-              animationDuration: `${c.duration}s`, animationDelay: `${c.delay}s`,
-              ["--from" as string]: `${c.from}px`, ["--to" as string]: `${c.to}px`, ["--rest" as string]: `${c.rest}px`,
-            } as React.CSSProperties}>{c.glyph}</pre>
+            <svg key={i} className={`sky-cloud${c.near ? " sky-cloud--near" : ""}`}
+              width={c.shape.cols * c.pixel} height={c.shape.rows * c.pixel}
+              viewBox={`0 0 ${c.shape.cols} ${c.shape.rows}`} shapeRendering="crispEdges" style={{
+                top: `${c.top}px`, opacity: c.opacity,
+                animationDuration: `${c.duration}s`, animationDelay: `${c.delay}s`,
+                ["--from" as string]: `${c.from}px`, ["--to" as string]: `${c.to}px`, ["--rest" as string]: `${c.rest}px`,
+              } as React.CSSProperties}>
+              {c.shape.runs.map((r, k) => <rect key={k} x={r.x} y={r.y} width={r.w} height={1} fillOpacity={r.a} />)}
+            </svg>
           ))}
         </div>
       </div>
