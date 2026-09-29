@@ -971,16 +971,20 @@ button.editor-mode:hover { filter: brightness(1.25); }
   overflow: hidden;
 }
 
-/* ── ASCII Sky widget ───────────────────────────────────── */
-.sky-ascii {
-  font-family: var(--font); white-space: pre; line-height: 1.2;
-  background: none; border: none; margin: 0; padding: 0;
-}
+/* ── Pixel-art sky (SkyWidget): SVGs of 2px pixels, shaded by each
+   run's fill-opacity, coloured by fill. No glows. ─────────────── */
 .sky-sun {
-  position: absolute; top: 6px; right: 0px;
-  font-size: 9px; color: var(--sun, #ffd24a);
-  line-height: 1.2;
+  position: absolute; top: 5px; right: 0;
+  fill: var(--sun, #ffd24a);
   z-index: 2;
+}
+.sky-sun svg { position: absolute; left: 0; top: 0; display: block; }
+/* The rays' tips take turns: straight ones, then diagonal ones. */
+.sky-sun-tips { animation: sun-tips 5s steps(1, end) infinite; }
+.sky-sun-tips--late { animation-delay: -2.5s; }
+@keyframes sun-tips {
+  0%   { opacity: 1; }
+  50%  { opacity: .15; }
 }
 
 /* The clouds' strip of sky, up to the sun: they fade in at the left
@@ -991,10 +995,8 @@ button.editor-mode:hover { filter: brightness(1.25); }
   -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 16%, #000 74%, transparent 100%);
           mask-image: linear-gradient(90deg, transparent 0, #000 16%, #000 74%, transparent 100%);
 }
-/* Pixel-art clouds (SVG, a rect per run of pixels; shading is each
-   run's fill-opacity). */
 .sky-cloud {
-  position: absolute; left: 0; display: block; overflow: visible;
+  position: absolute; left: 0; display: block;
   fill: var(--cloud, #ffffff);
   animation: cloud-drift linear infinite;
   will-change: transform;
@@ -1003,30 +1005,30 @@ button.editor-mode:hover { filter: brightness(1.25); }
   from { transform: translateX(var(--from)); }
   to   { transform: translateX(var(--to)); }
 }
-@media (prefers-reduced-motion: reduce) {
-  .sky-cloud { animation: none; transform: translateX(var(--rest)); }
-  .sky-star { animation: none; }
-}
 
 .sky-moon {
-  position: absolute; top: 2px; right: 0px;
-  font-size: 12px; color: var(--moon, #ffffff); font-family: var(--font);
-  white-space: pre; line-height: 1.2; font-weight: 600;
-  text-shadow: 0 0 5px color-mix(in srgb, var(--moon, #ffffff) 28%, transparent);
-  animation: moon-glow 5s ease-in-out infinite;
+  position: absolute; top: 8px; right: 6px; display: block;
+  fill: var(--moon, #ffffff);
+  animation: moon-breathe 6s ease-in-out infinite;
   z-index: 2;
 }
-@keyframes moon-glow {
-  0%, 100% { opacity: .8; } 50% { opacity: 1; }
+@keyframes moon-breathe {
+  0%, 100% { opacity: .85; } 50% { opacity: 1; }
 }
 
 .sky-star {
-  position: absolute; color: var(--star, var(--purple3)); font-family: var(--font);
+  position: absolute; display: block;
+  fill: var(--star, var(--purple3));
   animation-name: star-twinkle; animation-timing-function: ease-in-out; animation-iteration-count: infinite;
 }
 @keyframes star-twinkle {
   0%, 100% { opacity: .2;  }
   50%      { opacity: .95; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sky-cloud { animation: none; transform: translateX(var(--rest)); }
+  .sky-sun-tips, .sky-moon, .sky-star { animation: none; }
 }
 
 /* Status bar additions */

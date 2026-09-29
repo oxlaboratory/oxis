@@ -181,11 +181,12 @@ All notable changes to OXIS. The format follows
   of every built-in theme.
 
 ### Changed
-- Home's clouds are pixel art, a new shape each time (a big round puff
-  with smaller ones either side, lit from above), and drift across the
-  sky: far ones small, faint and slow, near ones bigger and faster,
-  fading in at the left and thinning out before the sun. They never
-  overlap one another. The sun no longer glows.
+- Home's sky is pixel art. By day, a sun whose ray tips shimmer in
+  turn, and clouds with a new shape each time (a big round puff with
+  smaller ones either side, lit from above) drifting across: far ones
+  small, faint and slow, near ones bigger and faster, fading in at the
+  left and thinning out before the sun, never overlapping. By night, a
+  moon with craters and twinkling pixel stars. Nothing glows.
 - PowerShell is started with its shell-integration hook as plain,
   readable `-Command` text instead of `-EncodedCommand`: encoded
   PowerShell started by a program is what malware does, and antivirus

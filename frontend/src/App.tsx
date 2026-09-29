@@ -6403,29 +6403,85 @@ function ThemeTile({ name, theme, active, isCustom, onClick, onDelete }: {
   );
 }
 
-// ── Sky widget: ASCII sun and pixel clouds by day, ASCII moon/stars by night ──
-// One simple round moon, the same every night, about as tall as the sun.
-const MOON_ASCII = " _\n(_)";
-
-
-// Clouds (day) are pixel art: a few round puffs on a flat base, lit
-// from above (the top edge brightest, the underside shaded), a new shape
-// each time. They drift left to right in two lanes: far clouds high up,
-// small, faint and slow; near ones lower, bigger and faster. They fade
-// in at the left and thin out before the sun (a mask on .sky-clouds).
-// Every cloud in a lane moves at the same speed and they start evenly
-// spaced, so they never run into one another.
+// ── Sky widget: pixel-art sun and clouds by day, moon and stars by night ──
+// Everything is drawn in the same 2px pixels (SVG rects with crisp
+// edges), shaded with opacity, in the theme's sun, cloud, moon and star
+// colours (fill, set in CSS).
 
 function rand(min: number, max: number): number { return min + Math.random() * (max - min); }
 
 /** A row of same-shade pixels: x, y and width in pixels, and opacity. */
-type CloudRun = { x: number; y: number; w: number; a: number };
-interface CloudShape { cols: number; rows: number; runs: CloudRun[] }
+type PixelRun = { x: number; y: number; w: number; a: number };
+interface PixelShape { cols: number; rows: number; runs: PixelRun[] }
+
+/** A picture `cols` × `rows` pixels whose pixel (x, y) has opacity
+ *  shade(x, y), 0 for none. */
+function pixelShape(cols: number, rows: number, shade: (x: number, y: number) => number): PixelShape {
+  const runs: PixelRun[] = [];
+  for (let y = 0; y < rows; y++) {
+    let run: PixelRun | null = null;
+    for (let x = 0; x <= cols; x++) {
+      const a = x < cols ? shade(x, y) : -1;
+      if (run && run.a === a) { run.w++; continue; }
+      if (run && run.a > 0) runs.push(run);
+      run = { x, y, w: 1, a };
+    }
+  }
+  return { cols, rows, runs };
+}
+
+const SKY_PIXEL = 2; // screen px per pixel
+
+function Pixels({ shape, className, style }: { shape: PixelShape; className?: string; style?: React.CSSProperties }) {
+  return (
+    <svg className={className} style={style} width={shape.cols * SKY_PIXEL} height={shape.rows * SKY_PIXEL}
+      viewBox={`0 0 ${shape.cols} ${shape.rows}`} shapeRendering="crispEdges" aria-hidden="true">
+      {shape.runs.map((r, k) => <rect key={k} x={r.x} y={r.y} width={r.w} height={1} fillOpacity={r.a} />)}
+    </svg>
+  );
+}
+
+// The sun: a disc lit from the top left, and eight rays whose tips
+// take turns (the straight ones, then the diagonal ones) as it shimmers.
+const SUN_SIZE = 17;
+const SUN = (() => {
+  const c = 8;
+  const disc = pixelShape(SUN_SIZE, SUN_SIZE, (x, y) => {
+    const dx = x - c, dy = y - c, d = Math.hypot(dx, dy);
+    if (d > 4.3) return 0;
+    return d > 3.3 && dx + dy > 0 ? 0.78 : dx + dy < -2 ? 1 : 0.92;
+  });
+  const rays = (straight: number[], diagonal: number[]) => pixelShape(SUN_SIZE, SUN_SIZE, (x, y) => {
+    const dx = Math.abs(x - c), dy = Math.abs(y - c);
+    if ((dx === 0 && straight.includes(dy)) || (dy === 0 && straight.includes(dx))) return 0.9;
+    return dx === dy && diagonal.includes(dx) ? 0.9 : 0;
+  });
+  return { disc, rays: rays([6, 7], [5]), straightTips: rays([8], []), diagonalTips: rays([], [6]) };
+})();
+
+// The moon: round, a few craters, its right edge in shadow.
+const MOON = pixelShape(13, 13, (x, y) => {
+  const dx = x - 6, dy = y - 6, d = Math.hypot(dx, dy);
+  if (d > 5.6) return 0;
+  const craters: Array<[number, number, number]> = [[-2, -2, 1.3], [2, 1, 1.5], [-1, 3, 0.9]];
+  if (craters.some(([cx, cy, r]) => Math.hypot(dx - cx, dy - cy) <= r)) return 0.6;
+  return dx > 2.6 && d > 4 ? 0.7 : dx + dy < -3 ? 1 : 0.9;
+});
+
+// Stars: a small sparkle (a bright middle, dimmer arms) or a single dot.
+const STAR_SPARKLE = pixelShape(3, 3, (x, y) => (x === 1 && y === 1 ? 1 : x === 1 || y === 1 ? 0.45 : 0));
+const STAR_DOT = pixelShape(1, 1, () => 1);
+
+// Clouds: a new shape each time. They drift left to right in two lanes:
+// far clouds high up, small, faint and slow; near ones lower, bigger and
+// faster. They fade in at the left and thin out before the sun (a mask
+// on .sky-clouds). Every cloud in a lane moves at the same speed and
+// they start evenly spaced, so they never run into one another.
 
 /** A cumulus: a big round puff in the middle, smaller ones either side
  *  (and on a wide cloud, one more at an end), all sitting on the same
- *  flat bottom. */
-function makeCloud(cols: number, rows: number): CloudShape {
+ *  flat bottom, lit from above. */
+function makeCloud(cols: number, rows: number): PixelShape {
   const R = rows / 2;
   const puffs = [
     { cx: cols * rand(0.44, 0.56), r: R * rand(0.93, 1) },
@@ -6445,23 +6501,12 @@ function makeCloud(cols: number, rows: number): CloudShape {
     if (py >= baseTop && px >= left && px <= right) return true; // fills the dips between puffs
     return puffs.some(p => (px - p.cx) ** 2 + (py - (rows - p.r)) ** 2 <= p.r * p.r);
   };
-  const shade = (x: number, y: number): number =>
-    !filled(x, y) ? 0 : !filled(x, y - 1) ? 1 : y === rows - 1 ? 0.45 : y >= rows - 3 ? 0.68 : 0.86;
-  const runs: CloudRun[] = [];
-  for (let y = 0; y < rows; y++) {
-    let run: CloudRun | null = null;
-    for (let x = 0; x <= cols; x++) {
-      const a = x < cols ? shade(x, y) : -1;
-      if (run && run.a === a) { run.w++; continue; }
-      if (run && run.a > 0) runs.push(run);
-      run = { x, y, w: 1, a };
-    }
-  }
-  return { cols, rows, runs };
+  return pixelShape(cols, rows, (x, y) =>
+    !filled(x, y) ? 0 : !filled(x, y - 1) ? 1 : y === rows - 1 ? 0.45 : y >= rows - 3 ? 0.68 : 0.86);
 }
 
 interface CloudLayout {
-  shape: CloudShape; pixel: number; top: number; opacity: number; near: boolean;
+  shape: PixelShape; top: number; opacity: number;
   /** translateX at the start and end of a crossing, and where it rests
    *  when motion is reduced. */
   from: number; to: number; rest: number;
@@ -6470,8 +6515,8 @@ interface CloudLayout {
 
 const SUN_CLEARANCE = 10;
 const CLOUD_LANES = [
-  { near: false, count: 3, cols: [14, 20], rows: 7,  pixel: 2, top: 3,  opacity: 0.5,  seconds: 150 },
-  { near: true,  count: 2, cols: [24, 30], rows: 12, pixel: 2, top: 30, opacity: 0.95, seconds: 95 },
+  { count: 3, cols: [14, 20], rows: 7,  top: 3,  opacity: 0.5,  seconds: 150 },
+  { count: 2, cols: [24, 30], rows: 12, top: 30, opacity: 0.95, seconds: 95 },
 ];
 
 /** The clouds crossing `room` px of sky (up to the sun). */
@@ -6479,7 +6524,7 @@ function layoutClouds(room: number): CloudLayout[] {
   const out: CloudLayout[] = [];
   for (const lane of CLOUD_LANES) {
     const shapes = Array.from({ length: lane.count }, () => makeCloud(Math.round(rand(lane.cols[0], lane.cols[1])), lane.rows));
-    const widest = Math.max(...shapes.map(s => s.cols * lane.pixel));
+    const widest = Math.max(...shapes.map(s => s.cols * SKY_PIXEL));
     // Each crossing starts just off the left edge and ends at the sun.
     const travel = room + widest;
     // Evenly spaced along the crossing, each nudged by no more than
@@ -6490,7 +6535,7 @@ function layoutClouds(room: number): CloudLayout[] {
     shapes.forEach((shape, k) => {
       const at = (phase + k * slot + rand(0, slack)) % 1;
       out.push({
-        shape, pixel: lane.pixel, near: lane.near, opacity: lane.opacity,
+        shape, opacity: lane.opacity,
         top: lane.top + Math.round(rand(-2, 2)),
         from: -widest, to: room, rest: -widest + at * travel,
         duration: lane.seconds, delay: -at * lane.seconds,
@@ -6499,27 +6544,23 @@ function layoutClouds(room: number): CloudLayout[] {
   }
   return out;
 }
-const STAR_GLYPHS = ["*", "."];
 
-interface StarLayout { glyph: string; top: number; left: number; fontSize: number; delay: number }
+interface StarLayout { sparkle: boolean; top: number; left: number; delay: number; duration: number }
 
-/** Stars spread across the sky in bands, alternating high and low. */
+/** Stars spread across the sky left of the moon, in bands, alternating
+ *  high and low. */
 function layoutStars(count: number, widthPx: number): StarLayout[] {
   const band = widthPx / count;
-  const out: StarLayout[] = [];
-  for (let i = 0; i < count; i++) {
-    out.push({
-      glyph: STAR_GLYPHS[Math.floor(Math.random() * STAR_GLYPHS.length)],
-      left: i * band + rand(band * 0.1, band * 0.9),
-      top: (i % 2 === 0 ? rand(0, 16) : rand(24, 40)),
-      fontSize: rand(7, 9),
-      delay: rand(0, 2.4), // one full star-twinkle cycle's worth of jitter — no shared phase
-    });
-  }
-  return out;
+  return Array.from({ length: count }, (_, i) => ({
+    sparkle: Math.random() < 0.45,
+    left: Math.round(i * band + rand(band * 0.1, band * 0.8)),
+    top: Math.round(i % 2 === 0 ? rand(2, 18) : rand(26, 46)),
+    delay: rand(0, 3),
+    duration: rand(2.2, 3.6),
+  }));
 }
 
-const SKY_WIDGET_WIDTH = 280;
+const SKY_WIDGET_WIDTH = 280; // .sky-widget's width
 
 function SkyWidget() {
   const [now, setNow] = useState(() => new Date());
@@ -6530,35 +6571,28 @@ function SkyWidget() {
   const hour = now.getHours();
   const isDay = hour >= 6 && hour < 18;
 
-  // Clouds stay left of the sun, so measure where it actually is (the
-  // estimate is only used for the first layout pass).
-  const sunRef = useRef<HTMLPreElement>(null);
-  const [sunLeft, setSunLeft] = useState(SKY_WIDGET_WIDTH - 48);
-  useLayoutEffect(() => {
-    const el = sunRef.current;
-    if (el && el.offsetLeft > 0 && Math.abs(el.offsetLeft - sunLeft) > 1) setSunLeft(el.offsetLeft);
-  }, [isDay, sunLeft]);
-
-  // Laid out once (per sun position) so clouds don't jump on each clock tick.
-  const room = sunLeft - SUN_CLEARANCE;
+  // Laid out once, so clouds and stars don't jump on each clock tick.
+  // The clouds' sky ends at the sun (at the right edge).
+  const room = SKY_WIDGET_WIDTH - SUN_SIZE * SKY_PIXEL - SUN_CLEARANCE;
   const clouds = useMemo(() => layoutClouds(room), [room]);
-  const stars = useMemo(() => layoutStars(Math.floor(rand(5, 8)), SKY_WIDGET_WIDTH - 20), []);
+  const stars = useMemo(() => layoutStars(Math.floor(rand(6, 9)), SKY_WIDGET_WIDTH - 44), []);
 
   if (isDay) {
     return (
       <div className="sky-widget sky-widget--day">
-        <pre ref={sunRef} className="sky-ascii sky-sun">{"  \\ | /\n -- O --\n  / | \\"}</pre>
+        <div className="sky-sun" style={{ width: SUN_SIZE * SKY_PIXEL, height: SUN_SIZE * SKY_PIXEL }}>
+          <Pixels shape={SUN.rays} />
+          <Pixels shape={SUN.straightTips} className="sky-sun-tips" />
+          <Pixels shape={SUN.diagonalTips} className="sky-sun-tips sky-sun-tips--late" />
+          <Pixels shape={SUN.disc} />
+        </div>
         <div className="sky-clouds" style={{ width: room }}>
           {clouds.map((c, i) => (
-            <svg key={i} className={`sky-cloud${c.near ? " sky-cloud--near" : ""}`}
-              width={c.shape.cols * c.pixel} height={c.shape.rows * c.pixel}
-              viewBox={`0 0 ${c.shape.cols} ${c.shape.rows}`} shapeRendering="crispEdges" style={{
-                top: `${c.top}px`, opacity: c.opacity,
-                animationDuration: `${c.duration}s`, animationDelay: `${c.delay}s`,
-                ["--from" as string]: `${c.from}px`, ["--to" as string]: `${c.to}px`, ["--rest" as string]: `${c.rest}px`,
-              } as React.CSSProperties}>
-              {c.shape.runs.map((r, k) => <rect key={k} x={r.x} y={r.y} width={r.w} height={1} fillOpacity={r.a} />)}
-            </svg>
+            <Pixels key={i} shape={c.shape} className="sky-cloud" style={{
+              top: `${c.top}px`, opacity: c.opacity,
+              animationDuration: `${c.duration}s`, animationDelay: `${c.delay}s`,
+              ["--from" as string]: `${c.from}px`, ["--to" as string]: `${c.to}px`, ["--rest" as string]: `${c.rest}px`,
+            } as React.CSSProperties} />
           ))}
         </div>
       </div>
@@ -6566,12 +6600,12 @@ function SkyWidget() {
   }
   return (
     <div className="sky-widget sky-widget--night">
-      <pre className="sky-ascii sky-moon">{MOON_ASCII}</pre>
+      <Pixels shape={MOON} className="sky-moon" />
       {stars.map((s, i) => (
-        <span key={i} className="sky-star" style={{
-          top: `${s.top}px`, left: `${s.left}px`, fontSize: `${s.fontSize}px`,
-          animationDuration: "2.4s", animationDelay: `${s.delay}s`,
-        }}>{s.glyph}</span>
+        <Pixels key={i} shape={s.sparkle ? STAR_SPARKLE : STAR_DOT} className="sky-star" style={{
+          top: `${s.top}px`, left: `${s.left}px`,
+          animationDuration: `${s.duration}s`, animationDelay: `${s.delay}s`,
+        }} />
       ))}
     </div>
   );
