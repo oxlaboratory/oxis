@@ -895,7 +895,7 @@ button.editor-mode:hover { filter: brightness(1.25); }
 }
 
 .oxis-ver-row {
-  display: flex; align-items: baseline; gap: 8px; margin: 8px 0 10px;
+  display: flex; align-items: baseline; gap: 8px; margin: 4px 0 8px;
   font-size: var(--home-fs); color: var(--muted);
 }
 .oxis-ver-label { color: var(--dim); letter-spacing: .12em; font-size: 10px; }
@@ -916,27 +916,27 @@ button.editor-mode:hover { filter: brightness(1.25); }
 
 .oxis-box {
   --frame: var(--border2);
-  width: 100%; max-width: 620px; margin: 6px 0 14px;
-  padding: 10px 14px 10px;
-  display: flex; flex-direction: column; gap: 3px;
+  width: 100%; max-width: 580px; margin: 3px 0 10px;
+  padding: 6px 12px 7px;
+  display: flex; flex-direction: column; gap: 0;
   background: color-mix(in srgb, var(--bg1) 80%, transparent);
   box-shadow:
     0 -2px 0 0 var(--frame), 0 2px 0 0 var(--frame),
     -2px 0 0 0 var(--frame), 2px 0 0 0 var(--frame),
-    6px 6px 0 0 color-mix(in srgb, #000 30%, transparent);
+    4px 4px 0 0 color-mix(in srgb, #000 30%, transparent);
 }
 .oxis-box--lit { --frame: color-mix(in srgb, var(--purple3) 55%, var(--border2)); }
 .oxis-box-title {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  margin: -10px -14px 8px; padding: 5px 14px;
+  margin: -6px -12px 5px; padding: 3px 12px;
   background: color-mix(in srgb, var(--purple3) 13%, transparent);
   box-shadow: 0 2px 0 0 var(--frame);
-  color: var(--purple3); font-size: 11px; font-weight: 800; letter-spacing: .18em;
+  color: var(--purple3); font-size: 10px; font-weight: 800; letter-spacing: .16em;
 }
 .oxis-box-title-note { color: var(--dim); font-size: 10px; font-weight: 400; letter-spacing: .04em; }
 .px-dot { display: inline-block; width: 6px; height: 6px; margin-right: 7px; background: currentColor; vertical-align: 1px; }
 
-.oxis-box-row { display: flex; align-items: baseline; font-size: var(--home-fs); white-space: nowrap; }
+.oxis-box-row { display: flex; align-items: baseline; font-size: var(--home-fs); line-height: 1.45; white-space: nowrap; }
 .oxis-wl { color: var(--purple3); font-weight: 700; min-width: 96px; }
 .oxis-we { color: var(--dim); padding: 0 6px 0 0; }
 .oxis-wa { color: var(--text); letter-spacing: .01em; }
@@ -955,7 +955,7 @@ button.editor-mode:hover { filter: brightness(1.25); }
 .oxis-workspace-hint code { color: var(--purple2); }
 
 .oxis-help-grid {
-  display: grid; grid-template-columns: max-content 1fr; column-gap: 18px; row-gap: 7px;
+  display: grid; grid-template-columns: max-content 1fr; column-gap: 16px; row-gap: 2px;
   align-items: center; font-size: var(--home-fs);
 }
 .oxis-help-extra { grid-column: 1 / -1; }
@@ -966,11 +966,11 @@ button.editor-mode:hover { filter: brightness(1.25); }
 .kplus { color: var(--dim); margin: 0 4px; font-size: 10px; }
 .kcap {
   display: inline-block; padding: 0 5px; min-width: 12px; text-align: center;
-  font-family: var(--font); font-size: 10px; font-weight: 700; line-height: 16px;
+  font-family: var(--font); font-size: 9px; font-weight: 700; line-height: 13px;
   color: var(--text); background: var(--bg3);
   box-shadow: 0 -2px 0 0 var(--border2), 0 2px 0 0 var(--border2), -2px 0 0 0 var(--border2), 2px 0 0 0 var(--border2),
-    0 4px 0 0 color-mix(in srgb, #000 35%, transparent);
-  margin: 2px 2px 4px;
+    0 3px 0 0 color-mix(in srgb, #000 35%, transparent);
+  margin: 2px 1px 3px;
 }
 
 /* Compact Home on short windows. */
@@ -1276,3 +1276,17 @@ input, textarea { font-family: var(--font); }
 .sif-line { color: var(--dim); min-width: 3ch; text-align: right; flex-shrink: 0; }
 .sif-text { color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
 .sif-text b { color: var(--text); background: color-mix(in srgb, var(--purple3) 28%, transparent); border-radius: 2px; font-weight: 600; }
+
+/* Go to symbol (Ctrl+Shift+O in the editor). */
+.symp { width: min(560px, 92vw); }
+.symp-item { gap: 10px; }
+.symp-kind {
+  flex-shrink: 0; width: 20px; text-align: center; font-size: 9px; font-weight: 700; line-height: 14px;
+  color: var(--ansi-6, var(--muted)); border: 1px solid var(--border); border-radius: 3px;
+}
+.symp-kind--class, .symp-kind--type { color: var(--ansi-11, var(--warn)); }
+.symp-kind--method { color: var(--ansi-13, var(--purple)); }
+.symp-kind--heading { color: var(--purple3); }
+.symp-name { color: var(--text); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.symp-name b { color: var(--purple); }
+.symp-line { color: var(--dim); font-size: 11px; font-variant-numeric: tabular-nums; }

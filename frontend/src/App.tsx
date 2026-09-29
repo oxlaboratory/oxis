@@ -58,6 +58,8 @@ import { wordIndex, suggest, wordBefore, wordAround, type Suggestion } from "./t
 import { CodeMinimap, MINIMAP_WIDTH } from "./components/CodeMinimap";
 import { QuickOpen } from "./components/QuickOpen";
 import { SearchInFiles } from "./components/SearchInFiles";
+import { SymbolPicker } from "./components/SymbolPicker";
+import { findSymbols, type CodeSymbol } from "./terminal/symbols";
 import {
   indentUnit, indentLines, outdentLines, toggleComment, moveLines, duplicateLines, deleteLines,
   newline, typePair, deletePair, smartHome, selectNext, selectLine, formatDocument, type EditState,
@@ -671,6 +673,7 @@ const HOTKEYS: Array<{ section: string; keys: Array<[string, string]> }> = [
     ["Enter / Shift+Enter", "next / previous match (in the find bar)"],
     ["Ctrl+P", "go to a file (letters of its name or path)"],
     ["Ctrl+Shift+F", "search in files (Alt+C / W / R: case, whole word, regex)"],
+    ["Ctrl+Shift+O", "go to a function, class or heading in the file"],
     ["Ctrl+G", "go to a line"],
     ["Ctrl+Space", "suggest words (they also appear as you type; Enter or Tab accepts)"],
     ["Ctrl+Z / Ctrl+Y", "undo / redo"],
@@ -3965,10 +3968,34 @@ function Editor({ file, onClose, onSave, onDirtyChange, pluginTarget = true }: {
     return out;
   }, [findOpen, findMode, findQuery, matches, matchIndex, caret, content]);
 
+  // Ctrl+Shift+O: go to a symbol (SymbolPicker). Moving through the list
+  // shows each one; Esc goes back to where the caret was.
+  const [symbols, setSymbols] = useState<CodeSymbol[] | null>(null);
+  const symbolsFrom = useRef<{ start: number; end: number; scroll: number } | null>(null);
+  const symbolRange = useCallback((sym: CodeSymbol) => {
+    const from = (starts[sym.line - 1] ?? 0) + sym.col;
+    return [from, from + sym.name.length] as const;
+  }, [starts]);
+  const previewSymbol = useCallback((sym: CodeSymbol) => {
+    const ta = taRef.current;
+    if (!ta) return;
+    const [from, to] = symbolRange(sym);
+    ta.setSelectionRange(from, to);
+    const lh = parseFloat(getComputedStyle(ta).lineHeight) || 18;
+    ta.scrollTop = Math.max(0, (sym.line - 1) * lh - ta.clientHeight / 3);
+  }, [symbolRange]);
+  const openSymbols = useCallback(() => {
+    const ta = taRef.current;
+    symbolsFrom.current = ta ? { start: ta.selectionStart, end: ta.selectionEnd, scroll: ta.scrollTop } : null;
+    const ext = (file.path.split(/[\\/]/).pop() ?? "").split(".").pop()?.toLowerCase() ?? "";
+    setSymbols(findSymbols(content, ext));
+  }, [content, file.path]);
+
   const onEditorKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "F8") { e.preventDefault(); nextProblem(e.shiftKey ? -1 : 1); return; }
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey && e.key.toLowerCase() === "o") { e.preventDefault(); openSymbols(); return; }
     onKeyDown(e);
-  }, [nextProblem, onKeyDown]);
+  }, [nextProblem, onKeyDown, openSymbols]);
 
   // The status line.
   const caretLineIdx = lineAt(starts, caret.start);
@@ -4142,6 +4169,15 @@ function Editor({ file, onClose, onSave, onDirtyChange, pluginTarget = true }: {
             is what actually receives the mouse for the whole drag,
             so the iframe never gets a chance to steal it. */}
         {isResizing && <div className="editor-resize-overlay" />}
+        {symbols && (
+          <SymbolPicker symbols={symbols} onPreview={previewSymbol}
+            onPick={sym => { setSymbols(null); const [from, to] = symbolRange(sym); reveal(from, to); }}
+            onCancel={() => {
+              setSymbols(null);
+              const ta = taRef.current, back = symbolsFrom.current;
+              if (ta && back) { ta.focus(); ta.setSelectionRange(back.start, back.end); ta.scrollTop = back.scroll; }
+            }} />
+        )}
         <CodeArea ref={taRef} className={`editor-ta editor-ta--${mode}`} value={content}
           lang={detectLang(file.path)}
           changedLines={changedLines}
