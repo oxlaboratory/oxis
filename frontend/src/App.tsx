@@ -6777,6 +6777,29 @@ function Home({ currentTheme, onTheme, onOpenThemeEditor, onOpenPluginCreator }:
   currentTheme: string; onTheme: (n: string) => void;
   onOpenThemeEditor: (n: string) => void; onOpenPluginCreator: () => void;
 }) {
+  // Home always fits: when the window is too short for it, it's drawn
+  // smaller (down to 60%) rather than cut off or scrolled.
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const fitRef = useRef<HTMLDivElement>(null);
+  const [fit, setFit] = useState(1);
+  useLayoutEffect(() => {
+    const box = scrollRef.current, inner = fitRef.current;
+    if (!box || !inner) return;
+    const measure = () => {
+      const zoom = parseFloat(inner.style.zoom || "1") || 1;
+      const natural = inner.getBoundingClientRect().height / zoom;
+      const style = getComputedStyle(box);
+      const room = box.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
+      if (!natural || room <= 0) return;
+      const next = Math.max(0.6, Math.min(1, room / natural));
+      setFit(f => (Math.abs(f - next) > 0.01 ? next : f));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(box);
+    ro.observe(inner);
+    return () => ro.disconnect();
+  }, []);
   const [view, setView] = useState<"home" | "themes" | "plugins">("home");
   const [plugins, setPlugins] = useState(() => pluginManager.all());
   const [psearch, setPsearch] = useState("");
@@ -6954,7 +6977,9 @@ function Home({ currentTheme, onTheme, onOpenThemeEditor, onOpenPluginCreator }:
         events.emit("focus_prompt");
       }
     }}>
-      <div className="home-scroll">{body}</div>
+      <div className="home-scroll" ref={scrollRef}>
+        <div ref={fitRef} className="home-fit" style={{ zoom: fit }}>{body}</div>
+      </div>
     </div>
   );
 }

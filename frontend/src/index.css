@@ -858,6 +858,7 @@ button.editor-mode:hover { filter: brightness(1.25); }
   padding: 8px 20px;
 }
 
+.home-fit { width: 100%; display: flex; justify-content: center; }
 .oxis-home {
   display: flex; flex-direction: column; align-items: center;
   width: 100%; max-width: 700px; font-family: var(--font);
