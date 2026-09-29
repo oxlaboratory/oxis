@@ -215,3 +215,10 @@ export function setCurrentShell(kind: string): void { shellKind = kind; }
 export function isWindows(): boolean {
   return navigator.userAgent.toLowerCase().includes("windows");
 }
+
+/** The shell takes PowerShell (pwsh or Windows PowerShell), not sh
+ *  syntax. Git Bash on Windows doesn't; until the shell has said what it
+ *  is, it's what Windows starts by default. */
+export function speaksPowerShell(): boolean {
+  return shellKind ? shellKind === "powershell" || shellKind === "pwsh" : isWindows();
+}

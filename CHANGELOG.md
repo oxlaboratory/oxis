@@ -6,6 +6,11 @@ All notable changes to OXIS. The format follows
 ## [Unreleased]
 
 ### Added
+- Terminal tabs, each its own shell: Ctrl+T in the terminal (or
+  `'tab new`, or +) opens one, Ctrl+Tab / Ctrl+1…9 switch, Ctrl+Shift+W
+  closes one (and its shell). Tabs are named after their directory and
+  marked when a program prints in one you aren't looking at. OXIS
+  commands, plugins and workspace detection follow the selected tab.
 - The editor shows mistakes as you type: a red or yellow squiggle, the
   message at the end of the line, a count in the editor bar, a list of
   problems under the text, coloured line numbers, a tooltip on hover,
@@ -307,6 +312,10 @@ All notable changes to OXIS. The format follows
 - The npm launcher downloads from the GitHub `latest-build` release.
 
 ### Fixed
+- With Git Bash (or another sh) as the shell on Windows (`OXIS_SHELL`),
+  OXIS sent it PowerShell: the directory probe printed a bash syntax
+  error, and commands like `'env` and `'path` failed. What OXIS sends
+  now follows the shell that's running, not the operating system.
 - Switching editor tabs lost unsaved changes, the tab's ● never showed,
   closing a changed file didn't ask, and Save All saved nothing. Each
   tab now keeps its unsaved text, caret and scroll position.

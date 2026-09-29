@@ -311,6 +311,15 @@ scrolls above it and never goes underneath it.
 - The terminal shows `OXIS` in its top-right corner. There's no startup
   splash; the app opens straight onto Home.
 
+### Tabs
+
+Each terminal tab is its own shell. **Ctrl+T** in the terminal (or
+`'tab new`, or **+**) opens one; a strip of tabs appears once there are
+two, each named after its directory, with a dot on one that printed
+while you were elsewhere. The selected tab has the prompt, and it's the
+one OXIS commands and plugins act on and whose directory decides the
+workspace. `'tab` lists them; `'tab 2`, `'tab next`, `'tab close`.
+
 ### Keys
 
 | Key | Action |
@@ -331,7 +340,11 @@ scrolls above it and never goes underneath it.
 | Ctrl+Shift+F | Find in terminal output (Enter / Shift+Enter to step, Esc to close) |
 | PageUp / PageDown | Scroll the output |
 | Ctrl+= / Ctrl+- / Ctrl+0 | Zoom in / out / reset (saved as the `fontSize` setting) |
-| Ctrl+T / Ctrl+W | Show the terminal / go back to Home |
+| Ctrl+T | Show the terminal from Home; in the terminal, open a new tab |
+| Ctrl+W | Go back to Home |
+| Ctrl+Tab / Ctrl+Shift+Tab, Ctrl+PageDown / PageUp | Next / previous terminal tab |
+| Ctrl+1 … Ctrl+9 | Go to terminal tab 1 … 9 |
+| Ctrl+Shift+W | Close the terminal tab and its shell |
 | Ctrl+↑ / Ctrl+↓ | Jump to the previous / next command in the output |
 | Ctrl+Shift+P | Command palette |
 | Ctrl+Shift+M | Open the Market website |

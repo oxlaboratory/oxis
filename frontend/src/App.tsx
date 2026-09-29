@@ -20,7 +20,7 @@ import {
   deleteToLineStart, deleteToLineEnd,
   transposeChars,
   setYankBuf, getYankBuf,
-  isWindows, setCurrentShell, currentShell,
+  isWindows, setCurrentShell, currentShell, speaksPowerShell,
 } from "./terminal/terminal";
 import type { Line, LineKind } from "./terminal/terminal";
 
@@ -36,7 +36,7 @@ import type { CommandHandler }              from "./terminal/commandRegistry";
 import { workspaceState }                   from "./terminal/workspaceState";
 import { workspaceManager }                 from "./terminal/workspaceManager";
 import { getRecentErrors, clearRecentErrors, installGlobalErrorCapture } from "./terminal/diagnostics";
-import { cwdTracker, buildCwdProbe, looksLikeDirectoryChange, isProbeLine, cwdFromMark } from "./terminal/cwdTracker";
+import { cwdTracker, CwdTracker, buildCwdProbe, looksLikeDirectoryChange, isProbeLine, cwdFromMark } from "./terminal/cwdTracker";
 import { scriptRunTracker, stripStepEcho } from "./terminal/scriptRunTracker";
 import { workflowRunner } from "./plugins/workflowRunner";
 import {
@@ -656,7 +656,11 @@ const HOTKEYS: Array<{ section: string; keys: Array<[string, string]> }> = [
   { section: "app", keys: [
     ["Ctrl+Shift+P", "command palette"],
     ["Ctrl+Shift+M", "the OXIS Market website"],
-    ["Ctrl+T / Ctrl+W", "the terminal / back to Home"],
+    ["Ctrl+T", "the terminal (from Home); in the terminal, a new tab"],
+    ["Ctrl+W", "back to Home"],
+    ["Ctrl+Tab / Ctrl+Shift+Tab", "next / previous terminal tab (also Ctrl+PageDown / PageUp)"],
+    ["Ctrl+1 … Ctrl+9", "go to terminal tab 1 … 9"],
+    ["Ctrl+Shift+W", "close the terminal tab (and its shell)"],
     ["Ctrl+= / Ctrl+- / Ctrl+0", "zoom in / out / reset"],
     ["Ctrl+B", "show or hide the file tree (with a file open)"],
   ] },
@@ -693,9 +697,20 @@ const HOTKEYS: Array<{ section: string; keys: Array<[string, string]> }> = [
   ] },
 ];
 
-function registerBuiltinCommands(ctx: ShellCtx): void {
+/** The active terminal tab's ShellCtx, whichever tab that is when it's
+ *  used: commands registered once still print into the tab they ran in. */
+const activeShellCtx = new Proxy({} as ShellCtx, {
+  get: (_target, key) => {
+    const cur = _ctxRef.current as unknown as Record<string | symbol, unknown> | null;
+    const value = cur?.[key];
+    return typeof value === "function" ? value.bind(cur) : value ?? (() => undefined);
+  },
+});
+
+function registerBuiltinCommands(): void {
   if (_commandsRegistered) return;
   _commandsRegistered = true;
+  const ctx = activeShellCtx;
   // Wrap every ctx call through the ref so stale closures never matter
   const ps   = (c: string) => _ctxRef.current?.send(c + "\r");
   const ok   = (s: string) => _ctxRef.current?.print("  ✓  " + s, "ok");
@@ -713,7 +728,9 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
     if (!d && cmd.startsWith("──")) { rich([["  " + cmd, "head"]]); return; }
     rich([["  "], ...syntaxParts(cmd), [" ".repeat(Math.max(2, 32 - cmd.length))], [d, "muted"]]);
   };
-  const shellCmd = (winCmd: string, unixCmd: string) => isWindows() ? winCmd : unixCmd;
+  // PowerShell's version or sh's, by what the shell is (Git Bash on
+  // Windows gets sh's).
+  const shellCmd = (winCmd: string, unixCmd: string) => speaksPowerShell() ? winCmd : unixCmd;
   /** Prints a multi-line message with ✓/✗ prefixes in one state
    *  update rather than one per line. */
   const printResultLines = (message: string, succeeded: boolean) => {
@@ -937,6 +954,15 @@ function registerBuiltinCommands(ctx: ShellCtx): void {
 
   registry.register({ name:"home",    category:"shell", description:"Return to OXIS home screen",
     handler:()=>_goHomeRef.current?.() });
+
+  registry.register({ name:"tab",     category:"shell", description:"Terminal tabs: new, close, next, prev, <n>, list",
+    handler:(args)=>{
+      const action = (args[0] ?? "list").toLowerCase();
+      if (!["new", "close", "next", "prev", "list"].includes(action) && !/^\d+$/.test(action)) {
+        err(`usage: 'tab [new | close | next | prev | <n> | list]`); return;
+      }
+      events.emit("tab_request", { action });
+    }});
 
   registry.register({ name:"run",     category:"shell", description:"Run raw command",
     handler:(_,r)=>{ if(!r){err("usage: 'run <cmd>");return;} ps(r); }});
@@ -2230,7 +2256,7 @@ Settings, workspace files, documents and plugins with the same name as ones in t
       h("'write <f> [text]","write file"); h("'append <f> <text>","append to file");
       h("'edit <f>","built-in editor"); h("'hash <f>","SHA256"); h("'size <p>","disk size"); h("'update","check for a newer release");
       info(""); h("── shell ─────────────────────────────","");
-      h("'clear","clear output"); h("'run <cmd>","raw command"); h("'env","env vars");
+      h("'clear","clear output"); h("'tab [new|close|<n>]","terminal tabs (Ctrl+T, Ctrl+Tab)"); h("'run <cmd>","raw command"); h("'env","env vars");
       h("'ps","processes"); h("'kill <pid|name>","kill process"); h("'ip","network");
       h("'disk","disk usage"); h("'sysinfo","system info"); h("'which <cmd>","find command");
       h("'find [pat]","search files"); h("'grep <pat> <f>","search contents");
@@ -3602,13 +3628,16 @@ const editorDrafts = new Map<string, { text?: string; caret?: number; scroll?: n
  *  gives them (it turns CRLF into LF); saving puts CRLF back. */
 const toLF = (text: string) => text.replace(/\r\n/g, "\n");
 
-function Editor({ file, onClose, onSave, onDirtyChange }: {
+function Editor({ file, onClose, onSave, onDirtyChange, pluginTarget = true }: {
   file:    EditorFile;
   onClose: () => void;
   /** Resolves true once written (plugins' oxis.editor.save waits for it). */
   onSave:  (path: string, content: string) => Promise<boolean>;
   /** Whether there are unsaved changes, when that changes (the tab's ●). */
   onDirtyChange?: (dirty: boolean) => void;
+  /** Plugins' oxis.editor.* reach this editor (its terminal tab is the
+   *  selected one). */
+  pluginTarget?: boolean;
 }) {
   const fileEol = file.content.includes("\r\n") ? "CRLF" : "LF";
   const [content, setContent] = useState(() => editorDrafts.get(file.path)?.text ?? toLF(file.content));
@@ -3938,7 +3967,7 @@ function Editor({ file, onClose, onSave, onDirtyChange }: {
   const commitExternalRef = useRef(commitExternal);
   commitExternalRef.current = commitExternal;
   useEffect(() => {
-    if (file.loading || file.loadError) return;
+    if (!pluginTarget || file.loading || file.loadError) return;
     return editorBridge.attach({
       path: file.path,
       language: detectLang(file.path),
@@ -3970,7 +3999,7 @@ function Editor({ file, onClose, onSave, onDirtyChange }: {
       },
       save: () => saveRef.current(),
     });
-  }, [file.path, file.loading, file.loadError]);
+  }, [file.path, file.loading, file.loadError, pluginTarget]);
   // Put the caret where a plugin edit left it once the textarea shows
   // the new text.
   useLayoutEffect(() => {
@@ -4570,10 +4599,24 @@ function ThemeEditor({ name: initName, onClose }: { name: string; onClose: () =>
 // ══════════════════════════════════════════════════════════════
 // TERMINAL — fully polished input engine
 // ══════════════════════════════════════════════════════════════
+/** A terminal tab: its name (its directory's), and whether output came
+ *  while it was in the background. */
+interface TermTab { id: string; title: string; activity: boolean }
+
 interface TermProps {
   id:          string;
-  /** true while the terminal view (not Home) is showing */
+  /** true while this tab is showing (the terminal view, not Home) */
   isActive:    boolean;
+  /** This is the selected tab (whether or not Home is in front): the
+   *  prompt, commands, plugins and the app's directory are its. */
+  selected:    boolean;
+  /** The first tab: says what the others needn't (plugin notices, a
+   *  newer build). */
+  first:       boolean;
+  /** The tab's name: its directory's (or folder's) name. */
+  onTitle:     (title: string) => void;
+  /** Output arrived while the tab isn't selected. */
+  onActivity:  () => void;
   /** Element the global prompt is portalled into — the fixed bar above
    *  the status line, shared by every screen. */
   promptHost:  HTMLElement | null;
@@ -4751,8 +4794,19 @@ function groupOutput(lines: Line[], cache: Map<number, Line[]>): { blocks: Array
  *  for 'https://github.com':", "Enter PIN:". */
 const SECRET_PROMPT_RE = /(password|passphrase|\bpin\b)[^\n]*:\s*$/i;
 
-function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }: TermProps) {
+function Terminal({ id, isActive, selected, first, onTitle, onActivity, promptHost, onReady, onShowShell, onCloseTab }: TermProps) {
   const onNewTab = onShowShell;
+  const selectedRef = useRef(selected);
+  selectedRef.current = selected;
+  const onTitleRef = useRef(onTitle);
+  onTitleRef.current = onTitle;
+  const onActivityRef = useRef(onActivity);
+  onActivityRef.current = onActivity;
+  // This tab's shell directory; while the tab is selected it's the app's.
+  const dirTracker = useMemo(() => new CwdTracker(), []);
+  useEffect(() => dirTracker.subscribe(path => {
+    onTitleRef.current(path.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || path);
+  }), [dirTracker]);
   // ── output state ─────────────────────────────────────────
   const [lines,      setLines]      = useState<Line[]>(() => initialLines());
   const [ready,      setReady]      = useState(false);
@@ -4802,7 +4856,7 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
   // 'edit with no arguments (see registerBuiltinCommands) — opens the
   // tree even with zero files open, so the keyboard-only path into
   // the editor doesn't require already knowing a file's exact path.
-  useEffect(() => events.on("open_file_tree", () => setFileTreeOpen(true)), []);
+  useEffect(() => events.on("open_file_tree", () => { if (selectedRef.current) setFileTreeOpen(true); }), []);
   // File tree root: the linked project folder if the active workspace
   // has one, otherwise the app's own folder. Updated on workspace
   // changes.
@@ -4834,6 +4888,7 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
   const inputRef      = useRef<InputState>({ value: "", cursor: 0 });
   const userScrolled  = useRef(false);
   const ctxRef        = useRef<ShellCtx | null>(null);
+  const apiCtxRef     = useRef<import("./plugins/pluginAPI").APIContext | null>(null);
   const linesRef       = useRef<Line[]>(lines);
   // Output waiting to be shown. Lines (from the shell and from OXIS, in
   // the order they arrived) and the live partial line are applied at
@@ -5005,11 +5060,11 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
   }, [lines, partial]);
 
   // Real-time workspace auto-reload notifications — see
-  // startAutoReload() in workspaceManager.ts. Only the ACTIVE
-  // terminal tab prints these (isActive), so switching workspaces in
-  // one tab doesn't spam a message into every other open tab too.
+  // startAutoReload() in workspaceManager.ts. Only the selected
+  // terminal tab prints these, so switching workspaces in one tab
+  // doesn't spam a message into every other open tab too.
   useEffect(() => {
-    if (!isActive) return;
+    if (!selected) return;
     const u1 = events.on("workspace_auto_reloaded", (p) => {
       const path = (p as { path?: string } | undefined)?.path ?? "?";
       addLine(`  ⟳ workspace auto-reloaded (a file changed on disk) — ${path}`, "dim");
@@ -5024,7 +5079,7 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
       addLine(`  ✗  '${name ?? "?"}' failed: ${message ?? "unknown error"}`, "err");
     });
     return () => { u1(); u2(); u3(); };
-  }, [isActive, addLine]);
+  }, [selected, addLine]);
 
   const clear = useCallback(() => {
     setPartial("");
@@ -5078,7 +5133,7 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
       return folder;
     };
     const onKey = (e: KeyboardEvent) => {
-      if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey || e.key.toLowerCase() !== "p") return;
+      if (!isActiveRef.current || !(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey || e.key.toLowerCase() !== "p") return;
       if (document.activeElement === promptRef.current) return; // the prompt's Ctrl+P is history
       e.preventDefault();
       findRoot().then(setQuickOpenRoot);
@@ -5091,7 +5146,7 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
   useEffect(() => {
     if (!fileTreeOpen || editorFiles.length > 0) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape" || e.defaultPrevented) return;
+      if (!isActiveRef.current || e.key !== "Escape" || e.defaultPrevented) return;
       setFileTreeOpen(false);
       setTimeout(focusPrompt, 50);
     };
@@ -5227,7 +5282,7 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
   useEffect(() => {
     const onWindowFocus = () => {
       setTimeout(() => {
-        if (document.activeElement === document.body && editorFiles.length === 0) focusPrompt();
+        if (selectedRef.current && document.activeElement === document.body && editorFiles.length === 0) focusPrompt();
       }, 30);
     };
     window.addEventListener("focus", onWindowFocus);
@@ -5241,7 +5296,7 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
     const isEditable = (el: Element | null) =>
       el instanceof HTMLElement && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable);
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.defaultPrevented || inFullScreen(e.target)) return;
+      if (!selectedRef.current || e.defaultPrevented || inFullScreen(e.target)) return;
       if (e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "i") {
         e.preventDefault();
         focusPrompt();
@@ -5262,13 +5317,13 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
         syncInput(el.value + e.key, el.value.length + 1);
       }
     };
-    const onFocusRequest = () => focusPrompt();
+    const onFocusRequest = () => { if (selectedRef.current) focusPrompt(); };
     window.addEventListener("keydown", onKeyDown);
     const off = events.on("focus_prompt", onFocusRequest);
     return () => { window.removeEventListener("keydown", onKeyDown); off(); };
   }, [focusPrompt, syncInput]);
 
-  useEffect(() => events.on("clear_terminal", () => clear()), [clear]);
+  useEffect(() => events.on("clear_terminal", () => { if (selectedRef.current) clear(); }), [clear]);
 
   /** Ctrl+C with nothing selected: interrupt whatever the shell runs. */
   const interrupt = useCallback(() => {
@@ -5320,7 +5375,8 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
 
   // ── PTY output ────────────────────────────────────────────
   const onOutput = useCallback((raw: string) => {
-    raw = cwdTracker.consume(raw);
+    if (!selectedRef.current) onActivityRef.current();
+    raw = dirTracker.consume(raw);
     raw = scriptRunTracker.consume(raw);
     if (!raw) return;
     const processed = processOutput(raw, pending.current);
@@ -5375,7 +5431,7 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
   // and the last `count` finished ones go; the output that follows is
   // them as they are now.
   const onRewind = useCallback((count: number) => {
-    cwdTracker.dropCarry();
+    dirTracker.dropCarry();
     scriptRunTracker.dropCarry();
     pending.current = "";
     partialQueued.current = { text: "" };
@@ -5411,7 +5467,7 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
   const onMark = useCallback((mark: string) => {
     shellIntegrated.current = true;
     const cwd = cwdFromMark(mark, isWindows());
-    if (cwd !== null) { cwdTracker.set(cwd); return; }
+    if (cwd !== null) { dirTracker.set(cwd); return; }
     const done = /^133;D(?:;(-?\d+))?/.exec(mark);
     const cmd = runningCommand.current;
     if (!done || !cmd) return;
@@ -5482,7 +5538,8 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
   // answer are filtered out of the output.
   const probeCwd = useCallback(() => {
     if (shellIntegrated.current) return; // the shell reports it itself
-    sendToShell(buildCwdProbe(isWindows()) + "\r");
+    if (currentShell() === "cmd") return; // cmd can't print the markers
+    sendToShell(buildCwdProbe(speaksPowerShell()) + "\r");
   }, [sendToShell]);
 
   // Runs one command line: 'commands (or "oxi ...") go to the OXIS
@@ -5563,7 +5620,7 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
         setReady(true);
         onReady();
         for (const n of pluginManager.takeNotices()) addLine(n.text, n.kind);
-        setTimeout(focusPrompt, 60);
+        if (selectedRef.current) setTimeout(focusPrompt, 60);
         events.emit("shell_started", { id });
         // Initial cwd probe — this is what makes automatic workspace
         // detection on launch actually automatic instead of requiring
@@ -5572,8 +5629,9 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
         // probe waits for that and is only sent if it doesn't come.
         setTimeout(probeCwd, 3000);
 
-        // A newer build is announced once, as a single line.
-        setTimeout(() => {
+        // A newer build is announced once, as a single line (in the
+        // first tab only).
+        if (first) setTimeout(() => {
           void startupUpdateCheck().then(info => {
             if (info?.available) {
               addLine(`  ↑  a newer OXIS build (${info.latestCommit.slice(0, 7)}) is available${info.currentCommit ? ` (you're on ${info.currentCommit.slice(0, 7)})` : ""} — 'update install to install it`, "info");
@@ -5684,30 +5742,30 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
       },
       newTerminal: onNewTab,
     };
-    _ctxRef.current = ctxRef.current;
-
-    // Point the forwarding plugin context at this terminal (see
-    // forwardingApiCtx), including for plugins that loaded earlier.
-    _apiCtxTarget.current = {
+    // The plugin context for this terminal (see forwardingApiCtx).
+    apiCtxRef.current = {
       sendToShell: sendToShell,
       print:       addLine,
-      getCwd:      () => cwdTracker.get(),
+      getCwd:      () => dirTracker.get(),
       newTerminal: onNewTab,
       getOption:   readPersistedOption,
       setOption:   writePersistedOption,
       openEditor:  (path, line) => ctxRef.current?.openEditor(path, line),
       pluginName:  "__core__",
     };
+    if (selectedRef.current) {
+      _ctxRef.current = ctxRef.current;
+      _apiCtxTarget.current = apiCtxRef.current;
+    }
 
     ensurePluginsInited();
-    _commandsRegistered = false;
-    registerBuiltinCommands(ctxRef.current);
+    registerBuiltinCommands();
 
     return undefined;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Keep ctx callbacks fresh — also update module-level _ctxRef
+  // Keep ctx callbacks fresh.
   useEffect(() => {
     if (ctxRef.current) {
       ctxRef.current.send    = sendToShell;
@@ -5715,12 +5773,20 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
       ctxRef.current.print   = addLine;
       ctxRef.current.clear   = clear;
     }
-    _ctxRef.current = ctxRef.current;
   }, [sendToShell, runLine, addLine, clear]);
 
+  // The selected tab is the one commands print into, plugins talk to
+  // (their oxis.* calls), and whose directory the app follows.
   useEffect(() => {
-    const u1 = events.on("plugin_enable_request",  p => { if (p?.name) pluginManager.enable(String(p.name)); });
-    const u2 = events.on("plugin_disable_request", p => { if (p?.name) pluginManager.disable(String(p.name)); });
+    dirTracker.setActive(selected);
+    if (!selected) return;
+    if (ctxRef.current) _ctxRef.current = ctxRef.current;
+    if (apiCtxRef.current) _apiCtxTarget.current = apiCtxRef.current;
+  }, [selected, dirTracker]);
+
+  useEffect(() => {
+    const u1 = events.on("plugin_enable_request",  p => { if (selectedRef.current && p?.name) pluginManager.enable(String(p.name)); });
+    const u2 = events.on("plugin_disable_request", p => { if (selectedRef.current && p?.name) pluginManager.disable(String(p.name)); });
     return () => { u1(); u2(); };
   }, []);
 
@@ -5818,7 +5884,8 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
 
     // ── VIEW / TAB SHORTCUTS ─────────────────────────────
     if (ctrl && !e.shiftKey && k === "t") { e.preventDefault(); onNewTab();   return; }
-    if (ctrl && !e.shiftKey && k === "w") { e.preventDefault(); onCloseTab(); return; }
+    // Ctrl+W is Home (closing a tab, and its shell, is Ctrl+Shift+W).
+    if (ctrl && !e.shiftKey && k === "w") { e.preventDefault(); _goHomeRef.current?.(); return; }
 
     // ── ZOOM (Ctrl+= / Ctrl+- / Ctrl+0) — stored as the fontSize setting ──
     if (ctrl && (k === "=" || k === "+")) {
@@ -6218,7 +6285,8 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
       <button className="term-screen-leave" onClick={leaveScreen} title="Back to the OXIS view (for a program that ended without closing its screen)">back to OXIS</button>
     </div>
   );
-  const promptPortal = promptHost ? createPortal(screenOn ? screenBar : promptBar, promptHost) : null;
+  // Only the selected tab has the prompt (and on Home it's still that tab's).
+  const promptPortal = promptHost && selected ? createPortal(screenOn ? screenBar : promptBar, promptHost) : null;
 
   if (editorFiles.length > 0 || fileTreeOpen) {
     const activeFile = editorFiles.find(f => f.path === activeEditorPath) ?? editorFiles[0];
@@ -6312,6 +6380,7 @@ function Terminal({ id, isActive, promptHost, onReady, onShowShell, onCloseTab }
               })}
               onDirtyChange={d => setEditorFiles(files => files.some(f => f.path === activeFile.path && f.dirty !== d)
                 ? files.map(f => f.path === activeFile.path ? { ...f, dirty: d } : f) : files)}
+              pluginTarget={selected}
             />
           </ErrorBoundary>
         ) : (
@@ -7277,6 +7346,65 @@ export default function App() {
 
   const openShell = useCallback(() => setView("shell"), []);
 
+  // ── Terminal tabs ─────────────────────────────────────────
+  // Each tab is its own shell. The selected one has the prompt; the
+  // others keep running (output arriving in one marks it). The strip
+  // shows once there are two.
+  const [tabs, setTabs] = useState<TermTab[]>(() => [{ id: "t1", title: "", activity: false }]);
+  const [activeTab, setActiveTab] = useState("t1");
+  const tabsRef = useRef(tabs);
+  tabsRef.current = tabs;
+  const activeTabRef = useRef(activeTab);
+  activeTabRef.current = activeTab;
+  const viewRef = useRef(view);
+  viewRef.current = view;
+  const nextTabNumber = useRef(2);
+
+  const selectTab = useCallback((id: string) => {
+    setActiveTab(id);
+    setTabs(t => t.some(x => x.id === id && x.activity) ? t.map(x => x.id === id ? { ...x, activity: false } : x) : t);
+    setView("shell");
+  }, []);
+  const newTab = useCallback(() => {
+    const id = `t${nextTabNumber.current++}`;
+    setTabs(t => [...t, { id, title: "", activity: false }]);
+    setActiveTab(id);
+    setView("shell");
+  }, []);
+  /** Closes a tab and its shell; closing the only one starts a fresh shell. */
+  const closeTab = useCallback((id: string) => {
+    const t = tabsRef.current;
+    const i = t.findIndex(x => x.id === id);
+    if (i < 0) return;
+    if (t.length === 1) { newTab(); setTabs(cur => cur.filter(x => x.id !== id)); return; }
+    const rest = t.filter(x => x.id !== id);
+    setTabs(rest);
+    if (id === activeTabRef.current) selectTab(rest[Math.min(i, rest.length - 1)].id);
+  }, [newTab, selectTab]);
+  const stepTab = useCallback((delta: number) => {
+    const t = tabsRef.current;
+    const i = t.findIndex(x => x.id === activeTabRef.current);
+    selectTab(t[(i + delta + t.length) % t.length].id);
+  }, [selectTab]);
+
+  // 'tab …
+  useEffect(() => events.on("tab_request", p => {
+    const action = String((p as { action?: string } | undefined)?.action ?? "list");
+    const t = tabsRef.current;
+    if (action === "new") newTab();
+    else if (action === "close") closeTab(activeTabRef.current);
+    else if (action === "next") stepTab(1);
+    else if (action === "prev") stepTab(-1);
+    else if (/^\d+$/.test(action)) {
+      const tab = t[Number(action) - 1];
+      if (tab) selectTab(tab.id);
+      else _ctxRef.current?.print(`  ✗  there's no tab ${action} (there ${t.length === 1 ? "is 1" : `are ${t.length}`})`, "err");
+    } else {
+      _ctxRef.current?.printLines(t.map((x, k): [string, LineKind?] =>
+        [`  ${x.id === activeTabRef.current ? "●" : "○"}  ${k + 1}  ${x.title || "shell"}`, x.id === activeTabRef.current ? "accent" : "dim"]));
+    }
+  }), [newTab, closeTab, stepTab, selectTab]);
+
   // Runs a command line for the user (command palette, Home buttons),
   // queuing it until the shell is connected.
   const runCommand = useCallback((cmd: string) => {
@@ -7302,12 +7430,20 @@ export default function App() {
 
   useEffect(() => {
     registerCoreKeybinds({
-      newTab:        openShell,
+      // From Home, Ctrl+T shows the terminal; in the terminal, a new tab.
+      newTab:        () => { if (viewRef.current === "home") openShell(); else newTab(); },
       closeTab:      () => setView("home"),
-      switchTab:     () => {},
+      switchTab:     (n) => { const tab = tabsRef.current[n]; if (tab) selectTab(tab.id); },
       clearTerminal: () => events.emit("clear_terminal"),
       openMarket:    () => { void openUrl(market.MARKET_BASE); },
     });
+    const tabKey = (key: string, shift: boolean, description: string, run: () => void) =>
+      keybinds.register({ key, ctrl: true, shift, description, handler: (e) => { e.preventDefault(); run(); } });
+    tabKey("Tab", false, "Next terminal tab", () => stepTab(1));
+    tabKey("Tab", true, "Previous terminal tab", () => stepTab(-1));
+    tabKey("PageDown", false, "Next terminal tab", () => stepTab(1));
+    tabKey("PageUp", false, "Previous terminal tab", () => stepTab(-1));
+    tabKey("w", true, "Close the terminal tab", () => closeTab(activeTabRef.current));
     // App shortcuts don't fire while typing in another field (the
     // editor, a search box); the global prompt handles its own.
     const inOtherField = () => {
@@ -7332,7 +7468,7 @@ export default function App() {
       window.removeEventListener("keydown", handler, true);
       window.removeEventListener("keydown", blockBrowser, true);
     };
-  }, [openShell]);
+  }, [openShell, newTab, selectTab, stepTab, closeTab]);
 
   const isHome = view === "home";
 
@@ -7364,18 +7500,46 @@ export default function App() {
         </div>
 
         <div className="app-pane" style={{ display: !isHome ? "flex" : "none" }}>
-          <Terminal
-            id="main"
-            isActive={!isHome}
-            promptHost={promptHost}
-            onReady={() => {
-              setReady(true);
-              const cmd = pendingCmd.current;
-              if (cmd) { pendingCmd.current = ""; setTimeout(() => _ctxRef.current?.runLine(cmd), 300); }
-            }}
-            onShowShell={openShell}
-            onCloseTab={() => setView("home")}
-          />
+          {tabs.length > 1 && (
+            <div className="term-tabs" role="tablist">
+              {tabs.map((t, i) => (
+                <div key={t.id} role="tab" aria-selected={t.id === activeTab}
+                  className={`term-tab${t.id === activeTab ? " term-tab--active" : ""}`}
+                  onMouseDown={e => { if (e.button === 1) { e.preventDefault(); closeTab(t.id); } }}
+                  onClick={() => selectTab(t.id)}
+                  title={`${t.title || "shell"}${i < 9 ? ` (Ctrl+${i + 1})` : ""} — middle-click to close`}>
+                  <span className="term-tab-num">{i + 1}</span>
+                  <span className="term-tab-name">{t.title || "shell"}</span>
+                  {t.activity && t.id !== activeTab && <span className="term-tab-dot" title="new output">●</span>}
+                  <span className="term-tab-close" title="Close this tab and its shell (Ctrl+Shift+W)"
+                    onClick={e => { e.stopPropagation(); closeTab(t.id); }}>×</span>
+                </div>
+              ))}
+              <button className="term-tabs-new" onClick={newTab} title="New tab (Ctrl+T)">+</button>
+            </div>
+          )}
+          {tabs.map(t => (
+            <div key={t.id} className="term-tab-pane" style={{ display: t.id === activeTab ? "flex" : "none" }}>
+              <Terminal
+                id={t.id}
+                isActive={!isHome && t.id === activeTab}
+                selected={t.id === activeTab}
+                first={t.id === "t1"}
+                onTitle={title => setTabs(cur => cur.some(x => x.id === t.id && x.title !== title)
+                  ? cur.map(x => x.id === t.id ? { ...x, title } : x) : cur)}
+                onActivity={() => setTabs(cur => cur.some(x => x.id === t.id && !x.activity)
+                  ? cur.map(x => x.id === t.id ? { ...x, activity: true } : x) : cur)}
+                promptHost={promptHost}
+                onReady={() => {
+                  setReady(true);
+                  const cmd = pendingCmd.current;
+                  if (cmd) { pendingCmd.current = ""; setTimeout(() => _ctxRef.current?.runLine(cmd), 300); }
+                }}
+                onShowShell={openShell}
+                onCloseTab={() => closeTab(t.id)}
+              />
+            </div>
+          ))}
         </div>
       </div>
 
@@ -7386,7 +7550,7 @@ export default function App() {
       <div className="global-prompt" ref={setPromptHost} />
 
       <StatusBar mode={isHome ? "home" : "shell"}
-        count={0} idx={0}
+        count={tabs.length > 1 ? tabs.length : 0} idx={Math.max(0, tabs.findIndex(t => t.id === activeTab))}
         ready={ready} theme={curTheme}
         project={!isHome ? (activeProject || undefined) : undefined}
         updateMsg={updateMsg || undefined} />

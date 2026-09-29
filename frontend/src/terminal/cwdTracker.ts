@@ -25,8 +25,8 @@ export function isProbeLine(line: string): boolean {
 const HALF_A = "\u2063OXIS", HALF_B = "CWD\u2063";
 
 /** The exact line OXIS sends to the shell to ask for its cwd. */
-export function buildCwdProbe(isWindows: boolean): string {
-  return isWindows
+export function buildCwdProbe(powershell: boolean): string {
+  return powershell
     ? `Write-Host ("${HALF_A}" + "${HALF_B}" + $PWD.Path + "${HALF_A}" + "${HALF_B}")`
     : `printf '%s%s%s%s%s\\n' '${HALF_A}' '${HALF_B}' "$PWD" '${HALF_A}' '${HALF_B}'`;
 }
@@ -36,11 +36,26 @@ export function looksLikeDirectoryChange(cmd: string): boolean {
   return /^\s*(cd|z|pushd|popd|set-location|sl)\b/i.test(cmd);
 }
 
-class CwdTracker {
+/** One terminal tab's directory. Only the active tab's is the app's:
+ *  what 'workspace commands and plugins' oxis.cwd() see (cwdTracker
+ *  below), and what workspaces are detected from, so a `cd` in a tab in
+ *  the background doesn't switch the workspace. */
+export class CwdTracker {
   private cwd = "";
   private listeners = new Set<(cwd: string) => void>();
   // Output held back by consume() because it may be part of an answer.
   private carry = "";
+  private active = false;
+
+  /** This tab became the active one (or stopped being it): from now
+   *  on its directory is the app's. */
+  setActive(on: boolean): void {
+    if (on === this.active) return;
+    this.active = on;
+    if (!on) { if (activeTracker === this) activeTracker = null; return; }
+    activeTracker = this;
+    if (this.cwd) announce(this.cwd);
+  }
 
   get(): string {
     return this.cwd;
@@ -85,17 +100,30 @@ class CwdTracker {
   }
 
   /** The shell reported its directory (a probe's answer, or a shell
-   *  integration mark): tell the listeners and detect the workspace. */
+   *  integration mark): tell the listeners and, in the active tab,
+   *  detect the workspace. */
   set(cwd: string): void {
     if (!cwd || cwd === this.cwd) return;
     this.cwd = cwd;
     this.listeners.forEach((fn) => fn(cwd));
-    events.emit("directory_changed", { path: cwd });
-    workspaceManager.detectAndLoad(cwd).catch(() => { /* 'workspace reload still works */ });
+    if (this.active) announce(cwd);
   }
 }
 
-export const cwdTracker = new CwdTracker();
+let activeTracker: CwdTracker | null = null;
+let announced = "";
+
+/** The app's directory is now `cwd` (switching to a tab in the same
+ *  directory isn't a change). */
+function announce(cwd: string): void {
+  if (cwd === announced) return;
+  announced = cwd;
+  events.emit("directory_changed", { path: cwd });
+  workspaceManager.detectAndLoad(cwd).catch(() => { /* 'workspace reload still works */ });
+}
+
+/** The active terminal tab's directory ("" before it's known). */
+export const cwdTracker = { get: (): string => activeTracker?.get() ?? "" };
 
 /** The directory in a shell-integration mark: "7;file://host/path"
  *  (percent-encoded; on Windows "/C:/…" is a drive, and a host means a

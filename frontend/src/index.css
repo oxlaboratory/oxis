@@ -1196,3 +1196,31 @@ input, textarea { font-family: var(--font); }
 .quickopen-name { color: var(--text); white-space: nowrap; }
 .quickopen-dir  { color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
 .quickopen-item b { color: var(--purple); font-weight: 700; }
+
+/* Terminal tabs (App): a strip above the output once there are two. */
+.term-tabs {
+  display: flex; align-items: stretch; height: 28px; flex-shrink: 0;
+  background: var(--bg2); border-bottom: 1px solid var(--border);
+  overflow-x: auto; overflow-y: hidden; scrollbar-width: none;
+}
+.term-tab {
+  display: flex; align-items: center; gap: 7px; padding: 0 10px 0 12px; flex-shrink: 0;
+  max-width: 220px; cursor: pointer; user-select: none;
+  border-right: 1px solid var(--border); color: var(--dim); font-size: 11px;
+  border-bottom: 2px solid transparent;
+}
+.term-tab:hover         { color: var(--muted); background: var(--bg3); }
+.term-tab--active       { color: var(--text); background: var(--bg1); border-bottom-color: var(--purple3); }
+.term-tab-num           { color: var(--dim); font-size: 10px; }
+.term-tab--active .term-tab-num { color: var(--purple3); }
+.term-tab-name          { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.term-tab-dot           { color: var(--purple3); font-size: 8px; }
+.term-tab-close         { color: var(--dim); font-size: 13px; line-height: 1; padding: 0 2px; opacity: 0; }
+.term-tab:hover .term-tab-close, .term-tab--active .term-tab-close { opacity: 1; }
+.term-tab-close:hover   { color: var(--err); }
+.term-tabs-new {
+  flex-shrink: 0; width: 30px; border: none; background: none; cursor: pointer;
+  color: var(--dim); font-size: 15px; font-family: var(--font);
+}
+.term-tabs-new:hover    { color: var(--purple3); background: var(--bg3); }
+.term-tab-pane { flex: 1 1 0; flex-direction: column; min-height: 0; overflow: hidden; }
