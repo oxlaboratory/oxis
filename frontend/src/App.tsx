@@ -2961,6 +2961,23 @@ function useModalEditor(opts: {
   const GROUP_TIMEOUT_MS = 700;
 
   const curPos = useCallback(() => taRef.current?.selectionStart ?? 0, [taRef]);
+
+  // Where the caret goes after an edit made here: set at once (the text
+  // may already be on screen), and again as soon as React has written
+  // the new text (a layout effect; writing it moves the caret). Not a
+  // frame later: keys typed in between would land where it was, and a
+  // window in the background may not draw frames at all.
+  // It's for one text: `text`, what the edit made.
+  const pendingSel = useRef<{ text: string; start: number; end: number; dir?: "forward" | "backward" } | null>(null);
+  const placeCaret = useCallback((text: string, start: number, end = start, dir?: "forward" | "backward") => {
+    pendingSel.current = { text, start, end, dir };
+    taRef.current?.setSelectionRange(start, end, dir);
+  }, [taRef]);
+  useLayoutEffect(() => {
+    const sel = pendingSel.current, ta = taRef.current;
+    pendingSel.current = null;
+    if (sel && ta && sel.text === content) ta.setSelectionRange(sel.start, sel.end, sel.dir);
+  }, [content, taRef]);
   // While the textarea is being edited to match a change made here
   // (patchTextarea), its input events aren't new typing.
   const patching = useRef(false);
@@ -2991,11 +3008,8 @@ function useModalEditor(opts: {
   const restore = useCallback((snap: Snapshot) => {
     patch(snap.content);
     onEdit(snap.content);
-    requestAnimationFrame(() => {
-      const ta = taRef.current; if (!ta) return;
-      ta.selectionStart = ta.selectionEnd = Math.min(snap.pos, snap.content.length);
-    });
-  }, [onEdit, taRef, patch]);
+    placeCaret(snap.content, Math.min(snap.pos, snap.content.length));
+  }, [onEdit, patch, placeCaret]);
 
   const undo = useCallback(() => {
     const snap = undoStack.current.pop();
@@ -3046,10 +3060,7 @@ function useModalEditor(opts: {
 
   const applyEdit = useCallback((next: CursorState, editOpts?: { toInsert?: boolean }) => {
     commit(next.content, false);
-    requestAnimationFrame(() => {
-      const ta = taRef.current; if (!ta) return;
-      ta.selectionStart = ta.selectionEnd = next.pos;
-    });
+    placeCaret(next.content, next.pos);
     if (editOpts?.toInsert) {
       setMode("insert");
       // o/O's newline-insert and the typing that follows it are ONE
@@ -3057,15 +3068,15 @@ function useModalEditor(opts: {
       // upcoming Insert-mode keystrokes instead of starting a new one.
       grouping.current = true;
     }
-  }, [commit, taRef]);
+  }, [commit, placeCaret]);
 
   /** Applies an editing command's result (editorCommands.ts): the text as
    *  one undo step (grouped with the typing around it if `grouped`),
    *  then the selection. */
   const applyState = useCallback((next: EditState, grouped = false) => {
     if (next.text !== content) commit(next.text, grouped);
-    requestAnimationFrame(() => { taRef.current?.setSelectionRange(next.start, next.end); });
-  }, [content, commit, taRef]);
+    placeCaret(next.text, next.start, next.end);
+  }, [content, commit, placeCaret]);
 
   // ── Normal / Visual mode command dispatch ────────────────────
   const handleModalKey = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -3148,7 +3159,7 @@ function useModalEditor(opts: {
         const s = ta.selectionStart, en = ta.selectionEnd;
         const next = content.slice(0, s) + "  " + content.slice(en);
         commit(next, false);
-        requestAnimationFrame(() => { ta.selectionStart = ta.selectionEnd = s + 2; });
+        placeCaret(next, s + 2);
         return;
       }
       default:
@@ -3240,11 +3251,8 @@ function useModalEditor(opts: {
     const pos = matches[wrapped];
     const next = content.slice(0, pos) + replaceWith + content.slice(pos + findQuery.length);
     commit(next, false);
-    requestAnimationFrame(() => {
-      const ta = taRef.current;
-      if (ta) ta.selectionStart = ta.selectionEnd = pos + replaceWith.length;
-    });
-  }, [matches, matchIndex, content, findQuery, replaceWith, commit, taRef]);
+    placeCaret(next, pos + replaceWith.length);
+  }, [matches, matchIndex, content, findQuery, replaceWith, commit, placeCaret]);
 
   const replaceAll = useCallback(() => {
     if (matches.length === 0 || !findQuery) return;
@@ -4643,8 +4651,9 @@ function ensurePluginsInited(): void {
 
 // Clickable URLs (open in the system browser) and file paths (open in
 // the editor) in terminal output. Only paths ending in an extension
-// count, so flags and ratios don't become links.
-const LINE_LINK_RE = /(https?:\/\/[^\s"'<>()]+)|([A-Za-z]:\\[^\s"'<>]+?\.[A-Za-z0-9]{1,8}(?=[\s"'<>)]|$))|((?<=^|[\s"'(=:])\/[^\s"'<>]+?\.[A-Za-z0-9]{1,8}(?=[\s"'<>)]|$))/g;
+// count, so flags and ratios don't become links. A Windows path can
+// use either slash after the drive (C:\dev, or C:/dev from Git Bash).
+const LINE_LINK_RE = /(https?:\/\/[^\s"'<>()]+)|([A-Za-z]:[\\/][^\s"'<>]+?\.[A-Za-z0-9]{1,8}(?=[\s"'<>)]|$))|((?<=^|[\s"'(=:])\/[^\s"'<>]+?\.[A-Za-z0-9]{1,8}(?=[\s"'<>)]|$))/g;
 
 // A mouseup that finishes a text selection also fires click; don't
 // treat that as opening the link.
@@ -5539,7 +5548,7 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, promptHo
   const probeCwd = useCallback(() => {
     if (shellIntegrated.current) return; // the shell reports it itself
     if (currentShell() === "cmd") return; // cmd can't print the markers
-    sendToShell(buildCwdProbe(speaksPowerShell()) + "\r");
+    sendToShell(buildCwdProbe(speaksPowerShell(), isWindows()) + "\r");
   }, [sendToShell]);
 
   // Runs one command line: 'commands (or "oxi ...") go to the OXIS

@@ -24,11 +24,14 @@ export function isProbeLine(line: string): boolean {
 // command never contains it whole; only the printed answer does.
 const HALF_A = "\u2063OXIS", HALF_B = "CWD\u2063";
 
-/** The exact line OXIS sends to the shell to ask for its cwd. */
-export function buildCwdProbe(powershell: boolean): string {
+/** The exact line OXIS sends to the shell to ask for its cwd. An sh on
+ *  Windows (Git Bash) is asked for the Windows path (`pwd -W`, not
+ *  /c/Users/…), which is what OXIS opens files by. */
+export function buildCwdProbe(powershell: boolean, windows = false): string {
+  const dir = windows ? `"$(pwd -W 2>/dev/null || pwd)"` : `"$PWD"`;
   return powershell
     ? `Write-Host ("${HALF_A}" + "${HALF_B}" + $PWD.Path + "${HALF_A}" + "${HALF_B}")`
-    : `printf '%s%s%s%s%s\\n' '${HALF_A}' '${HALF_B}' "$PWD" '${HALF_A}' '${HALF_B}'`;
+    : `printf '%s%s%s%s%s\\n' '${HALF_A}' '${HALF_B}' ${dir} '${HALF_A}' '${HALF_B}'`;
 }
 
 /** Commands that plausibly change directory, worth a re-probe. */

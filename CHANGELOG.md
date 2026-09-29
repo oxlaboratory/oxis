@@ -315,7 +315,15 @@ All notable changes to OXIS. The format follows
 - With Git Bash (or another sh) as the shell on Windows (`OXIS_SHELL`),
   OXIS sent it PowerShell: the directory probe printed a bash syntax
   error, and commands like `'env` and `'path` failed. What OXIS sends
-  now follows the shell that's running, not the operating system.
+  now follows the shell that's running, not the operating system, and
+  Git Bash is asked for its directory as a Windows path (it says
+  `/c/Users/…`), so `'edit src/app.ts` opens the right file.
+- Keys typed straight after the editor changed the text itself (a
+  closing bracket added or stepped over, an undo, a Vim command) could
+  land where the caret had been when the window was busy or in the
+  background: the caret is now placed as soon as the text is on screen.
+- A Windows path with forward slashes in the output (`C:/dev/app.ts`)
+  became a link without its drive letter.
 - Switching editor tabs lost unsaved changes, the tab's ● never showed,
   closing a changed file didn't ask, and Save All saved nothing. Each
   tab now keeps its unsaved text, caret and scroll position.
