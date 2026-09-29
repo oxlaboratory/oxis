@@ -125,8 +125,8 @@ itself into your editor as it's written. See the [Lua API](#lua-api).
 
 | | |
 |---|---|
-| <img src="assets/screenshots/app-terminal.png" alt="The terminal in colour: git log, git status, git diff and a passing test run"> | <img src="assets/screenshots/app-editor.png" alt="The built-in editor with TypeScript syntax highlighting"> |
-| Your shell in full colour, with `'` commands and one prompt | The built-in editor (`'edit src/cart.ts`) |
+| <img src="assets/screenshots/app-terminal.png" alt="The terminal in colour: git log, git status, git diff and a passing test run"> | <img src="assets/screenshots/app-editor.png" alt="The built-in editor catching a syntax error as you type, with word suggestions open and a minimap"> |
+| Your shell in full colour, with `'` commands and one prompt | The editor catches a mistake as you type and suggests words (`'edit src/cart.ts`) |
 | <img src="assets/screenshots/app-palette.png" alt="The command palette over the terminal"> | <img src="assets/screenshots/app-version.png" alt="'version showing the build number, commit, tag, channel and update status"> |
 | The command palette (Ctrl+Shift+P) | `'version` — the exact build you're running |
 | <img src="assets/screenshots/app-theme-custom.png" alt="midnight with a gradient background, glow and a custom prompt"> | <img src="assets/screenshots/app-theme-editor.png" alt="The theme editor"> |
