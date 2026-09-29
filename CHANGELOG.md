@@ -181,6 +181,10 @@ All notable changes to OXIS. The format follows
   of every built-in theme.
 
 ### Changed
+- Home's clouds drift across the sky: far ones small, faint and slow,
+  near ones bigger and faster, fading in at the left and thinning out
+  before the sun, which now has a warm halo. They're puffier, shaded
+  from above, and never overlap one another.
 - The editor's modes can be turned off (setting `editorVim`, or a click
   on the mode in the editor bar) for an editor that just types.
 - `oxis.dashboard` no longer changes the theme: that's the user's.
