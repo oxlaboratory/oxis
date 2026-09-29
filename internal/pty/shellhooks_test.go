@@ -21,30 +21,34 @@ func TestMarksComeInOrderWithOutput(t *testing.T) {
 	}
 }
 
+// Windows PowerShell and PowerShell 7, whichever are installed.
 func TestPowerShellIntegration(t *testing.T) {
-	ps, err := exec.LookPath("powershell")
-	if err != nil {
-		ps, err = exec.LookPath("pwsh")
+	found := false
+	for _, name := range []string{"powershell", "pwsh"} {
+		if ps, err := exec.LookPath(name); err == nil {
+			found = true
+			t.Run(name, func(t *testing.T) { testPowerShellHook(t, ps) })
+		}
 	}
-	if err != nil {
+	if !found {
 		t.Skip("no PowerShell")
 	}
+}
+
+func testPowerShellHook(t *testing.T, ps string) {
 	dir := filepath.Join(t.TempDir(), "a b")
 	if err := os.Mkdir(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	script := psIntegration + `
-cmd /c exit 3
-[Console]::Out.Write((prompt))
-Get-Item -LiteralPath 'no such file' -ErrorAction Continue 2>$null
-[Console]::Out.Write((prompt))
-Set-Location -LiteralPath '` + dir + `'
-[Console]::Out.Write((prompt))
-`
+	fail3 := "cmd /c exit 3"
 	if runtime.GOOS != "windows" {
-		script = strings.Replace(script, "cmd /c exit 3", "sh -c 'exit 3'", 1)
+		fail3 = "sh -c 'exit 3'"
 	}
-	out, err := exec.Command(ps, "-NoProfile", "-NonInteractive", "-EncodedCommand", encodePowerShell(script)).CombinedOutput()
+	// The hook as OXIS passes it, then commands and prompts.
+	command := psCommand() + "; " + fail3 + "; [Console]::Out.Write((prompt)); " +
+		"Get-Item -LiteralPath 'no such file' -ErrorAction Continue 2>$null; [Console]::Out.Write((prompt)); " +
+		"Set-Location -LiteralPath '" + dir + "'; [Console]::Out.Write((prompt))"
+	out, err := runPowerShell(ps, command)
 	if err != nil {
 		t.Fatalf("%v: %s", err, out)
 	}
@@ -110,7 +114,25 @@ func TestIntegrationOff(t *testing.T) {
 	if args, env := shellStart("/bin/bash"); args != nil || env != nil {
 		t.Errorf("got %q %q", args, env)
 	}
-	if strings.Contains(psArgs(), "Encoded") {
+	if strings.Contains(psArgs(), "__oxis") {
 		t.Errorf("PowerShell still gets the hook: %s", psArgs())
+	}
+}
+
+// The PowerShell hook is plain text on one command line: nothing
+// encoded (security tools flag that), and nothing that would end the
+// double quotes it's wrapped in or comment out the rest of the line.
+func TestPowerShellCommandIsPlain(t *testing.T) {
+	args := psArgs()
+	for _, bad := range []string{"-EncodedCommand", "-enc ", "-ExecutionPolicy", "Invoke-Expression", "-WindowStyle"} {
+		if strings.Contains(args, bad) {
+			t.Errorf("PowerShell is started with %s: %s", bad, args)
+		}
+	}
+	if strings.ContainsAny(psIntegration, "\"#`") {
+		t.Errorf("the hook has a double quote, # or backtick: %s", psIntegration)
+	}
+	if strings.Contains(psCommand(), "\n") {
+		t.Errorf("the hook isn't one line: %q", psCommand())
 	}
 }

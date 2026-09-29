@@ -1,12 +1,9 @@
 package pty
 
 import (
-	"bytes"
-	"encoding/base64"
 	"os"
 	"path/filepath"
 	"strings"
-	"unicode/utf16"
 )
 
 // Shell integration: a hook that runs before each prompt and tells OXIS
@@ -30,46 +27,50 @@ func integrationOff() bool { return os.Getenv("OXIS_SHELL_INTEGRATION") == "0" }
 // Nothing here may break the user's prompt, so it's all in a try.
 // PSReadLine is unloaded: OXIS edits the command line itself and sends
 // it whole, and PSReadLine's redrawing would garble the echo.
-const psIntegration = `Remove-Module PSReadLine -ErrorAction SilentlyContinue
-$global:__oxisPrompt = $function:prompt
-$global:__oxisError = $Error[0]
+//
+// It's passed as plain -Command text, on one line (psCommand), not with
+// -EncodedCommand: an encoded PowerShell command started by a program is
+// what malware does, and antivirus and company security tools flag it.
+// So every statement ends with ";" (the lines are joined with spaces),
+// and there are no double quotes (the command is quoted with them on
+// Windows) and no comments.
+const psIntegration = `Remove-Module PSReadLine -ErrorAction SilentlyContinue;
+$global:__oxisPrompt = $function:prompt;
+$global:__oxisError = $Error[0];
 function global:prompt {
-    $ok = $?
-    $mark = ''
+    $ok = $?;
+    $mark = '';
     try {
-        $newError = $Error.Count -gt 0 -and -not [object]::ReferenceEquals($Error[0], $global:__oxisError)
-        $global:__oxisError = $Error[0]
-        $code = if ($ok) { 0 } elseif (-not $newError -and $global:LASTEXITCODE) { $global:LASTEXITCODE } else { 1 }
-        $e = [char]27; $b = [char]7
-        $mark = "$e]133;D;$code$b"
+        $newError = $Error.Count -gt 0 -and -not [object]::ReferenceEquals($Error[0], $global:__oxisError);
+        $global:__oxisError = $Error[0];
+        $code = if ($ok) { 0 } elseif (-not $newError -and $global:LASTEXITCODE) { $global:LASTEXITCODE } else { 1 };
+        $e = [string][char]27; $b = [string][char]7;
+        $mark = $e + ']133;D;' + $code + $b;
         if ($PWD.Provider.Name -eq 'FileSystem') {
-            $p = (($PWD.ProviderPath -replace '\\', '/') -split '/' | ForEach-Object { [uri]::EscapeDataString($_) -replace '%3A', ':' }) -join '/'
-            $url = if ($p.StartsWith('//')) { 'file:' + $p } elseif ($p.StartsWith('/')) { 'file://' + $p } else { 'file:///' + $p }
-            $mark += "$e]7;$url$b"
+            $p = (($PWD.ProviderPath -replace '\\', '/') -split '/' | ForEach-Object { [uri]::EscapeDataString($_) -replace '%3A', ':' }) -join '/';
+            $url = if ($p.StartsWith('//')) { 'file:' + $p } elseif ($p.StartsWith('/')) { 'file://' + $p } else { 'file:///' + $p };
+            $mark += $e + ']7;' + $url + $b;
         }
-    } catch { }
+    } catch { };
     $mark + (& $global:__oxisPrompt)
-}
-`
+}`
 
-// psArgs is how PowerShell is started: no banner, stay open after the
-// integration script (encoded, so no quoting can break it).
+// psCommand is psIntegration on one line.
+func psCommand() string {
+	lines := strings.Split(psIntegration, "\n")
+	for i, l := range lines {
+		lines[i] = strings.TrimSpace(l)
+	}
+	return strings.Join(lines, " ")
+}
+
+// psArgs is how PowerShell is started on Windows: no banner, and stay
+// open after the integration script.
 func psArgs() string {
 	if integrationOff() {
 		return `-NoLogo -NoExit -Command "Remove-Module PSReadLine -ErrorAction SilentlyContinue"`
 	}
-	return "-NoLogo -NoExit -EncodedCommand " + encodePowerShell(psIntegration)
-}
-
-// encodePowerShell encodes a script for -EncodedCommand: base64 of its
-// UTF-16LE bytes.
-func encodePowerShell(script string) string {
-	var b bytes.Buffer
-	for _, u := range utf16.Encode([]rune(script)) {
-		b.WriteByte(byte(u))
-		b.WriteByte(byte(u >> 8))
-	}
-	return base64.StdEncoding.EncodeToString(b.Bytes())
+	return `-NoLogo -NoExit -Command "` + psCommand() + `"`
 }
 
 // bashIntegration is bash's --rcfile: the usual startup files, then the
@@ -141,7 +142,7 @@ func shellStart(shell string) (args, env []string) {
 	case "fish":
 		return []string{"--init-command", fishIntegration}, nil
 	case "pwsh":
-		return []string{"-NoLogo", "-NoExit", "-EncodedCommand", encodePowerShell(psIntegration)}, nil
+		return []string{"-NoLogo", "-NoExit", "-Command", psCommand()}, nil
 	}
 	return nil, nil
 }

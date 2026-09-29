@@ -4,15 +4,17 @@
     "ProductVersion": { "Major": 1, "Minor": 2, "Patch": 1, "Build": 0 }
   },
   "StringFileInfo": {
+    "Comments":         "Open source (Apache-2.0): https://github.com/oxlaboratory/oxis",
     "CompanyName":      "Oxide Labs",
-    "FileDescription":  "OXIS Client",
+    "FileDescription":  "OXIS - the terminal you can script",
     "FileVersion":      "1.2.1",
     "InternalName":     "oxis",
-    "LegalCopyright":   "OXIS Contributors",
+    "LegalCopyright":   "Copyright (c) OXIS contributors. Apache License 2.0",
     "OriginalFilename": "oxis.exe",
     "ProductName":      "OXIS",
     "ProductVersion":   "1.2.1"
   },
   "VarFileInfo": { "Translation": { "LangID": 1033, "CharsetID": 1200 } },
-  "IconPath": "oxis.ico"
+  "IconPath": "oxis.ico",
+  "ManifestPath": "oxis.exe.manifest"
 }

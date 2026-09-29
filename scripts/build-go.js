@@ -119,15 +119,26 @@ step(3, "Fetching Go dependencies...");
 run(`"${GO}" mod download`, ROOT, { PATH:augmentedPath });
 ok("go modules ready");
 
-// ── Step 4: Windows icon embedding ───────────────────────────
+// ── Step 4: Windows icon, version info and manifest ──────────
+// cmd/oxi/versioninfo.json names the product and publisher and points
+// at oxis.exe.manifest; the version numbers come from the build stamp.
+// A Windows program without them looks unfinished, and that's one of
+// the things antivirus heuristics count against it.
 if (IS_WIN) {
-  step(4, "Embedding icon into .exe (goversioninfo)...");
+  step(4, "Embedding icon, version info and manifest into .exe (goversioninfo)...");
   if (fs.existsSync(path.join(ROOT, "cmd", "oxi", "oxis.ico"))) {
+    const [major = 0, minor = 0, patch = 0] = String(VERSION).split(/[.+-]/).map(n => parseInt(n, 10) || 0);
+    const build = parseInt(STAMP.buildNumber, 10) || 0;
+    const versionFlags = [
+      `-ver-major=${major}`, `-ver-minor=${minor}`, `-ver-patch=${patch}`, `-ver-build=${build}`,
+      `-product-ver-major=${major}`, `-product-ver-minor=${minor}`, `-product-ver-patch=${patch}`, `-product-ver-build=${build}`,
+      `-file-version=${major}.${minor}.${patch}.${build}`, `-product-version=${VERSION}`,
+    ].join(" ");
     const r = spawnSync(
-      `"${GO}" run github.com/josephspurrier/goversioninfo/cmd/goversioninfo@latest -icon=oxis.ico -o=resource.syso`,
+      `"${GO}" run github.com/josephspurrier/goversioninfo/cmd/goversioninfo@latest ${versionFlags} -o=resource.syso versioninfo.json`,
       { shell:true, stdio:"inherit", cwd:path.join(ROOT,"cmd","oxi"), env:{...process.env,PATH:augmentedPath} }
     );
-    if (r.status === 0) ok("resource.syso generated (icon embedded)");
+    if (r.status === 0) ok(`resource.syso generated (icon, manifest, version ${major}.${minor}.${patch}.${build})`);
     else log("   (icon embedding skipped — goversioninfo unavailable)", col.grey);
   } else {
     log("   (oxis.ico not found — skipping icon)", col.grey);
@@ -152,7 +163,9 @@ const ldflags = IS_WIN ? `"-s -w -H windowsgui ${xflags}"` : `"-s -w ${xflags}"`
 const tags = ["desktop", "production"];
 const hasWebkit41 = IS_LINUX && spawnSync("pkg-config", ["--exists", "webkit2gtk-4.1"], { stdio:"pipe" }).status === 0;
 if (hasWebkit41) tags.push("webkit2_41");
-run(`"${GO}" build -tags ${tags.join(",")} -ldflags=${ldflags} -o "${outBinary}" ./cmd/oxi`, ROOT, { PATH:augmentedPath });
+// -trimpath: no paths from the machine that built it (a user's home
+// folder, the CI runner's) in the binary, so builds are reproducible.
+run(`"${GO}" build -trimpath -tags ${tags.join(",")} -ldflags=${ldflags} -o "${outBinary}" ./cmd/oxi`, ROOT, { PATH:augmentedPath });
 
 const sizeMB = (fs.statSync(outBinary).size / 1024 / 1024).toFixed(1);
 ok(`dist/${binaryName} (${sizeMB} MB)`);

@@ -181,10 +181,19 @@ All notable changes to OXIS. The format follows
   of every built-in theme.
 
 ### Changed
-- Home's clouds drift across the sky: far ones small, faint and slow,
-  near ones bigger and faster, fading in at the left and thinning out
-  before the sun, which now has a warm halo. They're puffier, shaded
-  from above, and never overlap one another.
+- Home's clouds are pixel art, a new shape each time (a big round puff
+  with smaller ones either side, lit from above), and drift across the
+  sky: far ones small, faint and slow, near ones bigger and faster,
+  fading in at the left and thinning out before the sun. They never
+  overlap one another. The sun no longer glows.
+- PowerShell is started with its shell-integration hook as plain,
+  readable `-Command` text instead of `-EncodedCommand`: encoded
+  PowerShell started by a program is what malware does, and antivirus
+  and company security tools flag it.
+- The Windows exe carries an application manifest (runs as the user,
+  never elevated; Windows 10/11), a fuller description, and its real
+  version and build number; builds no longer contain the paths of the
+  machine that built them (`-trimpath`).
 - The editor's modes can be turned off (setting `editorVim`, or a click
   on the mode in the editor bar) for an editor that just types.
 - `oxis.dashboard` no longer changes the theme: that's the user's.
