@@ -62,6 +62,12 @@ jobs:
             exit 1
           fi
 
+      # The terminal's own logic (output, colours, sessions, suggestions,
+      # symbols), without a window.
+      - name: Frontend tests
+        working-directory: frontend
+        run: npm test
+
       - name: Stage release files
         run: |
           mkdir -p release-files

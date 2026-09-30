@@ -1349,6 +1349,9 @@ npm/                     npm launcher package (downloads the prebuilt binary)
 
 Both build jobs also run the Go tests (`go test ./internal/...`), so the
 process, file-watching and streaming code is tested on Windows and Linux.
+The Linux job runs the frontend's tests too (`cd frontend && npm test`,
+Vitest): output and colour parsing, readline editing, sessions, editor
+suggestions, Go to symbol, the directory probe and history filtering.
 
 The icons (`cmd/oxi/oxis.ico`, `frontend/public/favicon.ico` and
 `logo.png`) are drawn from the logo's geometry by

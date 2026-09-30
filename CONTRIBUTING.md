@@ -34,7 +34,7 @@ you can also open `http://127.0.0.1:1420` in a browser while OXIS runs.
 2. Keep the change focused. Don't reformat unrelated code.
 3. Check it still builds and works:
    ```bash
-   cd frontend && npx tsc --noEmit && cd ..
+   cd frontend && npx tsc --noEmit && npm test && cd ..
    go vet ./internal/... && go test ./internal/...
    npm run build
    ```

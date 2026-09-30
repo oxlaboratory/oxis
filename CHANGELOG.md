@@ -6,6 +6,10 @@ All notable changes to OXIS. The format follows
 ## [Unreleased]
 
 ### Added
+- Frontend tests (Vitest, `npm test` in `frontend/`, run in CI): output
+  and colour parsing, readline editing, session save and restore,
+  editor suggestions, Go to symbol, the directory probe and history
+  filtering.
 - Tab and pane hints: buttons at the top right of a pane under the
   pointer (new tab, split beside, split below, close), the same in the
   output's right-click menu, a line under the welcome saying the keys
