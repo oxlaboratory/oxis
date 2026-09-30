@@ -7,7 +7,7 @@ All notable changes to OXIS. The format follows
 
 ### Added
 - Split panes: a tab holds several shells side by side or one above
-  another. Ctrl+\\ or Alt+Shift+= splits beside, Alt+Shift+- below;
+  another. Ctrl+Shift+\\ or Alt+Shift+= splits beside, Alt+Shift+- below;
   Alt+arrows move between panes, Alt+Shift+arrows or dragging the
   divider resize them, Ctrl+Shift+W closes one; `'split`. Each pane is
   sized to its own width and height, and splits are part of the

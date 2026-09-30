@@ -669,7 +669,7 @@ const HOTKEYS: Array<{ section: string; keys: Array<[string, string]> }> = [
     ["Ctrl+Tab / Ctrl+Shift+Tab", "next / previous terminal tab (also Ctrl+PageDown / PageUp)"],
     ["Ctrl+1 … Ctrl+9", "go to terminal tab 1 … 9"],
     ["Ctrl+Shift+W", "close the pane, or the tab (and its shell)"],
-    ["Ctrl+\\ / Alt+Shift+=", "split the terminal: a new shell beside this one"],
+    ["Ctrl+Shift+\\ / Alt+Shift+=", "split the terminal: a new shell beside this one"],
     ["Alt+Shift+-", "split the terminal: a new shell below this one"],
     ["Alt+arrows", "the pane to the left / right / above / below"],
     ["Alt+Shift+arrows", "make the pane bigger or smaller (or drag the divider)"],
@@ -2277,7 +2277,7 @@ Settings, workspace files, documents and plugins with the same name as ones in t
       h("'write <f> [text]","write file"); h("'append <f> <text>","append to file");
       h("'edit <f>","built-in editor"); h("'hash <f>","SHA256"); h("'size <p>","disk size"); h("'update","check for a newer release");
       info(""); h("── shell ─────────────────────────────","");
-      h("'clear","clear output"); h("'tab [new|close|<n>]","terminal tabs (Ctrl+T, Ctrl+Tab)"); h("'split [right|down]","split panes (Ctrl+\\, Alt+arrows)"); h("'run <cmd>","raw command"); h("'env","env vars");
+      h("'clear","clear output"); h("'tab [new|close|<n>]","terminal tabs (Ctrl+T, Ctrl+Tab)"); h("'split [right|down]","split panes (Ctrl+Shift+\\, Alt+arrows)"); h("'run <cmd>","raw command"); h("'env","env vars");
       h("'ps","processes"); h("'kill <pid|name>","kill process"); h("'ip","network");
       h("'disk","disk usage"); h("'sysinfo","system info"); h("'which <cmd>","find command");
       h("'find [pat]","search files"); h("'grep <pat> <f>","search contents");
@@ -7749,7 +7749,8 @@ export default function App() {
     tabKey("PageDown", false, "Next terminal tab", () => stepTab(1));
     tabKey("PageUp", false, "Previous terminal tab", () => stepTab(-1));
     tabKey("w", true, "Close the pane (or the tab) and its shell", () => closePane());
-    tabKey("\\", false, "Split the pane: a new shell beside it", () => splitPane("row"));
+    // Ctrl+Shift+\ (the key is "|"); Ctrl+\ stays quit (SIGQUIT) for the program.
+    tabKey("|", true, "Split the pane: a new shell beside it", () => splitPane("row"));
     const paneKey = (key: string, shift: boolean, description: string, run: () => boolean | void) =>
       keybinds.register({ key, alt: true, shift, description, handler: (e) => {
         if (run() === false) return false; // nothing to move to: the key does what it did
