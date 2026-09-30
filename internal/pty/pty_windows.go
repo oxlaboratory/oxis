@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"sync"
+	"sync/atomic"
 	"syscall"
 
 	"github.com/UserExistsError/conpty"
@@ -62,6 +63,9 @@ func HandleSession(conn *websocket.Conn) {
 
 	size := newTermSize(cols, rows)
 	var repaint RepaintGuard // ConPTY repaints the screen after a resize
+	// Set by a resize for a shell that may lose the next key (shiftTap).
+	tapKey := losesKeyAfterResize(shellCmd)
+	var resized atomic.Bool
 
 	go func() {
 		err := pumpOutput(cpty, size, func(kind, data string) {
@@ -87,13 +91,20 @@ func HandleSession(conn *websocket.Conn) {
 		switch m.Type {
 		case "input":
 			if m.Data != "" {
-				_, _ = io.WriteString(cpty, m.Data)
+				data := m.Data
+				if resized.Swap(false) {
+					data = shiftTap + data
+				}
+				_, _ = io.WriteString(cpty, data)
 			}
 		case "resize":
 			if m.Cols > 0 && m.Rows > 0 {
 				repaint.Arm()
 				size.set(int(m.Cols), int(m.Rows))
 				_ = cpty.Resize(int(m.Cols), int(m.Rows))
+				if tapKey {
+					resized.Store(true)
+				}
 			}
 		case "screen-exit":
 			repaint.LeaveScreen()

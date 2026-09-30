@@ -323,7 +323,8 @@ scrolls above it and never goes underneath it.
 ### Tabs and split panes
 
 Each terminal tab is its own shell. **Ctrl+T** in the terminal (or
-`'tab new`, or **+**) opens one; a strip of tabs appears once there are
+`'tab new`, or **+**) opens one, in the folder you're working in (the
+focused pane's; setting `newShellHere`); a strip of tabs appears once there are
 two, each named after its directory, with a dot on one that printed
 while you were elsewhere. The selected tab has the prompt, and it's the
 one OXIS commands and plugins act on and whose directory decides the
@@ -1160,6 +1161,7 @@ printed in the terminal and listed by `'diagnostics`.
 | `promptColors` | `true` | Colour the prompt and the commands you ran |
 | `editorVim` | `true` | The editor's Normal, Insert and Visual modes; off, it just types |
 | `editorMinimap` | `true` | The minimap beside the editor's text |
+| `newShellHere` | `true` | Open a new tab or split pane in the focused pane's folder, not the default one |
 | `restoreSession` | `true` | Bring back tabs, their directories and output, open files and unsaved text at startup |
 | `editorSuggest` | `true` | Suggest words and keywords while typing in the editor |
 

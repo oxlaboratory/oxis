@@ -2,6 +2,7 @@ package pty
 
 import (
 	"io"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -146,6 +147,51 @@ func TestRepaintWithSizeReport(t *testing.T) {
 		if got, want := p.text(), "PS demo> 1..2\nbefore 1\nbefore 2\nPS demo> \"after\"\nafter\n"; got != want {
 			t.Fatalf("cut %d: got %q\nwant %q", cut, got, want)
 		}
+	}
+}
+
+func TestRepaintAfterInputModeSwitches(t *testing.T) {
+	// From a trace: when Git Bash's console is set up again, ConPTY
+	// switches input modes before it repaints. The repaint mustn't show
+	// the old screen again (after 'clear, that's output the page hid).
+	repaint := "\x1b[?9001h\x1b[?1004h\x1b[?2004h\x1b[?25l\x1b[Hold line\x1b[K\r\nacme $\x1b[K\r\n\x1b[K\x1b[2;8H\x1b[?25h"
+	for cut := 1; cut < len(repaint); cut++ {
+		var guard RepaintGuard
+		guard.Arm()
+		// Played as output, the repaint would take lines back (a rewind)
+		// and send them again, bringing back what the page had cleared.
+		var sent []string
+		p := &page{t: t}
+		send := func(kind, data string) { sent = append(sent, kind); p.send(kind, data) }
+		chunks := []string{"old line\r\nacme $ ", repaint[:cut], repaint[cut:], "ls\r\nfile\r\n"}
+		if err := pumpOutput(&chunkReader{chunks: chunks}, newTermSize(80, 24), send, &guard, true); err != io.EOF {
+			t.Fatalf("pumpOutput: %v", err)
+		}
+		if got, want := p.text(), "old line\nacme $ ls\nfile\n"; got != want {
+			t.Fatalf("cut %d: got %q\nwant %q", cut, got, want)
+		}
+		if slices.Contains(sent, kindRewind) {
+			t.Fatalf("cut %d: the repaint was sent as output (%v)", cut, sent)
+		}
+	}
+}
+
+func TestLosesKeyAfterResize(t *testing.T) {
+	for cmd, want := range map[string]bool{
+		`"C:\Program Files\Git\bin\bash.exe" -i`:                         true,
+		`C:\msys64\usr\bin\zsh.exe`:                                     true,
+		`fish`:                                                          true,
+		`"C:\Program Files\PowerShell\7\pwsh.exe" -NoLogo`:               false,
+		`C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -NoExit`: false,
+		`cmd.exe`: false,
+	} {
+		if got := losesKeyAfterResize(cmd); got != want {
+			t.Errorf("%s: got %v, want %v", cmd, got, want)
+		}
+	}
+	// The tap is two complete win32-input-mode key events (Shift down, up).
+	if !strings.HasPrefix(shiftTap, "\x1b[16;42;0;1;") || strings.Count(shiftTap, "_") != 2 {
+		t.Errorf("shiftTap = %q", shiftTap)
 	}
 }
 

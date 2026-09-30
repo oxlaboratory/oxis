@@ -49,6 +49,25 @@ type outMsg struct {
 	Shell string `json:"shell,omitempty"`
 }
 
+// Git Bash and the other MSYS/Cygwin shells sometimes lose the first key
+// typed after their console is resized, however long after (a race in
+// their console input; ConPTY alone shows it, about one resize in three).
+// So on Windows the first input after a resize starts with a Shift press
+// and release, sent as win32-input-mode key events
+// (ESC [ Vk ; Sc ; Uc ; Kd ; Cs ; Rc _): it's what gets lost, if anything,
+// and a key with no character does nothing in any console program.
+const shiftTap = "\x1b[16;42;0;1;16;1_\x1b[16;42;0;0;0;1_"
+
+// losesKeyAfterResize says whether a shell command line starts one of
+// those shells.
+func losesKeyAfterResize(command string) bool {
+	switch shellKind(command) {
+	case "bash", "zsh", "fish", "sh":
+		return true
+	}
+	return false
+}
+
 // shellKind names the shell a command line or path starts.
 func shellKind(command string) string {
 	c := strings.ToLower(command)
@@ -184,17 +203,21 @@ var (
 // leaves the alternate screen: cursor home, every row again, then the
 // cursor put back where the shell carries on. The line view has all of
 // it already, so a repaint that starts within repaintWait of either is
-// dropped. Before the cursor goes home ConPTY may hide the cursor and
-// report the new size (ESC [8;rows;cols t). The repaint is one frame,
-// which ends by showing the cursor again (or, with the cursor hidden,
-// when the output stops for repaintQuiet); where it leaves the cursor
-// comes from playing it on a scratch screen.
+// dropped. Before the cursor goes home ConPTY may hide the cursor,
+// report the new size (ESC [8;rows;cols t) and switch input modes
+// (win32-input-mode 9001, focus events 1004, bracketed paste 2004), as
+// it does when Git Bash's console is set up again. The repaint is one
+// frame, which ends by showing the cursor again (or, with the cursor
+// hidden, when the output stops for repaintQuiet); where it leaves the
+// cursor comes from playing it on a scratch screen.
+const repaintPrefix = `\x1b\[\?25[hl]|\x1b\[8;\d+;\d+t|\x1b\[\?(?:9001|1004|2004)[hl]`
+
 var (
-	repaintStartRe = regexp.MustCompile(`^(?:\x1b\[\?25[hl]|\x1b\[8;\d+;\d+t)*\x1b\[H`)
-	// cursorOnlyRe is output that only shows or hides the cursor (or
-	// reports the size): what can come just before a repaint, in a read
-	// of its own.
-	cursorOnlyRe = regexp.MustCompile(`^(?:\x1b\[\?25[hl]|\x1b\[8;\d+;\d+t)+$`)
+	repaintStartRe = regexp.MustCompile(`^(?:` + repaintPrefix + `)*\x1b\[H`)
+	// cursorOnlyRe is output that only shows or hides the cursor, reports
+	// the size or switches an input mode: what can come just before a
+	// repaint, in a read of its own.
+	cursorOnlyRe = regexp.MustCompile(`^(?:` + repaintPrefix + `)+$`)
 	repaintEndRe = regexp.MustCompile(`\x1b\[\?25h`)
 )
 

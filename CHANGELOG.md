@@ -6,6 +6,8 @@ All notable changes to OXIS. The format follows
 ## [Unreleased]
 
 ### Added
+- New tabs and split panes open in the folder you're working in (the
+  focused pane's), not the default one; setting `newShellHere`.
 - `npm run dev` hot-reloads: the real window with its UI served by
   Vite, so a frontend change appears as you save without a reload, and
   the shells (and what's running in them) carry on. Go changes rebuild
@@ -356,6 +358,17 @@ All notable changes to OXIS. The format follows
 - The npm launcher downloads from the GitHub `latest-build` release.
 
 ### Fixed
+- Git Bash (and other MSYS/Cygwin shells) on Windows sometimes lost the
+  first key typed after its pane was resized: splitting, closing a
+  pane or resizing the window turned `echo` into `cho`, and at startup
+  the folder probe could fail the same way. About one resize in three,
+  reproducible with ConPTY alone. The first input after a resize now
+  starts with a Shift press sent as a win32-input-mode key event, which
+  is what gets lost, if anything; PowerShell and cmd are unchanged.
+- After `'clear`, resizing a pane could bring the cleared output back:
+  ConPTY's repaint wasn't recognised when it switched input modes
+  first (`?9001`, `?1004`, `?2004`), as it does when Git Bash's console
+  is set up again.
 - With Git Bash (or another sh) as the shell on Windows (`OXIS_SHELL`),
   OXIS sent it PowerShell: the directory probe printed a bash syntax
   error, and commands like `'env` and `'path` failed. What OXIS sends

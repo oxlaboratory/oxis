@@ -308,6 +308,11 @@ const SETTINGS: SettingDef[] = [
     apply: () => { /* read when the editor renders */ },
   },
   {
+    key: "newShellHere", label: "New Shells Start Here", default: true,
+    description: "Open a new tab or split pane in the folder you're working in (the focused pane's), not the default one",
+    apply: () => { /* read when a tab or pane opens */ },
+  },
+  {
     key: "restoreSession", label: "Restore Session", default: true,
     description: "Bring back your terminal tabs (their directories and recent output), open files and unsaved editor text when OXIS starts again",
     apply: () => { /* read at startup */ },
@@ -4739,6 +4744,8 @@ interface TermProps {
   restore?:    SavedTab;
   /** A line under the welcome one: how to use tabs or panes. */
   hint?:       string | null;
+  /** The folder to start the shell in (the pane it was opened from). */
+  startDir?:   string;
   /** The only pane in its tab (the right-click menu's Close says tab). */
   alone:       boolean;
   /** Element the global prompt is portalled into — the fixed bar above
@@ -4927,7 +4934,7 @@ function groupOutput(lines: Line[], cache: Map<number, Line[]>): { blocks: Array
  *  for 'https://github.com':", "Enter PIN:". */
 const SECRET_PROMPT_RE = /(password|passphrase|\bpin\b)[^\n]*:\s*$/i;
 
-function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore, hint, alone, promptHost, onReady, onShowShell, onCloseTab }: TermProps) {
+function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore, hint, startDir, alone, promptHost, onReady, onShowShell, onCloseTab }: TermProps) {
   const onNewTab = onShowShell;
   const selectedRef = useRef(selected);
   selectedRef.current = selected;
@@ -5757,7 +5764,7 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
     ptySize.current = measurePtySize() ?? { cols: 120, rows: 30 };
     session.current = openPty({
       ...ptySize.current,
-      dir: restore?.cwd || undefined,
+      dir: restore?.cwd || startDir || undefined,
       onOutput,
       onRewind,
       onCursor: (hidden) => { programCursorHidden.current = hidden; },
@@ -7627,8 +7634,14 @@ export default function App() {
   viewRef.current = view;
   const nextTabNumber = useRef(initial.next);
   const restoreFor = useRef(initial.restoreFor);
-  // The hint a new tab or pane prints under its welcome line.
+  // The hint a new tab or pane prints under its welcome line, and the
+  // folder it starts in: the focused pane's (setting newShellHere).
   const hintFor = useRef(new Map<string, string | null>());
+  const dirFor = useRef(new Map<string, string>());
+  const startHere = (id: string) => {
+    const dir = getSetting("newShellHere") === false ? "" : cwdTracker.get();
+    if (dir) dirFor.current.set(id, dir);
+  };
 
   // Saved every few seconds and when the window closes.
   useEffect(() => {
@@ -7660,6 +7673,7 @@ export default function App() {
   const newTab = useCallback(() => {
     const id = `t${nextTabNumber.current++}`;
     hintFor.current.set(id, tabHint());
+    startHere(id);
     setTabs(t => [...t, oneTab(id)]);
     setActiveTab(id);
     setView("shell");
@@ -7692,6 +7706,7 @@ export default function App() {
     const id = `t${nextTabNumber.current++}`;
     const at = tab.panes.indexOf(from && tab.panes.includes(from) ? from : tab.focus);
     hintFor.current.set(id, paneHint(tab.panes.length === 1 ? dir : tab.split));
+    startHere(id);
     const half = tab.sizes[at] / 2;
     updateTab(tab.id, t => ({
       ...t,
@@ -7946,6 +7961,7 @@ export default function App() {
                       first={pane === "t1"}
                       restore={restoreFor.current.get(pane)}
                       hint={hintFor.current.get(pane)}
+                      startDir={dirFor.current.get(pane)}
                       alone={t.panes.length === 1}
                       onTitle={title => setTabs(cur => cur.some(x => x.id === t.id && x.titles[pane] !== title)
                         ? cur.map(x => x.id === t.id ? { ...x, titles: { ...x.titles, [pane]: title } } : x) : cur)}
