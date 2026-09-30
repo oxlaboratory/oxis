@@ -47,7 +47,11 @@ func HandleSession(conn *websocket.Conn) {
 	}
 
 	shellCmd := buildShellCmd()
-	cpty, err := conpty.Start(shellCmd, conpty.ConPtyDimensions(cols, rows), conpty.ConPtyEnv(shellEnv("COLORTERM=truecolor")))
+	opts := []conpty.ConPtyOption{conpty.ConPtyDimensions(cols, rows), conpty.ConPtyEnv(shellEnv("COLORTERM=truecolor"))}
+	if dir := startDir(msg.Dir); dir != "" {
+		opts = append(opts, conpty.ConPtyWorkDir(dir))
+	}
+	cpty, err := conpty.Start(shellCmd, opts...)
 	if err != nil {
 		log.Printf("[oxis] ConPTY failed: %v", err)
 		safeSend(conn, &mu, outMsg{Type: "error", Message: "ConPTY failed — requires Windows 10 1809+"})

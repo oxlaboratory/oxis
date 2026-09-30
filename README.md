@@ -320,6 +320,16 @@ while you were elsewhere. The selected tab has the prompt, and it's the
 one OXIS commands and plugins act on and whose directory decides the
 workspace. `'tab` lists them; `'tab 2`, `'tab next`, `'tab close`.
 
+### Picking up where you left off
+
+When OXIS starts again — after closing it, a restart or a crash — your
+terminal tabs come back: each in the directory it was in, with the last
+1,000 lines of its output above a *restored from your last session*
+line, and the files that were open in its editor, including any text
+you hadn't saved yet. It's saved every few seconds, so a crash loses at
+most that. Programs that were running aren't brought back (they ended
+with the app). Setting `restoreSession` turns it off.
+
 ### Keys
 
 | Key | Action |
@@ -1126,6 +1136,7 @@ printed in the terminal and listed by `'diagnostics`.
 | `promptColors` | `true` | Colour the prompt and the commands you ran |
 | `editorVim` | `true` | The editor's Normal, Insert and Visual modes; off, it just types |
 | `editorMinimap` | `true` | The minimap beside the editor's text |
+| `restoreSession` | `true` | Bring back tabs, their directories and output, open files and unsaved text at startup |
 | `editorSuggest` | `true` | Suggest words and keywords while typing in the editor |
 
 Settings apply immediately and persist. The first three follow the

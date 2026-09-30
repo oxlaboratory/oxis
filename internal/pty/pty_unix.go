@@ -66,6 +66,7 @@ func HandleSession(conn *websocket.Conn) {
 				args, extra = shellStart(shell)
 			}
 			cmd = exec.Command(shell, args...)
+			cmd.Dir = startDir(msg.Dir)
 			cmd.Env = shellEnv(append([]string{"TERM=xterm-256color", "COLORTERM=truecolor"}, extra...)...)
 
 			ptmx, err = gpty.StartWithSize(cmd, &gpty.Winsize{

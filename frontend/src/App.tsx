@@ -59,6 +59,7 @@ import { CodeMinimap, MINIMAP_WIDTH } from "./components/CodeMinimap";
 import { QuickOpen } from "./components/QuickOpen";
 import { SearchInFiles } from "./components/SearchInFiles";
 import { SymbolPicker } from "./components/SymbolPicker";
+import { loadSession, saveSession, registerTabSnapshot, takeLines, type SavedTab } from "./terminal/session";
 import { findSymbols, type CodeSymbol } from "./terminal/symbols";
 import {
   indentUnit, indentLines, outdentLines, toggleComment, moveLines, duplicateLines, deleteLines,
@@ -305,6 +306,11 @@ const SETTINGS: SettingDef[] = [
     key: "editorMinimap", label: "Editor Minimap", default: true,
     description: "Show the whole file in miniature beside the editor, marking where its mistakes, find matches and unsaved changes are",
     apply: () => { /* read when the editor renders */ },
+  },
+  {
+    key: "restoreSession", label: "Restore Session", default: true,
+    description: "Bring back your terminal tabs (their directories and recent output), open files and unsaved editor text when OXIS starts again",
+    apply: () => { /* read at startup */ },
   },
   {
     key: "editorSuggest", label: "Editor Suggestions", default: true,
@@ -4673,6 +4679,8 @@ interface TermProps {
   onTitle:     (title: string) => void;
   /** Output arrived while the tab isn't selected. */
   onActivity:  () => void;
+  /** What this tab had in the last session, to bring back. */
+  restore?:    SavedTab;
   /** Element the global prompt is portalled into — the fixed bar above
    *  the status line, shared by every screen. */
   promptHost:  HTMLElement | null;
@@ -4851,7 +4859,7 @@ function groupOutput(lines: Line[], cache: Map<number, Line[]>): { blocks: Array
  *  for 'https://github.com':", "Enter PIN:". */
 const SECRET_PROMPT_RE = /(password|passphrase|\bpin\b)[^\n]*:\s*$/i;
 
-function Terminal({ id, isActive, selected, first, onTitle, onActivity, promptHost, onReady, onShowShell, onCloseTab }: TermProps) {
+function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore, promptHost, onReady, onShowShell, onCloseTab }: TermProps) {
   const onNewTab = onShowShell;
   const selectedRef = useRef(selected);
   selectedRef.current = selected;
@@ -4865,7 +4873,12 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, promptHo
     onTitleRef.current(path.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || path);
   }), [dirTracker]);
   // ── output state ─────────────────────────────────────────
-  const [lines,      setLines]      = useState<Line[]>(() => initialLines());
+  const [lines,      setLines]      = useState<Line[]>(() => {
+    if (!restore?.lines.length) return initialLines();
+    // The last session's output, then a line saying where it ends.
+    const back = restore.lines.map(l => ({ ...mkLine(l.text, l.kind), spans: l.spans, status: l.status }));
+    return [...back, mkLine(""), mkLine(`  ── restored from your last session${restore.cwd ? ` · ${restore.cwd}` : ""} ──`, "dim"), mkLine("")];
+  });
   const [ready,      setReady]      = useState(false);
   const [partial,    setPartial]    = useState("");
   const [partialSpans, setPartialSpans] = useState<Span[] | undefined>(undefined);
@@ -5667,6 +5680,7 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, promptHo
     ptySize.current = measurePtySize() ?? { cols: 120, rows: 30 };
     session.current = openPty({
       ...ptySize.current,
+      dir: restore?.cwd || undefined,
       onOutput,
       onRewind,
       onCursor: (hidden) => { programCursorHidden.current = hidden; },
@@ -5843,6 +5857,31 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, promptHo
       ctxRef.current.clear   = clear;
     }
   }, [sendToShell, runLine, addLine, clear]);
+
+  // This tab in the saved session (terminal/session.ts): its directory,
+  // name, recent output and open files.
+  const editorFilesRef = useRef(editorFiles);
+  editorFilesRef.current = editorFiles;
+  const activeEditorPathRef2 = useRef(activeEditorPath);
+  activeEditorPathRef2.current = activeEditorPath;
+  useEffect(() => registerTabSnapshot(id, () => {
+    const cwd = dirTracker.get() || restore?.cwd || "";
+    return {
+      title: cwd ? cwd.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || cwd : "",
+      cwd,
+      lines: takeLines(linesRef.current),
+      files: editorFilesRef.current.filter(f => !f.binary && !f.imageUrl && !f.loadError).map(f => f.path),
+      activeFile: activeEditorPathRef2.current ?? undefined,
+    };
+  }), [id, dirTracker, restore]);
+  // The last session's files, reopened once.
+  const reopened = useRef(false);
+  useEffect(() => {
+    if (reopened.current || !restore?.files.length || !ctxRef.current) return;
+    reopened.current = true;
+    for (const f of restore.files) ctxRef.current.openEditor(f);
+    if (restore.activeFile && restore.files.includes(restore.activeFile)) setActiveEditorPath(restore.activeFile);
+  });
 
   // The selected tab is the one commands print into, plugins talk to
   // (their oxis.* calls), and whose directory the app follows.
@@ -7458,15 +7497,42 @@ export default function App() {
   // Each tab is its own shell. The selected one has the prompt; the
   // others keep running (output arriving in one marks it). The strip
   // shows once there are two.
-  const [tabs, setTabs] = useState<TermTab[]>(() => [{ id: "t1", title: "", activity: false }]);
-  const [activeTab, setActiveTab] = useState("t1");
+  // The last session (terminal/session.ts), if it's to be restored.
+  const restored = useMemo(() => {
+    if (getSetting("restoreSession") === false) return null;
+    const s = loadSession();
+    if (!s) return null;
+    // Unsaved editor text is waiting for its files when they open.
+    for (const [path, text] of Object.entries(s.drafts ?? {})) editorDrafts.set(path, { ...(editorDrafts.get(path) ?? {}), text });
+    return s;
+  }, []);
+  const [tabs, setTabs] = useState<TermTab[]>(() => restored
+    ? restored.tabs.map((t, i) => ({ id: `t${i + 1}`, title: t.title, activity: false }))
+    : [{ id: "t1", title: "", activity: false }]);
+  const [activeTab, setActiveTab] = useState(() => restored ? `t${Math.min(restored.active, restored.tabs.length - 1) + 1}` : "t1");
   const tabsRef = useRef(tabs);
   tabsRef.current = tabs;
   const activeTabRef = useRef(activeTab);
   activeTabRef.current = activeTab;
   const viewRef = useRef(view);
   viewRef.current = view;
-  const nextTabNumber = useRef(2);
+  const nextTabNumber = useRef((restored?.tabs.length ?? 1) + 1);
+  const restoreFor = useRef(new Map((restored?.tabs ?? []).map((t, i) => [`t${i + 1}`, t])));
+
+  // Saved every few seconds and when the window closes.
+  useEffect(() => {
+    const save = () => {
+      if (getSetting("restoreSession") === false) return;
+      const drafts: Record<string, string> = {};
+      for (const [path, d] of editorDrafts) if (d.text !== undefined) drafts[path] = d.text;
+      saveSession(tabsRef.current.map(t => t.id), activeTabRef.current, drafts);
+    };
+    const timer = setInterval(save, 5000);
+    const onHide = () => { if (document.visibilityState === "hidden") save(); };
+    window.addEventListener("beforeunload", save);
+    document.addEventListener("visibilitychange", onHide);
+    return () => { clearInterval(timer); window.removeEventListener("beforeunload", save); document.removeEventListener("visibilitychange", onHide); };
+  }, []);
 
   const selectTab = useCallback((id: string) => {
     setActiveTab(id);
@@ -7633,6 +7699,7 @@ export default function App() {
                 isActive={!isHome && t.id === activeTab}
                 selected={t.id === activeTab}
                 first={t.id === "t1"}
+                restore={restoreFor.current.get(t.id)}
                 onTitle={title => setTabs(cur => cur.some(x => x.id === t.id && x.title !== title)
                   ? cur.map(x => x.id === t.id ? { ...x, title } : x) : cur)}
                 onActivity={() => setTabs(cur => cur.some(x => x.id === t.id && !x.activity)

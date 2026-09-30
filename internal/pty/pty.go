@@ -22,6 +22,20 @@ type inMsg struct {
 	Data string `json:"data,omitempty"`
 	Cols uint16 `json:"cols,omitempty"`
 	Rows uint16 `json:"rows,omitempty"`
+	// Dir, with "init": the folder to start the shell in (a restored
+	// tab's); ignored unless it's an existing directory.
+	Dir string `json:"dir,omitempty"`
+}
+
+// startDir is dir if it's an existing directory, else "" (the default).
+func startDir(dir string) string {
+	if dir == "" {
+		return ""
+	}
+	if info, err := os.Stat(dir); err == nil && info.IsDir() {
+		return dir
+	}
+	return ""
 }
 
 // Message types (server → client)

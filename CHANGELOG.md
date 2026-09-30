@@ -6,6 +6,11 @@ All notable changes to OXIS. The format follows
 ## [Unreleased]
 
 ### Added
+- Sessions survive a restart or a crash: terminal tabs come back in the
+  directories they were in, with their last 1,000 lines of output, the
+  files open in their editors and unsaved editor text. Saved every few
+  seconds; setting `restoreSession`. The shell can now be started in a
+  given directory (`dir` in the PTY's init message).
 - Search in files (Ctrl+Shift+F in the editor): every matching line in
   the project, grouped by file, with case, whole-word and regex options;
   opening a result selects the match. The search runs in Go, skips

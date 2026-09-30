@@ -50,6 +50,8 @@ export interface PtySession {
 export interface PtyOptions {
   cols:     number;
   rows:     number;
+  /** The folder to start the shell in (a restored tab's). */
+  dir?:     string;
   onOutput: OutputCallback;
   onReady:  ReadyCallback;
   onExit:   ExitCallback;
@@ -107,7 +109,7 @@ export function openPty(opts: PtyOptions): PtySession {
     ws = socket;
 
     socket.addEventListener("open", () => {
-      socket.send(JSON.stringify({ type: "init", ...size }));
+      socket.send(JSON.stringify({ type: "init", ...size, ...(opts.dir ? { dir: opts.dir } : {}) }));
     });
 
     socket.addEventListener("message", (ev) => {
