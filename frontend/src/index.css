@@ -1291,3 +1291,18 @@ input, textarea { font-family: var(--font); }
 .symp-name { color: var(--text); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .symp-name b { color: var(--purple); }
 .symp-line { color: var(--dim); font-size: 11px; font-variant-numeric: tabular-nums; }
+
+/* Split panes (App): each .term-pane is a shell; the focused one (with
+   the prompt) is outlined when there are several. */
+.term-pane { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
+.term-pane--focus::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 5;
+  box-shadow: inset 0 2px 0 0 var(--purple3);
+}
+.term-split-handle { flex: none; background: var(--border); z-index: 6; }
+.term-split-handle--row    { width: 4px; cursor: col-resize; }
+.term-split-handle--column { height: 4px; cursor: row-resize; }
+.term-split-handle:hover { background: var(--purple3); }
+.term-tab-panes { color: var(--dim); font-size: 10px; }
+/* In a split tab the corner mark would sit on a narrow pane's text. */
+.term-tab-pane:has(> .term-pane + .term-split-handle) .term-corner-mark { display: none; }

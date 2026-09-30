@@ -4,8 +4,7 @@
  */
 
 import React, {
-  memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState,
-} from "react";
+  memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, Fragment } from "react";
 import { createPortal } from "react-dom";
 import { marked } from "marked";
 
@@ -669,7 +668,11 @@ const HOTKEYS: Array<{ section: string; keys: Array<[string, string]> }> = [
     ["Ctrl+W", "back to Home"],
     ["Ctrl+Tab / Ctrl+Shift+Tab", "next / previous terminal tab (also Ctrl+PageDown / PageUp)"],
     ["Ctrl+1 … Ctrl+9", "go to terminal tab 1 … 9"],
-    ["Ctrl+Shift+W", "close the terminal tab (and its shell)"],
+    ["Ctrl+Shift+W", "close the pane, or the tab (and its shell)"],
+    ["Ctrl+\\ / Alt+Shift+=", "split the terminal: a new shell beside this one"],
+    ["Alt+Shift+-", "split the terminal: a new shell below this one"],
+    ["Alt+arrows", "the pane to the left / right / above / below"],
+    ["Alt+Shift+arrows", "make the pane bigger or smaller (or drag the divider)"],
     ["Ctrl+= / Ctrl+- / Ctrl+0", "zoom in / out / reset"],
     ["Ctrl+B", "show or hide the file tree (with a file open)"],
   ] },
@@ -965,6 +968,13 @@ function registerBuiltinCommands(): void {
 
   registry.register({ name:"home",    category:"shell", description:"Return to OXIS home screen",
     handler:()=>_goHomeRef.current?.() });
+
+  registry.register({ name:"split",   category:"shell", description:"Split the terminal: right, down, close, next, prev",
+    handler:(args)=>{
+      const action = (args[0] ?? "right").toLowerCase();
+      if (!["right", "down", "close", "next", "prev"].includes(action)) { err(`usage: 'split [right | down | close | next | prev]`); return; }
+      events.emit("pane_request", { action });
+    }});
 
   registry.register({ name:"tab",     category:"shell", description:"Terminal tabs: new, close, next, prev, <n>, list",
     handler:(args)=>{
@@ -2267,7 +2277,7 @@ Settings, workspace files, documents and plugins with the same name as ones in t
       h("'write <f> [text]","write file"); h("'append <f> <text>","append to file");
       h("'edit <f>","built-in editor"); h("'hash <f>","SHA256"); h("'size <p>","disk size"); h("'update","check for a newer release");
       info(""); h("── shell ─────────────────────────────","");
-      h("'clear","clear output"); h("'tab [new|close|<n>]","terminal tabs (Ctrl+T, Ctrl+Tab)"); h("'run <cmd>","raw command"); h("'env","env vars");
+      h("'clear","clear output"); h("'tab [new|close|<n>]","terminal tabs (Ctrl+T, Ctrl+Tab)"); h("'split [right|down]","split panes (Ctrl+\\, Alt+arrows)"); h("'run <cmd>","raw command"); h("'env","env vars");
       h("'ps","processes"); h("'kill <pid|name>","kill process"); h("'ip","network");
       h("'disk","disk usage"); h("'sysinfo","system info"); h("'which <cmd>","find command");
       h("'find [pat]","search files"); h("'grep <pat> <f>","search contents");
@@ -4661,9 +4671,22 @@ function ThemeEditor({ name: initName, onClose }: { name: string; onClose: () =>
 // ══════════════════════════════════════════════════════════════
 // TERMINAL — fully polished input engine
 // ══════════════════════════════════════════════════════════════
-/** A terminal tab: its name (its directory's), and whether output came
- *  while it was in the background. */
-interface TermTab { id: string; title: string; activity: boolean }
+/** A terminal tab: its panes (each a shell, side by side or one above
+ *  another), which has focus, their shares of the space, each pane's
+ *  name (its directory's), and whether output came while the tab was in
+ *  the background. */
+interface TermTab {
+  id: string;
+  panes: string[];
+  split: "row" | "column";
+  sizes: number[];
+  focus: string;
+  titles: Record<string, string>;
+  activity: boolean;
+}
+const tabTitle = (t: TermTab) => t.titles[t.focus] || t.titles[t.panes[0]] || "shell";
+const oneTab = (id: string, title = ""): TermTab =>
+  ({ id, panes: [id], split: "row", sizes: [1], focus: id, titles: title ? { [id]: title } : {}, activity: false });
 
 interface TermProps {
   id:          string;
@@ -4691,6 +4714,14 @@ interface TermProps {
 }
 
 interface InputState { value: string; cursor: number; }
+
+/** What a terminal's size is measured from: its pane, or while that's
+ *  hidden (a tab in the background, Home in front) the window's body. */
+function paneHost(el: HTMLElement | null): HTMLElement | null {
+  const pane = el?.closest(".term-pane") as HTMLElement | null;
+  if (pane && pane.clientWidth > 0 && pane.clientHeight > 0) return pane;
+  return (el?.closest(".app-body") as HTMLElement | null) ?? el;
+}
 
 let _pluginsInited = false;
 /** Loads plugins and workspaces once, before any built-in commands are
@@ -5657,7 +5688,7 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
   // duplicating) its screen on a late resize.
   const measurePtySize = useCallback((): { cols: number; rows: number } | null => {
     const el = outRef.current;
-    const host = (el?.closest(".app-body") as HTMLElement | null) ?? el;
+    const host = paneHost(el);
     if (!el || !host || host.clientWidth === 0 || host.clientHeight === 0) return null;
     const style = getComputedStyle(el);
     const g = document.createElement("canvas").getContext("2d");
@@ -5735,7 +5766,7 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
   useEffect(() => {
     const el = outRef.current;
     if (!el) return;
-    const host = (el.closest(".app-body") as HTMLElement | null) ?? el;
+    const host = (el.closest(".term-pane") as HTMLElement | null) ?? (el.closest(".app-body") as HTMLElement | null) ?? el;
     let last = "";
     const ro = new ResizeObserver(() => {
       if (screenView.current) {
@@ -7493,31 +7524,39 @@ export default function App() {
 
   const openShell = useCallback(() => setView("shell"), []);
 
-  // ── Terminal tabs ─────────────────────────────────────────
-  // Each tab is its own shell. The selected one has the prompt; the
-  // others keep running (output arriving in one marks it). The strip
-  // shows once there are two.
+  // ── Terminal tabs and panes ─────────────────────────────
+  // Each tab holds one or more panes, side by side (split "row") or one
+  // above another ("column"); each pane is its own shell (a Terminal).
+  // The focused pane of the selected tab has the prompt; everything else
+  // keeps running (output in a tab you aren't looking at marks it). The
+  // strip shows once there are two tabs.
   // The last session (terminal/session.ts), if it's to be restored.
-  const restored = useMemo(() => {
-    if (getSetting("restoreSession") === false) return null;
-    const s = loadSession();
-    if (!s) return null;
+  const initial = useMemo(() => {
+    const s = getSetting("restoreSession") === false ? null : loadSession();
+    if (!s) return { tabs: [oneTab("t1")], active: "t1", restoreFor: new Map<string, SavedTab>(), next: 2 };
     // Unsaved editor text is waiting for its files when they open.
     for (const [path, text] of Object.entries(s.drafts ?? {})) editorDrafts.set(path, { ...(editorDrafts.get(path) ?? {}), text });
-    return s;
+    const restoreFor = new Map<string, SavedTab>();
+    let k = 0;
+    const tabs = s.tabs.map(saved => {
+      const all = [saved, ...(saved.more ?? [])];
+      const panes = all.map(p => { const id = `t${++k}`; restoreFor.set(id, p); return id; });
+      const titles: Record<string, string> = {};
+      panes.forEach((id, i) => { if (all[i].title) titles[id] = all[i].title; });
+      return { id: panes[0], panes, split: saved.split ?? "row", sizes: panes.map(() => 1), focus: panes[Math.min(saved.focus ?? 0, panes.length - 1)], titles, activity: false } as TermTab;
+    });
+    return { tabs, active: tabs[Math.min(s.active, tabs.length - 1)].id, restoreFor, next: k + 1 };
   }, []);
-  const [tabs, setTabs] = useState<TermTab[]>(() => restored
-    ? restored.tabs.map((t, i) => ({ id: `t${i + 1}`, title: t.title, activity: false }))
-    : [{ id: "t1", title: "", activity: false }]);
-  const [activeTab, setActiveTab] = useState(() => restored ? `t${Math.min(restored.active, restored.tabs.length - 1) + 1}` : "t1");
+  const [tabs, setTabs] = useState<TermTab[]>(initial.tabs);
+  const [activeTab, setActiveTab] = useState(initial.active);
   const tabsRef = useRef(tabs);
   tabsRef.current = tabs;
   const activeTabRef = useRef(activeTab);
   activeTabRef.current = activeTab;
   const viewRef = useRef(view);
   viewRef.current = view;
-  const nextTabNumber = useRef((restored?.tabs.length ?? 1) + 1);
-  const restoreFor = useRef(new Map((restored?.tabs ?? []).map((t, i) => [`t${i + 1}`, t])));
+  const nextTabNumber = useRef(initial.next);
+  const restoreFor = useRef(initial.restoreFor);
 
   // Saved every few seconds and when the window closes.
   useEffect(() => {
@@ -7525,7 +7564,9 @@ export default function App() {
       if (getSetting("restoreSession") === false) return;
       const drafts: Record<string, string> = {};
       for (const [path, d] of editorDrafts) if (d.text !== undefined) drafts[path] = d.text;
-      saveSession(tabsRef.current.map(t => t.id), activeTabRef.current, drafts);
+      const all = tabsRef.current;
+      saveSession(all.map(t => ({ panes: t.panes, split: t.split, focus: t.focus })),
+        Math.max(0, all.findIndex(t => t.id === activeTabRef.current)), drafts);
     };
     const timer = setInterval(save, 5000);
     const onHide = () => { if (document.visibilityState === "hidden") save(); };
@@ -7534,6 +7575,11 @@ export default function App() {
     return () => { clearInterval(timer); window.removeEventListener("beforeunload", save); document.removeEventListener("visibilitychange", onHide); };
   }, []);
 
+  const updateTab = useCallback((id: string, change: (t: TermTab) => TermTab) => {
+    setTabs(cur => cur.map(t => (t.id === id ? change(t) : t)));
+  }, []);
+  const activeTabNow = () => tabsRef.current.find(t => t.id === activeTabRef.current);
+
   const selectTab = useCallback((id: string) => {
     setActiveTab(id);
     setTabs(t => t.some(x => x.id === id && x.activity) ? t.map(x => x.id === id ? { ...x, activity: false } : x) : t);
@@ -7541,11 +7587,11 @@ export default function App() {
   }, []);
   const newTab = useCallback(() => {
     const id = `t${nextTabNumber.current++}`;
-    setTabs(t => [...t, { id, title: "", activity: false }]);
+    setTabs(t => [...t, oneTab(id)]);
     setActiveTab(id);
     setView("shell");
   }, []);
-  /** Closes a tab and its shell; closing the only one starts a fresh shell. */
+  /** Closes a tab and all its shells; closing the only one starts a fresh shell. */
   const closeTab = useCallback((id: string) => {
     const t = tabsRef.current;
     const i = t.findIndex(x => x.id === id);
@@ -7561,7 +7607,84 @@ export default function App() {
     selectTab(t[(i + delta + t.length) % t.length].id);
   }, [selectTab]);
 
-  // 'tab …
+  const focusPane = useCallback((tabId: string, pane: string) => {
+    updateTab(tabId, t => (t.focus === pane ? t : { ...t, focus: pane }));
+  }, [updateTab]);
+  /** Splits the focused pane: a new shell beside it ("row") or below it
+   *  ("column"). A tab splits one way; more panes go the same way. */
+  const splitPane = useCallback((dir: "row" | "column") => {
+    const tab = activeTabNow();
+    if (!tab) return;
+    const id = `t${nextTabNumber.current++}`;
+    const at = tab.panes.indexOf(tab.focus);
+    const half = tab.sizes[at] / 2;
+    updateTab(tab.id, t => ({
+      ...t,
+      split: t.panes.length === 1 ? dir : t.split,
+      panes: [...t.panes.slice(0, at + 1), id, ...t.panes.slice(at + 1)],
+      sizes: [...t.sizes.slice(0, at), half, half, ...t.sizes.slice(at + 1)],
+      focus: id,
+    }));
+    setView("shell");
+  }, [updateTab]);
+  /** Closes the focused pane and its shell (the tab, if it's the last). */
+  const closePane = useCallback(() => {
+    const tab = activeTabNow();
+    if (!tab) return;
+    if (tab.panes.length === 1) { closeTab(tab.id); return; }
+    const at = tab.panes.indexOf(tab.focus);
+    const panes = tab.panes.filter((_, i) => i !== at);
+    const sizes = tab.sizes.filter((_, i) => i !== at);
+    updateTab(tab.id, t => ({ ...t, panes, sizes, focus: panes[Math.min(at, panes.length - 1)] }));
+  }, [closeTab, updateTab]);
+  /** Alt+arrows: the pane before or after the focused one. */
+  const stepPane = useCallback((delta: number) => {
+    const tab = activeTabNow();
+    if (!tab || tab.panes.length < 2) return false;
+    const at = tab.panes.indexOf(tab.focus);
+    const to = at + delta;
+    if (to < 0 || to >= tab.panes.length) return false;
+    focusPane(tab.id, tab.panes[to]);
+    return true;
+  }, [focusPane]);
+  /** Alt+Shift+arrows: grows (1) or shrinks (-1) the focused pane. */
+  const resizePane = useCallback((delta: number) => {
+    const tab = activeTabNow();
+    if (!tab || tab.panes.length < 2) return false;
+    const at = tab.panes.indexOf(tab.focus);
+    const other = at + 1 < tab.panes.length ? at + 1 : at - 1;
+    const total = tab.sizes.reduce((a, b) => a + b, 0);
+    const step = total * 0.05 * delta;
+    const sizes = [...tab.sizes];
+    if (sizes[at] + step < total * 0.1 || sizes[other] - step < total * 0.1) return true;
+    sizes[at] += step;
+    sizes[other] -= step;
+    updateTab(tab.id, t => ({ ...t, sizes }));
+    return true;
+  }, [updateTab]);
+  /** Dragging the divider before pane `i`. */
+  const dragDivider = useCallback((tabId: string, i: number, e: React.MouseEvent) => {
+    e.preventDefault();
+    const box = (e.currentTarget as HTMLElement).parentElement;
+    const tab = tabsRef.current.find(t => t.id === tabId);
+    if (!box || !tab) return;
+    const rect = box.getBoundingClientRect();
+    const row = tab.split === "row";
+    const total = tab.sizes.reduce((a, b) => a + b, 0);
+    const before = tab.sizes.slice(0, i - 1).reduce((a, b) => a + b, 0);
+    const pair = tab.sizes[i - 1] + tab.sizes[i];
+    const move = (ev: MouseEvent) => {
+      const at = row ? (ev.clientX - rect.left) / rect.width : (ev.clientY - rect.top) / rect.height;
+      const first = Math.min(pair - total * 0.1, Math.max(total * 0.1, at * total - before));
+      updateTab(tabId, t => { const sizes = [...t.sizes]; sizes[i - 1] = first; sizes[i] = pair - first; return { ...t, sizes }; });
+    };
+    const up = () => { window.removeEventListener("mousemove", move); window.removeEventListener("mouseup", up); document.body.style.cursor = ""; };
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
+    document.body.style.cursor = row ? "col-resize" : "row-resize";
+  }, [updateTab]);
+
+  // 'tab … and 'split …
   useEffect(() => events.on("tab_request", p => {
     const action = String((p as { action?: string } | undefined)?.action ?? "list");
     const t = tabsRef.current;
@@ -7575,9 +7698,17 @@ export default function App() {
       else _ctxRef.current?.print(`  ✗  there's no tab ${action} (there ${t.length === 1 ? "is 1" : `are ${t.length}`})`, "err");
     } else {
       _ctxRef.current?.printLines(t.map((x, k): [string, LineKind?] =>
-        [`  ${x.id === activeTabRef.current ? "●" : "○"}  ${k + 1}  ${x.title || "shell"}`, x.id === activeTabRef.current ? "accent" : "dim"]));
+        [`  ${x.id === activeTabRef.current ? "●" : "○"}  ${k + 1}  ${tabTitle(x)}${x.panes.length > 1 ? `  (${x.panes.length} panes)` : ""}`, x.id === activeTabRef.current ? "accent" : "dim"]));
     }
   }), [newTab, closeTab, stepTab, selectTab]);
+  useEffect(() => events.on("pane_request", p => {
+    const action = String((p as { action?: string } | undefined)?.action ?? "right");
+    if (action === "right") splitPane("row");
+    else if (action === "down") splitPane("column");
+    else if (action === "close") closePane();
+    else if (action === "next") stepPane(1);
+    else if (action === "prev") stepPane(-1);
+  }), [splitPane, closePane, stepPane]);
 
   // Runs a command line for the user (command palette, Home buttons),
   // queuing it until the shell is connected.
@@ -7617,7 +7748,23 @@ export default function App() {
     tabKey("Tab", true, "Previous terminal tab", () => stepTab(-1));
     tabKey("PageDown", false, "Next terminal tab", () => stepTab(1));
     tabKey("PageUp", false, "Previous terminal tab", () => stepTab(-1));
-    tabKey("w", true, "Close the terminal tab", () => closeTab(activeTabRef.current));
+    tabKey("w", true, "Close the pane (or the tab) and its shell", () => closePane());
+    tabKey("\\", false, "Split the pane: a new shell beside it", () => splitPane("row"));
+    const paneKey = (key: string, shift: boolean, description: string, run: () => boolean | void) =>
+      keybinds.register({ key, alt: true, shift, description, handler: (e) => {
+        if (run() === false) return false; // nothing to move to: the key does what it did
+        e.preventDefault();
+      } });
+    paneKey("+", true, "Split the pane: a new shell beside it", () => splitPane("row"));
+    paneKey("_", true, "Split the pane: a new shell below it", () => splitPane("column"));
+    paneKey("ArrowLeft", false, "The pane to the left", () => stepPane(-1));
+    paneKey("ArrowUp", false, "The pane above", () => stepPane(-1));
+    paneKey("ArrowRight", false, "The pane to the right", () => stepPane(1));
+    paneKey("ArrowDown", false, "The pane below", () => stepPane(1));
+    paneKey("ArrowRight", true, "Grow the pane", () => resizePane(1));
+    paneKey("ArrowDown", true, "Grow the pane", () => resizePane(1));
+    paneKey("ArrowLeft", true, "Shrink the pane", () => resizePane(-1));
+    paneKey("ArrowUp", true, "Shrink the pane", () => resizePane(-1));
     // App shortcuts don't fire while typing in another field (the
     // editor, a search box); the global prompt handles its own.
     const inOtherField = () => {
@@ -7642,7 +7789,7 @@ export default function App() {
       window.removeEventListener("keydown", handler, true);
       window.removeEventListener("keydown", blockBrowser, true);
     };
-  }, [openShell, newTab, selectTab, stepTab, closeTab]);
+  }, [openShell, newTab, selectTab, stepTab, closeTab, closePane, splitPane, stepPane, resizePane]);
 
   const isHome = view === "home";
 
@@ -7681,9 +7828,9 @@ export default function App() {
                   className={`term-tab${t.id === activeTab ? " term-tab--active" : ""}`}
                   onMouseDown={e => { if (e.button === 1) { e.preventDefault(); closeTab(t.id); } }}
                   onClick={() => selectTab(t.id)}
-                  title={`${t.title || "shell"}${i < 9 ? ` (Ctrl+${i + 1})` : ""} — middle-click to close`}>
+                  title={`${tabTitle(t)}${i < 9 ? ` (Ctrl+${i + 1})` : ""} — middle-click to close`}>
                   <span className="term-tab-num">{i + 1}</span>
-                  <span className="term-tab-name">{t.title || "shell"}</span>
+                  <span className="term-tab-name">{tabTitle(t)}{t.panes.length > 1 ? <span className="term-tab-panes"> ◫{t.panes.length}</span> : null}</span>
                   {t.activity && t.id !== activeTab && <span className="term-tab-dot" title="new output">●</span>}
                   <span className="term-tab-close" title="Close this tab and its shell (Ctrl+Shift+W)"
                     onClick={e => { e.stopPropagation(); closeTab(t.id); }}>×</span>
@@ -7693,26 +7840,38 @@ export default function App() {
             </div>
           )}
           {tabs.map(t => (
-            <div key={t.id} className="term-tab-pane" style={{ display: t.id === activeTab ? "flex" : "none" }}>
-              <Terminal
-                id={t.id}
-                isActive={!isHome && t.id === activeTab}
-                selected={t.id === activeTab}
-                first={t.id === "t1"}
-                restore={restoreFor.current.get(t.id)}
-                onTitle={title => setTabs(cur => cur.some(x => x.id === t.id && x.title !== title)
-                  ? cur.map(x => x.id === t.id ? { ...x, title } : x) : cur)}
-                onActivity={() => setTabs(cur => cur.some(x => x.id === t.id && !x.activity)
-                  ? cur.map(x => x.id === t.id ? { ...x, activity: true } : x) : cur)}
-                promptHost={promptHost}
-                onReady={() => {
-                  setReady(true);
-                  const cmd = pendingCmd.current;
-                  if (cmd) { pendingCmd.current = ""; setTimeout(() => _ctxRef.current?.runLine(cmd), 300); }
-                }}
-                onShowShell={openShell}
-                onCloseTab={() => closeTab(t.id)}
-              />
+            <div key={t.id} className="term-tab-pane" style={{ display: t.id === activeTab ? "flex" : "none", flexDirection: t.split }}>
+              {t.panes.map((pane, i) => (
+                <Fragment key={pane}>
+                  {i > 0 && (
+                    <div className={`term-split-handle term-split-handle--${t.split}`}
+                      onMouseDown={e => dragDivider(t.id, i, e)} title="Drag to resize (Alt+Shift+arrows)" />
+                  )}
+                  <div className={`term-pane${t.panes.length > 1 && pane === t.focus ? " term-pane--focus" : ""}`}
+                    style={{ flex: `${(100 * (t.sizes[i] ?? 1)) / t.sizes.reduce((a, b) => a + b, 0)} 1 0` }}
+                    onMouseDownCapture={() => focusPane(t.id, pane)}>
+                    <Terminal
+                      id={pane}
+                      isActive={!isHome && t.id === activeTab}
+                      selected={t.id === activeTab && pane === t.focus}
+                      first={pane === "t1"}
+                      restore={restoreFor.current.get(pane)}
+                      onTitle={title => setTabs(cur => cur.some(x => x.id === t.id && x.titles[pane] !== title)
+                        ? cur.map(x => x.id === t.id ? { ...x, titles: { ...x.titles, [pane]: title } } : x) : cur)}
+                      onActivity={() => setTabs(cur => cur.some(x => x.id === t.id && !x.activity && x.id !== activeTabRef.current)
+                        ? cur.map(x => x.id === t.id ? { ...x, activity: true } : x) : cur)}
+                      promptHost={promptHost}
+                      onReady={() => {
+                        setReady(true);
+                        const cmd = pendingCmd.current;
+                        if (cmd) { pendingCmd.current = ""; setTimeout(() => _ctxRef.current?.runLine(cmd), 300); }
+                      }}
+                      onShowShell={openShell}
+                      onCloseTab={() => closeTab(t.id)}
+                    />
+                  </div>
+                </Fragment>
+              ))}
             </div>
           ))}
         </div>

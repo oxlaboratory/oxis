@@ -16,6 +16,11 @@ export interface SavedTab {
   lines: SavedLine[];
   files: string[];
   activeFile?: string;
+  /** A split tab: its other panes, which way it's split, and which pane
+   *  (0 is this one) had focus. */
+  more?: SavedTab[];
+  split?: "row" | "column";
+  focus?: number;
 }
 export interface Session {
   v: 1;
@@ -47,18 +52,23 @@ export function takeLines(lines: Line[]): SavedLine[] {
   });
 }
 
-/** Saves the tabs (in `order`) and drafts. */
-export function saveSession(order: string[], active: string, drafts: Record<string, string>): void {
-  const tabs = order.map(id => snapshots.get(id)?.()).filter((t): t is SavedTab => !!t);
-  const session: Session = { v: 1, savedAt: Date.now(), active: Math.max(0, order.indexOf(active)), tabs, drafts };
+/** Saves the tabs (each a list of panes) and drafts. */
+export function saveSession(layout: Array<{ panes: string[]; split: "row" | "column"; focus: string }>, active: number, drafts: Record<string, string>): void {
+  const tabs = layout.flatMap((l): SavedTab[] => {
+    const snaps = l.panes.map(id => snapshots.get(id)?.()).filter((p): p is SavedTab => !!p);
+    if (!snaps.length) return [];
+    const [first, ...more] = snaps;
+    return [{ ...first, split: l.split, focus: Math.max(0, l.panes.indexOf(l.focus)), ...(more.length ? { more } : {}) }];
+  });
+  const session: Session = { v: 1, savedAt: Date.now(), active, tabs, drafts };
   let json = JSON.stringify(session);
   // Too big: keep the text, drop the colours, then keep fewer lines.
   if (json.length > MAX_BYTES) {
-    for (const t of session.tabs) t.lines = t.lines.map(({ text, kind, status }) => ({ text, kind, status }));
+    for (const t of session.tabs.flatMap(t => [t, ...(t.more ?? [])])) t.lines = t.lines.map(({ text, kind, status }) => ({ text, kind, status }));
     json = JSON.stringify(session);
   }
   if (json.length > MAX_BYTES) {
-    for (const t of session.tabs) t.lines = t.lines.slice(-200);
+    for (const t of session.tabs.flatMap(t => [t, ...(t.more ?? [])])) t.lines = t.lines.slice(-200);
     json = JSON.stringify(session);
   }
   try { localStorage.setItem(KEY, json); } catch { /* storage full or unavailable: nothing to restore next time */ }

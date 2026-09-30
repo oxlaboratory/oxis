@@ -311,7 +311,7 @@ scrolls above it and never goes underneath it.
 - The terminal shows `OXIS` in its top-right corner. There's no startup
   splash; the app opens straight onto Home.
 
-### Tabs
+### Tabs and split panes
 
 Each terminal tab is its own shell. **Ctrl+T** in the terminal (or
 `'tab new`, or **+**) opens one; a strip of tabs appears once there are
@@ -319,6 +319,13 @@ two, each named after its directory, with a dot on one that printed
 while you were elsewhere. The selected tab has the prompt, and it's the
 one OXIS commands and plugins act on and whose directory decides the
 workspace. `'tab` lists them; `'tab 2`, `'tab next`, `'tab close`.
+
+A tab can be split, so a dev server runs beside the shell you're
+working in: **Ctrl+\\** (or **Alt+Shift+=**) puts a new shell beside
+the one you're in, **Alt+Shift+-** below it. **Alt+arrows** move between
+panes, **Alt+Shift+arrows** (or dragging the divider) resize them, and
+**Ctrl+Shift+W** closes one. The focused pane, outlined along its top,
+has the prompt. `'split right`, `'split down`, `'split close`.
 
 ### Picking up where you left off
 
@@ -354,7 +361,9 @@ with the app). Setting `restoreSession` turns it off.
 | Ctrl+W | Go back to Home |
 | Ctrl+Tab / Ctrl+Shift+Tab, Ctrl+PageDown / PageUp | Next / previous terminal tab |
 | Ctrl+1 … Ctrl+9 | Go to terminal tab 1 … 9 |
-| Ctrl+Shift+W | Close the terminal tab and its shell |
+| Ctrl+Shift+W | Close the pane (or the tab) and its shell |
+| Ctrl+\\ / Alt+Shift+= / Alt+Shift+- | Split: a new shell beside / beside / below |
+| Alt+arrows / Alt+Shift+arrows | Move between panes / resize the pane |
 | Ctrl+↑ / Ctrl+↓ | Jump to the previous / next command in the output |
 | Ctrl+Shift+P | Command palette |
 | Ctrl+Shift+M | Open the Market website |

@@ -6,6 +6,12 @@ All notable changes to OXIS. The format follows
 ## [Unreleased]
 
 ### Added
+- Split panes: a tab holds several shells side by side or one above
+  another. Ctrl+\\ or Alt+Shift+= splits beside, Alt+Shift+- below;
+  Alt+arrows move between panes, Alt+Shift+arrows or dragging the
+  divider resize them, Ctrl+Shift+W closes one; `'split`. Each pane is
+  sized to its own width and height, and splits are part of the
+  restored session.
 - Sessions survive a restart or a crash: terminal tabs come back in the
   directories they were in, with their last 1,000 lines of output, the
   files open in their editors and unsaved editor text. Saved every few
