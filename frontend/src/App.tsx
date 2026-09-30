@@ -5476,7 +5476,13 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
         syncInput(el.value + e.key, el.value.length + 1);
       }
     };
-    const onFocusRequest = () => { if (selectedRef.current) focusPrompt(); };
+    // With { text }, the prompt is set to it (Home's Get started).
+    const onFocusRequest = (p?: unknown) => {
+      if (!selectedRef.current) return;
+      focusPrompt();
+      const text = (p as { text?: string } | undefined)?.text;
+      if (typeof text === "string") syncInput(text, text.length);
+    };
     window.addEventListener("keydown", onKeyDown);
     const off = events.on("focus_prompt", onFocusRequest);
     return () => { window.removeEventListener("keydown", onKeyDown); off(); };
@@ -6918,9 +6924,11 @@ function SkyWidget() {
   );
 }
 
-function Home({ currentTheme, onTheme, onOpenThemeEditor, onOpenPluginCreator }: {
+function Home({ currentTheme, onTheme, onOpenThemeEditor, onOpenPluginCreator, onRun }: {
   currentTheme: string; onTheme: (n: string) => void;
   onOpenThemeEditor: (n: string) => void; onOpenPluginCreator: () => void;
+  /** Runs a command line in the terminal (and shows it). */
+  onRun: (cmd: string) => void;
 }) {
   // Home always fits: when the window is too short for it, it's drawn
   // smaller (down to 60%) rather than cut off or scrolled.
@@ -7097,19 +7105,33 @@ function Home({ currentTheme, onTheme, onOpenThemeEditor, onOpenPluginCreator }:
           {dashboard.header && <div className="oxis-dash-header">{dashboard.header}</div>}
           {!workspacePanelHidden && <WorkspacePanel ws={ws} plugins={plugins} activeWorkspace={activeWorkspace} activeWorkspacePath={activeWorkspacePath} />}
           <div className="oxis-box oxis-help-box">
-            <div className="oxis-box-title"><span>GET STARTED</span><span className="oxis-box-title-note">type in the prompt below</span></div>
-            <div className="oxis-help-grid">
-              <span className="ohc">&apos;help</span><span className="ohr">every command</span>
-              <span className="ohc">&apos;edit <span className="oha">&lt;file&gt;</span></span><span className="ohr">open the built-in editor</span>
-              <span className="ohc">&apos;market list</span><span className="ohr">plugins you can install</span>
-              <span className="ohk"><Keys combo="Ctrl+T" /></span><span className="ohr">the terminal, then a new tab</span>
-              <span className="ohk"><Keys combo="Ctrl+Shift+\" /></span><span className="ohr">split: a shell beside this one</span>
-              <span className="ohk"><Keys combo="Ctrl+Shift+P" /></span><span className="ohr">the command palette</span>
-              <span className="ohk"><Keys combo="Ctrl+Shift+M" /></span><span className="ohr">the OXIS Market website</span>
-              {dashboard.shortcuts?.map(sc => (
-                <span key={sc} className="oxis-help-extra"><span className="ohc">{sc}</span></span>
-              ))}
+            <div className="oxis-box-title"><span>GET STARTED</span><span className="oxis-box-title-note">click one, or type it below</span></div>
+            <div className="oxis-help-cols">
+              <div className="oxis-help-col">
+                {HOME_COMMANDS.map(([cmd, what, fill]) => (
+                  <button key={cmd} className="oh-item" onMouseDown={e => e.preventDefault()}
+                    onClick={() => (fill ? events.emit("focus_prompt", { text: fill }) : onRun(cmd))}
+                    title={fill ? `${fill}… — type the rest` : `Run ${cmd}`}>
+                    <span className="ohc oh-what">{cmd.split(" <")[0]}{cmd.includes(" <") && <span className="oha"> &lt;{cmd.split(" <")[1]}</span>}</span>
+                    <span className="ohr">{what}</span>
+                  </button>
+                ))}
+              </div>
+              <div className="oxis-help-col">
+                {HOME_SHORTCUTS.map(([combo, what, key]) => (
+                  <button key={combo} className="oh-item" onMouseDown={e => e.preventDefault()}
+                    onClick={() => pressShortcut(key)} title={`${what} (${combo})`}>
+                    <span className="ohk oh-what"><Keys combo={combo} /></span>
+                    <span className="ohr">{what}</span>
+                  </button>
+                ))}
+              </div>
             </div>
+            {!!dashboard.shortcuts?.length && (
+              <div className="oxis-help-extras">
+                {dashboard.shortcuts.map(sc => <span key={sc} className="ohc">{sc}</span>)}
+              </div>
+            )}
           </div>
         </div>
       </>
@@ -7129,6 +7151,25 @@ function Home({ currentTheme, onTheme, onOpenThemeEditor, onOpenPluginCreator }:
       </div>
     </div>
   );
+}
+
+// Home's Get started: commands (a fill is put in the prompt to finish
+// instead of run) and shortcuts (a click presses the keys).
+const HOME_COMMANDS: Array<[string, string, string?]> = [
+  ["'help", "every command"],
+  ["'edit <file>", "open the editor", "'edit "],
+  ["'market list", "plugins to install"],
+  ["'theme <name>", "change the look", "'theme "],
+];
+const HOME_SHORTCUTS: Array<[string, string, KeyboardEventInit]> = [
+  ["Ctrl+T", "terminal & tabs", { key: "t", ctrlKey: true }],
+  ["Ctrl+Shift+\\", "split beside", { key: "|", code: "Backslash", ctrlKey: true, shiftKey: true }],
+  ["Ctrl+Shift+P", "command palette", { key: "P", ctrlKey: true, shiftKey: true }],
+  ["Ctrl+Shift+M", "the Market", { key: "M", ctrlKey: true, shiftKey: true }],
+];
+/** Does what pressing the keys does (the same handlers get the event). */
+function pressShortcut(init: KeyboardEventInit) {
+  window.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init }));
 }
 
 /** A shortcut as pixel keycaps: Ctrl+Shift+P → [Ctrl] + [Shift] + [P]. */
@@ -7184,7 +7225,7 @@ function WorkspacePanel({ ws, plugins, activeWorkspace, activeWorkspacePath }: {
           ? <span className="oxis-wa--disconnected">checking…</span>
           : gitInfo
             ? <span className="oxis-wa oxis-wa--connected">{gitInfo.provider === "github" ? "GitHub" : "GitLab"}: {gitInfo.repo}</span>
-            : <span className="oxis-wa--disconnected">not connected — <code>&apos;workspace github &quot;owner/repo&quot;</code> or <code>&apos;workspace gitlab &quot;owner/repo&quot;</code></span>}
+            : <span className="oxis-wa--disconnected">not connected — <code>&apos;workspace github owner/repo</code></span>}
       </div>
       {ws.projectPath && (
         <div className="oxis-box-row"><span className="oxis-wl">path</span><span className="oxis-we"> = </span><span className="oxis-wa">{ws.projectPath}</span></div>
@@ -7192,7 +7233,7 @@ function WorkspacePanel({ ws, plugins, activeWorkspace, activeWorkspacePath }: {
       {activeWorkspace && (
         activeWorkspacePath
           ? <div className="oxis-box-row"><span className="oxis-wl">connected</span><span className="oxis-we"> = </span><span className="oxis-wa oxis-wa--connected" title={activeWorkspacePath}>{activeWorkspacePath}</span></div>
-          : <div className="oxis-box-row"><span className="oxis-wl">connected</span><span className="oxis-we"> = </span><span className="oxis-wa--disconnected">no project directory connected — <code>&apos;workspace link &quot;&lt;path&gt;&quot;</code></span></div>
+          : <div className="oxis-box-row"><span className="oxis-wl">connected</span><span className="oxis-we"> = </span><span className="oxis-wa--disconnected">no project folder — <code>&apos;workspace link &lt;path&gt;</code></span></div>
       )}
       <div className="oxis-box-row"><span className="oxis-wl">plugins</span><span className="oxis-we"> = </span><span className="oxis-wa">{active.length} active{active.length ? `  (${active.slice(0, 4).map(p => p.name).join(", ")}${active.length > 4 ? "…" : ""})` : ""}</span></div>
       <div className="oxis-box-row"><span className="oxis-wl">tasks</span><span className="oxis-we"> = </span><span className="oxis-wa">{tasks.length ? tasks.join(", ") : "none defined"}</span></div>
@@ -7909,6 +7950,7 @@ export default function App() {
             onTheme={n => { themeManager.apply(n); setCurTheme(n); }}
             onOpenThemeEditor={n => setThemeEditorName(n)}
             onOpenPluginCreator={() => runCommand("'plugin new myplugin")}
+            onRun={runCommand}
           />
         </div>
 

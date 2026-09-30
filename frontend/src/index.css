@@ -856,7 +856,7 @@ button.editor-mode:hover { filter: brightness(1.25); }
 .home-scroll {
   flex: 1; overflow-y: auto;
   display: flex; align-items: center; justify-content: center;
-  padding: 8px 20px;
+  padding: 8px 20px 28px; /* room above the prompt */
 }
 
 .home-fit { width: 100%; display: flex; justify-content: center; }
@@ -956,14 +956,26 @@ button.editor-mode:hover { filter: brightness(1.25); }
 .oxis-workspace-hint { font-size: var(--home-fs); color: var(--dim); }
 .oxis-workspace-hint code { color: var(--purple2); }
 
-.oxis-help-grid {
-  display: grid; grid-template-columns: max-content 1fr; column-gap: 16px; row-gap: 2px;
-  align-items: center; font-size: var(--home-fs);
+/* Get started: commands on the left, shortcuts on the right; each row
+   is a button (a command runs, a shortcut is pressed). */
+.oxis-help-cols { display: grid; grid-template-columns: 1fr 1fr; column-gap: 14px; }
+.oxis-help-col { display: flex; flex-direction: column; min-width: 0; }
+.oh-item {
+  all: unset; box-sizing: border-box; display: flex; align-items: center; gap: 8px;
+  margin: 0 -6px; padding: 1px 6px; min-height: 21px; cursor: pointer;
+  font-size: var(--home-fs); white-space: nowrap;
 }
-.oxis-help-extra { grid-column: 1 / -1; }
+.oh-item:hover { background: color-mix(in srgb, var(--purple3) 12%, transparent); }
+.oh-item:hover .ohr { color: var(--text); }
+.oh-item:focus-visible { box-shadow: inset 0 0 0 2px var(--purple3); }
+.oh-item:active { background: color-mix(in srgb, var(--purple3) 22%, transparent); }
+.oh-what { flex: none; min-width: 13.5ch; }
+.ohk.oh-what { min-width: 124px; }
+@media (max-width: 640px) { .oxis-help-cols { grid-template-columns: 1fr; } }
+.oxis-help-extras { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 4px; font-size: var(--home-fs); }
 .ohc { color: var(--purple3); font-weight: 700; }
 .oha { color: var(--purple); font-weight: 700; }
-.ohr { color: var(--muted); }
+.ohr { color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
 .ohk { display: inline-flex; align-items: center; }
 .kplus { color: var(--dim); margin: 0 4px; font-size: 10px; }
 .kcap {
@@ -977,7 +989,7 @@ button.editor-mode:hover { filter: brightness(1.25); }
 
 /* Compact Home on short windows. */
 @media (max-height: 700px) {
-  .home-scroll { padding: 4px 20px; }
+  .home-scroll { padding: 4px 20px 16px; }
   .oxis-sub-row { margin-top: 0; }
   .oxis-box { padding: 4px 12px; margin-bottom: 4px; gap: 1px; }
   .oxis-workspace-box { margin-top: 4px; }
@@ -1016,12 +1028,16 @@ button.editor-mode:hover { filter: brightness(1.25); }
 }
 
 /* The clouds' strip of sky, up to the sun: they fade in at the left
-   and thin out before they reach it. Per-cloud lane, speed and start
-   are inline (SkyWidget). */
+   and thin out before they reach it, in steps like the pixels (a smooth
+   fade left grey smudges). Per-cloud lane, speed and start are inline
+   (SkyWidget). */
 .sky-clouds {
   position: absolute; left: 0; top: 0; bottom: 0; overflow: hidden;
-  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 16%, #000 74%, transparent 100%);
-          mask-image: linear-gradient(90deg, transparent 0, #000 16%, #000 74%, transparent 100%);
+  --sky-fade: linear-gradient(90deg,
+    transparent 0 5%, rgb(0 0 0 / .3) 5% 10%, rgb(0 0 0 / .65) 10% 15%, #000 15% 72%,
+    rgb(0 0 0 / .65) 72% 80%, rgb(0 0 0 / .3) 80% 88%, transparent 88%);
+  -webkit-mask-image: var(--sky-fade);
+          mask-image: var(--sky-fade);
 }
 /* Moved by SkyWidget (Web Animations); the inline transform is where
    each one starts. */

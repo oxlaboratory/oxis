@@ -221,6 +221,11 @@ All notable changes to OXIS. The format follows
   of every built-in theme.
 
 ### Changed
+- Home's Get started box is two columns (commands, shortcuts) and half
+  as tall, with more room above the prompt. Each item is clickable: a
+  command runs (or, like `'edit <file>`, is put in the prompt to
+  finish) and a shortcut does what its keys do. Clouds fade in and out
+  in pixel steps, and the workspace box's hints are shorter.
 - Premium plugin licenses run on up to 3 devices: a device is activated
   the first time it checks the license, `'market devices <name>` lists
   them and `'market deactivate <name> <id>` frees one. The source is only
