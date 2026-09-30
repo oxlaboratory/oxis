@@ -331,6 +331,12 @@ panes, **Alt+Shift+arrows** (or dragging the divider) resize them, and
 **Ctrl+Shift+W** closes one. The focused pane, outlined along its top,
 has the prompt. `'split right`, `'split down`, `'split close`.
 
+You don't need to remember the keys: hold the pointer over a pane for
+buttons at its top right (new tab, split beside, split below, close),
+or right-click its output for the same in a menu. A fresh terminal
+says the keys on the line under its welcome, and a new tab or pane says
+how to get around, for the first few times.
+
 ### Picking up where you left off
 
 When OXIS starts again — after closing it, a restart or a crash — your

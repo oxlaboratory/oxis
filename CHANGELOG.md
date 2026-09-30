@@ -6,6 +6,12 @@ All notable changes to OXIS. The format follows
 ## [Unreleased]
 
 ### Added
+- Tab and pane hints: buttons at the top right of a pane under the
+  pointer (new tab, split beside, split below, close), the same in the
+  output's right-click menu, a line under the welcome saying the keys
+  until you've used them, and one in a new tab or pane saying how to get
+  around (the first three times). Home's Get started lists Ctrl+T and
+  Ctrl+Shift+\\.
 - Split panes: a tab holds several shells side by side or one above
   another. Ctrl+Shift+\\ or Alt+Shift+= splits beside, Alt+Shift+- below;
   Alt+arrows move between panes, Alt+Shift+arrows or dragging the

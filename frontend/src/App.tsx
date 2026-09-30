@@ -36,6 +36,7 @@ import { workspaceState }                   from "./terminal/workspaceState";
 import { workspaceManager }                 from "./terminal/workspaceManager";
 import { getRecentErrors, clearRecentErrors, installGlobalErrorCapture } from "./terminal/diagnostics";
 import { cwdTracker, CwdTracker, buildCwdProbe, looksLikeDirectoryChange, isProbeLine, cwdFromMark } from "./terminal/cwdTracker";
+import { startHint, tabHint, paneHint } from "./terminal/hints";
 import { scriptRunTracker, stripStepEcho } from "./terminal/scriptRunTracker";
 import { workflowRunner } from "./plugins/workflowRunner";
 import {
@@ -4736,6 +4737,10 @@ interface TermProps {
   onActivity:  () => void;
   /** What this tab had in the last session, to bring back. */
   restore?:    SavedTab;
+  /** A line under the welcome one: how to use tabs or panes. */
+  hint?:       string | null;
+  /** The only pane in its tab (the right-click menu's Close says tab). */
+  alone:       boolean;
   /** Element the global prompt is portalled into — the fixed bar above
    *  the status line, shared by every screen. */
   promptHost:  HTMLElement | null;
@@ -4922,7 +4927,7 @@ function groupOutput(lines: Line[], cache: Map<number, Line[]>): { blocks: Array
  *  for 'https://github.com':", "Enter PIN:". */
 const SECRET_PROMPT_RE = /(password|passphrase|\bpin\b)[^\n]*:\s*$/i;
 
-function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore, promptHost, onReady, onShowShell, onCloseTab }: TermProps) {
+function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore, hint, alone, promptHost, onReady, onShowShell, onCloseTab }: TermProps) {
   const onNewTab = onShowShell;
   const selectedRef = useRef(selected);
   selectedRef.current = selected;
@@ -4937,7 +4942,10 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
   }), [dirTracker]);
   // ── output state ─────────────────────────────────────────
   const [lines,      setLines]      = useState<Line[]>(() => {
-    if (!restore?.lines.length) return initialLines();
+    if (!restore?.lines.length) {
+      const tip = hint ?? (first ? startHint() : null);
+      return tip ? [...initialLines(), mkLine(tip, "dim")] : initialLines();
+    }
     // The last session's output, then a line saying where it ends.
     const back = restore.lines.map(l => ({ ...mkLine(l.text, l.kind), spans: l.spans, status: l.status }));
     return [...back, mkLine(""), mkLine(`  ── restored from your last session${restore.cwd ? ` · ${restore.cwd}` : ""} ──`, "dim"), mkLine("")];
@@ -5363,7 +5371,7 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
     e.preventDefault();
     // Keep the menu inside the window.
     const x = Math.min(e.clientX, window.innerWidth - 170);
-    const y = Math.min(e.clientY, window.innerHeight - 110);
+    const y = Math.min(e.clientY, window.innerHeight - 250);
     setOutputMenu({ x, y, hasSel: outputSelectionText().length > 0 });
   }, [outputSelectionText]);
 
@@ -6619,6 +6627,19 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
           </button>
           <button className="term-ctx-item" onClick={selectAllOutput}>Select All</button>
           <button className="term-ctx-item" onClick={clearOutputSelectionAction} disabled={!outputMenu.hasSel}>Clear Selection</button>
+          <div className="term-ctx-sep" />
+          <button className="term-ctx-item" onClick={() => { setOutputMenu(null); events.emit("tab_request", { action: "new" }); }}>
+            <span>New Tab</span><span className="term-ctx-key">Ctrl+T</span>
+          </button>
+          <button className="term-ctx-item" onClick={() => { setOutputMenu(null); events.emit("pane_request", { action: "right" }); }}>
+            <span>Split Beside</span><span className="term-ctx-key">Ctrl+Shift+\</span>
+          </button>
+          <button className="term-ctx-item" onClick={() => { setOutputMenu(null); events.emit("pane_request", { action: "down" }); }}>
+            <span>Split Below</span><span className="term-ctx-key">Alt+Shift+-</span>
+          </button>
+          <button className="term-ctx-item" onClick={() => { setOutputMenu(null); events.emit("pane_request", { action: "close" }); }}>
+            <span>{alone ? "Close Tab" : "Close Pane"}</span><span className="term-ctx-key">Ctrl+Shift+W</span>
+          </button>
         </div>
       )}
     </div>
@@ -7068,6 +7089,8 @@ function Home({ currentTheme, onTheme, onOpenThemeEditor, onOpenPluginCreator }:
               <span className="ohc">&apos;help</span><span className="ohr">every command</span>
               <span className="ohc">&apos;edit <span className="oha">&lt;file&gt;</span></span><span className="ohr">open the built-in editor</span>
               <span className="ohc">&apos;market list</span><span className="ohr">plugins you can install</span>
+              <span className="ohk"><Keys combo="Ctrl+T" /></span><span className="ohr">the terminal, then a new tab</span>
+              <span className="ohk"><Keys combo="Ctrl+Shift+\" /></span><span className="ohr">split: a shell beside this one</span>
               <span className="ohk"><Keys combo="Ctrl+Shift+P" /></span><span className="ohr">the command palette</span>
               <span className="ohk"><Keys combo="Ctrl+Shift+M" /></span><span className="ohr">the OXIS Market website</span>
               {dashboard.shortcuts?.map(sc => (
@@ -7598,6 +7621,8 @@ export default function App() {
   viewRef.current = view;
   const nextTabNumber = useRef(initial.next);
   const restoreFor = useRef(initial.restoreFor);
+  // The hint a new tab or pane prints under its welcome line.
+  const hintFor = useRef(new Map<string, string | null>());
 
   // Saved every few seconds and when the window closes.
   useEffect(() => {
@@ -7628,6 +7653,7 @@ export default function App() {
   }, []);
   const newTab = useCallback(() => {
     const id = `t${nextTabNumber.current++}`;
+    hintFor.current.set(id, tabHint());
     setTabs(t => [...t, oneTab(id)]);
     setActiveTab(id);
     setView("shell");
@@ -7651,13 +7677,15 @@ export default function App() {
   const focusPane = useCallback((tabId: string, pane: string) => {
     updateTab(tabId, t => (t.focus === pane ? t : { ...t, focus: pane }));
   }, [updateTab]);
-  /** Splits the focused pane: a new shell beside it ("row") or below it
-   *  ("column"). A tab splits one way; more panes go the same way. */
-  const splitPane = useCallback((dir: "row" | "column") => {
+  /** Splits the focused pane (or `from`): a new shell beside it ("row")
+   *  or below it ("column"). A tab splits one way; more panes go the
+   *  same way. */
+  const splitPane = useCallback((dir: "row" | "column", from?: string) => {
     const tab = activeTabNow();
     if (!tab) return;
     const id = `t${nextTabNumber.current++}`;
-    const at = tab.panes.indexOf(tab.focus);
+    const at = tab.panes.indexOf(from && tab.panes.includes(from) ? from : tab.focus);
+    hintFor.current.set(id, paneHint(tab.panes.length === 1 ? dir : tab.split));
     const half = tab.sizes[at] / 2;
     updateTab(tab.id, t => ({
       ...t,
@@ -7668,12 +7696,13 @@ export default function App() {
     }));
     setView("shell");
   }, [updateTab]);
-  /** Closes the focused pane and its shell (the tab, if it's the last). */
-  const closePane = useCallback(() => {
+  /** Closes the focused pane (or `pane`) and its shell (the tab, if
+   *  it's the last). */
+  const closePane = useCallback((pane?: string) => {
     const tab = activeTabNow();
     if (!tab) return;
     if (tab.panes.length === 1) { closeTab(tab.id); return; }
-    const at = tab.panes.indexOf(tab.focus);
+    const at = tab.panes.indexOf(pane && tab.panes.includes(pane) ? pane : tab.focus);
     const panes = tab.panes.filter((_, i) => i !== at);
     const sizes = tab.sizes.filter((_, i) => i !== at);
     updateTab(tab.id, t => ({ ...t, panes, sizes, focus: panes[Math.min(at, panes.length - 1)] }));
@@ -7892,12 +7921,26 @@ export default function App() {
                   <div className={`term-pane${t.panes.length > 1 && pane === t.focus ? " term-pane--focus" : ""}`}
                     style={{ flex: `${(100 * (t.sizes[i] ?? 1)) / t.sizes.reduce((a, b) => a + b, 0)} 1 0` }}
                     onMouseDownCapture={() => focusPane(t.id, pane)}>
+                    <div className="term-pane-bar" onMouseDown={e => e.preventDefault()}>
+                      <button onClick={newTab} title="New tab (Ctrl+T)">+</button>
+                      <button onClick={() => splitPane("row", pane)} title="Split beside: a new shell next to this one (Ctrl+Shift+\ or Alt+Shift+=)">
+                        <svg viewBox="0 0 12 12" aria-hidden="true"><rect x="1" y="1.5" width="10" height="9" /><path d="M6 1.5v9" /></svg>
+                      </button>
+                      <button onClick={() => splitPane("column", pane)} title="Split below: a new shell under this one (Alt+Shift+-)">
+                        <svg viewBox="0 0 12 12" aria-hidden="true"><rect x="1" y="1.5" width="10" height="9" /><path d="M1 6h10" /></svg>
+                      </button>
+                      {t.panes.length > 1 && (
+                        <button onClick={() => closePane(pane)} title="Close this pane and its shell (Ctrl+Shift+W)">×</button>
+                      )}
+                    </div>
                     <Terminal
                       id={pane}
                       isActive={!isHome && t.id === activeTab}
                       selected={t.id === activeTab && pane === t.focus}
                       first={pane === "t1"}
                       restore={restoreFor.current.get(pane)}
+                      hint={hintFor.current.get(pane)}
+                      alone={t.panes.length === 1}
                       onTitle={title => setTabs(cur => cur.some(x => x.id === t.id && x.titles[pane] !== title)
                         ? cur.map(x => x.id === t.id ? { ...x, titles: { ...x.titles, [pane]: title } } : x) : cur)}
                       onActivity={() => setTabs(cur => cur.some(x => x.id === t.id && !x.activity && x.id !== activeTabRef.current)

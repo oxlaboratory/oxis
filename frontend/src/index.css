@@ -86,6 +86,7 @@ html, body, #root {
 .term-ctx-item:hover:not(:disabled) { background: var(--bg3); }
 .term-ctx-item:disabled { opacity: .4; cursor: default; }
 .term-ctx-key { color: var(--dim); font-size: 10px; }
+.term-ctx-sep { height: 1px; margin: 4px 6px; background: var(--border); }
 
 /* A full-screen program's grid (terminal/fullScreen.ts), over the
    output while it runs. */
@@ -1304,5 +1305,23 @@ input, textarea { font-family: var(--font); }
 .term-split-handle--column { height: 4px; cursor: row-resize; }
 .term-split-handle:hover { background: var(--purple3); }
 .term-tab-panes { color: var(--dim); font-size: 10px; }
+/* New tab / split / close, top right of each pane, while the pointer
+   is over it. Not over the editor or a full-screen program. */
+.term-pane-bar {
+  position: absolute; top: 4px; right: 66px; z-index: 7;
+  display: flex; gap: 2px; padding: 2px;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 5px;
+  opacity: 0; pointer-events: none; transition: opacity .15s;
+}
+.term-pane:hover > .term-pane-bar, .term-pane-bar:focus-within { opacity: 1; pointer-events: auto; }
+.term-pane-bar button {
+  display: grid; place-items: center; width: 22px; height: 20px; padding: 0;
+  border: none; border-radius: 3px; background: none; cursor: pointer;
+  color: var(--dim); font-family: var(--font); font-size: 14px; line-height: 1;
+}
+.term-pane-bar button:hover { color: var(--purple3); background: var(--bg3); }
+.term-pane-bar svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.3; }
+.term-tab-pane:has(> .term-pane + .term-split-handle) .term-pane-bar { right: 14px; }
+.term-pane:has(.app-pane--editor, .term-screen) > .term-pane-bar { display: none; }
 /* In a split tab the corner mark would sit on a narrow pane's text. */
 .term-tab-pane:has(> .term-pane + .term-split-handle) .term-corner-mark { display: none; }
