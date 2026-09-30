@@ -651,7 +651,7 @@
       <div class="cell spot c3 cwide rv">
         <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m4 17 6-6-6-6M12 19h8"/></svg></div>
         <h3>Your shell, unchanged</h3>
-        <p>OXIS starts a real shell in a real pseudo-terminal: PowerShell 7 or Windows PowerShell on Windows, your <code>$SHELL</code> on Linux. Anything that doesn't start with <code>'</code> goes straight to it — in full colour (16, 256 and 24-bit), with prompts, REPLs and interactive tools included.</p>
+        <p>OXIS starts a real shell in a real pseudo-terminal: PowerShell 7 or Windows PowerShell on Windows, your <code>$SHELL</code> on Linux. Anything that doesn't start with <code>'</code> goes straight to it — in full colour (16, 256 and 24-bit), with prompts, REPLs and interactive tools included. Tabs and split panes put a dev server beside the shell you're working in, and your tabs, their directories and output come back after a restart.</p>
         <div class="shells"><span>pwsh 7</span><span>Windows PowerShell</span><span>bash</span><span>zsh</span><span>fish</span><span>OXIS_SHELL=…</span></div>
       </div>
       <div class="cell spot c3 cwide rv" style="--d:.08s">
@@ -1288,8 +1288,10 @@ $('#codeCopy').addEventListener('click', async e => {
 });
 
 const SHOTS = [
-  ['demo', 'Recorded', 'Recorded from the app, not mocked up: git, the tests, the editor catching a mistake as it is typed and suggesting a name, a plugin from the Market and a theme switch.', 41200],
-  ['app-home', 'Home', 'Home: the active workspace, its git remote, plugins and tasks at a glance.'],
+  ['demo', 'Recorded', 'Recorded from the app, not mocked up: Home, git, the editor catching a mistake as it is typed and suggesting a name, the tests in a split pane, a plugin from the Market and a theme switch.', 44100],
+  ['app-home', 'Home', 'Home: the active workspace, its git remote, plugins and tasks at a glance, under a pixel-art sky.'],
+  ['app-panes', 'Split panes', 'Tabs and split panes: git on the left, the tests on the right, each its own shell.'],
+  ['app-search', 'Search', 'Search in files (Ctrl+Shift+F): every match in the project, grouped by file.'],
   ['app-terminal', 'Terminal', 'Your real shell in full colour, with OXIS commands mixed in and one prompt at the bottom.'],
   ['app-editor', 'Editor', 'The built-in editor: a mistake caught as you type, suggestions, a minimap, and Vim-style modes.'],
   ['app-palette', 'Palette', 'Ctrl+Shift+P: every command, shortcut and task, searchable.'],
