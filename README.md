@@ -26,7 +26,7 @@
 
 <br><br>
 
-<img src="assets/demo.gif" width="100%" alt="A real OXIS session: Home, git log and status, the editor catching a missing bracket as it's typed and suggesting a function name, the project's tests in a split pane, installing a plugin from the Market and switching to the ember theme">
+<img src="assets/demo.gif" width="100%" alt="A real OXIS session: Home under a pixel-art sun and drifting clouds, git log and status, the editor catching a missing bracket as it's typed and suggesting a function name, a split from the right-click menu opening in the project with the tests passing in it, installing a plugin from the Market and switching to the ember theme">
 
 <sub>▲ Recorded from the app itself: every frame is OXIS running those commands in a real project.</sub>
 
@@ -128,7 +128,7 @@ itself into your editor as it's written. See the [Lua API](#lua-api).
 | <img src="assets/screenshots/app-terminal.png" alt="The terminal in colour: git log, git status, git diff and a passing test run"> | <img src="assets/screenshots/app-editor.png" alt="The built-in editor catching a syntax error as you type, with word suggestions open and a minimap"> |
 | Your shell in full colour, with `'` commands and one prompt | The editor catches a mistake as you type and suggests words (`'edit src/cart.ts`) |
 | <img src="assets/screenshots/app-panes.png" alt="Two tabs, the first split into two panes: git log and status on the left, the project's tests passing on the right"> | <img src="assets/screenshots/app-search.png" alt="Search in files over the editor: five matches for subtotal in two files, each highlighted"> |
-| Tabs and split panes, each its own shell | Search in files (Ctrl+Shift+F) |
+| Tabs and split panes, each its own shell (buttons at a pane's top right, or right-click) | Search in files (Ctrl+Shift+F) |
 | <img src="assets/screenshots/app-home.png" alt="Home: a pixel-art sun and clouds over the workspace panel and the get-started list"> | <img src="assets/screenshots/app-palette.png" alt="The command palette over the terminal"> |
 | Home, under a pixel-art sky that follows the time of day | The command palette (Ctrl+Shift+P) |
 | <img src="assets/screenshots/app-version.png" alt="'version showing the build number, commit, tag, channel and update status"> | |
