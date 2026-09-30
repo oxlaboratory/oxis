@@ -5744,8 +5744,14 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
   }, []);
 
   // ── PTY connect ───────────────────────────────────────────
+  // A hot reload (npm run dev) or StrictMode runs the cleanup and then the
+  // effect again at once, so the shell is only killed if it doesn't come
+  // back: a closed tab or pane.
+  const pendingKill = useRef(0);
   useEffect(() => {
-    if (mounted.current) return;
+    const cleanup = () => { pendingKill.current = window.setTimeout(() => session.current?.kill(), 0); };
+    if (pendingKill.current) { clearTimeout(pendingKill.current); pendingKill.current = 0; return cleanup; }
+    if (mounted.current) return cleanup;
     mounted.current = true;
 
     ptySize.current = measurePtySize() ?? { cols: 120, rows: 30 };
@@ -5798,7 +5804,7 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
       },
       onError: msg => setConnErr(msg),
     });
-    return () => session.current?.kill();
+    return cleanup;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

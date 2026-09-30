@@ -19,13 +19,15 @@ WebKitGTK development packages (`libgtk-3-dev libwebkit2gtk-4.1-dev`).
 git clone https://github.com/oxlaboratory/oxis.git
 cd oxis
 npm run setup     # checks tools, installs dependencies
-npm run dev       # rebuild + relaunch the app on every change
+npm run dev       # the app, with hot reload for the frontend
 npm run build     # frontend + dist/oxis(.exe)
 ```
 
-The frontend is embedded into the Go binary, so `npm run dev` does a
-full rebuild on each change rather than hot reloading. For UI-only work
-you can also open `http://127.0.0.1:1420` in a browser while OXIS runs.
+`npm run dev` runs the real window with its UI from Vite: frontend
+changes appear as you save, with no reload, and the shells keep running.
+Go changes rebuild the Go binary (a few seconds) and reopen the window;
+its tabs come back. F12 opens the developer tools. The dev window has
+its own profile, separate from an installed OXIS.
 
 ## Making a change
 

@@ -239,11 +239,16 @@ cd oxis
 npm run setup        # checks tools, installs dependencies
 npm run build        # → dist/oxis.exe (Windows) or dist/oxis + .deb (Linux)
 npm run build:msi    # Windows installer (WiX, or NSIS as a fallback)
-npm run dev          # rebuild and relaunch on every change
+npm run dev          # the app with hot reload (see below)
 ```
 
-The frontend is embedded in the Go binary, so `npm run dev` does a full
-rebuild on each change (a few seconds) rather than hot reloading.
+`npm run dev` opens the real OXIS window with its UI served by Vite: a
+change under `frontend/src` shows up in the window as you save, without
+reloading it, and the shells keep running (whatever's in them too). A
+change to the Go side (`cmd/`, `internal/`) rebuilds just the Go binary
+(a few seconds) and reopens the window, with your tabs as they were.
+The dev window has its own profile, so it doesn't touch the settings or
+sessions of an installed OXIS, and F12 opens the developer tools.
 
 ### Where OXIS keeps data
 

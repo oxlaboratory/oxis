@@ -6,6 +6,13 @@ All notable changes to OXIS. The format follows
 ## [Unreleased]
 
 ### Added
+- `npm run dev` hot-reloads: the real window with its UI served by
+  Vite, so a frontend change appears as you save without a reload, and
+  the shells (and what's running in them) carry on. Go changes rebuild
+  only the Go binary and reopen the window. The terminal no longer ends
+  its shell when React runs its effect again (a hot reload, StrictMode);
+  only closing the tab or pane does. `vite dev` works at all now (the
+  Lua runtime needed `process.env` defined for the dev bundle).
 - Frontend tests (Vitest, `npm test` in `frontend/`, run in CI): output
   and colour parsing, readline editing, session save and restore,
   editor suggestions, Go to symbol, the directory probe and history
