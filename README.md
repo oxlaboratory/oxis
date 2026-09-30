@@ -1230,12 +1230,27 @@ What's built:
 
 - `'market subscribe <name>` opens Stripe Checkout,
   `'market license <email>` sets the email subscriptions are checked
-  against, and `'market status <name>` checks one now.
-- A premium install fetches the source from a license-checked endpoint
+  against, and `'market status <name>` checks one now (and whether this
+  device is activated).
+- A license is your checkout email and runs on **up to 3 devices**.
+  The first time a device checks it, it's activated there;
+  `'market devices <name>` lists where it's activated, and
+  `'market deactivate <name> <id>` frees a device you no longer use
+  (a new laptop, a test VM) so another can take its place.
+- A premium install fetches the source for an activated device only
   and stores it encrypted (AES-256-GCM, key derived from this install's
-  device ID) in `.oxis/premium/`. The license is re-checked every time
-  it loads, and it only exists decrypted in memory. That stops casual
-  copying; it isn't DRM against someone determined on their own machine.
+  random device ID — not a hardware fingerprint) in `.oxis/premium/`.
+  It only exists decrypted in memory. A package copied to another
+  machine is downloaded again there if that machine is activated;
+  otherwise it doesn't run, with a message saying so.
+- The license is re-checked every time a plugin loads. If the Market
+  can't be reached, a license confirmed in the last **30 days** keeps
+  working offline.
+- When a premium plugin can't load at startup, OXIS says why (not
+  activated on this device, subscription ended, offline for too long)
+  instead of leaving it out silently.
+- That stops casual copying and sharing; it isn't DRM against someone
+  determined on their own machine.
 - `'plugin publish <name> --price=4.99 --interval=month` runs Stripe
   Connect onboarding and opens the Market PR with the price included.
 - **AI DevOps**, the first premium plugin: `'ai explain / fix /

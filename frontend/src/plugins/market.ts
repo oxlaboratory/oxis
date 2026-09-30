@@ -198,19 +198,26 @@ export async function installPremium(typedName: string): Promise<{ entry: Market
 
   const license = await checkLicense(name, { force: true });
   if (!license.active) throw new Error(license.error || `no active subscription for ${name} — 'market subscribe ${name} first`);
+  if (license.activated === false) throw new Error(license.error || `${name} isn't activated on this device`);
 
-  const res = await marketFetch(`${marketBase()}/premium-plugin?plugin=${encodeURIComponent(name)}&email=${encodeURIComponent(email)}`);
-  const data = await res.json();
-  if (!res.ok) throw new Error(data?.error || `couldn't fetch premium source (${res.status})`);
-
-  const pkg = await encryptPluginPackage(name, data.source, getDeviceId());
-  await writeFile(encryptedPluginPath(name), JSON.stringify(pkg));
+  await downloadPremium(name, email);
 
   // Report whether it actually loaded: the encrypted package is saved
   // either way (so a retry doesn't re-download), but "installed" and
   // "loaded" are different results.
   const loadResult = await loadPremiumPlugin(name);
   return { entry, loaded: loadResult.ok, loadMessage: loadResult.message };
+}
+
+/** Fetches a premium plugin's source for this (activated) device and
+ *  stores it encrypted for this device. */
+async function downloadPremium(name: string, email: string): Promise<string> {
+  const res = await marketFetch(`${marketBase()}/premium-plugin?plugin=${encodeURIComponent(name)}&email=${encodeURIComponent(email)}&device=${encodeURIComponent(getDeviceId())}`);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data?.error || `couldn't fetch premium source (${res.status})`);
+  const pkg = await encryptPluginPackage(name, data.source, getDeviceId());
+  await writeFile(encryptedPluginPath(name), JSON.stringify(pkg));
+  return data.source as string;
 }
 
 /** Loads an installed premium plugin into memory if its subscription is
@@ -229,6 +236,9 @@ export async function loadPremiumPlugin(name: string, silent = false): Promise<{
   }
 
   const license = await checkLicense(name);
+  if (license.active && license.activated === false) {
+    return { ok: false, message: `${name}: license not activated on this device — it's on ${license.devices} of ${license.maxDevices} devices already; 'market devices ${name} lists them and 'market deactivate ${name} <device> frees one` };
+  }
   if (!license.active) {
     // The encrypted package stays on disk untouched — this is exactly
     // the "expired subscription doesn't delete anything, it just
@@ -244,14 +254,24 @@ export async function loadPremiumPlugin(name: string, silent = false): Promise<{
   }
 
   let source: string;
+  let note = "";
   try {
     source = await decryptPluginPackage(pkg, getDeviceId());
   } catch (e) {
-    return { ok: false, message: `${name}: ${e instanceof Error ? e.message : e}` };
+    // Encrypted for another install (copied over, or a new machine with
+    // the old files): this device has the license, so fetch it afresh.
+    if (license.offline) return { ok: false, message: `${name}: this package was made on another device and the OXIS Market can't be reached to fetch it for this one — try again when you're online` };
+    try {
+      source = await downloadPremium(name, email);
+      note = " (downloaded again for this device)";
+    } catch (e2) {
+      return { ok: false, message: `${name}: ${e2 instanceof Error ? e2.message : e2} (${e instanceof Error ? e.message : e})` };
+    }
   }
 
   await pluginManager.registerPremiumPlugin(name, source, "premium", silent);
-  return { ok: true, message: `${name} loaded` };
+  const grace = license.offline ? ` — offline: licence last confirmed ${30 - (license.graceDaysLeft ?? 0)} day(s) ago, good for ${license.graceDaysLeft} more` : "";
+  return { ok: true, message: `${name} loaded${note}${grace}` };
 }
 
 /** Loads every package in .oxis/premium/ at startup; each succeeds or
@@ -270,6 +290,10 @@ export async function loadAllPremiumPlugins(): Promise<{ name: string; ok: boole
     const name = e.name.replace(/\.oxispkg$/, "");
     const r = await loadPremiumPlugin(name, true); // silent — bulk startup load, see pluginManager.load()'s own doc comment
     results.push({ name, ...r });
+    // Not silent about what went wrong (or needs knowing): the terminal
+    // prints these once it's ready.
+    if (!r.ok) pluginManager.notice(`  ⚠  premium plugin ${r.message}`, "warn");
+    else if (r.message !== `${name} loaded`) pluginManager.notice(`  ${r.message}`, "dim");
   }
   return results;
 }

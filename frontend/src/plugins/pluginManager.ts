@@ -622,7 +622,13 @@ class PluginManager {
   // it prints them once the shell is ready (takeNotices).
   private notices: Array<{ text: string; kind: "warn" | "dim" }> = [];
 
-  /** The startup messages not printed yet (and forgets them). */
+  /** Adds a message for the terminal to print once it's ready. */
+  notice(text: string, kind: "warn" | "dim" = "dim"): void {
+    this.notices.push({ text, kind });
+    events.emit("plugin_notice", { text, kind });
+  }
+
+    /** The startup messages not printed yet (and forgets them). */
   takeNotices(): Array<{ text: string; kind: "warn" | "dim" }> {
     const n = this.notices;
     this.notices = [];

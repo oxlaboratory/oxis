@@ -42,7 +42,7 @@ import {
   grant as grantPermission, revoke as revokePermission, grantedTo as grantedPermissions,
   type PermissionNamespace,
 } from "./plugins/permissions";
-import { getLicensedEmail, setLicensedEmail, checkLicense } from "./plugins/pluginLicense";
+import { getLicensedEmail, setLicensedEmail, checkLicense, listDevices, deactivateDevice, isThisDevice } from "./plugins/pluginLicense";
 import type { EditorMode, CursorState }     from "./terminal/editorModes";
 import {
   moveLeft, moveRight, moveUp, moveDown, moveLineStart, moveLineEnd,
@@ -551,6 +551,10 @@ const COMMAND_DETAILS: Record<string, CommandDetail> = {
       { syntax: "'market install <name>", description: "install it — registers and loads it live, same as 'plugin new does for your own" },
       { syntax: "'market update <name>", description: "check for and apply an update — checks OXIS-version/OS compatibility and dependencies against the NEW version first, backs up the current one, and automatically rolls back if the new version fails to load" },
       { syntax: "'market update all", description: "the same, for every Market-installed plugin with an available update; already-current ones are reported, not skipped silently" },
+      { syntax: "'market license <email>", description: "the email your premium subscriptions are under" },
+      { syntax: "'market status <name>", description: "whether a premium plugin's subscription is active, and whether this device is activated for it" },
+      { syntax: "'market devices <name>", description: "the devices a premium license is activated on (up to 3)" },
+      { syntax: "'market deactivate <name> <id>", description: "free a device (by the start of its id) so the license can be activated on another" },
     ],
     notes: "'plugin rollback <name> undoes the last update manually, any time after it — not just automatically right after a failed one.",
   },
@@ -1677,9 +1681,36 @@ function registerBuiltinCommands(): void {
         const name = args[1];
         if (!name) { err("usage: 'market status <n>"); return; }
         checkLicense(name, { force: true }).then(r => {
-          if (r.active) ok(`${name}: active (${r.status})`);
+          if (r.offline) ok(`${name}: active (offline — last confirmed ${30 - (r.graceDaysLeft ?? 0)} day(s) ago, good for ${r.graceDaysLeft} more without a connection)`);
+          else if (r.active && r.activated === false) err(`${name}: ${r.error}`);
+          else if (r.active) ok(`${name}: active${r.devices ? ` · this device is activated (${r.devices} of ${r.maxDevices} devices)` : ""}`);
           else dim(`${name}: ${r.status}${r.error ? ` — ${r.error}` : ""}`);
         });
+        return;
+      }
+
+      // Devices a premium license is activated on (up to 3), and freeing one.
+      if (sub === "devices") {
+        const name = args[1];
+        if (!name) { err("usage: 'market devices <plugin>"); return; }
+        listDevices(name).then(({ devices, maxDevices }) => {
+          if (!devices.length) { dim(`${name}: not activated on any device yet — 'market install ${name} activates this one`); return; }
+          info(`${name}: activated on ${devices.length} of ${maxDevices} devices`);
+          for (const d of devices) {
+            rich([["  "], [isThisDevice(d.id) ? "● " : "○ ", isThisDevice(d.id) ? "ok" : "dim"], [d.id.slice(0, 8), "cmd"], ["  " + d.name, "text"],
+              ["  last used " + new Date(d.at).toLocaleDateString(), "muted"], [isThisDevice(d.id) ? "  (this device)" : "", "accent"]]);
+          }
+          dim(`free one with 'market deactivate ${name} <id>`);
+        }).catch(e => err(`${name}: ${e instanceof Error ? e.message : e}`));
+        return;
+      }
+      if (sub === "deactivate") {
+        const [name, device] = [args[1], args[2]];
+        if (!name || !device) { err("usage: 'market deactivate <plugin> <device id>  ('market devices <plugin> lists them)"); return; }
+        deactivateDevice(name, device).then(({ removed, devices }) => {
+          if (removed) ok(`${name}: freed ${removed} device — ${devices.length} still activated`);
+          else err(`${name}: no activated device starts with "${device}" — 'market devices ${name}`);
+        }).catch(e => err(`${name}: ${e instanceof Error ? e.message : e}`));
         return;
       }
 
@@ -2313,6 +2344,7 @@ Settings, workspace files, documents and plugins with the same name as ones in t
       h("'market info <n>","plugin details"); h("'market install <n>","install a Market plugin");
       h("'market update <n>","update one Market-installed plugin — checks compat/deps first, auto-rolls-back on failure");
       h("'market update all","update every Market-installed plugin with an available compatible update");
+      h("'market devices <n>","where a premium license is activated (up to 3)"); h("'market deactivate <n> <id>","free a device");
       info(""); h("── workspace ─────────────────────────","");
       h("'workspace init","create .oxis/workspace.lua in this directory");
       h("'workspace init \"name\"","create a NAMED workspace (workspaces/<name>/)");
@@ -5913,6 +5945,15 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
     for (const f of restore.files) ctxRef.current.openEditor(f);
     if (restore.activeFile && restore.files.includes(restore.activeFile)) setActiveEditorPath(restore.activeFile);
   });
+
+  // Plugin notices that arrive once the shell is already running (the
+  // premium plugins load after it starts) go straight into the tab.
+  const readyRef = useRef(false);
+  readyRef.current = ready;
+  useEffect(() => events.on("plugin_notice", () => {
+    if (!selectedRef.current || !readyRef.current) return;
+    for (const n of pluginManager.takeNotices()) addLine(n.text, n.kind);
+  }), [addLine]);
 
   // The selected tab is the one commands print into, plugins talk to
   // (their oxis.* calls), and whose directory the app follows.

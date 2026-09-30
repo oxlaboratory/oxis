@@ -202,6 +202,14 @@ All notable changes to OXIS. The format follows
   of every built-in theme.
 
 ### Changed
+- Premium plugin licenses run on up to 3 devices: a device is activated
+  the first time it checks the license, `'market devices <name>` lists
+  them and `'market deactivate <name> <id>` frees one. The source is only
+  sent to an activated device. A license confirmed in the last 30 days
+  keeps working offline. A package copied from another machine is
+  downloaded again for this one instead of failing, and a premium plugin
+  that can't load at startup says why (not activated here, subscription
+  ended, offline too long) instead of being left out silently.
 - Home's panels match the pixel-art sky: frames with notched corners
   and a pixel shadow, title strips, a pixel status dot, shortcuts as
   keycaps, and the O, X, I, S letters as blocks.
