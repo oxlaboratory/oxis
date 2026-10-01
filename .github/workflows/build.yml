@@ -147,12 +147,38 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
+      # Replacing a release file starts its download count from zero, so
+      # the files are only replaced when the app changed since the build
+      # they came from (where the latest-build tag points). Docs,
+      # screenshots, the website, the Market listing and tests don't
+      # change what people download. internal/update/update.go skips the
+      # same files (notAppFiles); keep the two patterns the same.
+      - name: Did the app change since the last published build?
+        id: app
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          prev="$(gh api "repos/${{ github.repository }}/git/ref/tags/latest-build" --jq .object.sha 2>/dev/null || true)"
+          if [ -z "$prev" ]; then echo "publish=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          cmp="$(gh api "repos/${{ github.repository }}/compare/$prev...${{ github.sha }}")"
+          files="$(jq -r '.files[]?.filename' <<<"$cmp")"
+          not_app='^(README\.md|CHANGELOG\.md|CONTRIBUTING\.md|LICENSE|assets/|cloudflare/|market/|npm/|\.github/ISSUE_TEMPLATE/)|_test\.go$|\.test\.ts$|\.test-util\.ts$|/testdata/'
+          # GitHub lists at most 300 files: more than that counts as a change.
+          if [ "$(jq '.files | length' <<<"$cmp")" -ge 300 ] || [ -z "$files" ] || grep -vqE "$not_app" <<<"$files"; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Only docs, the website or tests changed since $prev: the release files (and their download counts) stay."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/download-artifact@v4
+        if: steps.app.outputs.publish == 'true'
         with:
           name: oxis-linux-${{ github.sha }}
           path: release-files
 
       - uses: actions/download-artifact@v4
+        if: steps.app.outputs.publish == 'true'
         with:
           name: oxis-windows-${{ github.sha }}
           path: release-files
@@ -160,6 +186,7 @@ jobs:
       # The release action only creates the tag; move it to this build so
       # it always points at the commit the files were built from.
       - name: Point the latest-build tag at this commit
+        if: steps.app.outputs.publish == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -193,6 +220,7 @@ jobs:
       # and the README's downloads badge (cloudflare/functions/
       # downloads.js) add the new files' downloads to it.
       - name: Carry the download count forward
+        if: steps.app.outputs.publish == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -216,6 +244,7 @@ jobs:
           EOF
 
       - name: Publish rolling "latest-build" release
+        if: steps.app.outputs.publish == 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: latest-build

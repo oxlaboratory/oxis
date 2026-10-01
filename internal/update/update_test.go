@@ -88,6 +88,14 @@ func TestCheckCountsCommits(t *testing.T) {
 		{"behind the branch", `{"status":"ahead","ahead_by":3,"behind_by":0}`, true, 3, 0},
 		{"local work ahead of the branch", `{"status":"behind","ahead_by":0,"behind_by":2}`, false, 0, 2},
 		{"diverged", `{"status":"diverged","ahead_by":4,"behind_by":1}`, true, 4, 1},
+		// Newer commits that only touch docs, screenshots, the website or
+		// tests: nothing new to install (and CI publishes no new build).
+		{"only docs and the website", `{"status":"ahead","ahead_by":2,"behind_by":0,"files":[` +
+			`{"filename":"README.md"},{"filename":"assets/screenshots/app-home.png"},` +
+			`{"filename":"cloudflare/index.html"},{"filename":"internal/pty/pty_test.go"},` +
+			`{"filename":"frontend/src/terminal/hints.test.ts"}]}`, false, 2, 0},
+		{"docs and code", `{"status":"ahead","ahead_by":2,"behind_by":0,"files":[` +
+			`{"filename":"README.md"},{"filename":"internal/pty/pty.go"}]}`, true, 2, 0},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

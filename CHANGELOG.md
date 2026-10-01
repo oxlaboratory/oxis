@@ -221,6 +221,11 @@ All notable changes to OXIS. The format follows
   of every built-in theme.
 
 ### Changed
+- The `latest-build` release's files are only replaced when the app
+  changed: pushes that touch only docs, screenshots, the website, the
+  Market listing or tests leave them (and GitHub's download counts on
+  them) alone. The update check skips those commits too, so they no
+  longer show as an update.
 - Home's Get started box is two columns (commands, shortcuts) and half
   as tall, with more room above the prompt. Each item is clickable: a
   command runs (or, like `'edit <file>`, is put in the prompt to

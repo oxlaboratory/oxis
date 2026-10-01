@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -95,6 +96,29 @@ func (e httpStatusError) Error() string {
 type ghCompare struct {
 	AheadBy  int `json:"ahead_by"`
 	BehindBy int `json:"behind_by"`
+	Files    []struct {
+		Filename string `json:"filename"`
+	} `json:"files"`
+}
+
+// notAppFiles are files that don't go into OXIS: docs, screenshots, the
+// website, the Market listing, the npm launcher and tests. Commits that
+// only touch these aren't an update, and CI doesn't publish a build for
+// them (.github/workflows/build.yml; keep the two patterns the same).
+var notAppFiles = regexp.MustCompile(`^(README\.md|CHANGELOG\.md|CONTRIBUTING\.md|LICENSE|assets/|cloudflare/|market/|npm/|\.github/ISSUE_TEMPLATE/)|_test\.go$|\.test\.ts$|\.test-util\.ts$|/testdata/`)
+
+// changesApp says whether a comparison touches the app. GitHub lists at
+// most 300 files, and none for some comparisons: both count as a change.
+func (c ghCompare) changesApp() bool {
+	if len(c.Files) == 0 || len(c.Files) >= 300 {
+		return true
+	}
+	for _, f := range c.Files {
+		if !notAppFiles.MatchString(f.Filename) {
+			return true
+		}
+	}
+	return false
 }
 
 // Check compares this build's commit with the tip of DefaultBranch.
@@ -122,8 +146,9 @@ func Check(goos string) Info {
 	if c, err := compareCommits(current, latestCommit); err == nil {
 		info.Behind, info.Ahead = c.AheadBy, c.BehindBy
 		// Only newer commits on the branch count: a build that is just
-		// ahead of it (local work) has nothing to update to.
-		info.Available = c.AheadBy > 0
+		// ahead of it (local work) has nothing to update to, and nor
+		// does one whose newer commits are only docs or the website.
+		info.Available = c.AheadBy > 0 && c.changesApp()
 		info.ReleaseURL = fmt.Sprintf("https://github.com/%s/compare/%s...%s", ProjectPath, shortSHA(current), shortSHA(latestCommit))
 	} else {
 		var status httpStatusError
