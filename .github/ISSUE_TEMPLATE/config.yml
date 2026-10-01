@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Write a plugin
+    url: https://github.com/oxlaboratory/oxis#plugin-development-guide
+    about: The Lua API and how to publish a plugin to the Market.
+  - name: Contributing guide
+    url: https://github.com/oxlaboratory/oxis/blob/main/CONTRIBUTING.md
+    about: Setting up the dev loop, and what a good pull request looks like.

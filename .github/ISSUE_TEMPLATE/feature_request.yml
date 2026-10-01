@@ -1,0 +1,22 @@
+name: Feature request
+description: Something OXIS should do, or do better
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What you're trying to do
+      description: The task, and where OXIS gets in the way today.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would help
+      description: How you'd like it to work. A command, a key, a plugin API, a setting…
+  - type: checkboxes
+    id: plugin
+    attributes:
+      label: Could it be a plugin?
+      options:
+        - label: I'd be up for writing it as a Lua plugin, with some pointers

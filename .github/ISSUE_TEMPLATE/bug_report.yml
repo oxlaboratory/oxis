@@ -1,0 +1,40 @@
+name: Bug report
+description: Something in OXIS doesn't work as it should
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what OXIS did instead.
+      placeholder: |
+        1. Split the terminal with Ctrl+Shift+\
+        2. Typed `git status` in the new pane
+        3. …
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The first lines of `'version`.
+      placeholder: "OXIS v1.2.1 build 99 (19ffb95)"
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Platform
+      options: [Windows, Linux, Browser mode]
+    validations:
+      required: true
+  - type: input
+    id: shell
+    attributes:
+      label: Shell
+      placeholder: "PowerShell 7, Git Bash, zsh…"
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: Screenshots, the plugin involved, errors shown in the terminal.
