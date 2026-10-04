@@ -50,10 +50,14 @@ OXIS is one desktop app for the work you do on a project — running
 it, editing it, automating it — and every part of it can be programmed
 and changed.
 
-- **A real terminal.** Your own PowerShell, bash, zsh or fish, not an
-  imitation of one, with tabs, split panes, full colour, and programs
-  like vim, htop and lazygit. A line that starts with `'` is an OXIS
-  command (`'help` lists them); everything else goes to your shell.
+- **A real terminal.** Your own PowerShell, Git Bash, WSL, cmd, bash,
+  zsh or fish — a different one per tab if you like — not an imitation
+  of one, with tabs, split panes, full colour, and programs like vim,
+  htop and lazygit. Tab completes files, git branches and npm scripts
+  in any shell, history suggests the rest of a command as you type, and
+  `src/app.ts:12:5` in a compiler error opens the editor right there. A
+  line that starts with `'` is an OXIS command (`'help` lists them);
+  everything else goes to your shell.
 - **An editor for code and documents.** `'edit` opens any file: errors
   underlined as you type, suggestions, search across the project
   (Ctrl+Shift+F), a live preview for HTML and Markdown, and Vim modes or
@@ -104,6 +108,8 @@ curl -Lo oxis https://github.com/oxlaboratory/oxis/releases/download/latest-buil
 </td>
 </tr>
 </table>
+
+**🍎 macOS (Apple silicon), preview** — [`oxis-<version>-macos-arm64.zip`](https://github.com/oxlaboratory/oxis/releases/tag/latest-build) (OXIS.app). Built and tested on macOS in CI, not yet tried on a Mac by a person; unsigned, so right-click → Open the first time.
 
 **🛠️ From source** — Go 1.22+ and Node.js 24+, and a C compiler for native Lua (Linux has one; on Windows MinGW-w64, e.g. MSYS2's `mingw-w64-x86_64-gcc`; without one, plugins run on fengari):
 
