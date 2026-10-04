@@ -403,8 +403,8 @@ func pumpOutput(r io.Reader, size *termSize, send func(kind, data string), guard
 		if trace != nil {
 			defer trace.Close()
 		}
+		buf := make([]byte, 8192)
 		for {
-			buf := make([]byte, 8192)
 			n, err := r.Read(buf)
 			if trace != nil && n > 0 {
 				_, _ = trace.Write(buf[:n])
@@ -414,7 +414,8 @@ func pumpOutput(r io.Reader, size *termSize, send func(kind, data string), guard
 					f.Close()
 				}
 			}
-			reads <- readResult{buf[:n], err}
+			// A copy the size of what was read; the buffer is reused.
+			reads <- readResult{append([]byte(nil), buf[:n]...), err}
 			if err != nil {
 				return
 			}
@@ -449,6 +450,14 @@ func pumpOutput(r io.Reader, size *termSize, send func(kind, data string), guard
 			}
 		} else {
 			res = <-reads
+		}
+		// Reads already waiting go in with this one: a flood of one-line
+		// reads (msys programs write each line to the console) is then
+		// one message, not one per line.
+		for res.err == nil && len(reads) > 0 {
+			more := <-reads
+			res.data = append(res.data, more.data...)
+			res.err = more.err
 		}
 		data := append(held, res.data...)
 		var complete []byte
