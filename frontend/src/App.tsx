@@ -6842,14 +6842,19 @@ interface CloudLayout {
 
 const SUN_CLEARANCE = 10;
 const CLOUD_LANES = [
-  { count: 3, cols: [14, 20], rows: 7,  top: 3,  opacity: 0.5,  seconds: 150 },
-  { count: 2, cols: [24, 30], rows: 12, top: 30, opacity: 0.95, seconds: 95 },
+  { cols: [14, 20], rows: 7,  top: 3,  opacity: 0.5,  seconds: 150 },
+  { cols: [24, 30], rows: 12, top: 30, opacity: 0.95, seconds: 95 },
 ];
 
-/** The clouds crossing `room` px of sky (up to the sun). */
-function layoutClouds(room: number): CloudLayout[] {
+/** `total` clouds crossing `room` px of sky (up to the sun): three in
+ *  five far away, the rest near; speed multiplies their drift. */
+function layoutClouds(room: number, total = 5, speed = 1): CloudLayout[] {
   const out: CloudLayout[] = [];
-  for (const lane of CLOUD_LANES) {
+  const far = Math.ceil(total * 0.6);
+  const counts = [far, total - far];
+  CLOUD_LANES.forEach((laneDef, li) => {
+    const lane = { ...laneDef, count: counts[li], seconds: laneDef.seconds / speed };
+    if (lane.count <= 0) return;
     const shapes = Array.from({ length: lane.count }, () => makeCloud(Math.round(rand(lane.cols[0], lane.cols[1])), lane.rows));
     const widest = Math.max(...shapes.map(s => s.cols * SKY_PIXEL));
     // Each crossing starts just off the left edge and ends at the sun.
@@ -6868,8 +6873,30 @@ function layoutClouds(room: number): CloudLayout[] {
         duration: lane.seconds, delay: -at * lane.seconds,
       });
     });
-  }
+  });
   return out;
+}
+
+/** Pixel art from a theme ("sunArt", "moonArt"): rows split by /, #
+ *  a pixel, 1–9 a dimmer one, . empty. null if there's none. */
+function parseArt(art: string): PixelShape | null {
+  const rows = art.split("/").filter(Boolean);
+  if (!rows.length) return null;
+  const cols = Math.max(...rows.map(r => r.length));
+  return pixelShape(cols, rows.length, (x, y) => {
+    const ch = rows[y][x] ?? ".";
+    return ch === "#" ? 1 : /[1-9]/.test(ch) ? Number(ch) / 10 : 0;
+  });
+}
+
+/** The sky options of the theme in use (themeManager.ts, group "Sky"). */
+function skyOptions() {
+  const t = (themeManager.get(themeManager.getCurrent()) ?? {}) as Theme;
+  const v = (key: string) => optionValue(t, themeOption(key)!);
+  return {
+    mode: String(v("skyMode")), clouds: Number(v("cloudCount")), speed: Number(v("cloudSpeed")),
+    stars: Number(v("starCount")), sunArt: String(v("sunArt")), moonArt: String(v("moonArt")), image: String(v("skyImage")),
+  };
 }
 
 interface StarLayout { sparkle: boolean; top: number; left: number; delay: number; duration: number }
@@ -6895,14 +6922,19 @@ function SkyWidget() {
     const t = setInterval(() => setNow(new Date()), 30000);
     return () => clearInterval(t);
   }, []);
+  // The theme decides the mode, the art and how many clouds and stars.
+  const [opts, setOpts] = useState(skyOptions);
+  useEffect(() => events.on("theme_changed", () => setOpts(skyOptions())), []);
   const hour = now.getHours();
-  const isDay = hour >= 6 && hour < 18;
+  const isDay = opts.mode === "sun" ? true : opts.mode === "moon" ? false : hour >= 6 && hour < 18;
+  const sunArt = useMemo(() => parseArt(opts.sunArt), [opts.sunArt]);
+  const moonArt = useMemo(() => parseArt(opts.moonArt), [opts.moonArt]);
 
-  // Laid out once, so clouds and stars don't jump on each clock tick.
-  // The clouds' sky ends at the sun (at the right edge).
+  // Laid out once per setting, so clouds and stars don't jump on each
+  // clock tick. The clouds' sky ends at the sun (at the right edge).
   const room = SKY_WIDGET_WIDTH - SUN_SIZE * SKY_PIXEL - SUN_CLEARANCE;
-  const clouds = useMemo(() => layoutClouds(room), [room]);
-  const stars = useMemo(() => layoutStars(Math.floor(rand(6, 9)), SKY_WIDGET_WIDTH - 44), []);
+  const clouds = useMemo(() => layoutClouds(room, opts.clouds, opts.speed), [room, opts.clouds, opts.speed]);
+  const stars = useMemo(() => layoutStars(opts.stars, SKY_WIDGET_WIDTH - 44), [opts.stars]);
 
   // The clouds move by Web Animations with plain pixel values (CSS
   // keyframes built from variables can't always run off the main
@@ -6924,15 +6956,22 @@ function SkyWidget() {
     return () => running.forEach(a => a?.cancel());
   }, [clouds, isDay]);
 
+  if (opts.image) {
+    return <div className="sky-widget"><img className="sky-image" src={opts.image} alt="" draggable={false} /></div>;
+  }
   if (isDay) {
     return (
       <div className="sky-widget sky-widget--day">
-        <div className="sky-sun" style={{ width: SUN_SIZE * SKY_PIXEL, height: SUN_SIZE * SKY_PIXEL }}>
-          <Pixels shape={SUN.rays} />
-          <Pixels shape={SUN.straightTips} className="sky-sun-tips" />
-          <Pixels shape={SUN.diagonalTips} className="sky-sun-tips sky-sun-tips--late" />
-          <Pixels shape={SUN.disc} />
-        </div>
+        {sunArt ? (
+          <Pixels shape={sunArt} className="sky-sun sky-sun--art" />
+        ) : (
+          <div className="sky-sun" style={{ width: SUN_SIZE * SKY_PIXEL, height: SUN_SIZE * SKY_PIXEL }}>
+            <Pixels shape={SUN.rays} />
+            <Pixels shape={SUN.straightTips} className="sky-sun-tips" />
+            <Pixels shape={SUN.diagonalTips} className="sky-sun-tips sky-sun-tips--late" />
+            <Pixels shape={SUN.disc} />
+          </div>
+        )}
         <div className="sky-clouds" style={{ width: room }}>
           {clouds.map((c, i) => (
             <Pixels key={i} shape={c.shape} className="sky-cloud" svgRef={el => { cloudEls.current[i] = el; }}
@@ -6944,7 +6983,7 @@ function SkyWidget() {
   }
   return (
     <div className="sky-widget sky-widget--night">
-      <Pixels shape={MOON} className="sky-moon" />
+      <Pixels shape={moonArt ?? MOON} className="sky-moon" />
       {stars.map((s, i) => (
         <Pixels key={i} shape={s.sparkle ? STAR_SPARKLE : STAR_DOT} className="sky-star" style={{
           top: `${s.top}px`, left: `${s.left}px`,

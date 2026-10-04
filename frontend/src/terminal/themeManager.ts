@@ -101,6 +101,13 @@ export const THEME_OPTIONS: ThemeOption[] = [
   { key: "cloud", group: "Sky", label: "Clouds", hint: "daytime clouds", kind: "color", fallback: "#ffffff", cssVar: "--cloud" },
   { key: "moon", group: "Sky", label: "Moon", hint: "night-time moon", kind: "color", fallback: "#ffffff", cssVar: "--moon" },
   { key: "star", group: "Sky", label: "Stars", hint: "night-time stars", kind: "color", fallback: "var(--purple3)", cssVar: "--star" },
+  { key: "skyMode", group: "Sky", label: "Sky", hint: "auto: the sun from 6 am to 6 pm, the moon at night", kind: "choice", fallback: "auto", choices: ["auto", "sun", "moon"] },
+  { key: "cloudCount", group: "Sky", label: "Cloud count", hint: "0 for a clear sky", kind: "number", fallback: 5, min: 0, max: 10, step: 1 },
+  { key: "cloudSpeed", group: "Sky", label: "Cloud speed", hint: "times the usual drift", kind: "number", fallback: 1, min: 0.2, max: 4, step: 0.1, unit: "×" },
+  { key: "starCount", group: "Sky", label: "Star count", hint: "0 for no stars", kind: "number", fallback: 7, min: 0, max: 24, step: 1 },
+  { key: "sunArt", group: "Sky", label: "Sun art", hint: "your own pixel art: rows split by /, # a pixel, 1–9 dimmer, . empty — e.g. .##./####/####/.##.", kind: "text", fallback: "" },
+  { key: "moonArt", group: "Sky", label: "Moon art", hint: "pixel art like the sun's; empty for the built-in moon", kind: "text", fallback: "" },
+  { key: "skyImage", group: "Sky", label: "Sky image", hint: "an image in place of the pixel sky (https:// or data:image/)", kind: "text", fallback: "" },
 
   // Text
   { key: "font", group: "Text", label: "Font", hint: "CSS font list, e.g. 'Fira Code', monospace", kind: "text", fallback: DEFAULT_FONT },
@@ -152,7 +159,13 @@ export function normalizeOption(opt: ThemeOption, raw: unknown): ThemeValue | un
     case "color":
     case "text": {
       const s = String(raw).trim();
+      // Pixel art is only pixels: rows of # . and 1–9 split by /.
+      if (opt.key === "sunArt" || opt.key === "moonArt") {
+        const art = s.replace(/\s+/g, "");
+        return art.length <= 2000 && /^[.#1-9]+(\/[.#1-9]+)*$/.test(art) ? art : undefined;
+      }
       if (!SAFE_CSS_VALUE.test(s)) return undefined;
+      if (opt.key === "skyImage" && !/^(https:\/\/|data:image\/)[^"'\\\s()]+$/i.test(s)) return undefined;
       if (opt.key === "promptText") return s.replace(/[\x00-\x1f]/g, "").slice(0, 24) || undefined;
       if (opt.key === "backgroundImage" && !/^(https:\/\/|data:image\/)[^"'\\\s()]+$/i.test(s)) return undefined;
       if (opt.key === "backgroundGradient" && (!/^(repeating-)?(linear|radial|conic)-gradient\(/i.test(s) || /url\s*\(/i.test(s))) return undefined;

@@ -6,6 +6,10 @@ All notable changes to OXIS. The format follows
 ## [Unreleased]
 
 ### Added
+- Home's sky is the theme's to change: `skyMode` sun or moon only (or
+  auto, by the clock), `cloudCount`, `cloudSpeed`, `starCount`, your own
+  pixel art for the sun and moon (`sunArt`, `moonArt`), or a picture in
+  its place (`skyImage`). All in the theme editor's Sky group too.
 - The download count includes `'update install`s that build from source
   (a prebuilt download was already counted by GitHub): the app adds one
   to the count at oxis.space, with no ID or data, at most once a day per

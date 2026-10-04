@@ -1026,6 +1026,9 @@ button.editor-mode:hover { filter: brightness(1.25); }
   z-index: 2;
 }
 .sky-sun svg { position: absolute; left: 0; top: 0; display: block; }
+/* A theme's own pixel art (sunArt) or picture (skyImage). */
+.sky-sun--art { display: block; }
+.sky-image { display: block; max-width: 100%; height: 60px; margin: 0 auto; object-fit: contain; image-rendering: pixelated; }
 /* The rays' tips take turns: straight ones, then diagonal ones. */
 .sky-sun-tips { animation: sun-tips 5s steps(1, end) infinite; }
 .sky-sun-tips--late { animation-delay: -2.5s; }

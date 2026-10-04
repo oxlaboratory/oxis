@@ -1114,7 +1114,7 @@ set.
 | Interface | `selection` `caret` `promptColor` `promptBg` `promptBorder` `statusBg` `statusText` `titlebarBg` `titlebarText` `cornerMark` `scrollbar` `scrollbarHover` |
 | Terminal colours | the 16 colours programs print with: `ansiBlack` `ansiRed` `ansiGreen` `ansiYellow` `ansiBlue` `ansiMagenta` `ansiCyan` `ansiWhite` and `ansiBright…` of each |
 | Syntax (editor) | `synKeyword` `synString` `synNumber` `synComment` `synFunction` |
-| Sky (Home) | `sun` `cloud` `moon` `star` |
+| Sky (Home) | colours `sun` `cloud` `moon` `star`; `skyMode` auto/sun/moon (auto follows the clock), `cloudCount` 0–10, `cloudSpeed` 0.2–4, `starCount` 0–24; your own pixel art in `sunArt` and `moonArt` (rows split by `/`: `#` a pixel, `1`–`9` dimmer, `.` empty, e.g. `.##./####/####/.##.`); `skyImage` (an `https://` or `data:image/` URL) in place of the pixel sky |
 | Text | `font` (a CSS font list), `fontSize` 9–28, `lineHeight` 1–2.4, `letterSpacing` −1–4, `fontWeight` 300–700, `ligatures` on/off |
 | Shape & effects | `radius` 0–14, `padding` 4–64 (terminal side padding), `scrollbarWidth` 2–14, `glow` 0–1 |
 | Cursor | `cursorStyle` block/bar/underline, `cursorBlink` on/off |
