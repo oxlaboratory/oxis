@@ -24,7 +24,7 @@ const path = require("path");
 
 const ROOT   = path.resolve(__dirname, "..");
 const SITE   = path.join(ROOT, "cloudflare");
-const PUBLIC = ["index.html", "404.html", "_headers", "index.json", "assets", "plugins"];
+const PUBLIC = ["index.html", "404.html", "_headers", "robots.txt", "sitemap.xml", "index.json", "assets", "plugins"];
 const DRY    = process.argv.includes("--dry-run");
 const BRANCH = process.env.OXIS_PAGES_BRANCH || "main";
 
