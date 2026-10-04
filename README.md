@@ -862,8 +862,10 @@ These calls need a permission for the plugin that makes them:
 On native Lua, so do Lua's own libraries: files (fs), running programs
 (shell), and C modules or the `debug` library (native).
 
-- A plugin **without** a manifest asks once per permission ("Plugin X
-  wants to …"), and the answer is remembered.
+- A plugin **without** a manifest asks once per permission, in the
+  prompt: "🔐 X wants to read/write files on your computer. Allow?
+  (yes / no)". Nothing else freezes while it waits. A yes is remembered;
+  a no lasts until OXIS restarts. Ctrl+C counts as no.
 - A plugin **with** a manifest can only ever get what its
   `permissions:` line lists; anything else is refused with an error
   naming the missing permission. `shell` is the exception: it always
@@ -941,7 +943,7 @@ Everything is on the global `oxis` table.
 | `oxis.workspace(path)` | Mark `path` as the current project (shown on Home) |
 | `oxis.newTerminal()` | Switch to the terminal view |
 | `oxis.dashboard{ header, shortcuts }` | Customise Home: a header line and extra hint lines (the theme stays the user's; use `oxis.theme` in a command for that) |
-| `oxis.fs.read/write/list/stat/mkdir/remove(path, …, cb)` | File access; `cb(err, result)` |
+| `oxis.fs.read/write/list/stat/mkdir/remove(path, …, cb)` | File access; `cb(err, result)`. Relative paths start at the shell's current folder |
 | `oxis.fs.watch(path, fn, opts)` | Changes to a file or folder, as they happen ([below](#watching-files)) |
 | `oxis.process.spawn(opts, callbacks)` | Run a program and get its output as it prints ([below](#running-programs)) |
 | `oxis.process.list(cb)` / `.kill(pid, cb)` | Processes |

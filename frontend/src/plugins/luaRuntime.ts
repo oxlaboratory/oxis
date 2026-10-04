@@ -128,7 +128,7 @@ export interface OxisBindings {
 
   /** Throws unless the plugin may use the namespace (prompting for a
    *  plugin without a manifest): native Lua's io, os and C modules. */
-  requirePermission?(ns: string): void;
+  requirePermission?(ns: string): void | Promise<void>;
 
   /** A Lua callback raised an error (shown to the user). */
   reportError?(message: string): void;

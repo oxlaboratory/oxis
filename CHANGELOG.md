@@ -290,6 +290,11 @@ All notable changes to OXIS. The format follows
   of every built-in theme.
 
 ### Changed
+- A plugin asking for a permission asks in the prompt ("🔐 X wants to
+  make network requests. Allow? (yes / no)") instead of a system dialog
+  that froze the whole window. Animations, other panes and other
+  plugins keep running while it waits. A question the plugin already
+  had open comes back after the answer.
 - `'plugin new`'s templates use today's API: `devops` reads
   deploy.json, asks, and deploys with a spinner (oxis.ask, oxis.line,
   oxis.every, oxis.process.spawn), `system` shows the machine live,
@@ -459,6 +464,9 @@ All notable changes to OXIS. The format follows
 - The npm launcher downloads from the GitHub `latest-build` release.
 
 ### Fixed
+- `oxis.fs.read/write/list/stat/mkdir/remove` resolve relative paths
+  from the shell's current folder, like `oxis.fs.search` and
+  `oxis.edit` already did, not from the folder OXIS started in.
 - A line typed while a plugin's animation or live view ran went to the
   shell (answering a game's die before it landed ran `yes 5`, which
   floods the terminal). It waits now, like type-ahead: it answers that

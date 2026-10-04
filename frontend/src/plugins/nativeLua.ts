@@ -237,7 +237,9 @@ const CALLS: Record<string, Fn> = {
   storeSet: ({ b }, [key, value]) => b.storeSet(S(key) ?? "", V(value)),
 
   // Lua's own libraries behind the plugin's permissions (prelude.lua).
-  $perm: ({ b }, [ns]) => { b.requirePermission?.(String(ns)); return true; },
+  // Waits for the answer when the prompt asks (the Lua side is blocked
+  // in a sync call meanwhile).
+  $perm: async ({ b }, [ns]) => { await b.requirePermission?.(String(ns)); return true; },
   $h: (p, [hid, method, ...args]) => {
     const h = p.handles.get(Number(hid));
     const m = h?.[String(method)];

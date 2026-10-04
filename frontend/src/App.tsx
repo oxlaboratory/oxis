@@ -42,7 +42,7 @@ import { scriptRunTracker, stripStepEcho } from "./terminal/scriptRunTracker";
 import { workflowRunner } from "./plugins/workflowRunner";
 import {
   grant as grantPermission, revoke as revokePermission, grantedTo as grantedPermissions,
-  type PermissionNamespace,
+  setPermissionAsker, type PermissionNamespace,
 } from "./plugins/permissions";
 import { getLicensedEmail, setLicensedEmail, checkLicense, listDevices, deactivateDevice, isThisDevice } from "./plugins/pluginLicense";
 import type { EditorMode, CursorState }     from "./terminal/editorModes";
@@ -5185,12 +5185,35 @@ function paneHost(el: HTMLElement | null): HTMLElement | null {
   return (el?.closest(".app-body") as HTMLElement | null) ?? el;
 }
 
+/** A plugin's first use of a permission, asked in the prompt like
+ *  oxis.ask rather than with confirm(), which freezes the window. A
+ *  question the plugin had open comes back once this is answered. */
+function askPermissionInPrompt(plugin: string, what: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const before = promptCapture.get();
+    const print = (t: string, k?: LineKind) => _ctxRef.current?.print(t, k);
+    print(`  🔐 ${plugin} wants to ${what}. Allow? (yes / no)`, "warn");
+    const answered = (ok: boolean) => {
+      print(ok ? `  ✓  ${plugin} may ${what} ('plugin permissions ${plugin} to change)` : `  ✗  not allowed`, ok ? "ok" : "dim");
+      resolve(ok);
+      if (before && !promptCapture.get()) promptCapture.set(before);
+    };
+    promptCapture.set({
+      owner: "oxis",
+      label: "allow?",
+      onLine: (line) => answered(/^\s*(y|yes|allow|ok)\s*$/i.test(line)),
+      onCancel: () => answered(false),
+    });
+  });
+}
+
 let _pluginsInited = false;
 /** Loads plugins and workspaces once, before any built-in commands are
  *  registered against a real terminal (built-ins win name clashes). */
 function ensurePluginsInited(): void {
   if (_pluginsInited) return;
   _pluginsInited = true;
+  setPermissionAsker(askPermissionInPrompt);
   initPlugins(forwardingApiCtx);
   workspaceManager.init(forwardingApiCtx);
   void workspaceManager.restoreLastActive();

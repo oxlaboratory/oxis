@@ -10,6 +10,19 @@
 export type PermissionNamespace = "fs" | "process" | "net" | "system" | "workspace" | "editor" | "terminal" | "shell" | "native";
 
 const STORAGE_KEY = "oxis-plugin-permissions-v1";
+
+/** What each permission lets a plugin do, for the question asking it. */
+const LABEL: Record<PermissionNamespace, string> = {
+  fs: "read/write files on your computer",
+  process: "list and stop running processes",
+  net: "make network requests",
+  system: "read system information (OS, CPU, memory)",
+  workspace: "switch/load OXIS workspaces",
+  editor: "read and change the file open in the editor, and open files in it",
+  terminal: "open new terminal tabs",
+  shell: "run arbitrary shell commands",
+  native: "load native code (Lua C modules) and use Lua's debug library — full access to your computer",
+};
 // Denials aren't persisted (a user might change their mind), but are
 // cached for the session so one "no" doesn't turn into a confirm()
 // dialog on every single subsequent call in a loop.
@@ -91,17 +104,7 @@ export function requestPermission(plugin: string, ns: PermissionNamespace): bool
   if (isGranted(plugin, ns)) return true;
   const key = `${plugin}::${ns}`;
   if (deniedThisSession.has(key)) { lastDenialReason.set(key, "declined"); return false; }
-  const label: Record<PermissionNamespace, string> = {
-    fs: "read/write files on your computer",
-    process: "list and stop running processes",
-    net: "make network requests",
-    system: "read system information (OS, CPU, memory)",
-    workspace: "switch/load OXIS workspaces",
-    editor: "read and change the file open in the editor, and open files in it",
-    terminal: "open new terminal tabs",
-    shell: "run arbitrary shell commands",
-    native: "load native code (Lua C modules) and use Lua's debug library — full access to your computer",
-  };
+  const label = LABEL;
   const ok = typeof confirm === "function"
     ? confirm(`Plugin "${plugin}" wants to ${label[ns]}.\n\nAllow this permission? You can change it later with 'plugin permissions ${plugin}.`)
     : false;
@@ -155,4 +158,46 @@ export function requestShellPermission(plugin: string): boolean {
 export function requireShellPermission(plugin: string, isTrusted: boolean): void {
   if (isTrusted) return;
   if (!requestShellPermission(plugin)) throw new PluginPermissionError(plugin, "shell");
+}
+// ── Asking in the prompt ─────────────────────────────────────────────
+// A question in the prompt ("allow? yes/no") instead of confirm(), which
+// stops the whole window until it's answered. The app supplies the
+// asker; until it has (or for the few calls that must answer at once),
+// confirm() still asks.
+
+type Asker = (plugin: string, what: string) => Promise<boolean>;
+let asker: Asker | null = null;
+// One question per plugin and permission, however many calls wait on it.
+const asking = new Map<string, Promise<boolean>>();
+
+export function setPermissionAsker(a: Asker | null): void { asker = a; }
+
+/** requestPermission, asking in the prompt. `shell` is always asked
+ *  (see requestShellPermission), declared or not. */
+export async function requestPermissionAsync(plugin: string, ns: PermissionNamespace): Promise<boolean> {
+  const key = `${plugin}::${ns}`;
+  if (ns !== "shell") {
+    const declaredSet = declared.get(plugin);
+    if (declaredSet && !declaredSet.has(ns)) { lastDenialReason.set(key, "undeclared"); return false; }
+  }
+  if (isGranted(plugin, ns)) return true;
+  if (deniedThisSession.has(key)) { lastDenialReason.set(key, "declined"); return false; }
+  if (!asker) return ns === "shell" ? requestShellPermission(plugin) : requestPermission(plugin, ns);
+  let pending = asking.get(key);
+  if (!pending) {
+    pending = asker(plugin, ns === "shell" ? "run commands in your shell" : LABEL[ns]).then((ok) => {
+      asking.delete(key);
+      if (ok) grant(plugin, ns);
+      else { deniedThisSession.add(key); lastDenialReason.set(key, "declined"); }
+      return ok;
+    });
+    asking.set(key, pending);
+  }
+  return pending;
+}
+
+/** Rejects with PluginPermissionError unless `plugin` may use `ns`
+ *  (asking in the prompt if it hasn't been answered yet). */
+export async function ensurePermission(plugin: string, ns: PermissionNamespace): Promise<void> {
+  if (!(await requestPermissionAsync(plugin, ns))) throw new PluginPermissionError(plugin, ns);
 }

@@ -29,7 +29,7 @@ import {
 } from "../native";
 import { openStream, closeStream, newStreamId, LineSplitter, SSEParser } from "./streams";
 import { editorBridge, offsetToLineCol, lineColToOffset, lineRange } from "../terminal/editorBridge";
-import { requirePermission, requireShellPermission, type PermissionNamespace } from "./permissions";
+import { requirePermission, ensurePermission, type PermissionNamespace } from "./permissions";
 import { scriptRunTracker, type RunResult } from "../terminal/scriptRunTracker";
 import { workflowRunner } from "./workflowRunner";
 import { setTaskCommand } from "./taskCommands";
@@ -101,14 +101,9 @@ export function shellQuote(text: string, windows = isWindows()): string {
  * later lines would be read as the answer to any prompt (Read-Host,
  * read) earlier in the script.
  */
-export function runScript(ctx: APIContext, cmd: string): Promise<{ ok: boolean; exitCode: number | null }> {
-  // Not an async function, so turn a synchronous permission denial into
-  // a rejection explicitly (the Lua binding only handles rejections).
-  try {
-    requireShellPermission(ctx.pluginName, !!ctx.isTrusted);
-  } catch (e) {
-    return Promise.reject(e);
-  }
+export async function runScript(ctx: APIContext, cmd: string): Promise<{ ok: boolean; exitCode: number | null }> {
+  // Asked in the prompt the first time (a denial rejects).
+  if (!ctx.isTrusted) await ensurePermission(ctx.pluginName, "shell");
   const windows = isWindows();
   const send = (line: string) => ctx.sendToShell(line);
   const done = (r: RunResult) => ({ ok: !r.cancelled && !r.timedOut && r.exitCode === 0, exitCode: r.exitCode });
@@ -169,7 +164,10 @@ export function buildLuaAPI(ctx: APIContext): OxisBindings {
   const options: Record<string, LuaJSValue> = {};
   // Trusted code (built-ins, the user's own config, workspace, task and
   // workflow files) never gets a permission prompt.
+  // Calls that answer at once check with need() (a confirm() if it has
+  // to ask); the rest wait for an answer in the prompt (needAsync).
   const need = (ns: PermissionNamespace) => { if (!ctx.isTrusted) requirePermission(ctx.pluginName, ns); };
+  const needAsync = async (ns: PermissionNamespace) => { if (!ctx.isTrusted) await ensurePermission(ctx.pluginName, ns); };
   const nativeOnly = (what: string) => {
     if (!isNativeApp()) throw new Error(`${what} needs the native OXIS app`);
   };
@@ -286,40 +284,40 @@ export function buildLuaAPI(ctx: APIContext): OxisBindings {
     // ── Core system APIs — each checks its permission first. fs,
     // process and system need the native app. ──
     fsRead: async (path) => {
-      need("fs");
+      await needAsync("fs");
       if (!isNativeApp()) throw new Error("oxis.fs needs the native OXIS app (no filesystem access in browser mode)");
-      return readFile(path);
+      return readFile(fromCwd(path, ctx.getCwd()));
     },
     fsWrite: async (path, content) => {
-      need("fs");
+      await needAsync("fs");
       if (!isNativeApp()) throw new Error("oxis.fs needs the native OXIS app (no filesystem access in browser mode)");
-      await writeFile(path, content);
+      await writeFile(fromCwd(path, ctx.getCwd()), content);
     },
     fsList: async (path) => {
-      need("fs");
+      await needAsync("fs");
       if (!isNativeApp()) throw new Error("oxis.fs needs the native OXIS app (no filesystem access in browser mode)");
-      const entries = await listDir(path);
+      const entries = await listDir(fromCwd(path, ctx.getCwd()));
       return entries as unknown as LuaJSValue[];
     },
     fsStat: async (path) => {
-      need("fs");
+      await needAsync("fs");
       if (!isNativeApp()) throw new Error("oxis.fs needs the native OXIS app (no filesystem access in browser mode)");
-      const s = await statPath(path);
+      const s = await statPath(fromCwd(path, ctx.getCwd()));
       return s as unknown as LuaJSValue;
     },
     fsMkdir: async (path) => {
-      need("fs");
+      await needAsync("fs");
       if (!isNativeApp()) throw new Error("oxis.fs needs the native OXIS app (no filesystem access in browser mode)");
-      await makeDir(path);
+      await makeDir(fromCwd(path, ctx.getCwd()));
     },
     fsRemove: async (path) => {
-      need("fs");
+      await needAsync("fs");
       if (!isNativeApp()) throw new Error("oxis.fs needs the native OXIS app (no filesystem access in browser mode)");
-      await deletePath(path);
+      await deletePath(fromCwd(path, ctx.getCwd()));
     },
 
     fsSearch: async (root, query, opts) => {
-      need("fs");
+      await needAsync("fs");
       if (!isNativeApp()) throw new Error("oxis.fs needs the native OXIS app (no filesystem access in browser mode)");
       const o = (opts ?? {}) as { regex?: boolean; caseSensitive?: boolean; wholeWord?: boolean; max?: number };
       const result = await searchFiles(fromCwd(root, ctx.getCwd()), query, {
@@ -330,13 +328,13 @@ export function buildLuaAPI(ctx: APIContext): OxisBindings {
     },
 
     processList: async () => {
-      need("process");
+      await needAsync("process");
       if (!isNativeApp()) throw new Error("oxis.process needs the native OXIS app");
       const list = await listProcesses();
       return list as unknown as LuaJSValue[];
     },
     processKill: async (pid) => {
-      need("process");
+      await needAsync("process");
       if (!isNativeApp()) throw new Error("oxis.process needs the native OXIS app");
       await killProcess(pid);
     },
@@ -345,7 +343,7 @@ export function buildLuaAPI(ctx: APIContext): OxisBindings {
     // In the desktop app OXIS makes the request itself (no CORS, so local
     // and self-hosted APIs work); in a browser tab it's a plain fetch().
     netRequest: async (opts) => {
-      need("net");
+      await needAsync("net");
       const o = (opts ?? {}) as { url?: string; method?: string; headers?: Record<string, string>; body?: string; timeout?: number };
       if (!o.url) throw new Error("oxis.net.request requires { url = ... }");
       // An empty Lua table arrives as [], not {}.
@@ -407,7 +405,7 @@ export function buildLuaAPI(ctx: APIContext): OxisBindings {
     },
 
     systemInfo: async () => {
-      need("system");
+      await needAsync("system");
       if (!isNativeApp()) throw new Error("oxis.system needs the native OXIS app");
       const info = await nativeSystemInfo();
       return info as unknown as LuaJSValue;
@@ -421,7 +419,6 @@ export function buildLuaAPI(ctx: APIContext): OxisBindings {
 
     // oxis.fs.watch(path, fn({ path, op }), { recursive, ignore, debounce })
     fsWatch: (path, opts, on) => {
-      need("fs");
       nativeOnly("oxis.fs.watch");
       const o = (opts ?? {}) as { recursive?: boolean; ignore?: LuaJSValue[]; debounce?: number };
       const id = newStreamId("watch");
@@ -433,12 +430,12 @@ export function buildLuaAPI(ctx: APIContext): OxisBindings {
         if (ev.type === "change") on.fns.change?.({ path: ev.path, op: ev.op });
         else if (ev.type === "error") ctx.print(`  ⚠  ${ctx.pluginName}: watching ${target}: ${ev.error}`, "dim");
         else if (ev.type === "end") done();
-      }, () => watchStart(id, {
+      }, () => needAsync("fs").then(() => watchStart(id, {
         path: target,
         recursive: o.recursive !== false,
         ignore: Array.isArray(o.ignore) ? o.ignore.map(String) : null,
         debounceMs: typeof o.debounce === "number" ? o.debounce : 0,
-      })).then(() => { if (active) on.fns.ready?.(); }).catch((e) => {
+      }))).then(() => { if (active) on.fns.ready?.(); }).catch((e) => {
         ctx.print(`  ✗  ${ctx.pluginName}: oxis.fs.watch: ${message(e)}`, "err");
         done();
       });
@@ -448,7 +445,7 @@ export function buildLuaAPI(ctx: APIContext): OxisBindings {
     // oxis.net.stream({ url, method, headers, body, timeout, idle, sse },
     //   { response = fn(status, headers), data = fn(text), line = fn(line),
     //     event = fn({ event, data, id }), done = fn(err, { status, ok, headers }) })
-    netStream: (opts, on) => streamRequest(ctx, opts, on, track, need),
+    netStream: (opts, on) => streamRequest(ctx, opts, on, track, needAsync),
 
     jsonEncode: (value) => JSON.stringify(value ?? null),
     jsonDecode: (text) => {
@@ -523,7 +520,7 @@ export function buildLuaAPI(ctx: APIContext): OxisBindings {
       cleanups.add(events.on(internal, (payload) => cb(toLua(payload))));
     },
 
-    requirePermission: (ns) => need(ns as PermissionNamespace),
+    requirePermission: (ns) => needAsync(ns as PermissionNamespace),
     reportError: (msg) => ctx.print(`  ✗  ${ctx.pluginName}: ${msg}`, "err"),
     dispose: () => {
       for (const undo of [...cleanups]) { try { undo(); } catch { /* keep going */ } }
@@ -535,7 +532,6 @@ export function buildLuaAPI(ctx: APIContext): OxisBindings {
 type Track = (undo: () => void) => () => void;
 
 function spawnProcess(ctx: APIContext, opts: LuaJSValue, on: LuaCallbacks, track: Track, nativeOnly: (what: string) => void): LuaHandle {
-  requireShellPermission(ctx.pluginName, !!ctx.isTrusted);
   nativeOnly("oxis.process.spawn");
   const o = (opts ?? {}) as {
     cmd?: string; args?: LuaJSValue[]; shell?: string; cwd?: string;
@@ -572,13 +568,13 @@ function spawnProcess(ctx: APIContext, opts: LuaJSValue, on: LuaCallbacks, track
   input = openStream(id, (ev) => {
     if (ev.type === "stdout" || ev.type === "stderr") deliver(ev.type, ev.data ?? "");
     else if (ev.type === "end") finish(ev.code, ev.error || undefined);
-  }, () => processStart(id, {
+  }, () => (ctx.isTrusted ? Promise.resolve() : ensurePermission(ctx.pluginName, "shell")).then(() => processStart(id, {
     cmd: o.cmd ?? "",
     args: (o.args ?? []).map(String),
     shell: o.shell ?? "",
     cwd: o.cwd ? fromCwd(o.cwd, ctx.getCwd()) : ctx.getCwd(),
     env: Object.fromEntries(Object.entries(o.env ?? {}).map(([k, v]) => [k, String(v)])),
-  })).then((p) => { pid = p; if (running) start?.(p); }, (e) => finish(undefined, message(e)));
+  }))).then((p) => { pid = p; if (running) start?.(p); }, (e) => finish(undefined, message(e)));
 
   const afterStart = (fn: () => Promise<void>) => {
     input = input.then(() => (running ? fn() : undefined)).catch(() => { /* it exited */ });
@@ -597,8 +593,7 @@ function spawnProcess(ctx: APIContext, opts: LuaJSValue, on: LuaCallbacks, track
   };
 }
 
-function streamRequest(ctx: APIContext, opts: LuaJSValue, on: LuaCallbacks, track: Track, need: (ns: PermissionNamespace) => void): LuaHandle {
-  need("net");
+function streamRequest(ctx: APIContext, opts: LuaJSValue, on: LuaCallbacks, track: Track, need: (ns: PermissionNamespace) => Promise<void>): LuaHandle {
   const o = (opts ?? {}) as {
     url?: string; method?: string; headers?: Record<string, LuaJSValue>; body?: string;
     timeout?: number; idle?: number; sse?: boolean;
@@ -641,16 +636,17 @@ function streamRequest(ctx: APIContext, opts: LuaJSValue, on: LuaCallbacks, trac
       if (ev.type === "response") onResponse(ev.code, ev.headers ?? {});
       else if (ev.type === "data") onData(ev.data ?? "");
       else if (ev.type === "end") onEnd(ev.error || undefined);
-    }, () => httpStreamStart(id, {
+    }, () => need("net").then(() => httpStreamStart(id, {
       url: o.url!, method: o.method || "GET", headers: headersIn, body: o.body ?? "",
       timeoutSeconds: typeof o.timeout === "number" ? o.timeout : 0,
       idleSeconds: typeof o.idle === "number" ? o.idle : 0,
-    })).catch((e) => onEnd(message(e)));
+    }))).catch((e) => onEnd(message(e)));
   } else {
     // Browser tab: fetch's stream (CORS applies).
     const ac = new AbortController();
     cancel = () => ac.abort();
     (async () => {
+      await need("net");
       const res = await fetch(o.url!, { method: o.method || "GET", headers: headersIn, body: o.body, signal: ac.signal });
       const hd: Record<string, string> = {};
       res.headers.forEach((v, k) => { hd[k] = v; });
