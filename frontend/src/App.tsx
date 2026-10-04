@@ -81,7 +81,7 @@ import { exportSettings, importSettings, exportWorkspace, importWorkspace, expor
 import { checkPublishable, findExistingListing, prepareFreePublish, submitPaidPlugin, startConnectOnboarding, requestPluginDeletion } from "./plugins/publish";
 import { commitAll, setupRemote, unlinkRemote, getRemotes, parseGitRemote, cancelActiveCommit, type GitProvider } from "./plugins/git";
 import { loadUserConfig } from "./terminal/userConfig";
-import { userConfigDir, runCommand, flashWindow, listShells, type NativeShell } from "./native";
+import { userConfigDir, runCommand, flashWindow, listShells, taskbarProgress, type NativeShell } from "./native";
 import { completeShell, applyCompletion } from "./terminal/shellComplete";
 import { findLinks, resolveLinkPath, type OutputLink } from "./terminal/outputLinks";
 import { installMacShortcuts } from "./terminal/macKeys";
@@ -8073,6 +8073,14 @@ function StatusBar({ mode, count, idx, ready, theme, project, updateMsg }: {
   }, []);
   // A program's progress (OSC 9;4), the latest from any tab.
   const [progress, setProgress] = useState<{ tab: string; state: number; pct: number } | null>(null);
+  // …on the taskbar button too, as Windows Terminal does.
+  const shownOnTaskbar = useRef("0:0");
+  useEffect(() => {
+    const key = progress ? `${progress.state}:${progress.pct}` : "0:0";
+    if (key === shownOnTaskbar.current) return;
+    shownOnTaskbar.current = key;
+    void taskbarProgress(progress?.state ?? 0, progress?.pct ?? 0);
+  }, [progress]);
   useEffect(() => events.on("shell_progress", p => {
     const pr = p as { tab: string; state: number; pct: number };
     setProgress(cur => (pr.state === 0 ? (cur && cur.tab !== pr.tab ? cur : null) : pr));

@@ -44,6 +44,7 @@ declare global {
           OpenURL?: (url: string) => Promise<void>;
           WriteClipboard?: (text: string) => Promise<void>;
           FlashWindow?: () => Promise<boolean>;
+          TaskbarProgress?: (state: number, pct: number) => Promise<boolean>;
           Shells?: () => Promise<{ name: string; label: string; path: string }[]>;
           ReadClipboard?: () => Promise<string>;
           CheckForUpdate?: () => Promise<NativeUpdateInfo>;
@@ -355,6 +356,13 @@ export async function writeClipboard(text: string): Promise<void> {
 export async function flashWindow(): Promise<boolean> {
   const fn = window.go?.wailsapp?.App?.FlashWindow;
   return fn ? fn() : false;
+}
+
+/** A program's progress (OSC 9;4) on the taskbar button (Windows):
+ *  state 0 clears, 1 percent, 2 error, 3 working, 4 paused. */
+export async function taskbarProgress(state: number, pct: number): Promise<boolean> {
+  const fn = window.go?.wailsapp?.App?.TaskbarProgress;
+  return fn ? fn(state, pct) : false;
 }
 
 /** The shells a tab can start here, by name; the default first. */

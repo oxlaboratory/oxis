@@ -16,3 +16,13 @@ func TestFlashWithoutAWindow(t *testing.T) {
 		t.Error("flashed with no window")
 	}
 }
+
+// Without a window there's no taskbar button to show progress on.
+func TestTaskbarProgressWithoutAWindow(t *testing.T) {
+	if mainWindow() != 0 {
+		t.Skip("this process has a window")
+	}
+	if taskbarProgress(1, 50) || taskbarProgress(9, 0) {
+		t.Error("set progress with no window")
+	}
+}

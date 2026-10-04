@@ -93,6 +93,11 @@ func (a *App) GetPTYPort() int { return a.ptyPort }
 // name (the setting "shell"), the default first.
 func (a *App) Shells() []pty.Shell { return pty.Shells() }
 
+// TaskbarProgress shows a program's progress (OSC 9;4) on OXIS's
+// taskbar button (Windows): state 0 clears it, 1 percent, 2 error,
+// 3 working, 4 paused; pct is 0–100.
+func (a *App) TaskbarProgress(state, pct int) bool { return taskbarProgress(state, pct) }
+
 // FlashWindow asks for attention from the background (Windows: the
 // taskbar button flashes until OXIS is in front). false if it couldn't,
 // or OXIS is already in front.
