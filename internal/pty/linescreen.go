@@ -362,6 +362,16 @@ func (m *lineScreen) osc(payload string) {
 		m.pen.link = uri
 		return
 	}
+	// OSC 52 ; targets ; base64: a program copying to the clipboard
+	// (tmux, Neovim, a remote shell). Writing only; "?" (asking what's on
+	// the clipboard) is never answered.
+	if strings.HasPrefix(payload, "52;") {
+		if parts := strings.SplitN(payload, ";", 3); len(parts) == 3 && parts[2] != "?" && len(parts[2]) <= 1<<20 {
+			m.flush()
+			m.send(kindMark, "52;"+parts[2])
+		}
+		return
+	}
 	if strings.HasPrefix(payload, "133;D") || strings.HasPrefix(payload, "7;") || strings.HasPrefix(payload, "9;9;") {
 		m.flush()
 		m.send(kindMark, payload)

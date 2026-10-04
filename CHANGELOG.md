@@ -6,6 +6,9 @@ All notable changes to OXIS. The format follows
 ## [Unreleased]
 
 ### Added
+- OSC 52: programs that copy to the clipboard (tmux, Neovim, a remote
+  shell) can, in the line view and in full-screen programs; the status
+  bar says each time. Reading the clipboard this way is never allowed.
 - OSC 8 hyperlinks: text a program links (`ls --hyperlink`, gcc,
   cargo, `gh`, delta…) is clickable, web links in the browser and
   `file://` ones in the editor. They used to show as plain text.

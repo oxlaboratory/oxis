@@ -260,6 +260,18 @@ function writePersistedOption(key: string, value: LuaJSValue): void {
 // Clipboard: see terminal/clipboard.ts (native first, then web APIs).
 const copyToClipboard = copyText;
 
+/** OSC 52: a program put text on the clipboard (base64, as tmux and
+ *  Neovim send it). The status bar says so, so it's never a surprise. */
+function programCopy(base64: string): void {
+  let text: string;
+  try {
+    const bytes = Uint8Array.from(atob(base64.replace(/\s+/g, "")), ch => ch.charCodeAt(0));
+    text = new TextDecoder().decode(bytes);
+  } catch { return; }
+  if (!text) return;
+  void copyToClipboard(text).then(() => events.emit("status_flash", { text: `a program copied ${text.length} character${text.length === 1 ? "" : "s"} to the clipboard` }), () => { /* not allowed: nothing copied */ });
+}
+
 // ══════════════════════════════════════════════════════════════
 // SETTINGS — 'config / 'settings. Stored in the same option store as
 // oxis.getOption (keys prefixed "setting."). Each setting applies itself
@@ -6235,6 +6247,7 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
 
   // A shell-integration mark: the directory, or a command finishing.
   const onMark = useCallback((mark: string) => {
+    if (mark.startsWith("52;")) { programCopy(mark.slice(3)); return; }
     shellIntegrated.current = true;
     const cwd = cwdFromMark(mark, isWindows());
     if (cwd !== null) { dirTracker.set(cwd); return; }
@@ -6533,7 +6546,7 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
     const host = screenHostRef.current;
     if (!host) return;
     let cancelled = false;
-    openFullScreen(host, { ...ptySize.current, onData: (d) => session.current?.write(d) })
+    openFullScreen(host, { ...ptySize.current, onData: (d) => session.current?.write(d), onCopy: programCopy })
       .then((view) => {
         if (cancelled) { view.dispose(); return; }
         screenView.current = view;

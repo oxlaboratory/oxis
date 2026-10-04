@@ -26,6 +26,8 @@ export interface FullScreenOptions {
   rows: number;
   /** Keys, pastes and mouse reports, for the program. */
   onData: (data: string) => void;
+  /** OSC 52 from the program: base64 text for the clipboard. */
+  onCopy?: (base64: string) => void;
 }
 
 /** The theme's colours, read from its CSS variables (themeManager). */
@@ -70,6 +72,13 @@ export async function openFullScreen(host: HTMLElement, opts: FullScreenOptions)
   term.open(host);
   const sub = term.onData(opts.onData);
   const bin = term.onBinary(opts.onData); // mouse reports in some modes
+  // OSC 52 ; targets ; base64 — copying to the clipboard (tmux, Neovim).
+  // Asking what's on it ("?") is never answered.
+  const osc52 = term.parser.registerOscHandler(52, (data) => {
+    const b64 = data.slice(data.indexOf(";") + 1);
+    if (b64 && b64 !== "?" && b64.length <= 1 << 20) opts.onCopy?.(b64);
+    return true;
+  });
 
   let last = { cols: term.cols, rows: term.rows };
   return {
@@ -81,7 +90,7 @@ export async function openFullScreen(host: HTMLElement, opts: FullScreenOptions)
       return last;
     },
     focus: () => term.focus(),
-    dispose: () => { sub.dispose(); bin.dispose(); term.dispose(); },
+    dispose: () => { sub.dispose(); bin.dispose(); osc52.dispose(); term.dispose(); },
   };
 }
 

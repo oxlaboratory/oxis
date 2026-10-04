@@ -494,6 +494,9 @@ Links programs make themselves (OSC 8: `ls --hyperlink`, gcc, cargo,
 `gh`, delta) work too: web links open in the browser, `file://` links in
 the editor.
 
+Programs can copy to the clipboard with OSC 52 (tmux, Neovim, a remote
+shell); the status bar says when one does. They can't read it.
+
 ### Full-screen programs
 
 vim, less, htop, lazygit, fzf, Microsoft Edit and anything else that
