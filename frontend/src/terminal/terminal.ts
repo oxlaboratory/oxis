@@ -112,6 +112,28 @@ export const LINE_COLORS: Record<string, string> = {
 };
 
 /** What a fresh or cleared terminal shows: one short hint line. */
+/** The command a line belongs to (the nearest command line at or above
+ *  it: the ones shell integration marked with a status) and its output,
+ *  up to the next command. A prompt left with nothing typed at the end
+ *  isn't output. null above the first command. */
+export function commandBlockAt(lines: Line[], id: number): { command: Line; output: Line[] } | null {
+  const at = lines.findIndex(l => l.id === id);
+  if (at < 0) return null;
+  let start = at;
+  while (start >= 0 && !lines[start].status) start--;
+  if (start < 0) return null;
+  let end = start + 1;
+  while (end < lines.length && !lines[end].status) end++;
+  const command = lines[start];
+  const output = lines.slice(start + 1, end);
+  while (output.length) {
+    const last = output[output.length - 1].text.trimEnd();
+    if (last === "" || command.text.startsWith(last)) output.pop();
+    else break;
+  }
+  return { command, output };
+}
+
 export function initialLines(): Line[] {
   return [mkLine("  type 'help for OXIS commands — anything else runs in your shell", "dim")];
 }

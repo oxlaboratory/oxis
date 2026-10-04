@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  stripAnsi, stripAnsiKeepSgr, visibleText, processOutput, mergeOutput, mkLine,
+  stripAnsi, stripAnsiKeepSgr, commandBlockAt, visibleText, processOutput, mergeOutput, mkLine,
   wordLeft, wordRight, deleteWordLeft, deleteWordRight, deleteToLineStart, deleteToLineEnd, transposeChars,
 } from "./terminal";
 
@@ -91,5 +91,30 @@ describe("readline editing", () => {
     expect(transposeChars("abc", 1)).toEqual({ text: "bac", pos: 2 });
     expect(transposeChars("abc", 3)).toEqual({ text: "acb", pos: 3 });
     expect(transposeChars("a", 1)).toEqual({ text: "a", pos: 1 });
+  });
+});
+
+describe("commandBlockAt", () => {
+  const ok = { code: 0, ms: 5 };
+  const ls = [
+    mkLine("type 'help"),
+    { ...mkLine("acme $ npm test"), status: { code: 1, ms: 900 } },
+    mkLine("FAIL cart.test.ts"),
+    mkLine("  expected 3, got 4"),
+    mkLine(""),
+    mkLine("acme $"),
+    { ...mkLine("acme $ echo hi"), status: ok },
+    mkLine("hi"),
+    mkLine("acme $ "),
+  ];
+  it("the command above and its output, without the empty prompt after", () => {
+    const b = commandBlockAt(ls, ls[3].id)!;
+    expect(b.command.text).toBe("acme $ npm test");
+    expect(b.output.map(l => l.text)).toEqual(["FAIL cart.test.ts", "  expected 3, got 4"]);
+    expect(commandBlockAt(ls, ls[1].id)!.output).toHaveLength(2);
+    expect(commandBlockAt(ls, ls[8].id)!.output.map(l => l.text)).toEqual(["hi"]);
+  });
+  it("nothing above the first command", () => {
+    expect(commandBlockAt(ls, ls[0].id)).toBeNull();
   });
 });

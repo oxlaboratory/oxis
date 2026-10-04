@@ -6,6 +6,8 @@ All notable changes to OXIS. The format follows
 ## [Unreleased]
 
 ### Added
+- Right-click a command's output for **Copy Output** or **Copy Command
+  and Output**: that command's lines, up to the next one.
 - Suggestions from history as you type, as in fish: the rest of the
   newest command starting with what's typed shows dim after the cursor,
   and →, End, Ctrl+F or Ctrl+E at the end of the line takes it.

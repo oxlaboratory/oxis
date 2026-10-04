@@ -446,6 +446,8 @@ Windows Terminal do. With it:
   `✗` and the exit code, plus how long it took if that was a second or
   more. Hover it for the details.
 - **Ctrl+↑ / Ctrl+↓** jump to the previous / next command.
+- Right-click a command's output: **Copy Output** or **Copy Command and
+  Output** copies just that command's part.
 - OXIS follows the directory exactly (`cd`, `z`, `Push-Location`,
   scripts that change it), so the workspace there is detected, without
   sending anything to your shell.

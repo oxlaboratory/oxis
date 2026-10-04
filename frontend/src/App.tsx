@@ -12,7 +12,7 @@ import { openPty }    from "./pty/ptyClient";
 import type { PtySession } from "./pty/ptyClient";
 
 import {
-  mkLine, initialLines, processOutput, mergeOutput, visibleText, nextLineId,
+  mkLine, initialLines, processOutput, mergeOutput, visibleText, nextLineId, commandBlockAt,
   LINE_COLORS,
   wordLeft, wordRight,
   deleteWordLeft, deleteWordRight,
@@ -5453,7 +5453,7 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
   const [searchResult, setSearchResult] = useState<SearchResult | null>(null);
 
   // ── right-click menu on the output (null = closed) ──────────
-  const [outputMenu, setOutputMenu] = useState<{ x: number; y: number; hasSel: boolean } | null>(null);
+  const [outputMenu, setOutputMenu] = useState<{ x: number; y: number; hasSel: boolean; block?: { command: string; output: string } } | null>(null);
 
   // ── find in output (Ctrl+Shift+F) — searches the scrollback, unlike
   // Ctrl+R, which searches command history. ─────────────────────────
@@ -5869,9 +5869,21 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
     e.preventDefault();
     // Keep the menu inside the window.
     const x = Math.min(e.clientX, window.innerWidth - 170);
-    const y = Math.min(e.clientY, window.innerHeight - 250);
-    setOutputMenu({ x, y, hasSel: outputSelectionText().length > 0 });
+    const y = Math.max(0, Math.min(e.clientY, window.innerHeight - 340));
+    // The command under the mouse, for Copy Output.
+    const id = Number((e.target as Element).closest?.("[data-line-id]")?.getAttribute("data-line-id"));
+    const found = Number.isFinite(id) ? commandBlockAt(linesRef.current, id) : null;
+    const block = found ? { command: found.command.text.trimEnd(), output: found.output.map(l => l.text).join("\n") } : undefined;
+    setOutputMenu({ x, y, hasSel: outputSelectionText().length > 0, block });
   }, [outputSelectionText]);
+
+  const copyBlock = useCallback((withCommand: boolean) => {
+    const b = outputMenu?.block;
+    setOutputMenu(null);
+    if (!b) return;
+    void copyToClipboard(withCommand ? `${b.command}\n${b.output}` : b.output);
+    events.emit("status_flash", { text: withCommand ? "copied the command and its output" : "copied the output" });
+  }, [outputMenu]);
 
   const copyOutputSelection = useCallback(() => {
     const text = outputSelectionText();
@@ -7284,6 +7296,10 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
           <button className="term-ctx-item" onClick={() => void pasteIntoPrompt()}>
             <span>Paste</span><span className="term-ctx-key">Ctrl+V</span>
           </button>
+          {outputMenu.block && (<>
+            <button className="term-ctx-item" onClick={() => copyBlock(false)}>Copy Output</button>
+            <button className="term-ctx-item" onClick={() => copyBlock(true)}>Copy Command and Output</button>
+          </>)}
           <button className="term-ctx-item" onClick={selectAllOutput}>Select All</button>
           <button className="term-ctx-item" onClick={clearOutputSelectionAction} disabled={!outputMenu.hasSel}>Clear Selection</button>
           <div className="term-ctx-sep" />
