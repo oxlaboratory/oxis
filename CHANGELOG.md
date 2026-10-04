@@ -9,8 +9,9 @@ All notable changes to OXIS. The format follows
 - Choose the shell in OXIS: `'shell` lists the ones on this machine
   (PowerShell 7, Windows PowerShell, Git Bash, WSL, cmd; or `$SHELL`,
   zsh, bash, fish), `'shell gitbash` opens a tab with one, and
-  `'config set shell <name>` sets what new tabs start. Before, only the
-  `OXIS_SHELL` environment variable could.
+  `'config set shell <name>` sets what new tabs start. Right-click a
+  "+" for the same list. Before, only the `OXIS_SHELL` environment
+  variable could.
 - macOS: ⌘ works for OXIS's shortcuts (⌘T, ⌘W, ⌘=, ⌘⇧P, and in the
   editor ⌘S, ⌘F, ⌘Z, ⌘⇧Z…), ⌘K clears and ⌘F searches the output; Ctrl
   stays the shell's and ⌘C/⌘V/⌘X/⌘A the system's.
@@ -503,6 +504,9 @@ All notable changes to OXIS. The format follows
 - The npm launcher downloads from the GitHub `latest-build` release.
 
 ### Fixed
+- Quitting OXIS no longer leaves "stopped: the connection to OXIS
+  closed" for every native-Lua plugin in the session it restores next
+  time (the lines piled up with each restart).
 - CI: failing Go tests on Linux passed the build, because the test step
   piped into `tee` without `pipefail`.
 - After a jump to a line (search results, go to line), the status bar's

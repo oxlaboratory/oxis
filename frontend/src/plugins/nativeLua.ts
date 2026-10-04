@@ -93,17 +93,32 @@ export function connect(): Promise<Hello> {
         done({ available: false, error: "the connection to OXIS closed" });
         ws = null;
         info = { available: false, error: "the connection to OXIS closed" };
+        const stopped: Plugin[] = [];
         for (const p of plugins.values()) {
-          if (!p.closed) p.b.reportError?.("stopped: the connection to OXIS closed (reload the plugin to start it again)");
+          if (!p.closed) stopped.push(p);
           p.closed = true;
           p.opened?.({ ok: false, error: "the connection to OXIS closed" });
         }
         plugins.clear();
+        // Said a moment later, and only if the page is still here: when
+        // OXIS quits the socket closes first, and these lines would end
+        // up in the session restored next time.
+        if (stopped.length) setTimeout(() => {
+          if (unloading) return;
+          for (const p of stopped) p.b.reportError?.("stopped: the connection to OXIS closed (reload the plugin to start it again)");
+        }, 2000);
         hello = null; // the next load tries again
       };
     }).catch(() => done({ available: false, error: "no local server (browser preview?)" }));
   });
   return hello;
+}
+
+// The page is going away (OXIS quitting or reloading).
+let unloading = false;
+if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+  window.addEventListener("pagehide", () => { unloading = true; });
+  window.addEventListener("beforeunload", () => { unloading = true; });
 }
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));

@@ -81,7 +81,7 @@ import { exportSettings, importSettings, exportWorkspace, importWorkspace, expor
 import { checkPublishable, findExistingListing, prepareFreePublish, submitPaidPlugin, startConnectOnboarding, requestPluginDeletion } from "./plugins/publish";
 import { commitAll, setupRemote, unlinkRemote, getRemotes, parseGitRemote, cancelActiveCommit, type GitProvider } from "./plugins/git";
 import { loadUserConfig } from "./terminal/userConfig";
-import { userConfigDir, runCommand, flashWindow, listShells } from "./native";
+import { userConfigDir, runCommand, flashWindow, listShells, type NativeShell } from "./native";
 import { completeShell, applyCompletion } from "./terminal/shellComplete";
 import { findLinks, resolveLinkPath, type OutputLink } from "./terminal/outputLinks";
 import { installMacShortcuts } from "./terminal/macKeys";
@@ -8683,6 +8683,23 @@ export default function App() {
     setActiveTab(id);
     setView("shell");
   }, []);
+  // Right-click on a "+": a new tab with another shell.
+  const [shellMenu, setShellMenu] = useState<{ x: number; y: number; shells: NativeShell[] } | null>(null);
+  const openShellMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    const x = e.clientX, y = e.clientY;
+    void listShells().then(shells => {
+      if (shells.length) setShellMenu({ x, y: Math.max(0, Math.min(y, window.innerHeight - 40 - shells.length * 30)), shells });
+    });
+  }, []);
+  useEffect(() => {
+    if (!shellMenu) return;
+    const close = () => setShellMenu(null);
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") close(); };
+    document.addEventListener("mousedown", close);
+    document.addEventListener("keydown", onKey);
+    return () => { document.removeEventListener("mousedown", close); document.removeEventListener("keydown", onKey); };
+  }, [shellMenu]);
   /** Closes a tab and all its shells; closing the only one starts a fresh shell. */
   const closeTab = useCallback((id: string) => {
     const t = tabsRef.current;
@@ -8934,7 +8951,19 @@ export default function App() {
                     onClick={e => { e.stopPropagation(); closeTab(t.id); }}>×</span>
                 </div>
               ))}
-              <button className="term-tabs-new" onClick={() => newTab()} title="New tab (Ctrl+T)">+</button>
+              <button className="term-tabs-new" onClick={() => newTab()} onContextMenu={openShellMenu} title="New tab (Ctrl+T) — right-click for another shell">+</button>
+            </div>
+          )}
+          {shellMenu && (
+            <div className="term-ctx-menu term-shell-menu"
+              // Opened on the right half: it grows leftwards, so it stays in the window.
+              style={shellMenu.x > window.innerWidth / 2 ? { right: window.innerWidth - shellMenu.x, top: shellMenu.y } : { left: shellMenu.x, top: shellMenu.y }}
+              onMouseDown={e => { e.stopPropagation(); e.preventDefault(); }}>
+              {shellMenu.shells.map(sh => (
+                <button key={sh.name} className="term-ctx-item" onClick={() => { setShellMenu(null); newTab(sh.name); }}>
+                  <span>New tab: {sh.label}</span><span className="term-ctx-key">'shell {sh.name}</span>
+                </button>
+              ))}
             </div>
           )}
           {tabs.map(t => (
@@ -8949,7 +8978,7 @@ export default function App() {
                     style={{ flex: `${(100 * (t.sizes[i] ?? 1)) / t.sizes.reduce((a, b) => a + b, 0)} 1 0` }}
                     onMouseDownCapture={() => focusPane(t.id, pane)}>
                     <div className="term-pane-bar" onMouseDown={e => e.preventDefault()}>
-                      <button onClick={() => newTab()} title="New tab (Ctrl+T)">+</button>
+                      <button onClick={() => newTab()} onContextMenu={openShellMenu} title="New tab (Ctrl+T) — right-click for another shell">+</button>
                       <button onClick={() => splitPane("row", pane)} title="Split beside: a new shell next to this one (Ctrl+Shift+\ or Alt+Shift+=)">
                         <svg viewBox="0 0 12 12" aria-hidden="true"><rect x="1" y="1.5" width="10" height="9" /><path d="M6 1.5v9" /></svg>
                       </button>

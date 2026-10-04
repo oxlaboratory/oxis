@@ -1394,3 +1394,7 @@ input, textarea { font-family: var(--font); }
 .editor-peek-close { color: var(--dim); font-size: 14px; line-height: 1; padding: 0 4px; }
 .editor-peek-close:hover { color: var(--text); }
 .editor-peek-body { overflow-y: auto; padding: 4px 12px 6px; font-family: var(--font); font-size: var(--fs); line-height: var(--lh); }
+
+/* Right-click on a "+": a new tab with another shell. */
+.term-shell-menu { min-width: 300px; }
+.term-shell-menu .term-ctx-item { white-space: nowrap; gap: 24px; }
