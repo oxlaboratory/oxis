@@ -123,6 +123,8 @@ ok("go modules ready");
 // ── Step 4: Windows icon, version info and manifest ──────────
 // cmd/oxi/versioninfo.json names the product and publisher and points
 // at oxis.exe.manifest; the version numbers come from the build stamp.
+// (The _windows name keeps it out of other systems' builds, whose
+// linkers refuse a Windows resource.)
 // A Windows program without them looks unfinished, and that's one of
 // the things antivirus heuristics count against it.
 if (IS_WIN) {
@@ -136,10 +138,10 @@ if (IS_WIN) {
       `-file-version=${major}.${minor}.${patch}.${build}`, `-product-version=${VERSION}`,
     ].join(" ");
     const r = spawnSync(
-      `"${GO}" run github.com/josephspurrier/goversioninfo/cmd/goversioninfo@latest ${versionFlags} -o=resource.syso versioninfo.json`,
+      `"${GO}" run github.com/josephspurrier/goversioninfo/cmd/goversioninfo@latest ${versionFlags} -o=resource_windows.syso versioninfo.json`,
       { shell:true, stdio:"inherit", cwd:path.join(ROOT,"cmd","oxi"), env:{...process.env,PATH:augmentedPath} }
     );
-    if (r.status === 0) ok(`resource.syso generated (icon, manifest, version ${major}.${minor}.${patch}.${build})`);
+    if (r.status === 0) ok(`resource_windows.syso generated (icon, manifest, version ${major}.${minor}.${patch}.${build})`);
     else log("   (icon embedding skipped — goversioninfo unavailable)", col.grey);
   } else {
     log("   (oxis.ico not found — skipping icon)", col.grey);
