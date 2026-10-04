@@ -220,20 +220,24 @@ Priority: optional
 Architecture: amd64
 Depends: libgtk-3-0, ${hasWebkit41 ? "libwebkit2gtk-4.1-0" : "libwebkit2gtk-4.0-37"}
 Maintainer: OXIS <noreply@oxlaboratory.dev>
-Homepage: https://github.com/oxlaboratory/oxis
-Description: OXIS — Open Xenial Intelligent Shell
- A native desktop terminal with Lua plugins, workspaces and a
- built-in editor.
+Homepage: https://oxis.space
+Description: programmable workspace for projects, documents and workflows
+ OXIS is a programmable workspace for automating projects, editing
+ documents and building workflows, with an entirely customizable
+ experience. It runs your real shell beside a built-in editor,
+ per-project workspaces, tasks, workflows and Lua plugins.
 `);
     fs.writeFileSync(path.join(appsDir, "oxis.desktop"),
 `[Desktop Entry]
 Name=OXIS
-Comment=Open Xenial Intelligent Shell
+GenericName=Programmable Workspace
+Comment=Automate projects, edit documents and build workflows
 Exec=/usr/bin/oxis
 Icon=oxis
 Terminal=false
 Type=Application
-Categories=System;TerminalEmulator;
+Categories=Development;Utility;
+Keywords=workspace;automation;editor;workflow;lua;shell;
 StartupWMClass=oxis
 `);
     // /usr/bin isn't user-writable, so data goes to ~/Downloads/OXIS

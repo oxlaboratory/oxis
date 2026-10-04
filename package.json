@@ -1,7 +1,9 @@
 {
   "name": "oxis",
   "version": "1.2.1",
-  "description": "OXIS — Open Xenial Intelligent Shell",
+  "description": "OXIS — a programmable workspace for automating projects, editing documents and building workflows, with an entirely customizable experience",
+  "homepage": "https://oxis.space",
+  "keywords": ["programmable workspace", "automation", "workflows", "code editor", "lua", "plugins", "powershell", "bash", "developer tools"],
   "private": true,
   "engines": {
     "node": ">=24.0.0"

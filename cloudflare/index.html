@@ -6,13 +6,81 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="OXIS is a programmable workspace for automating projects, editing documents and building workflows — with an entirely customizable experience. It runs your real shell. Open source for Windows and Linux.">
 <meta name="theme-color" content="#06070b">
+<meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1">
+<meta name="application-name" content="OXIS">
+<meta name="author" content="Oxide Labs">
+<link rel="canonical" href="https://oxis.space/">
+<link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
 <meta property="og:type" content="website">
+<meta property="og:site_name" content="OXIS">
+<meta property="og:url" content="https://oxis.space/">
+<meta property="og:locale" content="en_US">
 <meta property="og:title" content="OXIS — the programmable workspace">
 <meta property="og:description" content="Automate projects, edit documents and build workflows in one programmable, entirely customizable workspace. Open source for Windows and Linux.">
 <meta property="og:image" content="https://oxis.space/assets/social-preview.png">
 <meta property="og:image:width" content="1280">
 <meta property="og:image:height" content="640">
+<meta property="og:image:alt" content="OXIS — the programmable workspace: the editor beside your shell">
 <meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="OXIS — the programmable workspace">
+<meta name="twitter:description" content="Automate projects, edit documents and build workflows in one programmable, entirely customizable workspace. Open source for Windows and Linux.">
+<meta name="twitter:image" content="https://oxis.space/assets/social-preview.png">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "SoftwareApplication",
+      "@id": "https://oxis.space/#app",
+      "name": "OXIS",
+      "alternateName": "Open Xenial Intelligent Shell",
+      "description": "OXIS is a programmable workspace for automating projects, editing documents and building workflows — with an entirely customizable experience. It runs your real shell. Open source for Windows and Linux.",
+      "url": "https://oxis.space/",
+      "applicationCategory": "DeveloperApplication",
+      "applicationSubCategory": "Programmable workspace",
+      "operatingSystem": "Windows 10, Windows 11, Linux",
+      "softwareVersion": "1.2.1",
+      "license": "https://www.apache.org/licenses/LICENSE-2.0",
+      "isAccessibleForFree": true,
+      "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+      "downloadUrl": "https://github.com/oxlaboratory/oxis/releases/tag/latest-build",
+      "installUrl": "https://oxis.space/#install",
+      "screenshot": [
+        "https://oxis.space/assets/app-home.webp",
+        "https://oxis.space/assets/app-editor.webp",
+        "https://oxis.space/assets/app-panes.webp"
+      ],
+      "image": "https://oxis.space/assets/social-preview.png",
+      "featureList": [
+        "Runs your real PowerShell, bash, zsh or fish",
+        "Built-in code editor with live problems, suggestions, search and Vim modes",
+        "Per-project workspaces with their own git, tasks and workflows",
+        "Lua 5.4 plugins with permissions, timers, questions and animation",
+        "A plugin Market",
+        "85 theme settings, a live theme editor and a customizable Home sky",
+        "Self-updating, no account, no telemetry"
+      ],
+      "author": { "@id": "https://oxis.space/#org" },
+      "sameAs": ["https://github.com/oxlaboratory/oxis"]
+    },
+    {
+      "@type": "Organization",
+      "@id": "https://oxis.space/#org",
+      "name": "Oxide Labs",
+      "url": "https://oxis.space/",
+      "logo": "https://oxis.space/assets/apple-touch-icon.png",
+      "sameAs": ["https://github.com/oxlaboratory"]
+    },
+    {
+      "@type": "WebSite",
+      "@id": "https://oxis.space/#site",
+      "name": "OXIS",
+      "url": "https://oxis.space/",
+      "publisher": { "@id": "https://oxis.space/#org" }
+    }
+  ]
+}
+</script>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='-4 0 82 100'%3E%3Cpath fill='%233dff64' fill-rule='evenodd' d='M37 0 74 19v62L37 100 0 81V19zm0 19-18.5 9.6v42.4L37 80.4l18.5-9.4V28.6z'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -1305,6 +1373,19 @@ document.addEventListener('pointermove', e => {
   ];
   const one = items.map(([n, c]) => `<span class="chiplg" style="--c:${c}"><i></i><b>${n}</b></span>`).join('');
   $('#mq').innerHTML = one + one;
+})();
+
+(function faqData(){
+  const items = $$('.faq details').map(d => ({
+    '@type': 'Question',
+    name: d.querySelector('summary').textContent.trim(),
+    acceptedAnswer: { '@type': 'Answer', text: d.querySelector('.a').textContent.trim().replace(/\s+/g, ' ') },
+  }));
+  if (!items.length) return;
+  const s = document.createElement('script');
+  s.type = 'application/ld+json';
+  s.textContent = JSON.stringify({ '@context': 'https://schema.org', '@type': 'FAQPage', mainEntity: items });
+  document.head.appendChild(s);
 })();
 
 (function counters(){

@@ -286,6 +286,9 @@ All notable changes to OXIS. The format follows
   of every built-in theme.
 
 ### Changed
+- The Linux package and its menu entry describe OXIS as a programmable
+  workspace, listed under Development and Utility (with search
+  keywords), and point at oxis.space.
 - `'plugin publish` opens a GitHub issue (details and source, labelled
   plugin-submission) instead of a pull request; `'plugin unpublish` a
   removal request. The Market backend files it when it has a token,
