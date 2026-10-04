@@ -254,6 +254,10 @@ All notable changes to OXIS. The format follows
   of every built-in theme.
 
 ### Changed
+- `'plugin publish` opens a GitHub issue (details and source, labelled
+  plugin-submission) instead of a pull request; `'plugin unpublish` a
+  removal request. The Market backend files it when it has a token,
+  otherwise GitHub's new-issue page opens with it filled in.
 - A plugin can't replace one of OXIS's own commands; it's told so and
   OXIS's command stays.
 - The Market lives at [oxis.space](https://oxis.space); the app, README
@@ -411,6 +415,11 @@ All notable changes to OXIS. The format follows
 - The npm launcher downloads from the GitHub `latest-build` release.
 
 ### Fixed
+- `'plugin reload` reran the copy already loaded, so an edit to a
+  plugin's file didn't take effect until OXIS restarted; it reads the
+  file again now.
+- An empty `permissions:` line in a manifest was treated as a missing
+  one, so a plugin that needs no permissions couldn't be published.
 - After opening a Search in files (Ctrl+Shift+F) result, typing in the
   editor pulled the selection back to the match every time the text
   changed.

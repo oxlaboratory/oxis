@@ -841,21 +841,22 @@ version, and restores it automatically if the new one fails to load.
 | **ai-devops** | Premium: an AI assistant for the terminal and editor |
 
 **Publishing.** `'plugin publish <name>` validates the plugin (a
-complete manifest is required) and opens a pull request against this
-repository: one commit with `cloudflare/plugins/<name>.lua`, one with
-its `cloudflare/index.json` entry (version, author, permissions,
-platforms, size). Once a maintainer merges it, it's live: `'market`
-and the website both read `index.json` from `main`, so the plugin can
-be installed straight away and the website shows its card, built from
-that entry, without a redeploy. Run it again to publish an update;
-`'plugin unpublish` opens a removal PR. You can also open the PR by
-hand with the same two files. See
-[CONTRIBUTING.md](CONTRIBUTING.md#plugins).
+complete manifest is required) and opens a GitHub issue on this
+repository, labelled `plugin-submission`: its details (version, author,
+category, permissions, platforms, size) in a table and its source. A
+maintainer reviews it and adds `cloudflare/plugins/<name>.lua` and its
+`cloudflare/index.json` entry; from then on `'market` and the website
+(which read `index.json` from `main`) list it, with no redeploy. Run it
+again to send an update; `'plugin unpublish` opens a removal request.
+See [CONTRIBUTING.md](CONTRIBUTING.md#plugins).
 
-Publishing needs the Market backend's `GITHUB_TOKEN` (a fine-grained
-token for this repository with *Contents* and *Pull requests* set to
-read and write), set as a secret in the Cloudflare Pages project; its
-`/health` page says whether it's there. OXIS makes its Market requests
+The Market backend opens the issue itself when it has a `GITHUB_TOKEN`
+(a fine-grained token for this repository with *Issues* read and write
+and *Contents* read), set as a secret in the Cloudflare Pages project;
+its `/health` page says whether it's there. Without it, OXIS opens
+GitHub's new-issue page with the issue filled in, to submit from your
+own account (a plugin too long for that page's address goes on the
+clipboard, to paste in). OXIS makes its Market requests
 itself rather than from the page, so they aren't subject to CORS; for
 OXIS in a browser tab, the backend allows `127.0.0.1`/`localhost` and
 the app's own origins. To use your own Market backend, set

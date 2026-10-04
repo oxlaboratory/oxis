@@ -347,6 +347,24 @@ class PluginManager {
     this.load(name);
   }
 
+  /** 'plugin reload: reads a user or Market plugin's file again first,
+   *  so an edit on disk takes effect (built-in and premium plugins have
+   *  no file to read and reload as they are). */
+  async reloadFromDisk(name: string): Promise<void> {
+    const p = this.plugins.get(name);
+    if (p && isNativeApp() && (p.origin === "user" || p.origin === "market")) {
+      try {
+        const lua = p.origin === "user"
+          ? await readFile(`${workspaceManager.pluginsDir()}/${name}.lua`)
+          : await readPluginFile(name);
+        if (lua !== p.lua) {
+          this.register({ name, desc: p.desc, category: "plugin", builtin: false, enabled: p.enabled, lua, origin: p.origin });
+        }
+      } catch { /* the file is gone or unreadable: reload what's loaded */ }
+    }
+    this.reload(name);
+  }
+
   reloadAll(): void {
     for (const p of this.plugins.values()) {
       if (p.enabled) { this.unload(p.name); this.load(p.name); }

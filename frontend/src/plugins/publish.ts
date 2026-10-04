@@ -2,15 +2,19 @@
  * publish.ts — 'plugin publish / 'plugin unpublish.
  *
  * Checks the plugin is ready (validate() plus a complete manifest), then
- * sends it to the Market's /submit-plugin endpoint, which opens a pull
- * request against github.com/oxlaboratory/oxis. Nothing goes live until
- * a maintainer merges it. Paid plugins first go through Stripe Connect
+ * opens a GitHub issue on github.com/oxlaboratory/oxis with its details
+ * and source (submissionIssue.ts) for a maintainer to review and add to
+ * the Market. The Market's /submit-plugin endpoint files it when it can;
+ * otherwise GitHub's new-issue page opens with it filled in, to submit
+ * from your own account. Paid plugins first go through Stripe Connect
  * onboarding (/connect-onboarding).
  */
 
 import { pluginManager } from "./pluginManager";
 import { getLicensedEmail } from "./pluginLicense";
 import { marketBase, marketFetch, findEntry, type MarketEntry } from "./market";
+import { submissionIssue, removalIssue, newIssueUrl, MAX_ISSUE_URL, type IssueDraft, type SubmissionDetails } from "./submissionIssue";
+import { copyText } from "../terminal/clipboard";
 
 export interface PublishMetadata {
   name: string;
@@ -87,52 +91,77 @@ export async function findExistingListing(name: string): Promise<MarketEntry | u
 export interface SubmissionResult {
   ok: boolean;
   message: string;
-  pullRequestUrl?: string;
+  /** The issue the Market backend opened. */
+  issueUrl?: string;
+  /** GitHub's new-issue page, filled in, to submit yourself (when the
+   *  backend couldn't open the issue). */
+  draftUrl?: string;
 }
 
-async function postSubmission(payload: Record<string, unknown>): Promise<SubmissionResult> {
+/** Files the issue through the Market backend, or hands back GitHub's
+ *  new-issue page with it filled in. A source too long for that page's
+ *  address goes on the clipboard, to paste into the issue. */
+async function fileIssue(endpoint: string, payload: Record<string, unknown>, draft: (note?: string) => IssueDraft, source?: string): Promise<SubmissionResult> {
+  let reason = "";
   try {
-    const res = await marketFetch(`${marketBase()}/submit-plugin`, {
+    const res = await marketFetch(`${marketBase()}/${endpoint}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
       signal: AbortSignal.timeout(15000),
     });
-    const body = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      return { ok: false, message: `couldn't open a pull request: ${(body as { error?: string }).error || res.statusText}` };
+    const body = await res.json().catch(() => ({})) as { issueUrl?: string; error?: string };
+    if (res.ok && body.issueUrl) {
+      return { ok: true, issueUrl: body.issueUrl, message: `issue opened: ${body.issueUrl}` };
     }
-    const { pullRequestUrl } = body as { pullRequestUrl?: string };
-    return {
-      ok: true,
-      pullRequestUrl,
-      message: pullRequestUrl
-        ? `pull request opened: ${pullRequestUrl}\nNot live yet: once it's reviewed and merged on GitHub it appears in 'market and on the website by itself.`
-        : `submitted, but the Market backend didn't return a pull request link — check github.com/oxlaboratory/oxis's pull requests directly.`,
-    };
+    reason = body.error || res.statusText;
+    // A refusal about the plugin itself is final (bad fields, not
+    // listed, someone else's); anything else (the backend not set up,
+    // GitHub down) falls back to the browser.
+    if ([400, 404, 409].includes(res.status)) return { ok: false, message: `the Market refused it: ${reason}` };
   } catch (e) {
-    return { ok: false, message: `couldn't reach the Market backend: ${e instanceof Error ? e.message : String(e)}` };
+    reason = e instanceof Error ? e.message : String(e);
   }
+  let issue = draft();
+  let url = newIssueUrl(issue);
+  let copied = false;
+  if (url.length > MAX_ISSUE_URL && source) {
+    issue = draft("_The source is on your clipboard: paste it here._");
+    url = newIssueUrl(issue);
+    copied = await copyText("```lua\n" + source.replace(/\s+$/, "") + "\n```").catch(() => false);
+  }
+  return {
+    ok: true,
+    draftUrl: url,
+    message: `GitHub's new-issue page has it filled in — check it and press "Submit new issue"${copied ? " (paste the source from your clipboard into it first)" : ""}.`
+      + (reason ? ` (The Market couldn't open the issue itself: ${reason}.)` : ""),
+  };
 }
 
-/** Free plugin: opens a pull request adding the .lua file and its
- *  index.json entry (replacing the entry if it's already listed). */
+function detailsOf(metadata: PublishMetadata, existing?: MarketEntry, priceDisplay?: string): SubmissionDetails {
+  return {
+    name: metadata.name, version: metadata.version, desc: metadata.desc, category: metadata.category,
+    author: metadata.author, permissions: metadata.permissions, os: metadata.os,
+    minOxisVersion: metadata.minOxisVersion, priceDisplay,
+    updateOf: existing ? existing.version || "?" : undefined,
+  };
+}
+
+/** Free plugin: an issue with its details and source. */
 export async function prepareFreePublish(metadata: PublishMetadata, existing?: MarketEntry): Promise<SubmissionResult> {
-  const p = pluginManager.get(metadata.name);
-  const source = p?.lua ?? "";
-  const isUpdate = !!existing;
-  const result = await postSubmission({
+  const source = pluginManager.get(metadata.name)?.lua ?? "";
+  const details = detailsOf(metadata, existing);
+  const result = await fileIssue("submit-plugin", {
     name: metadata.name, desc: metadata.desc, category: metadata.category,
     version: metadata.version, author: metadata.author, source,
     permissions: metadata.permissions, os: metadata.os, minOxisVersion: metadata.minOxisVersion,
-    ...(isUpdate ? { updateOf: metadata.name } : {}),
-  });
+    ...(existing ? { updateOf: metadata.name, listedVersion: existing.version } : {}),
+  }, note => submissionIssue(details, source, note), source);
   if (!result.ok) return result;
   return {
     ...result,
-    message: isUpdate
-      ? `update pull request opened for ${metadata.name} (v${existing!.version || "?"} → v${metadata.version}):\n${result.message}`
-      : result.message,
+    message: `${existing ? `update for ${metadata.name} (v${existing.version || "?"} → v${metadata.version}): ` : ""}${result.message}`
+      + "\nNot live yet: once a maintainer adds it, it appears in 'market and on the website by itself.",
   };
 }
 
@@ -169,55 +198,31 @@ export async function startConnectOnboarding(email: string): Promise<ConnectOnbo
   }
 }
 
-/** Submits a paid listing — same GitHub-PR endpoint as the free path,
- *  with the price/interval/Connect account attached, still gated on
- *  human review and merge like any other submission. */
+/** Paid listing: the same issue, with the price and the Connect
+ *  account attached. */
 export async function submitPaidPlugin(metadata: PublishMetadata, price: string, interval: string, accountId: string, existing?: MarketEntry): Promise<SubmissionResult> {
-  const p = pluginManager.get(metadata.name);
-  const source = p?.lua ?? "";
-  const isUpdate = !!existing;
-  const result = await postSubmission({
+  const source = pluginManager.get(metadata.name)?.lua ?? "";
+  const priceDisplay = `$${price}/${interval === "year" ? "yr" : "mo"}`;
+  const details = detailsOf(metadata, existing, priceDisplay);
+  const result = await fileIssue("submit-plugin", {
     name: metadata.name, desc: metadata.desc, category: metadata.category,
     version: metadata.version, author: metadata.author, source,
-    premium: true,
-    priceDisplay: `$${price}/${interval === "year" ? "yr" : "mo"}`,
-    stripeConnectAccountId: accountId,
-    ...(isUpdate ? { updateOf: metadata.name } : {}),
-  });
+    premium: true, priceDisplay, stripeConnectAccountId: accountId,
+    ...(existing ? { updateOf: metadata.name, listedVersion: existing.version } : {}),
+  }, note => submissionIssue(details, source, note), source);
   if (!result.ok) return result;
   return {
     ...result,
-    message: (isUpdate
-      ? `update pull request opened for ${metadata.name} (v${existing!.version || "?"} → v${metadata.version}):\n${result.message}`
-      : result.message)
-      + `\nReminder: paid OXIS Market plugins are recurring Stripe subscriptions, not one-time purchases — the 75/25 developer/OXIS split happens automatically once merged (see cloudflare/functions/checkout.js).`,
+    message: result.message
+      + "\nPaid plugins are recurring Stripe subscriptions; the 75/25 split happens automatically once it's listed.",
   };
 }
 
-/** 'plugin unpublish <name>: opens a PR removing the listing. The
- *  author is checked against the listing as a guard against mistakes,
- *  not as authentication. */
+/** 'plugin unpublish <name>: an issue asking for the listing to be
+ *  removed. The author is checked against the listing as a guard
+ *  against mistakes, not as authentication. */
 export async function requestPluginDeletion(name: string, author: string): Promise<SubmissionResult> {
-  try {
-    const res = await marketFetch(`${marketBase()}/delete-plugin`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, author }),
-      signal: AbortSignal.timeout(15000),
-    });
-    const body = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      return { ok: false, message: `couldn't open a deletion pull request: ${(body as { error?: string }).error || res.statusText}` };
-    }
-    const { pullRequestUrl } = body as { pullRequestUrl?: string };
-    return {
-      ok: true,
-      pullRequestUrl,
-      message: pullRequestUrl
-        ? `deletion pull request opened: ${pullRequestUrl}\nThe plugin stays listed until a human reviews and merges it.`
-        : `submitted, but the Market backend didn't return a pull request link — check github.com/oxlaboratory/oxis's pull requests directly.`,
-    };
-  } catch (e) {
-    return { ok: false, message: `couldn't reach the Market backend: ${e instanceof Error ? e.message : String(e)}` };
-  }
+  const result = await fileIssue("delete-plugin", { name, author }, () => removalIssue(name, author));
+  if (!result.ok) return result;
+  return { ...result, message: result.message + "\nThe plugin stays listed until a maintainer removes it." };
 }

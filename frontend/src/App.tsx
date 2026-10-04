@@ -1362,9 +1362,10 @@ function registerBuiltinCommands(): void {
       if(sub==="reload"){
         if(!name){err("usage: 'plugin reload <name>");return;}
         if(!pluginManager.get(name)){ err(`not found: ${name}`); return; }
-        pluginManager.reload(name);
-        if(pluginManager.get(name)?.enabled) ok(`${name} reloaded`);
-        else err(`${name} didn't reload cleanly — see the message above for why`);
+        void pluginManager.reloadFromDisk(name).then(() => {
+          if(pluginManager.get(name)?.enabled) ok(`${name} reloaded`);
+          else err(`${name} didn't reload cleanly — see the message above for why`);
+        });
         return; }
       if(sub==="reloadall"){ pluginManager.reloadAll(); ok("all plugins reloaded"); return; }
       if(sub==="delete"||sub==="rm"||sub==="uninstall"){
@@ -1449,13 +1450,13 @@ function registerBuiltinCommands(): void {
 
         findExistingListing(name).then(existing => {
           if(!price){
-            // Free plugin — opens a real GitHub PR for review, doesn't auto-merge.
-            info(`opening a pull request for "${name}" on GitHub…`);
+            // Free plugin: a GitHub issue for a maintainer to review.
+            info(`opening an issue for "${name}" on GitHub…`);
             return prepareFreePublish(check.metadata!, existing).then(result => {
               printResultLines(result.message, result.ok);
-              if(result.pullRequestUrl){
-                info("opening the pull request in your browser…");
-                void openUrl(result.pullRequestUrl);
+              if(result.issueUrl || result.draftUrl){
+                info(result.issueUrl ? "opening the issue in your browser…" : "opening GitHub's new-issue page in your browser…");
+                void openUrl(result.issueUrl || result.draftUrl!);
               }
             });
           }
@@ -1474,12 +1475,12 @@ function registerBuiltinCommands(): void {
               info("opening the Stripe onboarding link in your browser…");
               void openUrl(conn.onboardingUrl);
             }
-            info(`opening a pull request for "${name}" on GitHub…`);
+            info(`opening an issue for "${name}" on GitHub…`);
             return submitPaidPlugin(check.metadata!, price, interval, conn.accountId || "", existing).then(result => {
               printResultLines(result.message, result.ok);
-              if(result.pullRequestUrl){
-                info("opening the pull request in your browser…");
-                void openUrl(result.pullRequestUrl);
+              if(result.issueUrl || result.draftUrl){
+                info(result.issueUrl ? "opening the issue in your browser…" : "opening GitHub's new-issue page in your browser…");
+                void openUrl(result.issueUrl || result.draftUrl!);
               }
             });
           }).catch(e => err(`Stripe Connect onboarding failed: ${e instanceof Error ? e.message : e}`));
@@ -1489,12 +1490,12 @@ function registerBuiltinCommands(): void {
         if(!name){err(`usage: 'plugin unpublish <name>`);return;}
         const email = getLicensedEmail();
         const author = email || name; // best-effort — same "not real authentication" caveat as the backend check itself; see delete-plugin.js
-        info(`opening a deletion pull request for "${name}" on GitHub…`);
+        info(`opening a removal request for "${name}" on GitHub…`);
         requestPluginDeletion(name, author).then(result => {
           printResultLines(result.message, result.ok);
-          if(result.pullRequestUrl){
-            info("opening the merge request in your browser…");
-            void openUrl(result.pullRequestUrl);
+          if(result.issueUrl || result.draftUrl){
+            info(result.issueUrl ? "opening the issue in your browser…" : "opening GitHub's new-issue page in your browser…");
+            void openUrl(result.issueUrl || result.draftUrl!);
           }
         }).catch(e => err(`couldn't reach the Market backend: ${e instanceof Error ? e.message : e}`));
         return; }
