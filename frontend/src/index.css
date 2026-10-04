@@ -86,6 +86,10 @@ html, body, #root {
 .term-ctx-item:hover:not(:disabled) { background: var(--bg3); }
 .term-ctx-item:disabled { opacity: .4; cursor: default; }
 .term-ctx-key { color: var(--dim); font-size: 10px; }
+.term-ctx-item--danger { color: var(--red, #f38ba8); }
+.term-ctx-item--danger:hover:not(:disabled), .term-ctx-item--danger:focus-visible { background: color-mix(in srgb, var(--red, #f38ba8) 16%, transparent); outline: none; }
+.filetree-confirm { max-width: 220px; padding: 6px 10px 8px; font-size: 11px; line-height: 1.45; color: var(--text); overflow-wrap: anywhere; }
+.filetree-confirm b { color: var(--yellow, var(--text)); font-weight: 600; }
 .term-ctx-sep { height: 1px; margin: 4px 6px; background: var(--border); }
 
 /* A full-screen program's grid (terminal/fullScreen.ts), over the
@@ -488,7 +492,14 @@ button.editor-mode:hover { filter: brightness(1.25); }
   outline: none; resize: none; user-select: text; cursor: text;
   position: relative; /* sits on top of the highlight layer */
 }
-.code-area-input::selection { background: var(--selection, rgba(61,255,100,.25)); }
+/* The highlight layer underneath draws the text: the selection only
+   tints it. Its own text stays transparent (the global ::selection
+   colour would draw a second copy on top), and the tint is kept see-
+   through even when a theme picks a solid selection colour. */
+.code-area-input::selection {
+  color: transparent; -webkit-text-fill-color: transparent;
+  background: color-mix(in srgb, var(--selection, rgba(61,255,100,.25)) 70%, transparent);
+}
 
 /* Token colors — reuse existing theme variables (see ThemeEditor)
    rather than inventing new ones, so custom themes cover these too. */
@@ -663,6 +674,9 @@ button.editor-mode:hover { filter: brightness(1.25); }
   color: var(--text); background: var(--bg); border: 1px solid var(--purple3); border-radius: 3px; outline: none;
 }
 .filetree-new-error { flex-basis: 100%; padding-left: 18px; font-size: 11px; color: var(--err); }
+/* Renaming: the name becomes a box in its own row (F2 or right-click). */
+.filetree-rename { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; }
+.filetree-rename .filetree-new-error { padding-left: 2px; white-space: normal; }
 .filetree-loading { font-size: 10px; color: var(--dim); padding: 3px 8px; }
 .filetree-hint {
   flex-shrink: 0; padding: 4px 8px; font-size: 9px; color: var(--comment);

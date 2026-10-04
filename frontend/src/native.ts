@@ -33,6 +33,8 @@ declare global {
           StatPath?: (path: string) => Promise<NativeStatResult>;
           MakeDir?: (path: string) => Promise<void>;
           DeletePath?: (path: string) => Promise<void>;
+          TrashPath?: (path: string) => Promise<void>;
+          CopyPath?: (src: string, dst: string) => Promise<void>;
           MovePath?: (src: string, dst: string) => Promise<void>;
           RunCommand?: (requestId: string, dir: string, name: string, args: string[]) => Promise<NativeRunCommandResult>;
           CancelCommand?: (requestId: string) => Promise<boolean>;
@@ -269,6 +271,22 @@ export async function deletePath(path: string): Promise<void> {
   const fn = window.go?.wailsapp?.App?.DeletePath;
   if (!fn) throw new NativeUnavailableError();
   return fn(path);
+}
+
+/** Moves a file or folder to the Recycle Bin (the Trash on macOS and
+ *  Linux), where it can be restored from. */
+export async function trashPath(path: string): Promise<void> {
+  const fn = window.go?.wailsapp?.App?.TrashPath;
+  if (!fn) throw new NativeUnavailableError();
+  return fn(path);
+}
+
+/** Copies a file, or a folder and everything in it; refuses to
+ *  overwrite or to copy a folder into itself. */
+export async function copyPath(src: string, dst: string): Promise<void> {
+  const fn = window.go?.wailsapp?.App?.CopyPath;
+  if (!fn) throw new NativeUnavailableError();
+  return fn(src, dst);
 }
 
 /** Renames a file or folder; refuses to overwrite. Callers keep paths

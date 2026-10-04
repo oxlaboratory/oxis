@@ -473,6 +473,19 @@ func (a *App) DeletePath(path string) error {
 	return os.RemoveAll(full)
 }
 
+// TrashPath moves a file or folder to the Recycle Bin (the Trash on
+// macOS and Linux), so a delete from the file tree can be undone.
+func (a *App) TrashPath(path string) error {
+	full := resolvePath(path)
+	if full == filepath.Dir(full) {
+		return fmt.Errorf("refusing to delete root path: %s", full)
+	}
+	if _, err := os.Lstat(full); err != nil {
+		return fmt.Errorf("doesn't exist: %s", full)
+	}
+	return moveToTrash(full)
+}
+
 // RunCommandResult is a captured external command result. A non-zero
 // exit is a normal result, not an error.
 type RunCommandResult struct {

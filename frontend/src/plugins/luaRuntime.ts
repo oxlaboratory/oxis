@@ -114,6 +114,9 @@ export interface OxisBindings {
   /** oxis.every(seconds, fn [, { foreground = true, stop = fn }]): again
    *  and again until h:stop(); a foreground one also stops on Ctrl+C. */
   every(seconds: number, fn: LuaCallback, foreground: boolean, onStop: LuaCallback | undefined): LuaHandle;
+  /** oxis.line(text [, kind]): a line that can be rewritten in place
+   *  with l:set(text [, kind]), for animations and progress. */
+  line(text: string, kind: string | undefined): LuaHandle;
   /** oxis.input(text): puts text in the prompt, ready to edit or run. */
   input(text: string): void;
   /** oxis.store.get/set: the plugin's own values, kept between runs. */
@@ -344,6 +347,7 @@ function buildOxisTable(L: LuaState, b: OxisBindings, closedRef: StateRef): void
   });
 
   setfn("echo", (L) => { b.echo(lua.lua_tojsstring(L, 1), argString(L, 2)); return 0; });
+  setfn("line", (L) => { pushHandle(L, b.line(argString(L, 1) ?? "", argString(L, 2))); return 1; });
   // oxis.run() has no Lua callback, so log failures (a denied
   // permission, for example) here.
   setfn("run",  (L) => {

@@ -45,6 +45,9 @@ export interface APIContext {
   sendToShell: (cmd: string) => void;
   /** Print a line to the active terminal */
   print: (text: string, kind?: import("../terminal/terminal").LineKind) => void;
+  /** Print a line that can be rewritten later: returns its updater
+   *  (oxis.line). A kind left out keeps the line's colour. */
+  printLive?: (text: string, kind?: import("../terminal/terminal").LineKind) => (text: string, kind?: import("../terminal/terminal").LineKind) => void;
   /** Get current working directory (best-effort) */
   getCwd: () => string;
   /** Open a new terminal tab */
@@ -223,6 +226,17 @@ export function buildLuaAPI(ctx: APIContext): OxisBindings {
     // oxis.echo(text [, kind]): kind colours the line like OXIS's own
     // messages — "ok", "err", "warn", "dim" or "accent".
     echo: (text, kind) => ctx.print(`  ${text}`, ECHO_KINDS.has(kind ?? "") ? kind as LineKind : "info"),
+    line: (text, kind) => {
+      const k = (v: LuaJSValue | undefined) => ECHO_KINDS.has(String(v ?? "")) ? v as LineKind : undefined;
+      const first = k(kind) ?? "info";
+      const update = ctx.printLive?.(`  ${text}`, first);
+      if (!update) ctx.print(`  ${text}`, first);
+      let last = text;
+      return {
+        set: (t, kd) => { last = String(t ?? ""); update?.(`  ${last}`, k(kd)); },
+        text: () => last,
+      };
+    },
     run: (cmd) => runScript(ctx, cmd),
     quote: (text) => shellQuote(text),
     theme: (name) => { themeManager.apply(name); },
@@ -368,7 +382,8 @@ export function buildLuaAPI(ctx: APIContext): OxisBindings {
     },
     every: (seconds, fn, foreground, onStop) => {
       let stopped = false;
-      const t = setInterval(() => { if (!stopped) fn(); }, Math.max(0.1, seconds) * 1000);
+      // Down to 30 ms, fast enough for animation frames.
+      const t = setInterval(() => { if (!stopped) fn(); }, Math.max(0.03, seconds) * 1000);
       const stop = () => {
         if (stopped) return;
         stopped = true;

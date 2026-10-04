@@ -80,7 +80,7 @@ import { checkPublishable, findExistingListing, prepareFreePublish, submitPaidPl
 import { commitAll, setupRemote, unlinkRemote, getRemotes, parseGitRemote, cancelActiveCommit, type GitProvider } from "./plugins/git";
 import { loadUserConfig } from "./terminal/userConfig";
 import { userConfigDir } from "./native";
-import { readFile, writeFile, listDir, makeDir, statPath, movePath, isNativeApp, openUrl, checkForUpdate, performUpdate, quitApp, windowGetSize, windowSetSize, systemInfo, previewUrl, isImagePath, readImage } from "./native";
+import { readFile, writeFile, listDir, makeDir, statPath, movePath, trashPath, copyPath, isNativeApp, openUrl, checkForUpdate, performUpdate, quitApp, windowGetSize, windowSetSize, systemInfo, previewUrl, isImagePath, readImage } from "./native";
 import type { NativeUpdateInfo } from "./native";
 import { BUILD, OXIS_VERSION, fullVersion, describe as describeBuild, shortCommit, channelLabel, formatStampDate } from "./buildInfo";
 import Titlebar from "./components/Titlebar";
@@ -476,6 +476,8 @@ const _apiCtxTarget: { current: import("./plugins/pluginAPI").APIContext } = {
 const forwardingApiCtx: import("./plugins/pluginAPI").APIContext = {
   sendToShell: (cmd) => _apiCtxTarget.current.sendToShell(cmd),
   print:       (t, k) => _apiCtxTarget.current.print(t, k),
+  // The updater stays with the terminal the line went to.
+  printLive:   (t, k) => _apiCtxTarget.current.printLive?.(t, k) ?? (_apiCtxTarget.current.print(t, k), () => {}),
   getCwd:      () => _apiCtxTarget.current.getCwd(),
   newTerminal: () => _apiCtxTarget.current.newTerminal(),
   getOption:   (k) => _apiCtxTarget.current.getOption(k),
@@ -5687,6 +5689,24 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
     scheduleFlush();
   }, [scheduleFlush]);
 
+  /** Rewrites a line already printed (oxis.line); a kind left out
+   *  keeps its colour. */
+  const updateLine = useCallback((id: number, text: string, kind?: LineKind) => {
+    const change = (l: Line): Line => ({ ...l, text, kind: kind ?? l.kind, spans: undefined });
+    const q = outQueue.current;
+    const qi = q.findIndex(l => l.id === id);
+    if (qi >= 0) { q[qi] = change(q[qi]); scheduleFlush(); return; }
+    setLines(prev => {
+      let i = prev.length - 1;
+      while (i >= 0 && prev[i].id !== id) i--;
+      if (i < 0) return prev;
+      const next = prev.slice();
+      next[i] = change(prev[i]);
+      linesRef.current = next;
+      return next;
+    });
+  }, [scheduleFlush]);
+
   /** Sets the status shown after a line (see CommandStatus). */
   const setLineStatus = useCallback((id: number, status: { code: number; ms: number }) => {
     const q = outQueue.current;
@@ -6002,6 +6022,11 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
     apiCtxRef.current = {
       sendToShell: sendToShell,
       print:       addLine,
+      printLive:   (text, kind) => {
+        const line = mkLine(text, kind);
+        queueLines([line]);
+        return (t, k) => updateLine(line.id, t, k);
+      },
       getCwd:      () => dirTracker.get(),
       newTerminal: onNewTab,
       getOption:   readPersistedOption,
@@ -6614,6 +6639,24 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
                   events.emit("filetree_refresh", {});
                 });
               }).catch(e => addLine(`  ✗  move failed: ${e instanceof Error ? e.message : e}`, "err"));
+            }}
+            onRenamed={(from, to) => {
+              // The tree and the editor may write the same path differently
+              // (\ or /; on Windows, letter case), so compare them alike.
+              const win = navigator.userAgent.includes("Windows");
+              const norm = (p: string) => { const s = p.replace(/\\/g, "/"); return win ? s.toLowerCase() : s; };
+              const f = norm(from);
+              // The new path keeps the separators the editor had.
+              const styled = (p: string, like: string) => like.includes("\\") ? p.replace(/\//g, "\\") : p.replace(/\\/g, "/");
+              const follow = (p: string) => { const n = norm(p); return n === f ? styled(to, p) : n.startsWith(f + "/") ? styled(to, p) + p.slice(from.length) : p; };
+              // Unsaved text (and the caret) is kept per path: it moves too,
+              // so the editor, opened again under the new name, still has it.
+              for (const [p, draft] of [...editorDrafts]) {
+                const np = follow(p);
+                if (np !== p) { editorDrafts.delete(p); editorDrafts.set(np, draft); }
+              }
+              setEditorFiles(files => files.map(f => ({ ...f, path: follow(f.path) })));
+              setActiveEditorPath(p => p && follow(p));
             }}
             onClose={() => setFileTreeOpen(false)}
           />
@@ -7425,7 +7468,7 @@ function StatusBar({ mode, count, idx, ready, theme, project, updateMsg }: {
 // ══════════════════════════════════════════════════════════════
 interface FileTreeEntry { name: string; path: string; isDir: boolean }
 
-function FileTree({ rootDir, rootLabel, onOpenFile, onMoveFile, onClose }: { rootDir: string; rootLabel?: string; onOpenFile: (path: string) => void; onMoveFile: (srcPath: string, destDirPath: string) => void; onClose: () => void }) {
+function FileTree({ rootDir, rootLabel, onOpenFile, onMoveFile, onRenamed, onClose }: { rootDir: string; rootLabel?: string; onOpenFile: (path: string) => void; onMoveFile: (srcPath: string, destDirPath: string) => void; onRenamed?: (from: string, to: string) => void; onClose: () => void }) {
   const [dragOverPath, setDragOverPath] = useState<string | null>(null);
   const draggedPathRef = useRef<string | null>(null);
   const [childrenOf, setChildrenOf] = useState<Map<string, FileTreeEntry[]>>(new Map());
@@ -7436,9 +7479,14 @@ function FileTree({ rootDir, rootLabel, onOpenFile, onMoveFile, onClose }: { roo
   const treeRef = useRef<HTMLDivElement>(null);
   // Right-click: New File / New Folder in that folder (a file's own
   // folder; empty space is the root). The name is typed in a row at
-  // the top of the folder, like VS Code.
-  const [menu, setMenu] = useState<{ x: number; y: number; dir: string } | null>(null);
+  // the top of the folder, like VS Code. On a file or folder: Rename
+  // (typed in place, F2), Duplicate (a "copy" beside it, Ctrl+D) and
+  // Delete… (asks in the menu itself, then moves it to the Recycle Bin).
+  const [menu, setMenu] = useState<{ x: number; y: number; dir: string; node?: FileTreeEntry; confirm?: boolean; error?: string } | null>(null);
   const [creating, setCreating] = useState<{ dir: string; kind: "file" | "dir"; error?: string } | null>(null);
+  const [renaming, setRenaming] = useState<{ path: string; error?: string } | null>(null);
+  // A row to focus once it shows up (after a rename or duplicate).
+  const focusPath = useRef<string | null>(null);
 
   const load = useCallback(async (dirPath: string) => {
     setLoading(s => new Set(s).add(dirPath));
@@ -7509,8 +7557,11 @@ function FileTree({ rootDir, rootLabel, onOpenFile, onMoveFile, onClose }: { roo
   }, [childrenOf, expanded, rootDir]);
 
   useEffect(() => {
+    const want = focusPath.current;
+    const at = want ? visibleRows.findIndex(r => r.node.path === want) : -1;
+    if (at >= 0) { focusPath.current = null; setFocusedIdx(at); return; }
     setFocusedIdx(i => Math.max(0, Math.min(i, visibleRows.length - 1)));
-  }, [visibleRows.length]);
+  }, [visibleRows]);
 
   const onTreeKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (visibleRows.length === 0 && e.key !== "Escape") return;
@@ -7547,6 +7598,28 @@ function FileTree({ rootDir, rootLabel, onOpenFile, onMoveFile, onClose }: { roo
         else onOpenFile(row.node.path);
         return;
       }
+      case "F2": {
+        e.preventDefault();
+        const row = visibleRows[focusedIdx];
+        if (row) setRenaming({ path: row.node.path });
+        return;
+      }
+      case "d": case "D": {
+        if (!e.ctrlKey || e.altKey) return;
+        e.preventDefault();
+        const row = visibleRows[focusedIdx];
+        if (row) void duplicate(row.node);
+        return;
+      }
+      case "Delete": {
+        e.preventDefault();
+        const row = visibleRows[focusedIdx];
+        const el = treeRef.current?.querySelector(".filetree-row--focused");
+        if (!row || !el) return;
+        const r = el.getBoundingClientRect();
+        setMenu({ x: Math.min(r.left + 24, window.innerWidth - 240), y: Math.min(r.bottom, window.innerHeight - 110), dir: parentOf(row.node.path), node: row.node, confirm: true });
+        return;
+      }
       case "Escape": e.preventDefault(); onClose(); return;
     }
   }, [visibleRows, focusedIdx, expanded, toggleDir, onOpenFile, onClose]);
@@ -7561,7 +7634,7 @@ function FileTree({ rootDir, rootLabel, onOpenFile, onMoveFile, onClose }: { roo
           onClick={() => { setFocusedIdx(idx); node.isDir ? toggleDir(node.path) : onOpenFile(node.path); }}
           onContextMenu={e => { setFocusedIdx(idx); openMenu(e, node); }}
           title={node.path}
-          draggable
+          draggable={renaming?.path !== node.path}
           onDragStart={e => { draggedPathRef.current = node.path; e.dataTransfer.effectAllowed = "move"; }}
           onDragOver={e => {
             if (!node.isDir || draggedPathRef.current === null) return;
@@ -7579,7 +7652,28 @@ function FileTree({ rootDir, rootLabel, onOpenFile, onMoveFile, onClose }: { roo
           }}
         >
           <span className="filetree-icon">{node.isDir ? (expanded.has(node.path) ? "▾" : "▸") : "·"}</span>
-          <span className="filetree-name">{node.name}</span>
+          {renaming?.path === node.path ? (
+            <span className="filetree-rename" onClick={e => e.stopPropagation()}>
+              <input className="filetree-new-input" spellCheck={false} defaultValue={node.name}
+                ref={el => {
+                  // Once, when it appears: focused, with the name without
+                  // its extension selected, as in VS Code.
+                  if (!el || el.dataset.ready) return;
+                  el.dataset.ready = "1";
+                  const dot = node.isDir ? -1 : node.name.lastIndexOf(".");
+                  el.focus();
+                  el.setSelectionRange(0, dot > 0 ? dot : node.name.length);
+                }}
+                onKeyDown={e => {
+                  e.stopPropagation();
+                  if (e.key === "Enter") { e.preventDefault(); void rename(node, e.currentTarget.value); }
+                  if (e.key === "Escape") { e.preventDefault(); setRenaming(null); treeRef.current?.focus(); }
+                }}
+                onChange={() => renaming.error && setRenaming({ path: node.path })}
+                onBlur={() => setRenaming(r => (r?.error ? r : null))} />
+              {renaming.error && <div className="filetree-new-error">{renaming.error}</div>}
+            </span>
+          ) : <span className="filetree-name">{node.name}</span>}
         </div>
         {node.isDir && expanded.has(node.path) && nameRow(node.path, depth + 1)}
         {node.isDir && expanded.has(node.path) && (childrenOf.get(node.path) ?? []).map(c => renderNode(c, depth + 1))}
@@ -7597,7 +7691,77 @@ function FileTree({ rootDir, rootLabel, onOpenFile, onMoveFile, onClose }: { roo
     e.preventDefault();
     e.stopPropagation();
     const dir = !node ? rootDir : node.isDir ? node.path : parentOf(node.path);
-    setMenu({ x: Math.min(e.clientX, window.innerWidth - 180), y: Math.min(e.clientY, window.innerHeight - 90), dir });
+    setMenu({ x: Math.min(e.clientX, window.innerWidth - 240), y: Math.min(e.clientY, window.innerHeight - (node ? 220 : 130)), dir, node: node ?? undefined });
+  };
+  const badName = (n: string) => /[\\/:*?"<>|]/.test(n) || n === "." || n === "..";
+  // Paths under a renamed folder follow it.
+  const moved = (p: string, from: string, to: string) => p === from ? to : p.startsWith(from + "/") ? to + p.slice(from.length) : p;
+  const rename = async (node: FileTreeEntry, name: string) => {
+    const n = name.trim();
+    if (!n || n === node.name) { setRenaming(null); treeRef.current?.focus(); return; }
+    if (badName(n)) { setRenaming({ path: node.path, error: "a name, without / \\ : * ? \" < > |" }); return; }
+    const parent = parentOf(node.path);
+    const to = `${parent}/${n}`;
+    try {
+      // A change of case only is the same file on Windows and macOS.
+      const sameFile = n.toLowerCase() === node.name.toLowerCase();
+      if (!sameFile && (await statPath(to)).exists) { setRenaming({ path: node.path, error: `${n} already exists` }); return; }
+      if (sameFile) {
+        const tmp = `${parent}/.${n}.oxis-rename`;
+        await movePath(node.path, tmp);
+        await movePath(tmp, to);
+      } else await movePath(node.path, to);
+      setRenaming(null);
+      setExpanded(prev => new Set([...prev].map(p => moved(p, node.path, to))));
+      setChildrenOf(prev => { const m = new Map<string, FileTreeEntry[]>(); for (const [k, v] of prev) if (k !== node.path && !k.startsWith(node.path + "/")) m.set(k, v); return m; });
+      focusPath.current = to;
+      await load(parent);
+      if (node.isDir) await load(to);
+      onRenamed?.(node.path, to);
+      events.emit("file_renamed", { from: node.path, to, isDir: node.isDir });
+      // After an open file's editor, opened again under the new name, has
+      // taken focus (40 ms in): the rename was made here, so stay here.
+      setTimeout(() => treeRef.current?.focus(), 120);
+    } catch (e) {
+      setRenaming({ path: node.path, error: e instanceof Error ? e.message : String(e) });
+    }
+  };
+  // "name copy.ext", then "name copy 2.ext"…, beside the original.
+  const duplicate = async (node: FileTreeEntry) => {
+    setMenu(null);
+    const parent = parentOf(node.path);
+    const dot = node.isDir ? -1 : node.name.lastIndexOf(".");
+    const stem = dot > 0 ? node.name.slice(0, dot) : node.name;
+    const ext = dot > 0 ? node.name.slice(dot) : "";
+    try {
+      let to = "";
+      for (let i = 1; i < 100; i++) {
+        const cand = `${parent}/${stem} copy${i > 1 ? " " + i : ""}${ext}`;
+        if (!(await statPath(cand)).exists) { to = cand; break; }
+      }
+      if (!to) throw new Error("too many copies already");
+      await copyPath(node.path, to);
+      focusPath.current = to;
+      await load(parent);
+      events.emit("filetree_changed", { path: to });
+      setTimeout(() => treeRef.current?.focus(), 20);
+    } catch (e) {
+      setError(`couldn't duplicate ${node.name}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
+  const remove = async () => {
+    const node = menu?.node;
+    if (!node) return;
+    try {
+      await trashPath(node.path);
+      setMenu(null);
+      setExpanded(prev => { const n = new Set(prev); for (const p of prev) if (p === node.path || p.startsWith(node.path + "/")) n.delete(p); return n; });
+      await load(parentOf(node.path));
+      events.emit("file_deleted", { path: node.path, isDir: node.isDir });
+      setTimeout(() => treeRef.current?.focus(), 20);
+    } catch (e) {
+      setMenu(m => m && { ...m, error: e instanceof Error ? e.message : String(e) });
+    }
   };
   useEffect(() => {
     if (!menu) return;
@@ -7618,7 +7782,7 @@ function FileTree({ rootDir, rootLabel, onOpenFile, onMoveFile, onClose }: { roo
     if (!creating) return;
     const n = name.trim();
     if (!n) { setCreating(null); return; }
-    if (/[\\/:*?"<>|]/.test(n) || n === "." || n === "..") { setCreating({ ...creating, error: "a name, without / \\ : * ? \" < > |" }); return; }
+    if (badName(n)) { setCreating({ ...creating, error: "a name, without / \\ : * ? \" < > |" }); return; }
     const path = `${creating.dir}/${n}`;
     try {
       if ((await statPath(path)).exists) { setCreating({ ...creating, error: `${n} already exists` }); return; }
@@ -7681,14 +7845,32 @@ function FileTree({ rootDir, rootLabel, onOpenFile, onMoveFile, onClose }: { roo
         {rootItems.map(n => renderNode(n, 0))}
       </div>
       {menu && (
-        <div className="term-ctx-menu" style={{ left: menu.x, top: menu.y }} onMouseDown={e => e.stopPropagation()}>
-          <button className="term-ctx-item" onClick={() => startCreating("file")}><span>New File…</span></button>
-          <button className="term-ctx-item" onClick={() => startCreating("dir")}><span>New Folder…</span></button>
-          <div className="term-ctx-sep" />
-          <button className="term-ctx-item" onClick={() => { setMenu(null); reloadExpanded(); }}><span>Refresh</span></button>
+        <div className="term-ctx-menu" style={{ left: menu.x, top: menu.y }} onMouseDown={e => e.stopPropagation()}
+          onKeyDown={e => {
+            // Keys pressed in the menu aren't the tree's (Enter would open a file).
+            e.stopPropagation();
+            if (e.key === "Escape") { e.preventDefault(); setMenu(null); treeRef.current?.focus(); }
+          }}>
+          {menu.confirm && menu.node ? (<>
+            <div className="filetree-confirm">Move <b>{menu.node.name}</b>{menu.node.isDir ? " and everything in it" : ""} to the {navigator.userAgent.includes("Windows") ? "Recycle Bin" : "Trash"}?</div>
+            {menu.error && <div className="filetree-new-error">{menu.error}</div>}
+            <button className="term-ctx-item term-ctx-item--danger" autoFocus onClick={() => void remove()}><span>Delete</span><span className="term-ctx-key">↵</span></button>
+            <button className="term-ctx-item" onClick={() => { setMenu(null); treeRef.current?.focus(); }}><span>Cancel</span><span className="term-ctx-key">Esc</span></button>
+          </>) : (<>
+            <button className="term-ctx-item" onClick={() => startCreating("file")}><span>New File…</span></button>
+            <button className="term-ctx-item" onClick={() => startCreating("dir")}><span>New Folder…</span></button>
+            {menu.node && <>
+              <div className="term-ctx-sep" />
+              <button className="term-ctx-item" onClick={() => { const node = menu.node!; setMenu(null); setRenaming({ path: node.path }); }}><span>Rename…</span><span className="term-ctx-key">F2</span></button>
+              <button className="term-ctx-item" onClick={() => void duplicate(menu.node!)}><span>Duplicate</span><span className="term-ctx-key">Ctrl+D</span></button>
+              <button className="term-ctx-item term-ctx-item--danger" onClick={() => setMenu({ ...menu, confirm: true })}><span>Delete…</span><span className="term-ctx-key">Del</span></button>
+            </>}
+            <div className="term-ctx-sep" />
+            <button className="term-ctx-item" onClick={() => { setMenu(null); reloadExpanded(); }}><span>Refresh</span></button>
+          </>)}
         </div>
       )}
-      <div className="filetree-hint">↑↓ move · → expand · ← collapse · ↵ open · right-click: new file or folder · Esc close</div>
+      <div className="filetree-hint">↑↓ move · → expand · ← collapse · ↵ open · F2 rename · Ctrl+D duplicate · Del delete · right-click for more · Esc close</div>
     </div>
   );
 }
