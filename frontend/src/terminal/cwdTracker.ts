@@ -139,6 +139,11 @@ export function cwdFromMark(mark: string, windows: boolean): string | null {
   try { path = decodeURIComponent(path); } catch { /* not encoded */ }
   if (!windows) return path;
   if (/^\/[A-Za-z]:/.test(path)) return path.slice(1).replace(/\//g, "\\");
+  // Git Bash, MSYS2, Cygwin: /c/Users/… is C:\Users\…. (On Windows only
+  // they send this mark; PowerShell sends 9;9.) Their own folders (/usr,
+  // /tmp) have no Windows path here.
+  if (/^\/[A-Za-z](\/|$)/.test(path)) return path[1].toUpperCase() + ":\\" + path.slice(3).replace(/\//g, "\\");
+  if (/^\/(usr|tmp|etc|bin|home|opt|var|mingw64|mingw32|ucrt64|clang64)(\/|$)/.test(path)) return null;
   const host = m[1];
   return host && host !== "localhost" ? "\\\\" + host + path.replace(/\//g, "\\") : path.replace(/\//g, "\\");
 }

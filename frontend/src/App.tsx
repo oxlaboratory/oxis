@@ -5497,6 +5497,8 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
   // The program hid the cursor, as one drawing an arrow-key menu does:
   // with the prompt empty, the keys that drive a menu go to it.
   const programCursorHidden = useRef(false);
+  // Text handed to a running program with Tab (its line holds it now).
+  const programHasText = useRef(false);
   // Shell integration (pty/shellhooks.go): the shell's prompt hook
   // reports each command's exit status and the directory. Once it has,
   // the cwd probes aren't needed. runningCommand is the command the user
@@ -5943,6 +5945,7 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
    *  (a game, a live view) if there is one, else whatever the shell runs. */
   const interrupt = useCallback(() => {
     clearInput();
+    programHasText.current = false;
     history.resetNav();
     const cancelled = promptCapture.cancel(); // prints "cancelled"
     const stopped = foregroundJobs.stopAll();
@@ -6204,6 +6207,11 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
       addLine(`  › ${raw}`, "cmd");
       scrollToBottom(true);
       return;
+    }
+    // The rest of a line a program already holds (see Tab): as typed.
+    if (programHasText.current) {
+      programHasText.current = false;
+      if (runningCommand.current) { sendToShell(raw + "\r"); scrollToBottom(true); return; }
     }
     if (!cmd) { sendToShell("\r"); return; }
     if (!keepOutOfHistory(raw)) history.push(cmd);
@@ -6660,6 +6668,7 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
         F9:"\x1b[20~",F10:"\x1b[21~",F11:"\x1b[23~",F12:"\x1b[24~",
       };
       if (passSeq[k] && !ctrl && !alt && !e.shiftKey) { e.preventDefault(); sendToShell(passSeq[k]); return; }
+      if (k === "Backspace" && programHasText.current && runningCommand.current && !ctrl && !alt) { e.preventDefault(); sendToShell("\x7f"); return; }
     }
 
     // ── TAB COMPLETION ─────────────────────────────────────
@@ -6669,7 +6678,14 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
     if (!ctrl && !alt && k === "Tab") {
       e.preventDefault();
       if (!val.startsWith("'")) {
-        if (runningCommand.current) { sendToShell("\t"); return; }
+        if (runningCommand.current) {
+          // A REPL completes its own way (node, python, irb…): what's typed
+          // goes to it with the Tab, and its line now holds the text (more
+          // typing and Enter add to it; Backspace on an empty prompt edits it).
+          sendToShell(val + "\t");
+          if (val) { clearInput(); programHasText.current = true; }
+          return;
+        }
         void completeShellLine(val, cur);
         return;
       }
@@ -6805,7 +6821,7 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
   }, [
     searching, exitSearch, enterSearch, submit, interrupt, outputSelectionText,
     syncInput, sendToShell, addLine, clear, updateCaret,
-    onNewTab, onCloseTab, openOutputSearch, completeShellLine,
+    onNewTab, onCloseTab, openOutputSearch, completeShellLine, clearInput,
   ]);
 
   // ── Paste ─────────────────────────────────────────────────

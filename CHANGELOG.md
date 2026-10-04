@@ -13,6 +13,11 @@ All notable changes to OXIS. The format follows
   scripts after `npm run`, `pnpm`, `yarn` or `bun run`, and commands used
   before. When several match, it fills in what they share and lists them.
   Tab used to go to the shell without the typed text, so it did nothing.
+- Tab in a REPL (node, python, irb…) hands what's typed to it with the
+  Tab, so the REPL's own completion fills in its line; typing on and
+  Enter add to it, and Backspace on an empty prompt edits it.
+- Git Bash on Windows gets shell integration (exit marks, Ctrl+↑/↓,
+  exact directory tracking) when `OXIS_SHELL` is just its bash.exe.
 - Writing a plugin: in a Lua file, typing a dot after `oxis`,
   `oxis.fs`, `oxis.process`, `oxis.editor`… (or `string`, `table`,
   `math`, `os`, `utf8`, `coroutine`) lists that library's functions with
@@ -473,6 +478,8 @@ All notable changes to OXIS. The format follows
 - The npm launcher downloads from the GitHub `latest-build` release.
 
 ### Fixed
+- The directory reported by Git Bash (`/c/Users/…`) is read as
+  `C:\Users\…`, not as a network path.
 - Windows: Esc in a full-screen program works. ConPTY held a lone Esc
   until the next key, which then arrived as Alt+key, so vim never left
   Insert mode and `Esc :wq` typed `:wq` into the file. Esc is now sent

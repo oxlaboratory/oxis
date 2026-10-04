@@ -391,7 +391,7 @@ with the app). Setting `restoreSession` turns it off.
 |---|---|
 | ↑ / ↓, Ctrl+P / Ctrl+N | Previous / next command. If you typed something first, only commands starting with it are shown. |
 | Ctrl+R | Reverse search through history (Ctrl+R again for older matches, Enter to run, Esc to cancel) |
-| Tab | Complete the word at the cursor: an `'command`, a file or folder where the shell is (only folders after `cd`), a git subcommand, branch, remote or changed file, a package.json script after `npm run`/`pnpm`/`yarn`, or a command used before. Several matches are listed. While a program runs, Tab goes to it |
+| Tab | Complete the word at the cursor: an `'command`, a file or folder where the shell is (only folders after `cd`), a git subcommand, branch, remote or changed file, a package.json script after `npm run`/`pnpm`/`yarn`, or a command used before. Several matches are listed. While a program runs (node, python…), what's typed goes to it with the Tab, so its own completion fills in its line |
 | Ctrl+A / Ctrl+E | Start / end of line |
 | Ctrl+K / Ctrl+U / Ctrl+Y | Cut to end / cut to start / paste the cut text |
 | Alt+F / Alt+B, Ctrl+←/→ | Word right / left |
@@ -451,8 +451,9 @@ Windows Terminal do. With it:
 - Plugins get `ShellCommandDone` and `DirectoryChanged` events (see
   [Lua API](#lua-api)).
 
-Set `OXIS_SHELL_INTEGRATION=0` to start shells without it; a custom
-`OXIS_SHELL` never gets it. Without it (or in `cmd.exe`) OXIS finds the
+Set `OXIS_SHELL_INTEGRATION=0` to start shells without it. A custom
+`OXIS_SHELL` gets it when it's just bash (Git Bash or MSYS2, with or
+without `-i`); anything more, such as `--login`, is used as it is. Without it (or in `cmd.exe`) OXIS finds the
 directory by asking the shell after a `cd`, as before. The bash and zsh
 startup files OXIS uses are in `~/.oxis/shell`.
 

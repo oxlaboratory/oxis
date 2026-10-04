@@ -8,6 +8,9 @@ import (
 	"io"
 	"log"
 	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -116,12 +119,41 @@ func HandleSession(conn *websocket.Conn) {
 	cpty.Close()
 }
 
+// withIntegration adds shell integration (shellhooks.go) to an OXIS_SHELL
+// that is just bash, the way Git Bash and MSYS2 are set up
+// ("C:\Program Files\Git\bin\bash.exe", maybe with -i): anything more
+// (a login shell, other flags) is used as it is.
+func withIntegration(custom string) string {
+	m := plainShellRe.FindStringSubmatch(strings.TrimSpace(custom))
+	if m == nil {
+		return custom
+	}
+	path := m[1] + m[2]
+	args, _ := shellStart(path)
+	if args == nil {
+		return custom
+	}
+	line := `"` + path + `"`
+	for _, a := range args {
+		// bash on Windows reads C:/… paths; quoted for spaces in them.
+		line += ` "` + filepath.ToSlash(a) + `"`
+	}
+	if m[3] != "" {
+		line += " -i"
+	}
+	return line
+}
+
+// A bash executable, quoted or not, and at most -i after it. (fish's hook
+// is a script with quotes in it, which this command line can't carry.)
+var plainShellRe = regexp.MustCompile(`(?i)^"?([^"]*[\\/])?(bash(?:\.exe)?)"?(\s+-i)?$`)
+
 func buildShellCmd() string {
 	// OXIS_SHELL overrides the pwsh 7 > Windows PowerShell > cmd.exe
 	// chain. It is used verbatim as the command line, so quote paths
 	// with spaces, e.g. OXIS_SHELL="\"C:\Program Files\Git\bin\bash.exe\"".
 	if custom := os.Getenv("OXIS_SHELL"); custom != "" {
-		return custom
+		return withIntegration(custom)
 	}
 	// PowerShell starts with shell integration (shellhooks.go).
 	psFlags := psArgs()

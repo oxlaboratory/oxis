@@ -40,7 +40,11 @@ describe("cwdFromMark", () => {
     expect(cwdFromMark("7;file://host/home/me/my%20app", false)).toBe("/home/me/my app");
     expect(cwdFromMark("7;file:///C:/Users/me", true)).toBe("C:\\Users\\me");
     expect(cwdFromMark("7;file://server/share/dir", true)).toBe("\\\\server\\share\\dir");
-    expect(cwdFromMark("7;file://localhost/tmp", true)).toBe("\\tmp");
+    // Git Bash: its /c/… paths are drives; its own folders aren't.
+    expect(cwdFromMark("7;file://DESKTOP-1/c/Users/me/my%20app", true)).toBe("C:\\Users\\me\\my app");
+    expect(cwdFromMark("7;file://DESKTOP-1/d", true)).toBe("D:\\");
+    expect(cwdFromMark("7;file://DESKTOP-1/usr/bin", true)).toBeNull();
+    expect(cwdFromMark("7;file://localhost/tmp", true)).toBeNull(); // an MSYS folder, no Windows path
   });
 
   it("reads Windows Terminal's OSC 9;9", () => {
