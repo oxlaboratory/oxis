@@ -88,6 +88,11 @@ func (a *App) ReadClipboard() (string, error) {
 // frontend needs this to find the WebSocket.
 func (a *App) GetPTYPort() int { return a.ptyPort }
 
+// FlashWindow asks for attention from the background (Windows: the
+// taskbar button flashes until OXIS is in front). false if it couldn't,
+// or OXIS is already in front.
+func (a *App) FlashWindow() bool { return flashWindow() }
+
 // pluginsDir returns (creating if needed) the folder user and
 // market-installed Lua plugins live in, under AppDirPath.
 func pluginsDir() (string, error) {

@@ -81,7 +81,7 @@ import { exportSettings, importSettings, exportWorkspace, importWorkspace, expor
 import { checkPublishable, findExistingListing, prepareFreePublish, submitPaidPlugin, startConnectOnboarding, requestPluginDeletion } from "./plugins/publish";
 import { commitAll, setupRemote, unlinkRemote, getRemotes, parseGitRemote, cancelActiveCommit, type GitProvider } from "./plugins/git";
 import { loadUserConfig } from "./terminal/userConfig";
-import { userConfigDir, runCommand } from "./native";
+import { userConfigDir, runCommand, flashWindow } from "./native";
 import { completeShell, applyCompletion } from "./terminal/shellComplete";
 import { findLinks, resolveLinkPath, type OutputLink } from "./terminal/outputLinks";
 import { readFile, writeFile, listDir, makeDir, statPath, movePath, trashPath, copyPath, isNativeApp, openUrl, checkForUpdate, performUpdate, quitApp, windowGetSize, windowSetSize, systemInfo, previewUrl, isImagePath, readImage } from "./native";
@@ -341,6 +341,11 @@ const SETTINGS: SettingDef[] = [
     key: "promptColors", label: "Colour Prompts", default: true,
     description: "Colour the shell's prompt and the commands you ran in the output: the path, the command, its options, strings and variables",
     apply: () => { /* read for each new line of output */ },
+  },
+  {
+    key: "notifyAfter", label: "Flash When Done", default: 10,
+    description: "When a command that ran this many seconds or more finishes while OXIS is in the background, flash its taskbar button (Windows). 0 turns it off",
+    apply: () => { /* read when a command finishes */ },
   },
   {
     key: "updateCheckOnStartup", label: "Check for Updates", default: true,
@@ -6170,6 +6175,9 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
     if (!done || !cmd) return;
     runningCommand.current = null;
     const status = { code: Number(done[1] ?? 0), ms: performance.now() - cmd.startedAt };
+    // A long build or test run finished while you were elsewhere.
+    const after = Number(getSetting("notifyAfter"));
+    if (after > 0 && status.ms >= after * 1000 && !document.hasFocus()) void flashWindow();
     // The status goes on the command's line: the first line since it was
     // run that ends with it (the shell's echo of it).
     const all = linesRef.current.concat(outQueue.current);

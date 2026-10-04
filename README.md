@@ -448,6 +448,8 @@ Windows Terminal do. With it:
 - **Ctrl+↑ / Ctrl+↓** jump to the previous / next command.
 - Right-click a command's output: **Copy Output** or **Copy Command and
   Output** copies just that command's part.
+- A command that ran 10 seconds or more and finishes while OXIS is in
+  the background flashes its taskbar button (setting `notifyAfter`).
 - OXIS follows the directory exactly (`cd`, `z`, `Push-Location`,
   scripts that change it), so the workspace there is detected, without
   sending anything to your shell.
@@ -1332,6 +1334,7 @@ printed in the terminal and listed by `'diagnostics`.
 | `editorMinimap` | `true` | The minimap beside the editor's text |
 | `countInstalls` | `true` | After `'update install` builds a new version from source, add one to the public download count (nothing else is sent) |
 | `newShellHere` | `true` | Open a new tab or split pane in the focused pane's folder, not the default one |
+| `notifyAfter` | `10` | When a command that ran this many seconds or more finishes while OXIS is in the background, flash its taskbar button (Windows); `0` turns it off |
 | `restoreSession` | `true` | Bring back tabs, their directories and output, open files and unsaved text at startup |
 | `editorSuggest` | `true` | Suggest words and keywords while typing in the editor |
 

@@ -43,6 +43,7 @@ declare global {
           KillProcess?: (pid: number) => Promise<void>;
           OpenURL?: (url: string) => Promise<void>;
           WriteClipboard?: (text: string) => Promise<void>;
+          FlashWindow?: () => Promise<boolean>;
           ReadClipboard?: () => Promise<string>;
           CheckForUpdate?: () => Promise<NativeUpdateInfo>;
           /** Builds the latest source and swaps it in (see
@@ -348,6 +349,13 @@ export async function writeClipboard(text: string): Promise<void> {
 }
 
 /** Reads the OS clipboard's text natively. */
+/** Flashes OXIS's taskbar button until it's in front again (Windows);
+ *  false when it couldn't or OXIS is in front already. */
+export async function flashWindow(): Promise<boolean> {
+  const fn = window.go?.wailsapp?.App?.FlashWindow;
+  return fn ? fn() : false;
+}
+
 export async function readClipboard(): Promise<string> {
   const fn = window.go?.wailsapp?.App?.ReadClipboard;
   if (!fn) throw new NativeUnavailableError();
