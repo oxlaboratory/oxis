@@ -5201,6 +5201,13 @@ function paneHost(el: HTMLElement | null): HTMLElement | null {
   return (el?.closest(".app-body") as HTMLElement | null) ?? el;
 }
 
+/** The home folder: where ~/.oxis is (asked once). */
+let _home: Promise<string> | null = null;
+function homeFolder(): Promise<string> {
+  _home ??= userConfigDir().then(d => d.replace(/[\\/]\.oxis[\\/]?$/, ""), () => "");
+  return _home;
+}
+
 /** A plugin's first use of a permission, asked in the prompt like
  *  oxis.ask rather than with confirm(), which freezes the window. A
  *  question the plugin had open comes back once this is answered. */
@@ -6316,6 +6323,7 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
       readFile,
       git: (args) => runCommand(cwd, "git", args).then(r => (r.exitCode === 0 ? r.stdout : ""), () => ""),
       history: history.all(),
+      home: await homeFolder(),
     });
     // Typed on meanwhile: the answer is for a line that's gone.
     if (!c || inputRef.current.value !== val) return;

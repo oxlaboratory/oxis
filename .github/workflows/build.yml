@@ -104,6 +104,8 @@ jobs:
         run: node scripts/build-go.js
 
       - name: Test
+        env:
+          CGO_LDFLAGS: -framework UniformTypeIdentifiers
         run: |
           if ! go test -tags desktop,production ./internal/... 2>&1 | tee test.log; then
             grep -E '^\s+\S+_test\.go:[0-9]+:|^--- FAIL|^FAIL' test.log | head -30 | sed -E 's/^\s*/::error::/'

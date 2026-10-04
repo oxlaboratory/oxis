@@ -65,6 +65,10 @@ describe("Tab for shell commands", () => {
     expect((await tab("cat read"))?.line).toBe("cat README.md ");
   });
 
+  it("~ is the home folder", async () => {
+    expect((await tab("cd ~/Pu", env({ home: "C:/Users" })))?.line).toBe("cd ~/Public/");
+  });
+
   it("absolute paths, Git Bash style too", async () => {
     expect((await tab("cd C:/Users/Ad"))?.line).toBe("cd C:/Users/Admin/");
     expect((await tab("cd /c/Users/P"))?.line).toBe("cd /c/Users/Public/");

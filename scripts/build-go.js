@@ -183,6 +183,9 @@ if (IS_WIN) {
     log("   (no C compiler: plugins will run on fengari — install MinGW-w64 for native Lua)", col.grey);
   }
 }
+// Wails' macOS code uses UTType without linking its framework (newer
+// SDKs no longer pull it in through Cocoa).
+if (IS_MAC) buildEnv.CGO_LDFLAGS = [process.env.CGO_LDFLAGS, "-framework UniformTypeIdentifiers"].filter(Boolean).join(" ");
 // -trimpath: no paths from the machine that built it (a user's home
 // folder, the CI runner's) in the binary, so builds are reproducible.
 run(`"${GO}" build -trimpath -tags ${tags.join(",")} -ldflags=${ldflags} -o "${outBinary}" ./cmd/oxi`, ROOT, { PATH:buildPath, ...buildEnv });

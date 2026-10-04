@@ -17,6 +17,8 @@ export interface CompleteEnv {
   readFile(path: string): Promise<string>;
   /** Commands run before, newest last. */
   history: string[];
+  /** The home folder, for ~/…. */
+  home?: string;
 }
 
 export interface Candidate {
@@ -193,6 +195,7 @@ async function paths(word: string, env: CompleteEnv, dirsOnly: boolean): Promise
   let dir: string;
   if (/^[a-zA-Z]:[\\/]?$/.test(typedDir) || /^[a-zA-Z]:[\\/]/.test(typedDir)) dir = typedDir;
   else if (env.windows && /^\/[a-zA-Z](\/|$)/.test(typedDir)) dir = `${typedDir[1].toUpperCase()}:/${typedDir.slice(3)}`;
+  else if (/^~[\\/]/.test(typedDir) && env.home) dir = join(env.home, typedDir.slice(2), env.windows);
   else if (typedDir.startsWith("/") && !env.windows) dir = typedDir;
   else dir = typedDir ? join(env.cwd, typedDir, env.windows) : env.cwd;
   let entries: { name: string; isDir: boolean }[];
