@@ -81,7 +81,8 @@ import { exportSettings, importSettings, exportWorkspace, importWorkspace, expor
 import { checkPublishable, findExistingListing, prepareFreePublish, submitPaidPlugin, startConnectOnboarding, requestPluginDeletion } from "./plugins/publish";
 import { commitAll, setupRemote, unlinkRemote, getRemotes, parseGitRemote, cancelActiveCommit, type GitProvider } from "./plugins/git";
 import { loadUserConfig } from "./terminal/userConfig";
-import { userConfigDir } from "./native";
+import { userConfigDir, runCommand } from "./native";
+import { completeShell, applyCompletion } from "./terminal/shellComplete";
 import { readFile, writeFile, listDir, makeDir, statPath, movePath, trashPath, copyPath, isNativeApp, openUrl, checkForUpdate, performUpdate, quitApp, windowGetSize, windowSetSize, systemInfo, previewUrl, isImagePath, readImage } from "./native";
 import type { NativeUpdateInfo } from "./native";
 import { BUILD, OXIS_VERSION, fullVersion, describe as describeBuild, shortCommit, channelLabel, formatStampDate } from "./buildInfo";
@@ -6235,6 +6236,30 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
   const runLineRef = useRef(runLine);
   runLineRef.current = runLine;
 
+  /** Tab on a shell command: completes the word at the cursor, or lists
+   *  the choices when there's nothing more in common to add. */
+  const completeShellLine = useCallback(async (val: string, cur: number) => {
+    const cwd = cwdTracker.get();
+    if (!cwd || !isNativeApp()) return;
+    const c = await completeShell(val, cur, {
+      cwd,
+      windows: isWindows(),
+      listDir,
+      readFile,
+      git: (args) => runCommand(cwd, "git", args).then(r => (r.exitCode === 0 ? r.stdout : ""), () => ""),
+      history: history.all(),
+    });
+    // Typed on meanwhile: the answer is for a line that's gone.
+    if (!c || inputRef.current.value !== val) return;
+    const r = applyCompletion(val, cur, c);
+    if (r.line !== val) syncInput(r.line, r.cursor);
+    if (r.list) {
+      const names = c.candidates.map(x => x.text.replace(/^.*[\\/](?=.)/, ""));
+      addLine(`  ${names.slice(0, 60).join("  ")}${names.length > 60 ? `  … ${names.length - 60} more` : ""}`, "dim");
+      scrollToBottom(true);
+    }
+  }, [syncInput, addLine, scrollToBottom]);
+
 
   // PTY size from .app-body, which the terminal fills and which stays
   // measurable while Home is showing. Getting it right before the
@@ -6639,10 +6664,15 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
 
     // ── TAB COMPLETION ─────────────────────────────────────
     // 'commands complete against the real command registry (verb
-    // only); anything else sends Tab to the shell's own completion.
+    // only); shell commands against files, git and package.json
+    // (shellComplete.ts). A program reading the line gets the Tab.
     if (!ctrl && !alt && k === "Tab") {
       e.preventDefault();
-      if (!val.startsWith("'")) { sendToShell("\t"); return; }
+      if (!val.startsWith("'")) {
+        if (runningCommand.current) { sendToShell("\t"); return; }
+        void completeShellLine(val, cur);
+        return;
+      }
       const body = val.slice(1);
       if (body.includes(" ")) return;
       const prefix = body.toLowerCase();
@@ -6775,7 +6805,7 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
   }, [
     searching, exitSearch, enterSearch, submit, interrupt, outputSelectionText,
     syncInput, sendToShell, addLine, clear, updateCaret,
-    onNewTab, onCloseTab, openOutputSearch,
+    onNewTab, onCloseTab, openOutputSearch, completeShellLine,
   ]);
 
   // ── Paste ─────────────────────────────────────────────────

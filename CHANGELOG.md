@@ -6,6 +6,13 @@ All notable changes to OXIS. The format follows
 ## [Unreleased]
 
 ### Added
+- Tab completes shell commands in the prompt, the same in bash,
+  PowerShell, cmd or zsh: files and folders where the shell is (only
+  folders after `cd`, Git Bash `/c/…` paths too), git subcommands and
+  aliases, branches, remotes and changed files (`git add`), package.json
+  scripts after `npm run`, `pnpm`, `yarn` or `bun run`, and commands used
+  before. When several match, it fills in what they share and lists them.
+  Tab used to go to the shell without the typed text, so it did nothing.
 - Writing a plugin: in a Lua file, typing a dot after `oxis`,
   `oxis.fs`, `oxis.process`, `oxis.editor`… (or `string`, `table`,
   `math`, `os`, `utf8`, `coroutine`) lists that library's functions with
