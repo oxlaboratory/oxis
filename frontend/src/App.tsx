@@ -308,6 +308,11 @@ const SETTINGS: SettingDef[] = [
     apply: () => { /* read when the editor renders */ },
   },
   {
+    key: "countInstalls", label: "Count Update Installs", default: true,
+    description: "When 'update install builds a new version, add one to the public download count at oxis.space (nothing else is sent: no ID, no data)",
+    apply: () => { /* read by 'update install */ },
+  },
+  {
     key: "newShellHere", label: "New Shells Start Here", default: true,
     description: "Open a new tab or split pane in the folder you're working in (the focused pane's), not the default one",
     apply: () => { /* read when a tab or pane opens */ },
@@ -978,6 +983,12 @@ function registerBuiltinCommands(): void {
         return;
       }
       ok("update installed — the new version has started, closing this one…");
+      // A build made here doesn't go through GitHub's download counter,
+      // so it's added to the Market's (no ID or data is sent; setting
+      // countInstalls turns it off).
+      if (result.from === "source" && getSetting("countInstalls") !== false) {
+        void fetch(`${market.MARKET_BASE}/installs`, { method: "POST", keepalive: true }).catch(() => {});
+      }
       setTimeout(() => quitApp(), 800); // long enough to read the message
     }).catch(e => err(`update failed: ${e instanceof Error ? e.message : e}`));
   }

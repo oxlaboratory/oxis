@@ -133,7 +133,7 @@ export interface NativeProcessOptions { cmd: string; args: string[]; shell: stri
 /** Mirrors WatchOptions in internal/wailsapp/watch.go. */
 export interface NativeWatchOptions { path: string; recursive: boolean; ignore: string[] | null; debounceMs: number; }
 /** Mirrors UpdateResult in internal/wailsapp/selfupdate.go. */
-export interface NativeUpdateResult { installed: boolean; error: string; }
+export interface NativeUpdateResult { installed: boolean; error: string; /** "source" (built here) or "release" (the prebuilt download). */ from?: "source" | "release" | ""; }
 
 /** True if running inside the native Wails window; false in a plain
  *  browser tab (e.g. http://127.0.0.1:1420 opened directly). Synchronous

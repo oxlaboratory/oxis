@@ -1161,6 +1161,7 @@ printed in the terminal and listed by `'diagnostics`.
 | `promptColors` | `true` | Colour the prompt and the commands you ran |
 | `editorVim` | `true` | The editor's Normal, Insert and Visual modes; off, it just types |
 | `editorMinimap` | `true` | The minimap beside the editor's text |
+| `countInstalls` | `true` | After `'update install` builds a new version from source, add one to the public download count (nothing else is sent) |
 | `newShellHere` | `true` | Open a new tab or split pane in the focused pane's folder, not the default one |
 | `restoreSession` | `true` | Bring back tabs, their directories and output, open files and unsaved text at startup |
 | `editorSuggest` | `true` | Suggest words and keywords while typing in the editor |
@@ -1199,7 +1200,11 @@ describe` form when the build is past it).
 
 `'diagnostics` shows the version, OS, runtime, plugin counts, active
 workspace and the last recorded errors. Nothing is sent anywhere; OXIS
-has no telemetry.
+has no telemetry. The one thing it ever reports: after `'update install`
+builds a new version from source, it adds one to the public download
+count at oxis.space (a bare request, with no ID or data; setting
+`countInstalls` turns it off). A prebuilt download is counted by GitHub
+instead.
 
 For output that renders wrongly, start OXIS with `OXIS_PTY_TRACE` set
 to a file path: everything the shell sends, escape sequences included,

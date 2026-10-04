@@ -6,6 +6,11 @@ All notable changes to OXIS. The format follows
 ## [Unreleased]
 
 ### Added
+- The download count includes `'update install`s that build from source
+  (a prebuilt download was already counted by GitHub): the app adds one
+  to the count at oxis.space, with no ID or data, at most once a day per
+  address; setting `countInstalls` turns it off. The README badge and the
+  website show the total, which keeps every download counted so far.
 - The file tree's right-click menu: New File and New Folder (in the
   folder clicked, a file's own folder, or the project for empty space),
   named in a row in the tree; a new file opens in the editor.

@@ -25,8 +25,8 @@ func TestBoundMethodsReturnShapes(t *testing.T) {
 }
 
 func TestUpdateResultJSON(t *testing.T) {
-	b, err := json.Marshal(UpdateResult{Installed: false, Error: "offline"})
-	if err != nil || string(b) != `{"installed":false,"error":"offline"}` {
-		t.Errorf("UpdateResult marshals as %s (%v); native.ts reads installed/error", b, err)
+	b, err := json.Marshal(UpdateResult{Installed: true, From: "source"})
+	if err != nil || string(b) != `{"installed":true,"error":"","from":"source"}` {
+		t.Errorf("UpdateResult marshals as %s (%v); native.ts reads installed/error/from", b, err)
 	}
 }

@@ -41,8 +41,8 @@ const releaseDownloadPrefix = "https://github.com/" + update.ProjectPath + "/rel
 // On success the new process is already running and the caller should
 // quit this one. On failure the original install is untouched.
 func (a *App) PerformUpdate(fallbackBinaryURL string) UpdateResult {
-	ok, msg := performUpdate(fallbackBinaryURL)
-	return UpdateResult{Installed: ok, Error: msg}
+	ok, msg, from := performUpdate(fallbackBinaryURL)
+	return UpdateResult{Installed: ok, Error: msg, From: from}
 }
 
 // UpdateResult is PerformUpdate's answer. (A Go method bound by Wails
@@ -50,38 +50,52 @@ func (a *App) PerformUpdate(fallbackBinaryURL string) UpdateResult {
 type UpdateResult struct {
 	Installed bool   `json:"installed"`
 	Error     string `json:"error"`
+	// From is how the new build was made: "source" (built here) or
+	// "release" (the prebuilt download, which GitHub counts itself).
+	From string `json:"from"`
 }
 
-func performUpdate(fallbackBinaryURL string) (bool, string) {
+func performUpdate(fallbackBinaryURL string) (bool, string, string) {
+	ok, msg, from := performUpdateFrom(fallbackBinaryURL)
+	if !ok {
+		from = ""
+	}
+	return ok, msg, from
+}
+
+func performUpdateFrom(fallbackBinaryURL string) (bool, string, string) {
 	exePath, err := os.Executable()
 	if err != nil {
-		return false, fmt.Sprintf("couldn't determine my own executable path: %v", err)
+		return false, fmt.Sprintf("couldn't determine my own executable path: %v", err), ""
 	}
 	exePath, err = filepath.EvalSymlinks(exePath)
 	if err != nil {
-		return false, fmt.Sprintf("couldn't resolve my own executable path: %v", err)
+		return false, fmt.Sprintf("couldn't resolve my own executable path: %v", err), ""
 	}
 	exeDir := filepath.Dir(exePath)
 
+	from := "source"
 	newBinaryPath, cleanupNew, buildErr := buildFromSource(exeDir)
 	if buildErr != nil {
+		from = "release"
 		if fallbackBinaryURL == "" {
-			return false, fmt.Sprintf("couldn't build the update from source (%v), and no prebuilt fallback is available for this platform/build", buildErr)
+			return false, fmt.Sprintf("couldn't build the update from source (%v), and no prebuilt fallback is available for this platform/build", buildErr), ""
 		}
 		// The page passes the URL in, so only this project's own release
 		// downloads are accepted: anything else would let a script in the
 		// page swap OXIS for an arbitrary program.
 		if !strings.HasPrefix(fallbackBinaryURL, releaseDownloadPrefix) {
-			return false, fmt.Sprintf("refusing to install an update from %q: updates only come from %s", fallbackBinaryURL, releaseDownloadPrefix)
+			return false, fmt.Sprintf("refusing to install an update from %q: updates only come from %s", fallbackBinaryURL, releaseDownloadPrefix), ""
 		}
 		var dlErr error
 		newBinaryPath, cleanupNew, dlErr = downloadRawBinary(fallbackBinaryURL, exeDir)
 		if dlErr != nil {
-			return false, fmt.Sprintf("couldn't build the update from source (%v), and the prebuilt fallback download also failed (%v)", buildErr, dlErr)
+			return false, fmt.Sprintf("couldn't build the update from source (%v), and the prebuilt fallback download also failed (%v)", buildErr, dlErr), ""
 		}
 	}
 	defer cleanupNew()
-	return installAndRestart(exePath, newBinaryPath)
+	ok, msg := installAndRestart(exePath, newBinaryPath)
+	return ok, msg, from
 }
 
 // installAndRestart moves newBinaryPath into exePath (the current one is

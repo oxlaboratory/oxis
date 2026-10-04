@@ -1204,8 +1204,12 @@ async function loadLive(){
     const last = /[?&]page=(\d+)>; rel="last"/.exec(commits.value.link);
     LIVE.build = last ? +last[1] : 1;
   }
+  // The Market's count also has the updates built with 'update install;
+  // GitHub's own count is the fallback.
+  const total = await fetch('/downloads?format=count').then(r => r.ok ? r.json() : null).catch(() => null);
+  if(total && typeof total.count === 'number') LIVE.downloads = total.count;
   if(rel.value){
-    LIVE.downloads = countDownloads(rel.value);
+    if(LIVE.downloads == null) LIVE.downloads = countDownloads(rel.value);
     for(const a of rel.value.assets || []){
       const n = a.name.toLowerCase(), u = a.browser_download_url;
       if(n.endsWith('.msi')) LIVE.assets.msi = u;
