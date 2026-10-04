@@ -19,10 +19,10 @@ func findShells() []Shell {
 	}
 	var out []Shell
 	if p := first(os.Getenv("ProgramFiles")+`\PowerShell\7\pwsh.exe`, `C:\Program Files\PowerShell\7\pwsh.exe`); p != "" {
-		out = append(out, Shell{"pwsh", "PowerShell 7", p})
+		out = append(out, Shell{Name: "pwsh", Label: "PowerShell 7", Path: p})
 	}
 	if p := first(os.Getenv("SystemRoot")+`\System32\WindowsPowerShell\v1.0\powershell.exe`, `C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`); p != "" {
-		out = append(out, Shell{"powershell", "Windows PowerShell", p})
+		out = append(out, Shell{Name: "powershell", Label: "Windows PowerShell", Path: p})
 	}
 	if p := first(
 		os.Getenv("ProgramFiles")+`\Git\bin\bash.exe`,
@@ -30,13 +30,13 @@ func findShells() []Shell {
 		filepath.Join(os.Getenv("LocalAppData"), `Programs\Git\bin\bash.exe`),
 		`C:\Program Files\Git\bin\bash.exe`,
 	); p != "" {
-		out = append(out, Shell{"gitbash", "Git Bash", p})
+		out = append(out, Shell{Name: "gitbash", Label: "Git Bash", Path: p})
 	}
 	if p := first(os.Getenv("SystemRoot")+`\System32\wsl.exe`, `C:\Windows\System32\wsl.exe`); p != "" {
-		out = append(out, Shell{"wsl", "WSL", p})
+		out = append(out, Shell{Name: "wsl", Label: "WSL", Path: p})
 	}
 	if p := first(os.Getenv("SystemRoot")+`\System32\cmd.exe`, `C:\Windows\System32\cmd.exe`); p != "" {
-		out = append(out, Shell{"cmd", "Command Prompt", p})
+		out = append(out, Shell{Name: "cmd", Label: "Command Prompt", Path: p})
 	}
 	return out
 }

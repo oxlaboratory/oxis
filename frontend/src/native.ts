@@ -45,7 +45,7 @@ declare global {
           WriteClipboard?: (text: string) => Promise<void>;
           FlashWindow?: () => Promise<boolean>;
           TaskbarProgress?: (state: number, pct: number) => Promise<boolean>;
-          Shells?: () => Promise<{ name: string; label: string; path: string }[]>;
+          Shells?: () => Promise<{ name: string; label: string; path: string; default?: boolean }[]>;
           ReadClipboard?: () => Promise<string>;
           CheckForUpdate?: () => Promise<NativeUpdateInfo>;
           /** Builds the latest source and swaps it in (see
@@ -366,7 +366,7 @@ export async function taskbarProgress(state: number, pct: number): Promise<boole
 }
 
 /** The shells a tab can start here, by name; the default first. */
-export interface NativeShell { name: string; label: string; path: string }
+export interface NativeShell { name: string; label: string; path: string; default?: boolean }
 export async function listShells(): Promise<NativeShell[]> {
   const fn = window.go?.wailsapp?.App?.Shells;
   return fn ? fn() : [];

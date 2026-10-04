@@ -1050,11 +1050,12 @@ function registerBuiltinCommands(): void {
       const want = (args[0] ?? "").toLowerCase();
       const setting = String(getSetting("shell") ?? "auto");
       if (!want) {
-        const def = setting === "auto" ? shells[0].name : setting;
+        const auto = shells.find(sh => sh.default);
+        const def = setting === "auto" ? auto?.name ?? "" : setting;
         _ctxRef.current?.printLines([
           ["  shells here — 'shell <name> opens a tab with one", "accent"],
           ...shells.map((sh): [string, LineKind?] => [`  ${sh.name === def ? "●" : "○"}  ${sh.name.padEnd(11)} ${sh.label}`, sh.name === def ? "ok" : undefined]),
-          [`  new tabs start ${setting === "auto" ? `the default (${shells[0].label})` : setting} — 'config set shell <name> to change`, "dim"],
+          [`  new tabs start ${setting === "auto" ? `the default (${auto?.label ?? "OXIS_SHELL"})` : setting} — 'config set shell <name> to change`, "dim"],
         ]);
         return;
       }

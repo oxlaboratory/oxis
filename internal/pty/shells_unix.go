@@ -17,7 +17,7 @@ func findShells() []Shell {
 			return
 		}
 		seen[name] = true
-		out = append(out, Shell{name, name, path})
+		out = append(out, Shell{Name: name, Label: name, Path: path})
 	}
 	add(os.Getenv("SHELL")) // the user's own first
 	for _, name := range []string{"zsh", "bash", "fish", "sh"} {
