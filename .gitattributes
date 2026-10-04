@@ -1,2 +1,3 @@
 # Git hooks run under sh, which chokes on CRLF line endings.
 scripts/git-hooks/** text eol=lf
+internal/luanative/lua54.dll binary

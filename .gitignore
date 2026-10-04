@@ -97,3 +97,6 @@ cloudflare/.wrangler/
 # ── private server code and premium plugin source ─────────────────────
 cloudflare/premium-source/
 cloudflare/functions/
+
+# Lua for plugins on Windows, embedded in oxis.exe (scripts/build-lua.js).
+!internal/luanative/lua54.dll
