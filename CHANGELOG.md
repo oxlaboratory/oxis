@@ -6,6 +6,26 @@ All notable changes to OXIS. The format follows
 ## [Unreleased]
 
 ### Added
+- Plugins can talk and keep time: `oxis.ask(question, fn)` takes the
+  next line typed as the answer (the prompt shows whose question it is,
+  Ctrl+C cancels), `oxis.after`/`oxis.every` run later or repeatedly (a
+  `foreground` one stops on Ctrl+C), `oxis.store` keeps a plugin's own
+  values between runs, `oxis.input` fills the prompt, and
+  `oxis.fs.search` is the editor's Search in files.
+- `oxis.system.info` reports the machine now: CPU use, memory, uptime,
+  load and disks; `oxis.process.list` gives each process's memory (and
+  CPU on Linux); `oxis.net.request` says how long a request took (`ms`).
+  `'sysinfo` and `'disk` read these directly instead of running a shell
+  command.
+- New built-in plugins (`'plugin enable <name>`): **notes** (project notes
+  and tasks), **todo** (every TODO/FIXME linked to its line), **snippets**
+  (saved commands with arguments), **http** (requests with laid-out JSON)
+  and **env** (`'dotenv`: .env masked and checked against .env.example).
+- Market **games** 2.0: a pokie machine, blackjack with doubles and
+  splits, dice you call (and call again with "yes 5"), coin tosses,
+  guess-the-number and hangman, sharing one chip bank.
+- Market **monitoring** 2.0: live CPU/memory, top and growing memory
+  users, followed logs, health checks with up/down changes, alerts.
 - Home's sky is the theme's to change: `skyMode` sun or moon only (or
   auto, by the clock), `cloudCount`, `cloudSpeed`, `starCount`, your own
   pixel art for the sun and moon (`sunArt`, `moonArt`), or a picture in
@@ -234,6 +254,8 @@ All notable changes to OXIS. The format follows
   of every built-in theme.
 
 ### Changed
+- A plugin can't replace one of OXIS's own commands; it's told so and
+  OXIS's command stays.
 - The Market lives at [oxis.space](https://oxis.space); the app, README
   and website use it (oxis-market.pages.dev keeps working for older
   builds).
@@ -586,6 +608,12 @@ All notable changes to OXIS. The format follows
   Windows version resource said 1.2.0.
 
 ### Removed
+- The old built-in Lua plugins (fuzzy, git_advanced, lsp_diag,
+  session_notes, env_manager, benchmark, process_manager, project_init,
+  clipboard, docker_compose, file_ops, system_health, ssh_manager) and
+  the docker, network, python, go, rust and winutil shortcut tables,
+  whose short names clashed and whose `'admin`/`'sfc` raised elevation
+  prompts. The Market keeps games, monitoring, autotest and ai-devops.
 - The Market plugin `ui`: it switched the theme and changed Home every
   time OXIS started. A copy that's already installed is removed at
   startup, with a note in the terminal saying so.

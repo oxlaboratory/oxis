@@ -28,6 +28,8 @@ type HTTPResponse struct {
 	OK      bool              `json:"ok"`
 	Body    string            `json:"body"`
 	Headers map[string]string `json:"headers"`
+	// MS is how long the request took, sending to the last byte.
+	MS float64 `json:"ms"`
 }
 
 const (
@@ -51,6 +53,7 @@ func (a *App) HTTPRequest(o HTTPRequestOptions) (HTTPResponse, error) {
 	}
 	u := req.URL
 
+	start := time.Now()
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
@@ -71,6 +74,7 @@ func (a *App) HTTPRequest(o HTTPRequestOptions) (HTTPResponse, error) {
 		OK:      resp.StatusCode >= 200 && resp.StatusCode < 300,
 		Body:    string(data),
 		Headers: responseHeaders(resp),
+		MS:      float64(time.Since(start).Microseconds()) / 1000,
 	}, nil
 }
 

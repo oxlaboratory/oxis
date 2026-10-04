@@ -545,15 +545,27 @@ type SystemInfo struct {
 	GoVersion    string `json:"goVersion"`
 	AllocMB      uint64 `json:"allocMB"` // OXIS's own heap, not system memory
 	NumGoroutine int    `json:"numGoroutine"`
+	// The machine right now (sysstats*.go).
+	Hostname   string     `json:"hostname"`
+	MemTotalMB uint64     `json:"memTotalMB"`
+	MemUsedMB  uint64     `json:"memUsedMB"`
+	CPUPercent float64    `json:"cpuPercent"` // whole system, since the previous call
+	UptimeSec  uint64     `json:"uptimeSec"`
+	Load       []float64  `json:"load,omitempty"` // 1, 5 and 15 minutes; not on Windows
+	Disks      []DiskInfo `json:"disks"`
 }
 
 func (a *App) SystemInfo() SystemInfo {
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
+	host, _ := os.Hostname()
+	memTotal, memUsed := memoryMB()
 	return SystemInfo{
 		OS: runtime.GOOS, OSName: osNameOnce(), Arch: runtime.GOARCH, NumCPU: runtime.NumCPU(),
 		GoVersion: runtime.Version(), AllocMB: m.Alloc / 1024 / 1024,
 		NumGoroutine: runtime.NumGoroutine(),
+		Hostname: host, MemTotalMB: memTotal, MemUsedMB: memUsed, CPUPercent: cpuPercent(),
+		UptimeSec: uptimeSeconds(), Load: loadAverage(), Disks: disks(),
 	}
 }
 
@@ -561,8 +573,10 @@ func (a *App) SystemInfo() SystemInfo {
 var osNameOnce = sync.OnceValue(osName)
 
 type ProcessInfo struct {
-	PID  int    `json:"pid"`
-	Name string `json:"name"`
+	PID   int     `json:"pid"`
+	Name  string  `json:"name"`
+	MemMB float64 `json:"memMB"` // resident memory
+	CPU   float64 `json:"cpu"`   // percent of one core (ps); -1 on Windows, where tasklist doesn't say
 }
 
 // ListProcesses backs oxis.process.list().
@@ -572,44 +586,15 @@ func (a *App) ListProcesses() ([]ProcessInfo, error) {
 	case "windows":
 		cmd = exec.Command("tasklist", "/FO", "CSV", "/NH")
 	default:
-		// -A/-o work on both Linux procps and BSD/macOS ps; --no-headers
-		// is GNU-only, so skip the header line ourselves instead.
-		cmd = exec.Command("ps", "-A", "-o", "pid=,comm=")
+		// -A/-o with "=" (no header) work on Linux procps and BSD ps.
+		cmd = exec.Command("ps", "-A", "-o", "pid=,rss=,pcpu=,comm=")
 	}
 	hideWindow(cmd)
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, err
 	}
-	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
-	result := make([]ProcessInfo, 0, len(lines))
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		var pid int
-		if runtime.GOOS == "windows" {
-			fields := strings.Split(line, "\",\"")
-			if len(fields) < 2 {
-				continue
-			}
-			if _, err := fmt.Sscanf(strings.Trim(fields[1], "\""), "%d", &pid); err != nil {
-				continue
-			}
-			result = append(result, ProcessInfo{PID: pid, Name: strings.Trim(fields[0], "\"")})
-			continue
-		}
-		pidStr, name, ok := strings.Cut(line, " ")
-		if !ok {
-			continue
-		}
-		if _, err := fmt.Sscanf(pidStr, "%d", &pid); err != nil {
-			continue
-		}
-		result = append(result, ProcessInfo{PID: pid, Name: strings.TrimSpace(name)})
-	}
-	return result, nil
+	return parseProcessList(runtime.GOOS == "windows", string(out)), nil
 }
 
 // KillProcess backs oxis.process.kill(pid).

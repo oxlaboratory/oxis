@@ -761,22 +761,21 @@ and POSIX variants):
 | npm | on | `ni` `nid` `nb` `nd` `nt` `nr <script>` `nls` |
 | sysmon | on | `top` `mem` `cpu` `uptime` |
 | files | on | `fsize` `fopen` `fhash` `flatest` `fbig` |
-| docker | off | `dps` `dimg` `dup` `ddown` `dlog` `dsh` `drm` |
-| network | off | `myip` `wifi` `ping` `dns` |
-| python | off | `py` `pip` `venv` `act` `freeze` `pipu` |
-| go | off | `gobuild` `gorun` `gotest` `gotidy` `govet` |
-| rust | off | `cb` `cr` `ct` `cc` `cbr` |
-| winutil | off | `admin` `events` `sfc` `winver` (Windows only) |
 
-Lua plugins (off by default, `'plugin enable <name>`): `fuzzy`,
-`git_advanced`, `lsp_diag`, `http`, `session_notes`, `env_manager`,
-`benchmark`, `process_manager`, `project_init`, `clipboard`, `todo`,
-`docker_compose`, `file_ops`, `system_health`, `snippets`,
-`ssh_manager`. `'help <plugin>` lists each one's commands. All of them
-work on Windows and Linux, and take their input as arguments (`'ff cfg`,
-`'pfind 3000`, `'note call Sam back`), asking only when it's missing.
-On Linux, `clipboard` needs wl-clipboard, xclip or xsel, and `http`
-uses curl (and jq to format JSON, if installed).
+Lua plugins, off until `'plugin enable <name>` (built-ins are trusted,
+so they never ask for permissions):
+
+| Plugin | Commands | Does |
+|---|---|---|
+| notes | `'note <text>`, `'note - [ ] <task>`, `'notes [n]`, `'notes find`, `'notes done <n>`, `'notes edit` | Notes and tasks for each project, in Markdown in its `.oxis/notes.md` |
+| todo | `'todo`, `'todo fixme`, `'todo mine`, `'todo count` | Every TODO, FIXME, HACK and BUG in the project, each linked to its line |
+| snippets | `'snip add <name> <text>`, `'snip <name> [args]`, `'snip run <name>` | Saved commands; `{1}` `{2}` `{*}` take arguments. `'snip <name>` puts it in the prompt to check first |
+| http | `'http [method] <url> [name=value …] [-H "K: v"] [-d body] [-i] [-f]` | HTTP requests with status, time and size, JSON laid out |
+| env | `'dotenv`, `'dotenv get <KEY> [show]`, `'dotenv check`, `'dotenv files` | The project's `.env` with secrets masked, checked against `.env.example` |
+
+`'help <plugin>` lists any plugin's commands. A plugin can't replace one
+of OXIS's own commands (`'help`, `'edit`…): it's told so, and OXIS's
+stays.
 
 ### Manifest
 
@@ -834,6 +833,13 @@ this repository. Installed plugins are ordinary Lua plugins.
 `'market update` checks compatibility first, backs up the current
 version, and restores it automatically if the new one fails to load.
 
+| Plugin | What it gives you |
+|---|---|
+| **games** | `'pokies` (5 reels, 9 paylines, wilds, scatters, free spins, `'pokies auto <n>`), `'blackjack` (double down, split), `'roll <n> [bet]` (call the die; "yes 5" to go again), `'coinflip`, `'guess`, `'hangman`, `'8ball`, and one chip bank across them (`'chips`). You answer in the prompt; Ctrl+C leaves any table |
+| **monitoring** | `'mon` (live CPU and memory with a sparkline), `'top` and `'watch-mem` (who's using memory and what's growing), `'tail <log>` (followed, errors in red), `'healthcheck <url>… [every n]` (status, latency, up/down), `'alert cpu|mem <percent>` |
+| **autotest** | `'autotest`: re-runs the project's tests on every save (npm, Go, Cargo or pytest found by itself) and says in one line whether they pass |
+| **ai-devops** | Premium: an AI assistant for the terminal and editor |
+
 **Publishing.** `'plugin publish <name>` validates the plugin (a
 complete manifest is required) and opens a pull request against this
 repository: one commit with `cloudflare/plugins/<name>.lua`, one with
@@ -887,7 +893,40 @@ Everything is on the global `oxis` table.
 | `oxis.net.stream(opts, callbacks)` | HTTP response as it arrives: server-sent events and JSON lines, for AI answers that appear as they're written ([below](#streaming-http)) |
 | `oxis.json.encode(value)` / `.decode(text)` | JSON ↔ Lua tables |
 | `oxis.editor.*` | The file open in the editor ([below](#the-editor)) |
-| `oxis.system.info(cb)` | OS, architecture, CPU count, Go version, OXIS's own memory use |
+| `oxis.system.info(cb)` | The machine now: `osName`, `hostname`, `numCPU`, `cpuPercent`, `memUsedMB`/`memTotalMB`, `uptimeSec`, `load` (not on Windows) and `disks` (`{ mount, totalGB, freeGB }`) |
+| `oxis.fs.search(root, query [, opts], cb)` | The editor's Search in files: `opts` `{ regex, caseSensitive, wholeWord, max }` → `{ matches = { { path, line, col, text } }, files, truncated }`; skips dependency and build folders and binary files |
+| `oxis.ask(question, fn(answer) [, { label, cancel }])` | Ask in the terminal: the next line typed is the answer (the prompt shows `label ❯` meanwhile); Ctrl+C calls `cancel`. Ask again from `fn` for a conversation ([below](#asking-and-timing)) |
+| `oxis.after(seconds, fn)` / `oxis.every(seconds, fn [, { foreground, stop }])` | Run later, or again and again until `h:stop()`. A `foreground` one also stops on Ctrl+C, then `stop` runs |
+| `oxis.store.get(key)` / `.set(key, value)` | The plugin's own values, kept between runs (no permission needed) |
+| `oxis.input(text)` | Put text in the prompt, ready to edit or run |
+
+### Asking and timing
+
+A plugin can hold a conversation in the terminal. `oxis.ask` prints a
+question and hands the next line typed to its function; asking again
+from there keeps it going, and Ctrl+C walks away. `oxis.every` with
+`foreground = true` is something live (a monitor, an auto-spin) that
+Ctrl+C stops, the way it stops a program in the shell.
+
+```lua
+oxis.command("pick", function()
+  local secret = math.random(1, 10)
+  local function ask()
+    oxis.ask("Guess 1-10:", function(answer)
+      local n = tonumber(answer)
+      if n == secret then return oxis.echo("Got it!", "ok") end
+      oxis.echo(n and n < secret and "higher" or "lower", "dim")
+      ask()
+    end, { label = "pick" })
+  end
+  ask()
+end, "guess a number")
+
+oxis.command("clock", function()
+  oxis.every(1, function() oxis.echo(os.date("%H:%M:%S")) end,
+    { foreground = true, stop = function() oxis.echo("clock stopped", "dim") end })
+end, "a clock until Ctrl+C")
+```
 
 Events for `oxis.autocmd`: `ShellOpen` (alias `TerminalOpen`),
 `ShellExit`, `ThemeChanged`, `PluginLoaded`, `PluginUnloaded`,

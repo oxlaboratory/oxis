@@ -37,6 +37,7 @@ import { workspaceManager }                 from "./terminal/workspaceManager";
 import { getRecentErrors, clearRecentErrors, installGlobalErrorCapture } from "./terminal/diagnostics";
 import { cwdTracker, CwdTracker, buildCwdProbe, looksLikeDirectoryChange, isProbeLine, cwdFromMark } from "./terminal/cwdTracker";
 import { startHint, tabHint, paneHint } from "./terminal/hints";
+import { promptCapture, foregroundJobs } from "./terminal/promptCapture";
 import { scriptRunTracker, stripStepEcho } from "./terminal/scriptRunTracker";
 import { workflowRunner } from "./plugins/workflowRunner";
 import {
@@ -1052,17 +1053,50 @@ function registerBuiltinCommands(): void {
       `ip addr show || ifconfig`
     ))});
 
-  registry.register({ name:"disk",    category:"shell", description:"Disk usage",
-    handler:()=> ps(shellCmd(
-      `Get-PSDrive -PSProvider FileSystem | Where-Object{$_.Used -ne $null} | Select-Object Name,@{N='Used(GB)';E={[math]::Round($_.Used/1GB,1)}},@{N='Free(GB)';E={[math]::Round($_.Free/1GB,1)}},@{N='Total(GB)';E={[math]::Round(($_.Used+$_.Free)/1GB,1)}} | Format-Table -AutoSize`,
-      `df -h`
-    ))});
+  // 'sysinfo and 'disk read the machine directly (sysstats*.go): no
+  // shell round trip, the same on Windows and Linux.
+  const usageBar = (fraction: number, width = 20) => {
+    const filled = Math.round(Math.max(0, Math.min(1, fraction)) * width);
+    return "█".repeat(filled) + "░".repeat(width - filled);
+  };
+  const usageKind = (pct: number, warnAt = 75, badAt = 90): LineKind => pct >= badAt ? "err" : pct >= warnAt ? "warn" : "ok";
+  const uptimeText = (sec: number) => {
+    const d = Math.floor(sec / 86400), h = Math.floor(sec % 86400 / 3600), m = Math.floor(sec % 3600 / 60);
+    return d ? `${d}d ${h}h ${m}m` : h ? `${h}h ${m}m` : `${m}m`;
+  };
+  const diskRow = (d: { mount: string; totalGB: number; freeGB: number }, width: number) => {
+    const used = d.totalGB > 0 ? (1 - d.freeGB / d.totalGB) * 100 : 0;
+    const note = used >= 92 ? "  ← nearly full" : used >= 80 ? "  ← getting full" : "";
+    _ctxRef.current?.print(`  ${d.mount.padEnd(10)} ${usageBar(used / 100, width)} ${used.toFixed(1).padStart(5)}%  ${d.freeGB.toFixed(1)} GB free of ${Math.round(d.totalGB)} GB${note}`, usageKind(used, 80, 92));
+  };
+  const nativeOrShell = (native: () => void, shell: [string, string]) => isNativeApp() ? native() : ps(shellCmd(...shell));
 
-  registry.register({ name:"sysinfo", category:"shell", description:"System information",
-    handler:()=> ps(shellCmd(
-      `$o=Get-CimInstance Win32_OperatingSystem;$c=Get-CimInstance Win32_Processor|Select -First 1;Write-Host "OS:    $($o.Caption)";Write-Host "CPU:   $($c.Name)";Write-Host "Cores: $($c.NumberOfCores)/$($c.NumberOfLogicalProcessors) logical";Write-Host "RAM:   $([math]::Round($o.TotalVisibleMemorySize/1MB,1))GB total  $([math]::Round($o.FreePhysicalMemory/1MB,1))GB free";Write-Host "Host:  $($o.CSName)"`,
-      `uname -a && lscpu | head -10 && free -h`
-    ))});
+  registry.register({ name:"disk",    category:"shell", description:"How full each disk is",
+    handler:()=> nativeOrShell(() => { void systemInfo().then(i => {
+      if (!i.disks?.length) { err("couldn't read the disks"); return; }
+      for (const d of i.disks) diskRow(d, 24);
+    }).catch(e => err(String(e))); }, [
+      `Get-PSDrive -PSProvider FileSystem | Where-Object{$_.Used -ne $null} | Select-Object Name,@{N='Used(GB)';E={[math]::Round($_.Used/1GB,1)}},@{N='Free(GB)';E={[math]::Round($_.Free/1GB,1)}} | Format-Table -AutoSize`,
+      `df -h`,
+    ])});
+
+  registry.register({ name:"sysinfo", category:"shell", description:"The machine at a glance: CPU, memory, disks, uptime",
+    handler:()=> nativeOrShell(() => { void systemInfo().then(i => {
+      const p = (text: string, kind: LineKind = "info") => _ctxRef.current?.print("  " + text, kind);
+      p(`🖥  ${i.hostname || "this machine"} · ${i.osName || i.os} · ${i.arch}`, "accent");
+      const cpu = i.cpuPercent ?? 0;
+      p(`CPU   ${usageBar(cpu / 100)} ${cpu.toFixed(1).padStart(5)}%   ${i.numCPU} cores`, usageKind(cpu));
+      if (i.memTotalMB) {
+        const mem = (i.memUsedMB ?? 0) / i.memTotalMB * 100;
+        p(`RAM   ${usageBar(mem / 100)} ${mem.toFixed(1).padStart(5)}%   ${((i.memUsedMB ?? 0) / 1024).toFixed(1)} GB of ${(i.memTotalMB / 1024).toFixed(1)} GB`, usageKind(mem));
+      }
+      for (const d of i.disks ?? []) diskRow(d, 20);
+      const load = i.load?.length === 3 ? `   load ${i.load.map(n => n.toFixed(2)).join(" ")}` : "";
+      p(`Up ${uptimeText(i.uptimeSec ?? 0)}${load}`, "dim");
+    }).catch(e => err(String(e))); }, [
+      `$o=Get-CimInstance Win32_OperatingSystem;Write-Host "OS: $($o.Caption)";Write-Host "RAM: $([math]::Round($o.TotalVisibleMemorySize/1MB,1))GB"`,
+      `uname -a && free -h`,
+    ])});
 
   registry.register({ name:"which",   category:"shell", description:"Find command in PATH",
     handler:(_,r)=>{ if(!r){err("usage: 'which <cmd>");return;}
@@ -2417,7 +2451,7 @@ Settings, workspace files, documents and plugins with the same name as ones in t
       h("'diagnostics","local diagnostic info — version, OS, runtime, plugins, workspace, recent errors (never transmitted anywhere)");
       h("'backup [path]","back up settings, workspaces, documents, and your own plugins to one file");
       h("'restore <path>","restore a backup — asks for confirmation first, only touches matching files");
-      sep(); dim(`Platform: ${isWindows()?"Windows":"Linux"} · Plugin shortcuts: gs, nb, dps, top…`);
+      sep(); dim(`Platform: ${isWindows()?"Windows":"Linux"} · Plugin shortcuts: gs, nb, top, fsize…`);
       dim("Need more detail on any of these? 'help <command> — e.g. 'help plugin, 'help workspace, 'help config"); sep(); }});
 
   registry.register({ name:"?",       category:"info", description:"All commands",
@@ -5520,14 +5554,24 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
 
   useEffect(() => events.on("clear_terminal", () => { if (selectedRef.current) clear(); }), [clear]);
 
-  /** Ctrl+C with nothing selected: interrupt whatever the shell runs. */
+  /** Ctrl+C with nothing selected: a plugin's question or foreground job
+   *  (a game, a live view) if there is one, else whatever the shell runs. */
   const interrupt = useCallback(() => {
-    sendToShell("\x03");
     clearInput();
     history.resetNav();
+    const cancelled = promptCapture.cancel(); // prints "cancelled"
+    const stopped = foregroundJobs.stopAll();
+    if (cancelled || stopped) {
+      if (stopped && !cancelled) addLine("  ■  stopped", "dim");
+      return;
+    }
+    sendToShell("\x03");
     scriptRunTracker.cancel();
     void cancelActiveCommit();
-  }, [sendToShell, clearInput]);
+  }, [sendToShell, clearInput, addLine]);
+  // Whose question the prompt is waiting on (its label says so).
+  const [askLabel, setAskLabel] = useState(() => promptCapture.get()?.label ?? "");
+  useEffect(() => events.on("prompt_capture", p => setAskLabel(String((p as { label?: string } | undefined)?.label ?? ""))), []);
 
   // Ctrl+C / Ctrl+Shift+C / Cmd+C when focus is outside the prompt (the
   // prompt handles its own keys): selected output is copied, never
@@ -5741,6 +5785,13 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
   // registry, everything else to the shell. Used by the prompt and by
   // ShellCtx.runLine (command palette, plugins).
   const runLine = useCallback((raw: string) => {
+    // A plugin asked a question (oxis.ask): this line is its answer.
+    if (promptCapture.get()) {
+      addLine(`  › ${raw}`, "cmd");
+      promptCapture.take(raw);
+      scrollToBottom(true);
+      return;
+    }
     const cmd = raw.trim();
     if (!cmd) { sendToShell("\r"); return; }
     if (!keepOutOfHistory(raw)) history.push(cmd);
@@ -6470,7 +6521,8 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
         className="term-input-row"
         onMouseDown={e => { if (e.target !== promptRef.current) { e.preventDefault(); focusPrompt(); } }}
       >
-        <span className="term-prompt" aria-hidden="true" />
+        <span className={`term-prompt${askLabel ? " term-prompt--asking" : ""}`} aria-hidden="true"
+          style={askLabel ? { ["--prompt-label" as string]: JSON.stringify(`${askLabel} ❯`) } as React.CSSProperties : undefined} />
         <div className="term-input-wrap">
           <input
             ref={promptRef}

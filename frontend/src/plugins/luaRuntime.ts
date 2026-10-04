@@ -76,6 +76,9 @@ export interface OxisBindings {
   fsStat(path: string): Promise<LuaJSValue>;
   fsMkdir(path: string): Promise<void>;
   fsRemove(path: string): Promise<void>;
+  /** oxis.fs.search(root, query [, { regex, caseSensitive, wholeWord, max }], fn(err, result)):
+   *  the editor's Search in files (skips dependency and build folders). */
+  fsSearch(root: string, query: string, opts: LuaJSValue): Promise<LuaJSValue>;
   processList(): Promise<LuaJSValue[]>;
   processKill(pid: number): Promise<void>;
   netRequest(opts: LuaJSValue): Promise<LuaJSValue>;
@@ -101,6 +104,21 @@ export interface OxisBindings {
   editorSelect(line: number, col: number, toLine: number | undefined, toCol: number | undefined): boolean;
   editorSave(): Promise<LuaJSValue>;
   editorOn(event: string, cb: LuaCallback): void;
+
+  // ── Asking and timing ──
+  /** oxis.ask(question, fn(answer) [, { label = "…", cancel = fn }]): the
+   *  next line typed is the answer (promptCapture.ts); Ctrl+C cancels. */
+  ask(question: string, onAnswer: LuaCallback, label: string | undefined, onCancel: LuaCallback | undefined): void;
+  /** oxis.after(seconds, fn): once, later. */
+  after(seconds: number, fn: LuaCallback): LuaHandle;
+  /** oxis.every(seconds, fn [, { foreground = true, stop = fn }]): again
+   *  and again until h:stop(); a foreground one also stops on Ctrl+C. */
+  every(seconds: number, fn: LuaCallback, foreground: boolean, onStop: LuaCallback | undefined): LuaHandle;
+  /** oxis.input(text): puts text in the prompt, ready to edit or run. */
+  input(text: string): void;
+  /** oxis.store.get/set: the plugin's own values, kept between runs. */
+  storeGet(key: string): LuaJSValue;
+  storeSet(key: string, value: LuaJSValue): void;
 
   /** A Lua callback raised an error (shown to the user). */
   reportError?(message: string): void;
@@ -430,6 +448,14 @@ function buildOxisTable(L: LuaState, b: OxisBindings, closedRef: StateRef): void
     return 0;
   });
   lua.lua_setfield(L, -2, to_luastring("remove"));
+  lua.lua_pushcfunction(L, (L: LuaState) => {
+    const root = lua.lua_tojsstring(L, 1);
+    const query = argString(L, 2) ?? "";
+    const optsAt = lua.lua_type(L, 3) === lua.LUA_TTABLE ? 3 : 0;
+    asyncCb(b.fsSearch(root, query, optsAt ? luaToJS(L, optsAt) : {}), makeInvokerWithArgs(L, optsAt ? 4 : 3, closedRef));
+    return 0;
+  });
+  lua.lua_setfield(L, -2, to_luastring("search"));
 
   // oxis.fs.watch(path, fn [, opts]), (path, opts, fn), or
   // (path, { change = fn, ready = fn } [, opts])
@@ -513,6 +539,53 @@ function buildOxisTable(L: LuaState, b: OxisBindings, closedRef: StateRef): void
   });
   setfn("on", (L) => { b.editorOn(lua.lua_tojsstring(L, 1), makeInvokerWithArgs(L, 2, closedRef)); return 0; });
   lua.lua_setfield(L, -2, to_luastring("editor"));
+
+  // oxis.ask("Roll again?", function(answer) … end [, { label = "dice", cancel = fn }])
+  // Each callback is released once it has run (or been cancelled).
+  setfn("ask", (L) => {
+    const question = argString(L, 1) ?? "";
+    const answer = makeCallback(L, 2, closedRef);
+    let label: string | undefined;
+    let cancel: { call: LuaCallback; release: () => void } | undefined;
+    if (lua.lua_type(L, 3) === lua.LUA_TTABLE) {
+      lua.lua_getfield(L, 3, to_luastring("label"));
+      label = argString(L, -1);
+      lua.lua_pop(L, 1);
+      lua.lua_getfield(L, 3, to_luastring("cancel"));
+      if (lua.lua_type(L, -1) === lua.LUA_TFUNCTION) cancel = makeCallback(L, lua.lua_gettop(L), closedRef);
+      lua.lua_pop(L, 1);
+    }
+    const release = () => { answer.release(); cancel?.release(); };
+    b.ask(question, (...a) => { answer.call(...a); release(); }, label, (...a) => { cancel?.call(...a); release(); });
+    return 0;
+  });
+  setfn("after", (L) => {
+    const fn = makeCallback(L, 2, closedRef);
+    pushHandle(L, b.after(argNumber(L, 1) ?? 0, (...a) => { fn.call(...a); fn.release(); }));
+    return 1;
+  });
+  setfn("every", (L) => {
+    const fn = makeCallback(L, 2, closedRef);
+    let foreground = false;
+    let stop: { call: LuaCallback; release: () => void } | undefined;
+    if (lua.lua_type(L, 3) === lua.LUA_TTABLE) {
+      lua.lua_getfield(L, 3, to_luastring("foreground"));
+      foreground = lua.lua_toboolean(L, -1);
+      lua.lua_pop(L, 1);
+      lua.lua_getfield(L, 3, to_luastring("stop"));
+      if (lua.lua_type(L, -1) === lua.LUA_TFUNCTION) stop = makeCallback(L, lua.lua_gettop(L), closedRef);
+      lua.lua_pop(L, 1);
+    }
+    pushHandle(L, b.every(argNumber(L, 1) ?? 1, fn.call, foreground, (...a) => { stop?.call(...a); fn.release(); stop?.release(); }));
+    return 1;
+  });
+
+  setfn("input", (L) => { b.input(argString(L, 1) ?? ""); return 0; });
+
+  lua.lua_newtable(L); // oxis.store
+  setfn("get", (L) => { pushLuaValue(L, b.storeGet(argString(L, 1) ?? "")); return 1; });
+  setfn("set", (L) => { b.storeSet(argString(L, 1) ?? "", luaToJS(L, 2)); return 0; });
+  lua.lua_setfield(L, -2, to_luastring("store"));
 
   lua.lua_newtable(L); // oxis.system
   lua.lua_pushcfunction(L, (L: LuaState) => {

@@ -90,8 +90,15 @@ export interface NativeSearchMatch { path: string; line: number; col: number; le
 export interface NativeSearchResult { matches: NativeSearchMatch[]; files: number; truncated: boolean; superseded: boolean; error?: string; }
 export interface NativeRunCommandResult { stdout: string; stderr: string; exitCode: number; }
 /** osName is readable, e.g. "Windows 11 24H2 (build 26100)". */
-export interface NativeSystemInfo { os: string; osName: string; arch: string; numCPU: number; goVersion: string; allocMB: number; numGoroutine: number; }
-export interface NativeProcessInfo { pid: number; name: string; }
+export interface NativeDiskInfo { mount: string; totalGB: number; freeGB: number; }
+export interface NativeSystemInfo {
+  os: string; osName: string; arch: string; numCPU: number; goVersion: string; allocMB: number; numGoroutine: number;
+  /** The machine right now (internal/wailsapp/sysstats*.go). */
+  hostname?: string; memTotalMB?: number; memUsedMB?: number; cpuPercent?: number; uptimeSec?: number;
+  load?: number[]; disks?: NativeDiskInfo[];
+}
+/** cpu is -1 where it isn't known (Windows). */
+export interface NativeProcessInfo { pid: number; name: string; memMB?: number; cpu?: number; }
 /** Mirrors WindowResult in internal/wailsapp/window.go. */
 export interface NativeWindowSize { width: number; height: number; configPath: string; persisted: boolean; }
 export interface NativeUpdateInfo {
@@ -121,7 +128,7 @@ export interface NativeUpdateInfo {
 }
 /** Mirror HTTPRequestOptions / HTTPResponse in internal/wailsapp/httprequest.go. */
 export interface NativeHTTPRequest { url: string; method: string; headers: Record<string, string>; body: string; timeoutSeconds: number; idleSeconds?: number; }
-export interface NativeHTTPResponse { status: number; ok: boolean; body: string; headers: Record<string, string>; }
+export interface NativeHTTPResponse { status: number; ok: boolean; body: string; headers: Record<string, string>; /** how long it took */ ms?: number; }
 /** Mirrors StreamEvent in internal/wailsapp/streams.go: "stdout",
  *  "stderr", "change", "response", "data", "error", and a final "end". */
 export interface NativeStreamEvent {

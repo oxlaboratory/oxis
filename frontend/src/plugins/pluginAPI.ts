@@ -21,7 +21,7 @@ import { events } from "../terminal/events";
 import { isWindows } from "../terminal/terminal";
 import type { OxisBindings, LuaJSValue, LuaCallbacks, LuaHandle } from "./luaRuntime";
 import {
-  readFile, writeFile, listDir, statPath, makeDir, deletePath,
+  readFile, writeFile, listDir, statPath, makeDir, deletePath, searchFiles,
   systemInfo as nativeSystemInfo, listProcesses, killProcess, isNativeApp,
   writeTempScript,
   nativeHttpRequest,
@@ -33,6 +33,7 @@ import { requirePermission, requireShellPermission, type PermissionNamespace } f
 import { scriptRunTracker, type RunResult } from "../terminal/scriptRunTracker";
 import { workflowRunner } from "./workflowRunner";
 import { setTaskCommand } from "./taskCommands";
+import { promptCapture, foregroundJobs } from "../terminal/promptCapture";
 
 // Exported so pluginManager can recognise it without duplicating the
 // exact string (and so it can't accidentally collide with a real
@@ -173,12 +174,24 @@ export function buildLuaAPI(ctx: APIContext): OxisBindings {
   const cleanups = new Set<() => void>();
   const track = (undo: () => void) => { cleanups.add(undo); return () => { cleanups.delete(undo); }; };
   const buffer = () => { need("editor"); return editorBridge.active(); };
+  let asking = false;
+  // oxis.store: this plugin's own values, in localStorage.
+  const storeKey = `oxis-plugin-store:${ctx.pluginName}`;
+  const readStore = (): Record<string, LuaJSValue> => {
+    try { return JSON.parse(localStorage.getItem(storeKey) || "{}") as Record<string, LuaJSValue>; } catch { return {}; }
+  };
 
   return {
     platform: isWindows() ? "windows" : "unix",
 
     // oxis.command("name", fn, "what it does")
     command: (name, invoke, description) => {
+      // OXIS's own commands can't be replaced by a plugin ('help, 'edit…).
+      const existing = registry.get(name);
+      if (existing && !existing.fromPlugin && existing.category !== "task") {
+        ctx.print(`  ⚠  ${ctx.pluginName}: '${name} is an OXIS command, so the plugin's '${name} wasn't added`, "warn");
+        return;
+      }
       const hasDesc = typeof description === "string" && description.trim().length > 0;
       registry.register({
         name,
@@ -291,6 +304,17 @@ export function buildLuaAPI(ctx: APIContext): OxisBindings {
       await deletePath(path);
     },
 
+    fsSearch: async (root, query, opts) => {
+      need("fs");
+      if (!isNativeApp()) throw new Error("oxis.fs needs the native OXIS app (no filesystem access in browser mode)");
+      const o = (opts ?? {}) as { regex?: boolean; caseSensitive?: boolean; wholeWord?: boolean; max?: number };
+      const result = await searchFiles(fromCwd(root, ctx.getCwd()), query, {
+        regex: !!o.regex, caseSensitive: !!o.caseSensitive, wholeWord: !!o.wholeWord, maxResults: o.max,
+      });
+      if (result.error) throw new Error(result.error);
+      return result as unknown as LuaJSValue;
+    },
+
     processList: async () => {
       need("process");
       if (!isNativeApp()) throw new Error("oxis.process needs the native OXIS app");
@@ -310,16 +334,61 @@ export function buildLuaAPI(ctx: APIContext): OxisBindings {
       need("net");
       const o = (opts ?? {}) as { url?: string; method?: string; headers?: Record<string, string>; body?: string; timeout?: number };
       if (!o.url) throw new Error("oxis.net.request requires { url = ... }");
+      // An empty Lua table arrives as [], not {}.
+      if (Array.isArray(o.headers)) o.headers = {};
       const timeout = typeof o.timeout === "number" && o.timeout > 0 ? o.timeout : 60;
       const native = await nativeHttpRequest({
         url: o.url, method: o.method || "GET", headers: o.headers ?? {}, body: o.body ?? "", timeoutSeconds: timeout,
       });
       if (native) return native as unknown as LuaJSValue;
+      const started = performance.now();
       const res = await fetch(o.url, { method: o.method || "GET", headers: o.headers, body: o.body, signal: AbortSignal.timeout(timeout * 1000) });
       const body = await res.text();
       const headers: Record<string, string> = {};
       res.headers.forEach((v, k) => { headers[k] = v; });
-      return { status: res.status, ok: res.ok, body, headers } as unknown as LuaJSValue;
+      return { status: res.status, ok: res.ok, body, headers, ms: Math.round((performance.now() - started) * 10) / 10 } as unknown as LuaJSValue;
+    },
+
+    // oxis.ask: the question is printed, and the next line typed is the
+    // answer (the prompt's label says who's asking). Ctrl+C cancels.
+    ask: (question, onAnswer, label, onCancel) => {
+      if (question) ctx.print(`  ${question}`, "accent");
+      if (!asking) { asking = true; track(() => promptCapture.release(ctx.pluginName)); }
+      promptCapture.set({
+        owner: ctx.pluginName,
+        label: (label || ctx.pluginName).slice(0, 24),
+        onLine: (line) => { try { onAnswer(line); } catch (e) { ctx.print(`  ✗  ${ctx.pluginName}: ${message(e)}`, "err"); } },
+        onCancel: () => { ctx.print("  ■  cancelled", "dim"); onCancel?.(); },
+      });
+    },
+    after: (seconds, fn) => {
+      const t = setTimeout(() => { untrack(); fn(); }, Math.max(0, seconds) * 1000);
+      const untrack = track(() => clearTimeout(t));
+      return { stop: () => { clearTimeout(t); untrack(); } };
+    },
+    every: (seconds, fn, foreground, onStop) => {
+      let stopped = false;
+      const t = setInterval(() => { if (!stopped) fn(); }, Math.max(0.1, seconds) * 1000);
+      const stop = () => {
+        if (stopped) return;
+        stopped = true;
+        clearInterval(t);
+        untrack();
+        unforeground();
+        onStop?.();
+      };
+      const untrack = track(stop);
+      const unforeground = foreground ? foregroundJobs.add(ctx.pluginName, stop) : () => {};
+      return { stop };
+    },
+    // oxis.input("git commit -m ''"): puts text in the prompt to edit.
+    input: (text) => events.emit("focus_prompt", { text: String(text ?? "") }),
+    storeGet: (key) => readStore()[key],
+    storeSet: (key, value) => {
+      const all = readStore();
+      if (value === undefined) delete all[key];
+      else all[key] = value;
+      try { localStorage.setItem(storeKey, JSON.stringify(all)); } catch { /* storage full or off */ }
     },
 
     systemInfo: async () => {
@@ -520,7 +589,7 @@ function streamRequest(ctx: APIContext, opts: LuaJSValue, on: LuaCallbacks, trac
   };
   if (!o.url) throw new Error("oxis.net.stream requires { url = ... }");
   const { response, data, line, event, done } = on.fns;
-  const headersIn = Object.fromEntries(Object.entries(o.headers ?? {}).map(([k, v]) => [k, String(v)]));
+  const headersIn = Array.isArray(o.headers) ? {} : Object.fromEntries(Object.entries(o.headers ?? {}).map(([k, v]) => [k, String(v)]));
   const lines = new LineSplitter();
   let sse: SSEParser | null = null;
   let status = 0;

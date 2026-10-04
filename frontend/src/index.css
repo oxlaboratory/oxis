@@ -170,6 +170,8 @@ html, body, #root {
 }
 .term-prompt { color: var(--prompt-color, var(--purple)); font-weight: 700; flex-shrink: 0; white-space: pre; font-size: var(--fs); letter-spacing: .06em; text-shadow: var(--glow-shadow, none); }
 .term-prompt::before { content: var(--prompt-label, "OXIS \276F"); }
+/* A plugin's question is waiting for an answer (oxis.ask). */
+.term-prompt--asking { color: var(--warn, #e0af68); }
 .term-input-wrap { position: relative; flex: 1; min-width: 0; height: var(--lh); }
 .term-prompt-input {
   position: absolute; inset: 0; width: 100%;

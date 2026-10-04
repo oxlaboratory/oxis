@@ -1,78 +1,105 @@
--- http.lua — quick HTTP checks without leaving OXIS
--- Linux uses curl (and jq, when installed, to format JSON).
+-- http — make an HTTP request and read the answer: status, time, size,
+-- and the body with JSON laid out. OXIS makes the request itself, so
+-- local and self-hosted APIs work (no CORS).
+--
+--   'http <url>                           GET
+--   'http post <url> name=value …         a JSON body from name=value pairs
+--   'http put <url> -d '{"raw":"body"}'   a body as written
+--   'http get <url> -H "Authorization: Bearer x" -i
+--        -H adds a header, -i shows the response headers, -f the full body
 
-local WIN = oxis.platform == "windows"
+local METHODS = { get = true, post = true, put = true, patch = true, delete = true, head = true, options = true }
 
--- Windows PowerShell 5.1 doesn't offer TLS 1.2 by default.
-local PS_TLS = "[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12\n"
+-- JSON laid out with two-space indents, keys in order.
+local function pretty(v, indent)
+  indent = indent or ""
+  local t = type(v)
+  if t == "table" then
+    local isArray = #v > 0 or next(v) == nil
+    local inner = indent .. "  "
+    local parts = {}
+    if isArray then
+      if #v == 0 then return "[]" end
+      for i = 1, #v do parts[i] = inner .. pretty(v[i], inner) end
+      return "[\n" .. table.concat(parts, ",\n") .. "\n" .. indent .. "]"
+    end
+    local keys = {}
+    for k in pairs(v) do keys[#keys + 1] = tostring(k) end
+    table.sort(keys)
+    for i, k in ipairs(keys) do parts[i] = inner .. ("%q"):format(k) .. ": " .. pretty(v[k], inner) end
+    return "{\n" .. table.concat(parts, ",\n") .. "\n" .. indent .. "}"
+  elseif t == "string" then
+    return (("%q"):format(v):gsub("\\\n", "\\n"))
+  elseif t == "nil" then
+    return "null"
+  end
+  return tostring(v)
+end
 
-local function run(ps, sh) oxis.run(WIN and (PS_TLS .. ps) or sh) end
+local function size(n)
+  if n >= 1048576 then return ("%.1f MB"):format(n / 1048576) end
+  if n >= 1024 then return ("%.1f KB"):format(n / 1024) end
+  return n .. " B"
+end
 
-oxis.command("get", function(_, rest)
-  if rest == "" then oxis.echo("usage: 'get <url>"); return end
-  local url = oxis.quote(rest)
-  run(([[
-try {
-  $r = Invoke-WebRequest -Uri %s -UseBasicParsing
-  try { $r.Content | ConvertFrom-Json | ConvertTo-Json -Depth 20 } catch { $r.Content }
-} catch { Write-Host "Error: $($_.Exception.Message)" }
-]]):format(url), ([[
-body=$(curl -sSL --max-time 30 %s) || exit 1
-if command -v jq >/dev/null 2>&1 && printf '%%s' "$body" | jq . 2>/dev/null; then :; else printf '%%s\n' "$body"; fi
-]]):format(url))
-end, "GET a URL and print the body (JSON is formatted): 'get <url>")
-
-oxis.command("hget", function(_, rest)
-  if rest == "" then oxis.echo("usage: 'hget <url>"); return end
-  local url = oxis.quote(rest)
-  run(([[
-try {
-  $r = Invoke-WebRequest -Uri %s -UseBasicParsing
-  Write-Host "$($r.StatusCode) $($r.StatusDescription)"
-  foreach ($k in $r.Headers.Keys) { Write-Host "${k}: $($r.Headers[$k])" }
-  Write-Host ""
-  ($r.Content -split "`n" | Select-Object -First 30) -join "`n"
-} catch { Write-Host "Error: $($_.Exception.Message)" }
-]]):format(url), ([[
-curl -sS -i -L --max-time 30 %s | head -n 60
-]]):format(url))
-end, "status, headers and the first lines of a URL's response: 'hget <url>")
-
-oxis.command("ping4", function(args)
-  local hosts = #args > 0 and args or { "google.com", "github.com", "npmjs.com", "pypi.org" }
-  local quoted = {}
-  for i, h in ipairs(hosts) do quoted[i] = oxis.quote(h) end
-  run(([[
-foreach ($h in @(%s)) {
-  $r = Test-Connection $h -Count 1 -ErrorAction SilentlyContinue
-  if ($r) {
-    $ms = if ($r.PSObject.Properties['Latency']) { $r.Latency } else { $r.ResponseTime }
-    Write-Host "  ok    $h  ($ms ms)"
-  } else { Write-Host "  FAIL  $h  (no reply)" }
-}
-]]):format(table.concat(quoted, ",")), ([[
-for h in %s; do
-  ms=$(ping -c 1 -W 2 "$h" 2>/dev/null | sed -n 's/.*time=\([0-9.]*\).*/\1/p')
-  if [ -n "$ms" ]; then echo "  ok    $h  ($ms ms)"; else echo "  FAIL  $h  (no reply)"; fi
-done
-]]):format(table.concat(quoted, " ")))
-end, "ping a few well-known sites once each (or your own): 'ping4 [host...]")
-
-oxis.command("myip2", function()
-  run([[
-try {
-  $i = Invoke-RestMethod 'https://ipapi.co/json/'
-  Write-Host "IP:      $($i.ip)"
-  Write-Host "City:    $($i.city)"
-  Write-Host "Country: $($i.country_name)"
-  Write-Host "ISP:     $($i.org)"
-} catch { Write-Host "Error: $($_.Exception.Message)" }
-]], [[
-j=$(curl -sS --max-time 15 https://ipapi.co/json/) || exit 1
-v() { printf '%s\n' "$j" | sed -n "s/.*\"$1\": *\"\([^\"]*\)\".*/\1/p" | head -n 1; }
-echo "IP:      $(v ip)"
-echo "City:    $(v city)"
-echo "Country: $(v country_name)"
-echo "ISP:     $(v org)"
-]])
-end, "public IP address with its city, country and ISP")
+oxis.command("http", function(args)
+  local method = "GET"
+  local i = 1
+  if args[1] and METHODS[args[1]:lower()] then method = args[1]:upper() i = 2 end
+  local url = args[i]
+  if not url then
+    return oxis.echo("'http [get|post|put|patch|delete] <url> [name=value …] [-H \"Header: v\"] [-d body] [-i] [-f]", "dim")
+  end
+  if not url:match("^https?://") then
+    url = (url:match("^localhost") or url:match("^127%.") or url:match("^%[::1%]")) and ("http://" .. url) or ("https://" .. url)
+  end
+  local headers, fields, body, showHeaders, full = {}, {}, nil, false, false
+  i = i + 1
+  while i <= #args do
+    local a = args[i]
+    if a == "-H" and args[i + 1] then
+      local k, v = args[i + 1]:match("^([^:]+):%s*(.*)$")
+      if k then headers[k] = v end
+      i = i + 1
+    elseif a == "-d" and args[i + 1] then body = args[i + 1] i = i + 1
+    elseif a == "-i" then showHeaders = true
+    elseif a == "-f" then full = true
+    else
+      local k, v = a:match("^([^=]+)=(.*)$")
+      if k then fields[k] = tonumber(v) or (v == "true" and true) or (v == "false" and false) or v end
+    end
+    i = i + 1
+  end
+  if not body and next(fields) then
+    body = oxis.json.encode(fields)
+    headers["Content-Type"] = headers["Content-Type"] or "application/json"
+  end
+  oxis.echo(("→ %s %s"):format(method, url), "dim")
+  oxis.net.request({ url = url, method = method, headers = headers, body = body or "", timeout = 30 }, function(err, res)
+    if err then return oxis.echo("✗ " .. err, "err") end
+    local kind = res.status < 300 and "ok" or res.status < 400 and "warn" or "err"
+    oxis.echo(("%d %s · %s · %s"):format(res.status, res.ok and "OK" or "", res.ms and ("%.0f ms"):format(res.ms) or "", size(#(res.body or ""))), kind)
+    if showHeaders then
+      local names = {}
+      for k in pairs(res.headers or {}) do names[#names + 1] = k end
+      table.sort(names)
+      for _, k in ipairs(names) do oxis.echo(("  %s: %s"):format(k, res.headers[k]), "dim") end
+    end
+    local text = res.body or ""
+    if text == "" then return end
+    local ctype = ""
+    for k, v in pairs(res.headers or {}) do if k:lower() == "content-type" then ctype = v end end
+    if ctype:find("json") or text:match("^%s*[{%[]") then
+      local ok, decoded = pcall(oxis.json.decode, text)
+      if ok and decoded ~= nil then text = pretty(decoded) end
+    end
+    local lines, shown = {}, 0
+    for line in (text .. "\n"):gmatch("([^\n]*)\n") do lines[#lines + 1] = line end
+    local limit = full and #lines or 60
+    for n = 1, math.min(limit, #lines) do
+      shown = shown + 1
+      oxis.echo(lines[n])
+    end
+    if #lines > shown then oxis.echo(("… %d more lines (-f shows them all)"):format(#lines - shown), "dim") end
+  end)
+end, "make an HTTP request and read the answer, JSON laid out — 'http post localhost:3000/api name=ox")
