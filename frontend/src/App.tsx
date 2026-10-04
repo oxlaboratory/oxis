@@ -5453,11 +5453,14 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
   onActivityRef.current = onActivity;
   // This tab's shell directory; while the tab is selected it's the app's.
   const dirTracker = useMemo(() => new CwdTracker(), []);
+  // This tab's shell, as Go named it at the start (pwsh, bash, cmd…).
+  const shellKindRef = useRef("");
   useEffect(() => dirTracker.subscribe(path => {
     const folder = path.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || path;
     // A tab started with another shell ('shell wsl) says which.
-    onTitleRef.current(shell ? `${folder} · ${shell}` : folder);
-  }), [dirTracker, shell]);
+    const picked = shell || restore?.shell;
+    onTitleRef.current(picked ? `${folder} · ${picked}` : folder);
+  }), [dirTracker, shell, restore?.shell]);
   // ── output state ─────────────────────────────────────────
   const [lines,      setLines]      = useState<Line[]>(() => {
     if (!restore?.lines.length) {
@@ -6282,8 +6285,8 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
   // answer are filtered out of the output.
   const probeCwd = useCallback(() => {
     if (shellIntegrated.current) return; // the shell reports it itself
-    if (currentShell() === "cmd") return; // cmd can't print the markers
-    sendToShell(buildCwdProbe(speaksPowerShell(), isWindows()) + "\r");
+    const kind = shellKindRef.current;
+    sendToShell(buildCwdProbe(kind ? kind === "powershell" || kind === "pwsh" : speaksPowerShell(), isWindows(), kind === "cmd") + "\r");
   }, [sendToShell]);
 
   // Runs one command line: 'commands (or "oxi ...") go to the OXIS
@@ -6405,7 +6408,7 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
     session.current = openPty({
       ...ptySize.current,
       dir: restore?.cwd || startDir || undefined,
-      shell: shell || (String(getSetting("shell") ?? "auto") === "auto" ? undefined : String(getSetting("shell"))),
+      shell: shell || restore?.shell || (String(getSetting("shell") ?? "auto") === "auto" ? undefined : String(getSetting("shell"))),
       onOutput,
       onRewind,
       onCursor: (hidden) => { programCursorHidden.current = hidden; },
@@ -6423,7 +6426,10 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
         setScreenOn(false);
       },
       onReady: (shell) => {
-        setCurrentShell(shell);
+        // Each tab can run a different shell; the selected tab's is the
+        // one commands are quoted for.
+        shellKindRef.current = shell;
+        if (selectedRef.current) setCurrentShell(shell);
         setReady(true);
         onReady();
         for (const n of pluginManager.takeNotices()) addLine(n.text, n.kind);
@@ -6600,6 +6606,7 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
     return {
       title: cwd ? cwd.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || cwd : "",
       cwd,
+      ...(shell || restore?.shell ? { shell: shell || restore?.shell } : {}),
       lines: takeLines(linesRef.current),
       files: editorFilesRef.current.filter(f => !f.binary && !f.imageUrl && !f.loadError).map(f => f.path),
       activeFile: activeEditorPathRef2.current ?? undefined,
@@ -6628,6 +6635,7 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
   useEffect(() => {
     dirTracker.setActive(selected);
     if (!selected) return;
+    if (shellKindRef.current) setCurrentShell(shellKindRef.current);
     if (ctxRef.current) _ctxRef.current = ctxRef.current;
     if (apiCtxRef.current) _apiCtxTarget.current = apiCtxRef.current;
   }, [selected, dirTracker]);

@@ -13,6 +13,8 @@ export interface SavedLine { text: string; kind?: Line["kind"]; spans?: Line["sp
 export interface SavedTab {
   title: string;
   cwd: string;
+  /** The shell it was started with by name ('shell wsl), if not the default. */
+  shell?: string;
   lines: SavedLine[];
   files: string[];
   activeFile?: string;

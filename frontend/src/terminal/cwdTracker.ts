@@ -27,7 +27,10 @@ const HALF_A = "\u2063OXIS", HALF_B = "CWD\u2063";
 /** The exact line OXIS sends to the shell to ask for its cwd. An sh on
  *  Windows (Git Bash) is asked for the Windows path (`pwd -W`, not
  *  /c/Users/…), which is what OXIS opens files by. */
-export function buildCwdProbe(powershell: boolean, windows = false): string {
+export function buildCwdProbe(powershell: boolean, windows = false, cmd = false): string {
+  // cmd: %CD:~0,0% is empty, so the echo of the command splits the
+  // marker and only the printed answer has it whole.
+  if (cmd) return `echo ${HALF_A}%CD:~0,0%${HALF_B}%CD%${HALF_A}%CD:~0,0%${HALF_B}`;
   const dir = windows ? `"$(pwd -W 2>/dev/null || pwd)"` : `"$PWD"`;
   return powershell
     ? `Write-Host ("${HALF_A}" + "${HALF_B}" + $PWD.Path + "${HALF_A}" + "${HALF_B}")`
@@ -106,6 +109,11 @@ export class CwdTracker {
    *  integration mark): tell the listeners and, in the active tab,
    *  detect the workspace. */
   set(cwd: string): void {
+    // WSL on Windows: /mnt/c/… is C:\….
+    const wsl = /^\/mnt\/([a-z])(\/.*)?$/i.exec(cwd);
+    if (wsl && typeof navigator !== "undefined" && /win/i.test(navigator.platform || "")) {
+      cwd = `${wsl[1].toUpperCase()}:${(wsl[2] || "\\").replace(/\//g, "\\")}`;
+    }
     if (!cwd || cwd === this.cwd) return;
     this.cwd = cwd;
     this.listeners.forEach((fn) => fn(cwd));

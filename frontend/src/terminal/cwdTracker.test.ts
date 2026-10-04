@@ -17,6 +17,23 @@ describe("buildCwdProbe", () => {
     }
   });
 
+  it("asks cmd with echo, the marker split by an empty %CD:~0,0%", () => {
+    const probe = buildCwdProbe(false, true, true);
+    expect(probe.startsWith("echo ")).toBe(true);
+    expect(probe).not.toContain(MARK);
+    expect(probe.replace(/%CD:~0,0%/g, "")).toContain(MARK);
+    expect(probe).toContain("%CD%");
+  });
+
+  it("reads WSL's /mnt/c/… as C:\\… on Windows", async () => {
+    const { CwdTracker } = await import("./cwdTracker");
+    vi.stubGlobal("navigator", { platform: "Win32" });
+    const t = new CwdTracker();
+    t.set("/mnt/c/Users/me/app");
+    expect(t.get()).toBe("C:\\Users\\me\\app");
+    vi.unstubAllGlobals();
+  });
+
   it("asks Git Bash for the Windows path", () => {
     expect(buildCwdProbe(false, true)).toContain("pwd -W");
     expect(buildCwdProbe(false, false)).toContain('"$PWD"');

@@ -504,6 +504,11 @@ All notable changes to OXIS. The format follows
 - The npm launcher downloads from the GitHub `latest-build` release.
 
 ### Fixed
+- Each tab keeps its own shell's kind (PowerShell, bash, cmd…), so with
+  different shells in different tabs, commands and the directory probe
+  are written for the right one. cmd now reports its folder too, WSL's
+  `/mnt/c/…` reads as `C:\…`, and a tab's shell comes back with the
+  session.
 - Quitting OXIS no longer leaves "stopped: the connection to OXIS
   closed" for every native-Lua plugin in the session it restores next
   time (the lines piled up with each restart).
