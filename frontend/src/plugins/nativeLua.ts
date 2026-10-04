@@ -249,18 +249,31 @@ const CALLS: Record<string, Fn> = {
   $hfree: (p, [hid]) => { p.handles.delete(Number(hid)); },
 };
 
+// Bindings that check a permission synchronously (with confirm() on
+// fengari, which can't wait). Here the question is asked in the prompt
+// first, and the call runs once it's answered.
+const GATED: Record<string, string> = {
+  editorCurrent: "editor", editorOpen: "editor", editorSetText: "editor", editorInsert: "editor",
+  editorReplaceLines: "editor", editorSelect: "editor", editorSave: "editor", editorOn: "editor",
+  newTerminal: "terminal", workspace: "workspace",
+};
+
 function runCall(p: Plugin, fn: string, args: unknown[]): unknown {
   const f = CALLS[fn];
   if (!f) throw new Error(`OXIS has no ${fn}`);
-  return f(p, revive(p, args) as unknown[]);
+  const a = revive(p, args) as unknown[];
+  const wait = GATED[fn] ? p.b.requirePermission?.(GATED[fn]) : undefined;
+  return wait ? wait.then(() => f(p, a)) : f(p, a);
 }
 
 function runPosts(p: Plugin, posts: unknown): void {
   if (!Array.isArray(posts)) return;
   for (const item of posts) {
     const [fn, args] = item as [string, unknown[]];
-    try { runCall(p, fn, args ?? []); }
-    catch (e) { p.b.reportError?.(message(e)); }
+    try {
+      const v = runCall(p, fn, args ?? []);
+      if (v instanceof Promise) v.catch((e) => p.b.reportError?.(message(e)));
+    } catch (e) { p.b.reportError?.(message(e)); }
   }
 }
 

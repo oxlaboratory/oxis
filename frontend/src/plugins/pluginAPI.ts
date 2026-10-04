@@ -29,7 +29,7 @@ import {
 } from "../native";
 import { openStream, closeStream, newStreamId, LineSplitter, SSEParser } from "./streams";
 import { editorBridge, offsetToLineCol, lineColToOffset, lineRange } from "../terminal/editorBridge";
-import { requirePermission, ensurePermission, type PermissionNamespace } from "./permissions";
+import { requirePermission, ensurePermission, isGranted, type PermissionNamespace } from "./permissions";
 import { scriptRunTracker, type RunResult } from "../terminal/scriptRunTracker";
 import { workflowRunner } from "./workflowRunner";
 import { setTaskCommand } from "./taskCommands";
@@ -520,7 +520,9 @@ export function buildLuaAPI(ctx: APIContext): OxisBindings {
       cleanups.add(events.on(internal, (payload) => cb(toLua(payload))));
     },
 
-    requirePermission: (ns) => needAsync(ns as PermissionNamespace),
+    // Nothing to wait for (undefined) once granted, so native Lua's posts
+    // keep their order.
+    requirePermission: (ns) => ctx.isTrusted || isGranted(ctx.pluginName, ns as PermissionNamespace) ? undefined : needAsync(ns as PermissionNamespace),
     reportError: (msg) => ctx.print(`  ✗  ${ctx.pluginName}: ${msg}`, "err"),
     dispose: () => {
       for (const undo of [...cleanups]) { try { undo(); } catch { /* keep going */ } }

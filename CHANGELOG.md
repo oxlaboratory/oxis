@@ -294,7 +294,9 @@ All notable changes to OXIS. The format follows
   make network requests. Allow? (yes / no)") instead of a system dialog
   that froze the whole window. Animations, other panes and other
   plugins keep running while it waits. A question the plugin already
-  had open comes back after the answer.
+  had open comes back after the answer. On native Lua this covers
+  every permission, `oxis.editor`, `oxis.newTerminal` and
+  `oxis.workspace` included.
 - `'plugin new`'s templates use today's API: `devops` reads
   deploy.json, asks, and deploys with a spinner (oxis.ask, oxis.line,
   oxis.every, oxis.process.spawn), `system` shows the machine live,
