@@ -1,7 +1,7 @@
 # market/
 
 Reference snapshot of the index served at
-[oxis-market.pages.dev](https://oxis-market.pages.dev) — `index.json`
+[oxis.space](https://oxis.space) — `index.json`
 here is exactly what `frontend/src/plugins/market.ts` fetches at
 `GET {MARKET_BASE}/index.json`.
 

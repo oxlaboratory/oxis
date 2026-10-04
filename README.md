@@ -1,18 +1,18 @@
 <div align="center">
 
-<a href="https://oxis-market.pages.dev"><img src="assets/readme/banner.svg" width="100%" alt="OXIS — the terminal you can script. Your real PowerShell, bash, zsh or fish, plus an editor, workspaces, workflows, themes and Lua plugins."></a>
+<a href="https://oxis.space"><img src="assets/readme/banner.svg" width="100%" alt="OXIS — the terminal you can script. Your real PowerShell, bash, zsh or fish, plus an editor, workspaces, workflows, themes and Lua plugins."></a>
 
 <br>
 
 <a href="https://github.com/oxlaboratory/oxis/releases/tag/latest-build"><img src="assets/readme/btn-download.svg" height="54" alt="Download"></a>
-<a href="https://oxis-market.pages.dev"><img src="assets/readme/btn-website.svg" height="54" alt="Website"></a>
-<a href="https://oxis-market.pages.dev/#market"><img src="assets/readme/btn-market.svg" height="54" alt="Plugin Market"></a>
+<a href="https://oxis.space"><img src="assets/readme/btn-website.svg" height="54" alt="Website"></a>
+<a href="https://oxis.space/#market"><img src="assets/readme/btn-market.svg" height="54" alt="Plugin Market"></a>
 <a href="#documentation"><img src="assets/readme/btn-docs.svg" height="54" alt="Docs"></a>
 <a href="CHANGELOG.md"><img src="assets/readme/btn-changelog.svg" height="54" alt="Changelog"></a>
 
 <br><br>
 
-<a href="https://github.com/oxlaboratory/oxis/releases/tag/latest-build"><img src="https://img.shields.io/endpoint?url=https%3A%2F%2Foxis-market.pages.dev%2Fdownloads&style=for-the-badge&labelColor=0d1117&color=3dff64&logo=icloud&logoColor=3dff64&cacheSeconds=600" alt="Downloads"></a>
+<a href="https://github.com/oxlaboratory/oxis/releases/tag/latest-build"><img src="https://img.shields.io/endpoint?url=https%3A%2F%2Foxis.space%2Fdownloads&style=for-the-badge&labelColor=0d1117&color=3dff64&logo=icloud&logoColor=3dff64&cacheSeconds=600" alt="Downloads"></a>
 <a href="https://github.com/oxlaboratory/oxis/actions/workflows/build.yml"><img src="https://img.shields.io/github/actions/workflow/status/oxlaboratory/oxis/build.yml?branch=main&style=for-the-badge&label=build&labelColor=0d1117&color=3dff64&logo=githubactions&logoColor=3dff64" alt="Build"></a>
 <a href="https://github.com/oxlaboratory/oxis/stargazers"><img src="https://img.shields.io/github/stars/oxlaboratory/oxis?style=for-the-badge&labelColor=0d1117&color=e0af68&logo=github&logoColor=e0af68" alt="Stars"></a>
 <a href="https://github.com/oxlaboratory/oxis"><img src="https://api.visitorbadge.io/api/visitors?path=oxlaboratory%2Foxis&label=VIEWS&labelColor=%230d1117&countColor=%237dcfff&style=for-the-badge" alt="Views"></a>
@@ -796,7 +796,7 @@ session, but plugins aren't sandboxed from each other beyond that.
 'market update <name> / update all
 ```
 
-The Market is [oxis-market.pages.dev](https://oxis-market.pages.dev): a
+The Market is [oxis.space](https://oxis.space): a
 static `index.json` plus `.lua` files, deployed from `cloudflare/` in
 this repository. Installed plugins are ordinary Lua plugins.
 `'market update` checks compatibility first, backs up the current

@@ -18,15 +18,17 @@ import (
 
 // The editor's live preview loads pages from here, so a page renders the
 // way it does on a real server: relative stylesheets, ES modules,
-// images and fonts resolve against the page's own folder. A README's
-// relative images work the same way.
+// images and fonts resolve, including ones that climb out of the page's
+// own folder (<link href="../css/main.css">), because the page's whole
+// project is served (previewRoot). A README's relative images work the
+// same way.
 //
 // It listens on its own random loopback port, so previewed pages are a
 // different origin from the OXIS window and its local server, and each
-// folder is reachable only under a random 128-bit token. The editor's
+// project is reachable only under a random 128-bit token. The editor's
 // unsaved text is served in place of the file on disk.
 type previewFolder struct {
-	dir       string
+	dir       string            // the project root (previewRoot)
 	overrides map[string]string // slash path inside dir -> content
 }
 
@@ -37,18 +39,66 @@ var preview struct {
 	byDir   map[string]string // folder -> token
 }
 
+// projectMarkers are what make a folder a project's root for the preview.
+var projectMarkers = []string{".git", "package.json", "go.mod", "Cargo.toml", "pyproject.toml", "composer.json", ".oxis-connector.json"}
+
+// previewRoot is the folder a page in dir is served from: the nearest
+// folder up (dir itself included) that holds a project marker, so a page
+// in a subfolder can use the project's shared stylesheets and scripts.
+// Without a project it's dir's parent (one level of ../). Never the home
+// folder, anything above it or a drive root, even when one of those
+// holds a marker (a home folder that is itself a git repository): a
+// previewed page's scripts can read anything served to it.
+func previewRoot(dir string) string {
+	home, _ := os.UserHomeDir()
+	atOrAboveHome := func(d string) bool {
+		if home == "" {
+			return false
+		}
+		h, c := strings.ToLower(filepath.Clean(home)), strings.ToLower(filepath.Clean(d))
+		return h == c || strings.HasPrefix(h, strings.TrimSuffix(c, string(filepath.Separator))+string(filepath.Separator))
+	}
+	d := dir
+	for i := 0; i < 12 && !atOrAboveHome(d); i++ {
+		for _, m := range projectMarkers {
+			if _, err := os.Stat(filepath.Join(d, m)); err == nil {
+				return d
+			}
+		}
+		parent := filepath.Dir(d)
+		if parent == d {
+			break
+		}
+		d = parent
+	}
+	parent := filepath.Dir(dir)
+	if parent == dir || filepath.Dir(parent) == parent || atOrAboveHome(parent) {
+		return dir
+	}
+	return parent
+}
+
 // PreviewURL serves content as the file at servePath (which doesn't
 // have to exist: a rendered README is served next to the .md) and
-// returns the URL that loads it with its folder around it.
+// returns the URL that loads it with its project around it.
 func (a *App) PreviewURL(servePath, content string) (string, error) {
 	abs, err := filepath.Abs(servePath)
 	if err != nil {
 		return "", err
 	}
-	dir, name := filepath.Split(abs)
-	dir = filepath.Clean(dir)
+	dir := filepath.Dir(abs)
 	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
 		return "", fmt.Errorf("can't preview %s: its folder isn't readable", servePath)
+	}
+	root := previewRoot(dir)
+	rel, err := filepath.Rel(root, abs)
+	if err != nil {
+		return "", err
+	}
+	name := filepath.ToSlash(rel)
+	segments := strings.Split(name, "/")
+	for i, seg := range segments {
+		segments[i] = url.PathEscape(seg)
 	}
 
 	preview.mu.Lock()
@@ -58,7 +108,7 @@ func (a *App) PreviewURL(servePath, content string) (string, error) {
 			return "", err
 		}
 	}
-	key := strings.ToLower(dir)
+	key := strings.ToLower(root)
 	token, ok := preview.byDir[key]
 	if !ok {
 		b := make([]byte, 16)
@@ -67,10 +117,10 @@ func (a *App) PreviewURL(servePath, content string) (string, error) {
 		}
 		token = hex.EncodeToString(b)
 		preview.byDir[key] = token
-		preview.byToken[token] = &previewFolder{dir: dir, overrides: map[string]string{}}
+		preview.byToken[token] = &previewFolder{dir: root, overrides: map[string]string{}}
 	}
 	preview.byToken[token].overrides[name] = content
-	return fmt.Sprintf("http://127.0.0.1:%d/%s/%s", preview.port, token, url.PathEscape(name)), nil
+	return fmt.Sprintf("http://127.0.0.1:%d/%s/%s", preview.port, token, strings.Join(segments, "/")), nil
 }
 
 // webTypes are fixed rather than looked up: on Windows the mime package

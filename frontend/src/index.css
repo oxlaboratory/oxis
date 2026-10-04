@@ -654,6 +654,13 @@ button.editor-mode:hover { filter: brightness(1.25); }
 .filetree:focus { outline: none; } /* the focused ROW is the visible indicator, not a browser focus ring on the whole panel */
 .filetree-icon { color: var(--dim); font-size: 9px; width: 10px; flex-shrink: 0; text-align: center; }
 .filetree-name { overflow: hidden; text-overflow: ellipsis; }
+/* The name of a new file or folder, typed in the tree (right-click). */
+.filetree-new { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 2px 8px 2px 0; }
+.filetree-new-input {
+  flex: 1; min-width: 0; padding: 1px 5px; font: inherit; font-size: 12px;
+  color: var(--text); background: var(--bg); border: 1px solid var(--purple3); border-radius: 3px; outline: none;
+}
+.filetree-new-error { flex-basis: 100%; padding-left: 18px; font-size: 11px; color: var(--err); }
 .filetree-loading { font-size: 10px; color: var(--dim); padding: 3px 8px; }
 .filetree-hint {
   flex-shrink: 0; padding: 4px 8px; font-size: 9px; color: var(--comment);

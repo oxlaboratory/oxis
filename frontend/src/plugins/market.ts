@@ -1,5 +1,5 @@
 /**
- * market.ts — client for the plugin Market (oxis-market.pages.dev):
+ * market.ts — client for the plugin Market (oxis.space):
  *
  *   GET {BASE}/index.json  → [{ name, desc, category, version, author, file }]
  *   GET {BASE}/{file}      → the plugin's Lua source
@@ -12,7 +12,7 @@ import { getLicensedEmail, checkLicense } from "./pluginLicense";
 import { encryptPluginPackage, decryptPluginPackage, getDeviceId, type EncryptedPluginPackage } from "./pluginEncryption";
 import { readFile, writeFile, listDir, isNativeApp, nativeHttpRequest } from "../native";
 
-export const MARKET_BASE = "https://oxis-market.pages.dev";
+export const MARKET_BASE = "https://oxis.space";
 
 /** The Market's files as they are on main, so a plugin is installable
  *  the moment its pull request is merged (the site itself only changes

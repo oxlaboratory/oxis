@@ -3,6 +3,7 @@ package wailsapp
 import (
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,6 +19,7 @@ func TestPreviewServer(t *testing.T) {
 		}
 	}
 	must(os.MkdirAll(filepath.Join(dir, "js"), 0o755))
+	must(os.WriteFile(filepath.Join(dir, "package.json"), []byte("{}"), 0o644)) // the project's root
 	must(os.WriteFile(filepath.Join(dir, "index.html"), []byte("on disk"), 0o644))
 	must(os.WriteFile(filepath.Join(dir, "js", "app.js"), []byte("export const x = 1;"), 0o644))
 	must(os.WriteFile(filepath.Join(filepath.Dir(dir), "secret.txt"), []byte("outside"), 0o644))
@@ -66,6 +68,64 @@ func TestPreviewServer(t *testing.T) {
 	must(err)
 	if !strings.HasPrefix(u2, base) {
 		t.Errorf("second file in the same folder got another base: %s vs %s", u2, base)
+	}
+}
+
+// A page in a subfolder can use the project's shared files with ../,
+// and without a project, one level up (but no further).
+func TestPreviewClimbsToTheProject(t *testing.T) {
+	get := func(u string) (int, string) {
+		t.Helper()
+		resp, err := http.Get(u)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+		return resp.StatusCode, string(b)
+	}
+	resolve := func(page, ref string) string {
+		t.Helper()
+		base, err := url.Parse(page)
+		if err != nil {
+			t.Fatal(err)
+		}
+		r, _ := url.Parse(ref)
+		return base.ResolveReference(r).String()
+	}
+	a := &App{}
+
+	proj := t.TempDir()
+	os.MkdirAll(filepath.Join(proj, "css"), 0o755)
+	os.MkdirAll(filepath.Join(proj, "pages", "deep"), 0o755)
+	os.WriteFile(filepath.Join(proj, ".oxis-connector.json"), []byte("{}"), 0o644)
+	os.WriteFile(filepath.Join(proj, "css", "main.css"), []byte("body{color:red}"), 0o644)
+	page, err := a.PreviewURL(filepath.Join(proj, "pages", "deep", "about.html"), "<link rel=stylesheet href=../../css/main.css>")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code, body := get(page); code != 200 || !strings.Contains(body, "main.css") {
+		t.Errorf("page: %d %q", code, body)
+	}
+	if code, body := get(resolve(page, "../../css/main.css")); code != 200 || body != "body{color:red}" {
+		t.Errorf("../../css/main.css from pages/deep/: %d %q", code, body)
+	}
+
+	// No project: the page's folder and the one above it.
+	loose := t.TempDir()
+	os.MkdirAll(filepath.Join(loose, "site", "pages"), 0o755)
+	os.MkdirAll(filepath.Join(loose, "site", "css"), 0o755)
+	os.WriteFile(filepath.Join(loose, "site", "css", "main.css"), []byte("h1{}"), 0o644)
+	os.WriteFile(filepath.Join(loose, "secret.txt"), []byte("outside"), 0o644)
+	page, err = a.PreviewURL(filepath.Join(loose, "site", "pages", "index.html"), "<p>hi</p>")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code, body := get(resolve(page, "../css/main.css")); code != 200 || body != "h1{}" {
+		t.Errorf("../css/main.css without a project: %d %q", code, body)
+	}
+	if code, body := get(resolve(page, "../../secret.txt")); code == 200 && strings.Contains(body, "outside") {
+		t.Error("two levels up was served")
 	}
 }
 

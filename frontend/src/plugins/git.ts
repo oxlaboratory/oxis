@@ -32,14 +32,29 @@ export async function cancelActiveCommit(): Promise<boolean> {
   return cancelCommand(activeRequestId);
 }
 
-/** Is `dir` (or an ancestor of it) actually inside a git repo? Real
- *  check via `git rev-parse`, not just "does a .git folder exist"
- *  (handles worktrees, and directories nested inside a repo). */
-export async function isGitRepo(dir: string): Promise<boolean> {
+/** Whether two paths name the same folder: slashes either way, no
+ *  trailing slash, and case-insensitive for Windows drive paths. */
+export function samePath(a: string, b: string): boolean {
+  const norm = (p: string) => p.replace(/\\/g, "/").replace(/\/+$/, "");
+  const x = norm(a), y = norm(b);
+  return /^[a-z]:/i.test(x) || /^[a-z]:/i.test(y) ? x.toLowerCase() === y.toLowerCase() : x === y;
+}
+
+/** The top folder of the git repository `dir` is in, or "" if none. */
+export async function repoRoot(dir: string): Promise<string> {
   try {
-    const r = await git(dir, ["rev-parse", "--is-inside-work-tree"]);
-    return r.exitCode === 0 && r.stdout.trim() === "true";
-  } catch { return false; }
+    const r = await git(dir, ["rev-parse", "--show-toplevel"]);
+    return r.exitCode === 0 ? r.stdout.trim() : "";
+  } catch { return ""; }
+}
+
+/** Is `dir` a git repository of its own (the top of one)? A folder
+ *  inside another project's repository isn't: each workspace's project
+ *  has its own git, so connecting, unlinking or committing one never
+ *  touches another's (or a parent folder's) repository. */
+export async function isGitRepo(dir: string): Promise<boolean> {
+  const root = await repoRoot(dir);
+  return !!root && samePath(root, dir);
 }
 
 export async function initRepo(dir: string): Promise<{ ok: boolean; message: string }> {
@@ -78,7 +93,7 @@ export interface CommitResult { ok: boolean; message: string; hash?: string; pus
 export async function commitAll(dir: string, message: string, onProgress?: (step: string) => void): Promise<CommitResult> {
   if (!message.trim()) return { ok: false, message: "commit message can't be empty" };
   const status = await getStatus(dir);
-  if (!status.isRepo) return { ok: false, message: `${dir} isn't a git repository — 'workspace github or 'workspace gitlab to set one up first` };
+  if (!status.isRepo) return { ok: false, message: `${dir} doesn't have its own git repository — 'workspace github or 'workspace gitlab sets one up` };
   if (status.clean) return { ok: false, message: "nothing to commit — working tree is clean" };
 
   onProgress?.("staging changes…");
@@ -140,7 +155,10 @@ async function pushCurrentBranch(dir: string): Promise<{ ok: boolean; message: s
 
 export interface GitRemote { name: string; url: string }
 
+/** The project's own remotes; none for a folder that's only inside
+ *  another repository (see isGitRepo). */
 export async function getRemotes(dir: string): Promise<GitRemote[]> {
+  if (!(await isGitRepo(dir))) return [];
   const r = await git(dir, ["remote", "-v"]);
   if (r.exitCode !== 0) return [];
   const seen = new Map<string, string>();
@@ -205,9 +223,14 @@ export interface SetupRemoteResult { ok: boolean; message: string; needsConfirma
 /** `'workspace github/gitlab`: init a repo if needed, then set origin.
  *  A different existing origin needs force (returns needsConfirmation). */
 export async function setupRemote(dir: string, provider: GitProvider, repoInput: string, force = false): Promise<SetupRemoteResult> {
+  // A folder inside another repository gets a repository of its own;
+  // the outer one is left as it is.
+  let note = "";
   if (!(await isGitRepo(dir))) {
+    const outer = await repoRoot(dir);
     const init = await initRepo(dir);
     if (!init.ok) return { ok: false, message: init.message };
+    if (outer) note = ` — a repository of its own (it's inside ${outer}, which is left as it is)`;
   }
   const url = normalizeRemoteUrl(provider, repoInput);
   const remotes = await getRemotes(dir);
@@ -224,5 +247,5 @@ export async function setupRemote(dir: string, provider: GitProvider, repoInput:
   const args = origin ? ["remote", "set-url", "origin", url] : ["remote", "add", "origin", url];
   const r = await git(dir, args);
   if (r.exitCode !== 0) return { ok: false, message: `couldn't configure the remote: ${r.stderr.trim()}` };
-  return { ok: true, message: `origin ${origin ? "updated to" : "set to"} ${url} (${provider})` };
+  return { ok: true, message: `origin ${origin ? "updated to" : "set to"} ${url} (${provider})${note}` };
 }

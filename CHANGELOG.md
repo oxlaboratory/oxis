@@ -6,6 +6,10 @@ All notable changes to OXIS. The format follows
 ## [Unreleased]
 
 ### Added
+- The file tree's right-click menu: New File and New Folder (in the
+  folder clicked, a file's own folder, or the project for empty space),
+  named in a row in the tree; a new file opens in the editor.
+- A new terminal tab or pane says when a newer OXIS build is waiting.
 - New tabs and split panes open in the folder you're working in (the
   focused pane's), not the default one; setting `newShellHere`.
 - `npm run dev` hot-reloads: the real window with its UI served by
@@ -221,6 +225,14 @@ All notable changes to OXIS. The format follows
   of every built-in theme.
 
 ### Changed
+- The Market lives at [oxis.space](https://oxis.space); the app, README
+  and website use it (oxis-market.pages.dev keeps working for older
+  builds).
+- The editor's preview serves the page's whole project, so a page in a
+  subfolder loads `<link rel="stylesheet" href="../css/main.css">` and
+  other files above its own folder. Without a project marker (.git,
+  package.json, go.mod…) it reaches one folder up, and never the home
+  folder or above.
 - The `latest-build` release's files are only replaced when the app
   changed: pushes that touch only docs, screenshots, the website, the
   Market listing or tests leave them (and GitHub's download counts on
@@ -368,6 +380,20 @@ All notable changes to OXIS. The format follows
 - The npm launcher downloads from the GitHub `latest-build` release.
 
 ### Fixed
+- After opening a Search in files (Ctrl+Shift+F) result, typing in the
+  editor pulled the selection back to the match every time the text
+  changed.
+- `'version` reported the result of the update check made at startup for
+  as long as OXIS stayed open, so it kept saying "up to date with main"
+  after newer builds came out. The check is redone when it's over ten
+  minutes old (two for `'version`), the status bar rechecks every half
+  hour, and `'update`'s own check updates both.
+- A workspace's git connection could be another project's: a project
+  folder inside another repository (or inside a home folder that is a
+  git repository) used that repository, so `'workspace github` changed
+  its origin, Home showed its remote and `'task commit` staged all of it.
+  Each project now has its own repository: one inside another gets its
+  own on `'workspace github`, and the outer one is left alone.
 - Git Bash (and other MSYS/Cygwin shells) on Windows sometimes lost the
   first key typed after its pane was resized: splitting, closing a
   pane or resizing the window turned `echo` into `cho`, and at startup

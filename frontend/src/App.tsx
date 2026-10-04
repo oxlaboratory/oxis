@@ -330,7 +330,7 @@ const SETTINGS: SettingDef[] = [
   {
     key: "updateCheckOnStartup", label: "Check for Updates", default: true,
     description: "Check for a newer OXIS build on startup",
-    apply: () => { /* read by startupUpdateCheck() */ },
+    apply: () => { /* read by latestUpdateCheck() */ },
   },
 ];
 
@@ -431,16 +431,27 @@ async function reportUserConfig(verbose: boolean): Promise<void> {
 
 // ── init flag so we only register commands once ──────────────
 let _commandsRegistered = false;
-// One background update check per run, shared by the status bar and the
-// terminal notice. null when the check is turned off in settings.
-let _startupUpdateCheck: Promise<NativeUpdateInfo | null> | null = null;
-function startupUpdateCheck() {
-  if (!_startupUpdateCheck) {
-    _startupUpdateCheck = getSetting("updateCheckOnStartup") === false
-      ? Promise.resolve(null)
-      : checkForUpdate().catch(() => null);
+// The latest update check, shared by the status bar, 'version and the
+// notice in new terminals. It's checked again once it's older than
+// maxAge, so a window left open for days still notices a newer build
+// (and a few checks an hour stay well inside GitHub's limit). null when
+// the check is turned off in settings.
+const UPDATE_MAX_AGE = 10 * 60_000;
+let _updateCheck: { at: number; result: Promise<NativeUpdateInfo | null> } | null = null;
+function latestUpdateCheck(maxAge = UPDATE_MAX_AGE): Promise<NativeUpdateInfo | null> {
+  if (getSetting("updateCheckOnStartup") === false) return Promise.resolve(null);
+  if (!_updateCheck || Date.now() - _updateCheck.at > maxAge) {
+    const result = checkForUpdate().catch(() => null);
+    _updateCheck = { at: Date.now(), result };
+    // A failed check (offline) is tried again next time.
+    void result.then(r => { if ((!r || r.error) && _updateCheck?.result === result) _updateCheck = null; });
   }
-  return _startupUpdateCheck;
+  return _updateCheck.result;
+}
+/** What 'update just found, for everything else to show. */
+function rememberUpdateCheck(info: NativeUpdateInfo) {
+  _updateCheck = { at: Date.now(), result: Promise.resolve(info) };
+  events.emit("update_checked", { ...info });
 }
 // Stable ref so clear/print/send always call the latest Terminal instance
 const _ctxRef: { current: ShellCtx | null } = { current: null };
@@ -919,6 +930,7 @@ function registerBuiltinCommands(): void {
       info("checking for a newer build…");
       checkForUpdate().then(u => {
         if (u.error) { err(`couldn't check for updates: ${u.error}`); return; }
+        rememberUpdateCheck(u);
         if (!u.currentCommit) {
           info(`this build has no commit stamp (a local or test build), so OXIS can't tell whether it's current — the latest on main is ${short(u.latestCommit)}`);
           dim("'update install --force replaces this build with the latest one");
@@ -944,6 +956,7 @@ function registerBuiltinCommands(): void {
     info("checking for a newer build…");
     checkForUpdate().then(async u => {
       if (u.error) { err(`couldn't check for updates: ${u.error} — nothing was changed`); return; }
+      rememberUpdateCheck(u);
       if (!u.currentCommit && !force) {
         info(`this build has no commit stamp, so OXIS can't tell whether it's older than ${short(u.latestCommit)}`);
         dim("'update install --force installs the latest build over it anyway");
@@ -1482,8 +1495,8 @@ function registerBuiltinCommands(): void {
         return; }
       err(`unknown: 'plugin ${sub} — try list, enable, disable, reload, new, uninstall, info, docs, validate, test, doctor, rollback, export, publish, or permissions`); }});
 
-  // ── plugin marketplace (oxis-market.pages.dev) ─────────
-  registry.register({ name:"market",  category:"plugins", description:"Browse and install plugins from oxis-market.pages.dev",
+  // ── plugin marketplace (oxis.space) ─────────
+  registry.register({ name:"market",  category:"plugins", description:"Browse and install plugins from oxis.space",
     handler:(args)=>{
       const sub = args[0]?.toLowerCase();
       const rest = args.slice(1).join(" ");
@@ -2107,14 +2120,14 @@ function registerBuiltinCommands(): void {
       });
     }});
 
-  /** Everything 'version shows. The update status comes from the
-   *  startup check when it has finished (or finishes within a moment),
-   *  so 'version stays instant and doesn't spend API calls. */
+  /** Everything 'version shows. The update status comes from a check at
+   *  most two minutes old, waiting a moment for a new one, so 'version
+   *  stays quick and current without spending many API calls. */
   async function versionReport(): Promise<{ lines: Array<[string, LineKind?]>; data: Record<string, unknown> }> {
     const native = isNativeApp();
     const [sys, upd] = await Promise.all([
       native ? systemInfo().catch(() => null) : Promise.resolve(null),
-      native ? Promise.race([startupUpdateCheck(), new Promise<null>(r => setTimeout(() => r(null), 1500))]) : Promise.resolve(null),
+      native ? Promise.race([latestUpdateCheck(2 * 60_000), new Promise<null>(r => setTimeout(() => r(null), 2500))]) : Promise.resolve(null),
     ]);
     const ua = navigator.userAgent;
     const engines: Array<[RegExp, string]> = [
@@ -3773,13 +3786,19 @@ function Editor({ file, onClose, onSave, onDirtyChange, pluginTarget = true }: {
   }, [file.path]);
 
   // Jump to file.gotoLine once the content is in the textarea: caret at
-  // the start of that line, scrolled to the middle of the view.
+  // the start of that line, scrolled to the middle of the view. Once per
+  // request (gotoN): typing afterwards changes the content, and must not
+  // pull the selection back to the match.
+  const doneGoto = useRef<number | undefined>(undefined);
   useEffect(() => {
     if (file.loading || !file.gotoLine) return;
+    const request = file.gotoN ?? -1;
+    if (doneGoto.current === request) return;
     const ta = taRef.current;
     if (!ta) return;
     const t = setTimeout(() => {
-      const lines = content.split("\n");
+      doneGoto.current = request;
+      const lines = contentRef.current.split("\n");
       const target = Math.max(1, Math.min(file.gotoLine!, lines.length));
       let offset = 0;
       for (let i = 0; i < target - 1; i++) offset += lines[i].length + 1;
@@ -5801,10 +5820,11 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
         // probe waits for that and is only sent if it doesn't come.
         setTimeout(probeCwd, 3000);
 
-        // A newer build is announced once, as a single line (in the
-        // first tab only).
-        if (first) setTimeout(() => {
-          void startupUpdateCheck().then(info => {
+        // A newer build is announced as a single line in the first tab
+        // and in each tab or pane opened later (not in every pane a
+        // restored session brings back).
+        if (first || !restore) setTimeout(() => {
+          void latestUpdateCheck().then(info => {
             if (info?.available) {
               addLine(`  ↑  a newer OXIS build (${info.latestCommit.slice(0, 7)}) is available${info.currentCommit ? ` (you're on ${info.currentCommit.slice(0, 7)})` : ""} — 'update install to install it`, "info");
             }
@@ -7311,6 +7331,11 @@ function FileTree({ rootDir, rootLabel, onOpenFile, onMoveFile, onClose }: { roo
   const [error,      setError]      = useState("");
   const [focusedIdx, setFocusedIdx] = useState(0);
   const treeRef = useRef<HTMLDivElement>(null);
+  // Right-click: New File / New Folder in that folder (a file's own
+  // folder; empty space is the root). The name is typed in a row at
+  // the top of the folder, like VS Code.
+  const [menu, setMenu] = useState<{ x: number; y: number; dir: string } | null>(null);
+  const [creating, setCreating] = useState<{ dir: string; kind: "file" | "dir"; error?: string } | null>(null);
 
   const load = useCallback(async (dirPath: string) => {
     setLoading(s => new Set(s).add(dirPath));
@@ -7431,6 +7456,7 @@ function FileTree({ rootDir, rootLabel, onOpenFile, onMoveFile, onClose }: { roo
           className={`filetree-row${idx === focusedIdx ? " filetree-row--focused" : ""}${dragOverPath === node.path ? " filetree-row--dragover" : ""}`}
           style={{ paddingLeft: 8 + depth * 14 }}
           onClick={() => { setFocusedIdx(idx); node.isDir ? toggleDir(node.path) : onOpenFile(node.path); }}
+          onContextMenu={e => { setFocusedIdx(idx); openMenu(e, node); }}
           title={node.path}
           draggable
           onDragStart={e => { draggedPathRef.current = node.path; e.dataTransfer.effectAllowed = "move"; }}
@@ -7452,6 +7478,7 @@ function FileTree({ rootDir, rootLabel, onOpenFile, onMoveFile, onClose }: { roo
           <span className="filetree-icon">{node.isDir ? (expanded.has(node.path) ? "▾" : "▸") : "·"}</span>
           <span className="filetree-name">{node.name}</span>
         </div>
+        {node.isDir && expanded.has(node.path) && nameRow(node.path, depth + 1)}
         {node.isDir && expanded.has(node.path) && (childrenOf.get(node.path) ?? []).map(c => renderNode(c, depth + 1))}
         {node.isDir && expanded.has(node.path) && loading.has(node.path) && (
           <div className="filetree-loading" style={{ paddingLeft: 8 + (depth + 1) * 14 }}>loading…</div>
@@ -7461,6 +7488,64 @@ function FileTree({ rootDir, rootLabel, onOpenFile, onMoveFile, onClose }: { roo
   };
 
   const rootItems = childrenOf.get(rootDir) ?? [];
+
+  const parentOf = (path: string) => path.replace(/[\\/][^\\/]*$/, "") || rootDir;
+  const openMenu = (e: React.MouseEvent, node: FileTreeEntry | null) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const dir = !node ? rootDir : node.isDir ? node.path : parentOf(node.path);
+    setMenu({ x: Math.min(e.clientX, window.innerWidth - 180), y: Math.min(e.clientY, window.innerHeight - 90), dir });
+  };
+  useEffect(() => {
+    if (!menu) return;
+    const close = () => setMenu(null);
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") close(); };
+    window.addEventListener("mousedown", close);
+    window.addEventListener("keydown", onKey);
+    return () => { window.removeEventListener("mousedown", close); window.removeEventListener("keydown", onKey); };
+  }, [menu]);
+  const startCreating = (kind: "file" | "dir") => {
+    if (!menu) return;
+    const dir = menu.dir;
+    setMenu(null);
+    if (dir !== rootDir) toggleDir(dir, true);
+    setCreating({ dir, kind });
+  };
+  const create = async (name: string) => {
+    if (!creating) return;
+    const n = name.trim();
+    if (!n) { setCreating(null); return; }
+    if (/[\\/:*?"<>|]/.test(n) || n === "." || n === "..") { setCreating({ ...creating, error: "a name, without / \\ : * ? \" < > |" }); return; }
+    const path = `${creating.dir}/${n}`;
+    try {
+      if ((await statPath(path)).exists) { setCreating({ ...creating, error: `${n} already exists` }); return; }
+      if (creating.kind === "dir") await makeDir(path);
+      else await writeFile(path, "");
+      const { kind, dir } = creating;
+      setCreating(null);
+      await load(dir);
+      if (kind === "file") onOpenFile(path);
+      else toggleDir(path, true);
+      setTimeout(() => treeRef.current?.focus(), 20);
+    } catch (e) {
+      setCreating({ ...creating, error: e instanceof Error ? e.message : String(e) });
+    }
+  };
+  const nameRow = (dir: string, depth: number) => creating?.dir === dir && (
+    <div className="filetree-new" style={{ paddingLeft: 8 + depth * 14 }}>
+      <span className="filetree-icon">{creating.kind === "dir" ? "▸" : "·"}</span>
+      <input autoFocus className="filetree-new-input" spellCheck={false}
+        placeholder={creating.kind === "dir" ? "folder name" : "file name"}
+        onKeyDown={e => {
+          e.stopPropagation();
+          if (e.key === "Enter") { e.preventDefault(); void create(e.currentTarget.value); }
+          if (e.key === "Escape") { e.preventDefault(); setCreating(null); treeRef.current?.focus(); }
+        }}
+        onChange={() => creating.error && setCreating({ ...creating, error: undefined })}
+        onBlur={e => { if (!e.currentTarget.value.trim()) setCreating(null); }} />
+      {creating.error && <div className="filetree-new-error">{creating.error}</div>}
+    </div>
+  );
 
   return (
     <div className="filetree" ref={treeRef} tabIndex={0} onKeyDown={onTreeKeyDown}>
@@ -7472,6 +7557,7 @@ function FileTree({ rootDir, rootLabel, onOpenFile, onMoveFile, onClose }: { roo
       {error && <div className="filetree-error">{error}</div>}
       <div
         className={`filetree-body${dragOverPath === rootDir ? " filetree-row--dragover" : ""}`}
+        onContextMenu={e => openMenu(e, null)}
         onDragOver={e => {
           if (draggedPathRef.current === null) return;
           e.preventDefault();
@@ -7488,9 +7574,18 @@ function FileTree({ rootDir, rootLabel, onOpenFile, onMoveFile, onClose }: { roo
         }}
       >
         {loading.has(rootDir) && rootItems.length === 0 && <div className="filetree-loading" style={{ paddingLeft: 8 }}>loading…</div>}
+        {nameRow(rootDir, 0)}
         {rootItems.map(n => renderNode(n, 0))}
       </div>
-      <div className="filetree-hint">↑↓ move · → expand · ← collapse · ↵ open · drag to move · Esc close</div>
+      {menu && (
+        <div className="term-ctx-menu" style={{ left: menu.x, top: menu.y }} onMouseDown={e => e.stopPropagation()}>
+          <button className="term-ctx-item" onClick={() => startCreating("file")}><span>New File…</span></button>
+          <button className="term-ctx-item" onClick={() => startCreating("dir")}><span>New Folder…</span></button>
+          <div className="term-ctx-sep" />
+          <button className="term-ctx-item" onClick={() => { setMenu(null); reloadExpanded(); }}><span>Refresh</span></button>
+        </div>
+      )}
+      <div className="filetree-hint">↑↓ move · → expand · ← collapse · ↵ open · right-click: new file or folder · Esc close</div>
     </div>
   );
 }
@@ -7620,11 +7715,15 @@ export default function App() {
     applyAllSettings();
     installGlobalErrorCapture();
     void workspaceManager.runAutoUpdateIfNeeded();
-    void startupUpdateCheck().then(info => {
-      if (info?.available && info.latestCommit) setUpdateMsg(`build ${info.latestCommit.slice(0, 7)} available`);
-    });
+    const showUpdate = (info: NativeUpdateInfo | null) => {
+      if (info && !info.error) setUpdateMsg(info.available && info.latestCommit ? `build ${info.latestCommit.slice(0, 7)} available` : "");
+    };
+    void latestUpdateCheck().then(showUpdate);
+    const recheck = setInterval(() => void latestUpdateCheck(30 * 60_000).then(showUpdate), 30 * 60_000);
+    const offChecked = events.on("update_checked", p => showUpdate(p as unknown as NativeUpdateInfo));
 
     ensurePluginsInited();
+    return () => { clearInterval(recheck); offChecked(); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
