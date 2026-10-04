@@ -6,6 +6,10 @@ All notable changes to OXIS. The format follows
 ## [Unreleased]
 
 ### Added
+- Writing a plugin: in a Lua file, typing a dot after `oxis`,
+  `oxis.fs`, `oxis.process`, `oxis.editor`… (or `string`, `table`,
+  `math`, `os`, `utf8`, `coroutine`) lists that library's functions with
+  their arguments.
 - Plugins run on real Lua 5.4.9 inside OXIS instead of fengari's Lua
   5.3 in the page: each in its own thread, so a busy or stuck plugin
   can't freeze the window (and unloading one stops it mid-loop). The

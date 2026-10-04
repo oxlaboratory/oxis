@@ -469,10 +469,11 @@ button.editor-mode:hover { filter: brightness(1.25); }
 
 /* Suggestions while typing, under the caret. */
 .code-suggest {
-  position: absolute; z-index: 21; min-width: 180px; max-width: 260px;
+  position: absolute; z-index: 21; min-width: 180px; max-width: 520px;
   background: var(--bg2); border: 1px solid var(--border2); border-radius: var(--r);
   padding: 4px; box-shadow: 0 8px 26px rgba(0,0,0,.45);
   font-family: var(--font); font-size: 12px;
+  max-height: 296px; overflow-y: auto; /* 12 rows; a library's members scroll */
 }
 .code-suggest-item {
   display: flex; align-items: center; gap: 8px; height: 24px; padding: 0 8px;
@@ -486,6 +487,11 @@ button.editor-mode:hover { filter: brightness(1.25); }
   color: var(--ansi-6, var(--muted)); border: 1px solid var(--border); border-radius: 3px; line-height: 14px;
 }
 .code-suggest-kind--kw { color: var(--ansi-13, var(--purple)); }
+.code-suggest-kind--fn { color: var(--ansi-12, var(--purple)); }
+.code-suggest-kind--tbl { color: var(--ansi-11, var(--warn, var(--purple))); }
+.code-suggest-kind--val { color: var(--ansi-14, var(--muted)); }
+/* A library member's signature, after its name. */
+.code-suggest-detail { margin-left: auto; padding-left: 14px; color: var(--dim); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 380px; }
 
 .code-area-input {
   background: transparent; color: transparent; caret-color: var(--caret, var(--purple));

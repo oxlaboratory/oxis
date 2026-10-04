@@ -56,7 +56,7 @@ import {
 import { highlight, detectLang, escapeHtml } from "./terminal/syntaxHighlight";
 import { checkCode, type Problem, type Severity } from "./terminal/codeCheck";
 import { lineStarts, lineAt, decorHtml, matchingBracket, wordOccurrences, type Mark } from "./terminal/editorDecor";
-import { wordIndex, suggest, wordBefore, wordAround, type Suggestion } from "./terminal/completion";
+import { wordIndex, suggest, wordBefore, wordAround, membersOf, qualifierBefore, suggestMembers, type Suggestion } from "./terminal/completion";
 import { CodeMinimap, MINIMAP_WIDTH } from "./components/CodeMinimap";
 import { QuickOpen } from "./components/QuickOpen";
 import { SearchInFiles } from "./components/SearchInFiles";
@@ -2904,12 +2904,19 @@ const CodeArea = React.forwardRef<HTMLTextAreaElement, {
     if (!ta || !area || suggestExt === undefined || isHuge) { setSugg(null); return; }
     const caret = ta.selectionStart;
     const { start, prefix } = wordBefore(value, caret);
+    // After "oxis." or "string." in Lua: that library's members, at once.
+    const members = membersOf(suggestExt, qualifierBefore(value, start));
     // Not with a selection, in the middle of a word, or for one letter
-    // (unless asked).
-    if (caret !== ta.selectionEnd || !prefix || (!manual && prefix.length < 2) || /[\w$]/.test(value[caret] ?? "")) { setSugg(null); return; }
-    let ix = indexRef.current;
-    if (!ix || ix.text !== debouncedValue) ix = indexRef.current = { text: debouncedValue, words: wordIndex(debouncedValue) };
-    const items = suggest(prefix, ix.words, suggestExt, wordAround(debouncedValue, Math.min(start, debouncedValue.length)), value[start - 1] === ".");
+    // (unless asked, or there are members to show).
+    if (caret !== ta.selectionEnd || /[\w$]/.test(value[caret] ?? "")) { setSugg(null); return; }
+    if (!members && (!prefix || (!manual && prefix.length < 2))) { setSugg(null); return; }
+    let items: Suggestion[];
+    if (members) items = suggestMembers(prefix, members);
+    else {
+      let ix = indexRef.current;
+      if (!ix || ix.text !== debouncedValue) ix = indexRef.current = { text: debouncedValue, words: wordIndex(debouncedValue) };
+      items = suggest(prefix, ix.words, suggestExt, wordAround(debouncedValue, Math.min(start, debouncedValue.length)), value[start - 1] === ".");
+    }
     if (!items.length) { setSugg(null); return; }
     const m = measure();
     const line = lineAt(starts, start);
@@ -2918,9 +2925,10 @@ const CodeArea = React.forwardRef<HTMLTextAreaElement, {
     const tr = ta.getBoundingClientRect(), ar = area.getBoundingClientRect();
     const x = tr.left - ar.left + m.padLeft + col * m.charW - ta.scrollLeft - 6;
     const top = tr.top - ar.top + m.padTop + line * m.lineHeight - ta.scrollTop;
-    const height = items.length * 24 + 8;
+    const height = Math.min(items.length, 12) * 24 + 8; // longer lists scroll
+    const wide = items.some(it => it.detail);
     const y = top + m.lineHeight + height <= ar.height ? top + m.lineHeight + 2 : Math.max(0, top - height - 2);
-    setSugg({ items, sel: 0, start, x: Math.max(0, Math.min(x, ar.width - 260)), y });
+    setSugg({ items, sel: 0, start, x: Math.max(0, Math.min(x, ar.width - (wide ? 520 : 260))), y });
   };
   // After each change: typing a word's letters opens (or narrows) the
   // list; anything else closes it.
@@ -2944,7 +2952,7 @@ const CodeArea = React.forwardRef<HTMLTextAreaElement, {
   const onAreaChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const ev = e.nativeEvent as InputEvent;
     wantSuggest.current = suggestExt !== undefined && !accepting.current && (
-      (ev.inputType === "insertText" && ev.data?.length === 1 && /[\w$]$/.test(ev.data)) ||
+      (ev.inputType === "insertText" && ev.data?.length === 1 && /[\w$.]$/.test(ev.data)) ||
       (ev.inputType === "deleteContentBackward" && !!sugg));
     onChange?.(e);
   };
@@ -3017,10 +3025,12 @@ const CodeArea = React.forwardRef<HTMLTextAreaElement, {
         <div className="code-suggest" style={{ left: sugg.x, top: sugg.y }} role="listbox">
           {sugg.items.map((it, i) => (
             <div key={it.word} role="option" aria-selected={i === sugg.sel}
+              ref={i === sugg.sel ? el => el?.scrollIntoView({ block: "nearest" }) : undefined}
               className={`code-suggest-item${i === sugg.sel ? " code-suggest-item--sel" : ""}`}
               onMouseDown={e => { e.preventDefault(); acceptSuggestion(it.word); }}>
-              <span className={`code-suggest-kind${it.keyword ? " code-suggest-kind--kw" : ""}`}>{it.keyword ? "kw" : "ab"}</span>
+              <span className={`code-suggest-kind${it.keyword ? " code-suggest-kind--kw" : ""}${it.kind ? ` code-suggest-kind--${it.kind}` : ""}`}>{it.kind ?? (it.keyword ? "kw" : "ab")}</span>
               <span className="code-suggest-word">{[...it.word].map((ch, k) => it.at.includes(k) ? <b key={k}>{ch}</b> : ch)}</span>
+              {it.detail && <span className="code-suggest-detail">{it.detail}</span>}
             </div>
           ))}
         </div>

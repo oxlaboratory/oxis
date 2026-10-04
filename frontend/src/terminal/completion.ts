@@ -87,7 +87,7 @@ function keywords(ext: string): string[] {
 /** Keywords that can't follow a dot. */
 const STATEMENT = new Set("async await break case catch class const continue debugger default delete do else export extends false finally for function if import in instanceof let new null return static super switch this throw true try typeof undefined var void while yield interface type enum implements private protected public readonly abstract declare namespace keyof infer satisfies as is and assert def del elif except from global lambda None nonlocal not or pass raise True False with chan defer fallthrough func go goto package range select struct local nil repeat then until elseif end fn impl let loop match mod move mut pub trait unsafe use where".split(" "));
 
-export type Suggestion = { word: string; at: number[]; keyword: boolean };
+export type Suggestion = { word: string; at: number[]; keyword: boolean; detail?: string; kind?: string };
 
 /** Up to `max` completions of `prefix`: words from the file and the
  *  language's keywords, starts-with first, then fuzzy matches. The
@@ -130,4 +130,101 @@ export function wordBefore(text: string, caret: number): { start: number; prefix
   const prefix = text.slice(s, caret);
   // "123" or "1px" isn't the start of a word.
   return /^[A-Za-z_$]/.test(prefix) ? { start: s, prefix } : { start: caret, prefix: "" };
+}
+
+// ── Members after a dot (oxis.fs., string.) ────────────────────────
+// What a library offers, with the signature shown beside each name: the
+// oxis API (README § Lua API) and Lua 5.4's standard library.
+export type Member = { name: string; detail: string; kind: "fn" | "tbl" | "val" };
+
+const fn = (sig: string): Member => {
+  const name = sig.slice(0, sig.indexOf("(")).trim();
+  return { name, detail: sig.slice(name.length), kind: "fn" };
+};
+const tbl = (name: string, detail = "table"): Member => ({ name, detail, kind: "tbl" });
+const val = (name: string, detail: string): Member => ({ name, detail, kind: "val" });
+
+const LUA_MEMBERS: Record<string, Member[]> = {
+  oxis: [
+    fn("command(name, fn(args, rest, raw), desc)"), fn("task(name, cmd, desc)"), fn("echo(text [, kind])"),
+    fn("line(text [, kind]) → l:set(text [, kind])"), fn("run(cmd)"), fn("quote(text)"), fn("cwd()"),
+    fn("ask(question, fn(answer) [, { label, cancel }])"), fn("after(seconds, fn)"),
+    fn("every(seconds, fn [, { foreground, stop }])"), fn("input(text)"), fn("theme(name)"),
+    fn("option(key [, value])"), fn("autocmd(event, fn(info))"), fn("keymap(mode, combo, fn)"),
+    fn("workflow(name, { steps, env }, desc)"), fn("workspace(path)"), fn("dashboard(config)"), fn("newTerminal()"),
+    val("platform", '"windows" or "unix"'),
+    tbl("fs", "files: read, write, list, watch…"), tbl("process", "spawn, list, kill"), tbl("net", "request, stream"),
+    tbl("json", "encode, decode"), tbl("editor", "the open file"), tbl("store", "values kept between runs"),
+    tbl("system", "info"), tbl("plugin", "enable, disable"),
+  ],
+  "oxis.fs": [
+    fn("read(path, fn(err, content))"), fn("write(path, content, fn(err))"), fn("list(path, fn(err, entries))"),
+    fn("stat(path, fn(err, info))"), fn("mkdir(path, fn(err))"), fn("remove(path, fn(err))"),
+    fn("search(root, query [, opts], fn(err, result))"), fn("watch(path, fn(change) [, opts]) → h:close()"),
+  ],
+  "oxis.process": [
+    fn("spawn({ cmd, args | shell, cwd, env, lines }, { start, stdout, stderr, exit }) → h"),
+    fn("list(fn(err, processes))"), fn("kill(pid, fn(err))"),
+  ],
+  "oxis.net": [
+    fn("request({ url, method, headers, body, timeout }, fn(err, res))"),
+    fn("stream(opts, { response, data, line, event, done }) → h:close()"),
+  ],
+  "oxis.json": [fn("encode(value)"), fn("decode(text)")],
+  "oxis.editor": [
+    fn("current()"), fn("open(path [, line])"), fn("setText(text)"), fn("insert(text)"),
+    fn("replaceLines(first, last, text)"), fn("select(line, col [, toLine, toCol])"),
+    fn("save([fn(err, path)])"), fn("on(event, fn(info))"),
+  ],
+  "oxis.store": [fn("get(key)"), fn("set(key, value)")],
+  "oxis.system": [fn("info(fn(err, info))")],
+  "oxis.plugin": [fn("enable(name)"), fn("disable(name)")],
+  string: [
+    fn("format(fmt, ...)"), fn("sub(s, i [, j])"), fn("gsub(s, pattern, repl [, n])"), fn("find(s, pattern [, init, plain])"),
+    fn("match(s, pattern [, init])"), fn("gmatch(s, pattern)"), fn("rep(s, n [, sep])"), fn("upper(s)"), fn("lower(s)"),
+    fn("len(s)"), fn("byte(s [, i, j])"), fn("char(...)"), fn("reverse(s)"), fn("pack(fmt, ...)"), fn("unpack(fmt, s [, pos])"),
+  ],
+  table: [
+    fn("insert(t, [pos,] value)"), fn("remove(t [, pos])"), fn("concat(t [, sep, i, j])"), fn("sort(t [, comp])"),
+    fn("unpack(t [, i, j])"), fn("pack(...)"), fn("move(a1, f, e, t [, a2])"),
+  ],
+  math: [
+    fn("floor(x)"), fn("ceil(x)"), fn("abs(x)"), fn("max(x, ...)"), fn("min(x, ...)"), fn("random([m [, n]])"),
+    fn("randomseed([x])"), fn("sqrt(x)"), fn("fmod(x, y)"), fn("tointeger(x)"), fn("type(x)"), fn("log(x [, base])"),
+    fn("exp(x)"), fn("sin(x)"), fn("cos(x)"), val("pi", "3.14159…"), val("huge", "infinity"),
+    val("maxinteger", "largest integer"), val("mininteger", "smallest integer"),
+  ],
+  os: [fn("time([t])"), fn("clock()"), fn("date([format [, time]])"), fn("difftime(t2, t1)"), fn("getenv(name)")],
+  io: [fn("write(...)"), fn("read(...)"), fn("open(path [, mode])  — needs fs"), fn("lines([path])  — needs fs")],
+  utf8: [fn("char(...)"), fn("codepoint(s [, i, j])"), fn("len(s [, i, j])"), fn("offset(s, n [, i])"), fn("codes(s)"), val("charpattern", "pattern")],
+  coroutine: [fn("create(fn)"), fn("resume(co, ...)"), fn("yield(...)"), fn("wrap(fn)"), fn("status(co)"), fn("isyieldable()"), fn("running()"), fn("close(co)")],
+};
+
+/** The members of `qualifier` (the dotted name before a dot) in a file
+ *  of type `ext`, or null when it isn't a library this knows. */
+export function membersOf(ext: string, qualifier: string | null): Member[] | null {
+  if (!qualifier || ext !== "lua") return null;
+  return LUA_MEMBERS[qualifier] ?? null;
+}
+
+/** The dotted name just before the dot at `start - 1` ("oxis.fs" in
+ *  "oxis.fs.re"), or null when there's no dot there. */
+export function qualifierBefore(text: string, start: number): string | null {
+  if (text[start - 1] !== ".") return null;
+  const m = /([A-Za-z_][\w]*(?:\.[A-Za-z_]\w*)*)$/.exec(text.slice(Math.max(0, start - 200), start - 1));
+  return m ? m[1] : null;
+}
+
+/** Completions from a library's members: all of them, in order, when
+ *  nothing's typed yet; fuzzy matches of `prefix` after that. */
+export function suggestMembers(prefix: string, members: Member[], max = 60): Suggestion[] {
+  const out: Array<Suggestion & { score: number }> = [];
+  members.forEach((m, i) => {
+    if (!prefix) { out.push({ word: m.name, at: [], keyword: false, detail: m.detail, kind: m.kind, score: -i }); return; }
+    const f = fuzzyMatch(prefix, m.name);
+    if (!f || f.at[0] !== 0 || m.name === prefix) return;
+    out.push({ word: m.name, at: f.at, keyword: false, detail: m.detail, kind: m.kind, score: f.score + (m.name.startsWith(prefix) ? 20 : 0) - i * 0.01 });
+  });
+  out.sort((a, b) => b.score - a.score);
+  return out.slice(0, max).map(({ score: _score, ...s }) => s);
 }

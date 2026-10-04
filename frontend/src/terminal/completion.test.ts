@@ -71,3 +71,24 @@ describe("words around the caret", () => {
     expect(wordBefore("width: 12", 9)).toEqual({ start: 9, prefix: "" });
   });
 });
+
+describe("library members after a dot", () => {
+  it("knows the dotted name before the dot", async () => {
+    const { qualifierBefore } = await import("./completion");
+    expect(qualifierBefore("local x = oxis.fs.", 18)).toBe("oxis.fs");
+    expect(qualifierBefore("oxis.ec", 5)).toBe("oxis");
+    expect(qualifierBefore("print(x)", 6)).toBeNull();
+  });
+
+  it("lists oxis members with signatures, then narrows as you type", async () => {
+    const { membersOf, suggestMembers } = await import("./completion");
+    const all = suggestMembers("", membersOf("lua", "oxis")!);
+    expect(all[0]).toMatchObject({ word: "command", kind: "fn" });
+    expect(all.find(s => s.word === "fs")).toMatchObject({ kind: "tbl" });
+    const narrowed = suggestMembers("ev", membersOf("lua", "oxis")!);
+    expect(narrowed[0]).toMatchObject({ word: "every", detail: "(seconds, fn [, { foreground, stop }])" });
+    expect(suggestMembers("re", membersOf("lua", "oxis.fs")!)[0].word).toBe("read");
+    expect(membersOf("ts", "oxis")).toBeNull();
+    expect(membersOf("lua", "unknownlib")).toBeNull();
+  });
+});

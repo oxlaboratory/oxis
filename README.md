@@ -555,7 +555,10 @@ Windows. Quote paths with spaces.
 - **Suggestions while typing:** words already in the file and the
   language's keywords, in a list under the caret (↑/↓ choose, Enter or
   Tab accepts, Esc closes, Ctrl+Space asks). Letters can be skipped:
-  `gtU` finds `getUser` (setting `editorSuggest`).
+  `gtU` finds `getUser` (setting `editorSuggest`). In a Lua file, a
+  dot after `oxis`, `oxis.fs`, `oxis.editor`… or `string`, `table`,
+  `math`, `os` lists that library's functions with their arguments,
+  for writing plugins.
 - **Go to a file** with Ctrl+P: type letters of its name or path. It
   searches the project the open file is in (skipping `node_modules`,
   `dist` and other build folders); open tabs come first.
