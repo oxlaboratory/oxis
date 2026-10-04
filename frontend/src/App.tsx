@@ -553,7 +553,7 @@ const COMMAND_DETAILS: Record<string, CommandDetail> = {
       { syntax: "'plugin disable <name>",                                description: "disable one plugin" },
       { syntax: "'plugin reload <name>",                                 description: "reload a single plugin (picks up file changes without a restart)" },
       { syntax: "'plugin reloadall",                                     description: "reload every enabled plugin" },
-      { syntax: "'plugin new <name> [--template=basic|dev|devops|system]", description: "create a new plugin from a real starter template, register it live, and open it in the Editor" },
+      { syntax: "'plugin new <name> [--template=basic|dev|devops|system|interactive]", description: "create a new plugin from a real starter template, register it live, and open it in the Editor" },
       { syntax: "'plugin uninstall <name> [--force]",                    description: "remove a plugin's file — refuses if another installed plugin depends on it, unless --force" },
       { syntax: "'plugin delete <name>",                                 description: "alias for uninstall" },
       { syntax: "'plugin info <name>",                                   description: "full metadata: version, author, permissions declared, dependencies + their status" },
@@ -1522,7 +1522,7 @@ function registerBuiltinCommands(): void {
         }).catch(e => err(`couldn't reach the Market backend: ${e instanceof Error ? e.message : e}`));
         return; }
       if(sub==="new"){
-        if(!name){err("usage: 'plugin new <name> [--template=basic|dev|devops|system]");return;}
+        if(!name){err("usage: 'plugin new <name> [--template=basic|dev|devops|system|interactive]");return;}
         if(!/^[a-z0-9_-]+$/i.test(name)){ err("plugin name: letters, numbers, - _ only"); return; }
         const templateArg = args.find(a=>a.toLowerCase().startsWith("--template="));
         const template = templateArg ? templateArg.split("=")[1]?.toLowerCase() : undefined;
@@ -2415,7 +2415,7 @@ Settings, workspace files, documents and plugins with the same name as ones in t
       info(""); h("── plugins ───────────────────────────","");
       h("'plugin list","all plugins + status"); h("'plugin enable <n>","enable");
       h("'plugin enable all","enable every plugin"); h("'plugin disable <n>","disable"); h("'plugin reload <n>","reload");
-      h("'plugin new <n> [--template=basic|dev|devops|system]","create Lua plugin in-app");
+      h("'plugin new <n> [--template=basic|dev|devops|system|interactive]","create Lua plugin in-app");
       h("'plugin delete <n>","delete a user/market plugin's file");
       h("'plugin uninstall <n> [--force]","same as delete, but refuses if another plugin depends on it");
       h("'plugin info <n>","full metadata: version, permissions, dependencies");
@@ -4708,117 +4708,169 @@ const PLUGIN_TEMPLATES: Record<string, (name: string) => string> = {
   basic: (name) =>
 `--[[@manifest
 version: 1.0.0
-description: ${name} — say hello and run a shell command
+description: ${name}: a starting point
 author: you
 category: plugin
+permissions:
 ]]
--- ${name}.lua — OXIS Lua plugin
--- Created in OXIS · edit and save, then run 'plugin reload ${name}
+-- ${name}.lua: an OXIS plugin. Save, then 'plugin reload ${name}.
+-- Type "oxis." for the API, each function with its arguments.
 
--- Register a command  (invoked with '${name})
-oxis.command("${name}", function()
-  oxis.echo("Hello from ${name}!")
+-- A command: '${name} [words…]
+oxis.command("${name}", function(args, rest)
+  if rest == "" then
+    oxis.echo("Hello from ${name}! Try '${name} world", "accent")
+  else
+    oxis.echo("Hello, " .. rest .. "!", "ok")
+  end
 end, "say hello")
 
--- Run a shell command
-oxis.command("${name}run", function()
-  oxis.run("echo running ${name}")
-end, "run a shell command")
+-- A value kept between runs.
+oxis.command("${name}-count", function()
+  local n = (oxis.store.get("count") or 0) + 1
+  oxis.store.set("count", n)
+  oxis.echo("run " .. n .. " time" .. (n == 1 and "" or "s"))
+end, "count how often it's run")
 
--- Listen to events
-oxis.autocmd("ShellOpen", function()
-  oxis.echo("${name} plugin ready")
-end)
-
--- Define a keymap  (optional)
--- oxis.keymap("normal", "<C-1>", function()
---   oxis.run("echo keymap triggered")
+-- OXIS tells plugins what happens: here, each command run at the prompt.
+-- oxis.autocmd("ShellCommandDone", function(e)
+--   if e.code ~= 0 then oxis.echo(e.command .. " failed (" .. e.code .. ")", "err") end
 -- end)
-
--- Define a task  (run with 'task ${name})
--- oxis.task("${name}-build", "npm run build", "build the project")
 `,
 
   dev: (name) =>
 `--[[@manifest
 version: 1.0.0
-description: ${name} — git/dev shortcuts
+description: ${name}: git shortcuts
 author: you
 category: dev
+permissions: shell
 ]]
--- ${name}.lua — dev-workflow plugin template.
--- oxis.run() needs no declared permission (every plugin can already
--- run shell commands — see README § Plugin Permissions), so a plugin
--- that's "just shortcuts for commands you'd type anyway" needs
--- nothing beyond this manifest's version/description/category.
+-- ${name}.lua: shortcuts for commands you'd type anyway. oxis.run sends
+-- a command to your shell (the plugin asks once for "shell").
 
-oxis.command("${name}-status", function()
-  oxis.run("git status -sb")
-end, "short git status")
+oxis.command("${name}-status", function() oxis.run("git status -sb") end, "short git status")
 
 oxis.command("${name}-sync", function()
-  oxis.run("git pull --rebase && git push")
-end, "pull --rebase then push")
+  oxis.run("git pull --rebase && git push") -- && works in PowerShell too
+end, "pull --rebase, then push")
 
-oxis.keymap("normal", "<C-g>", function()
-  oxis.run("git status -sb")
-end)
+-- Ask before something you'd rather not do by accident.
+oxis.command("${name}-undo", function()
+  oxis.ask("Undo the last commit, keeping its changes? (yes/no)", function(answer)
+    if answer == "yes" or answer == "y" then
+      oxis.run("git reset --soft HEAD~1")
+    else
+      oxis.echo("left as it is", "dim")
+    end
+  end, { label = "${name}" })
+end, "undo the last commit, after asking")
+
+oxis.keymap("normal", "<C-g>", function() oxis.run("git status -sb") end)
 `,
 
   devops: (name) =>
 `--[[@manifest
 version: 1.0.0
-description: ${name} — deployment/process helpers
+description: ${name}: deploy with deploy.json, after asking
 author: you
 category: devops
-permissions: fs, process
+permissions: fs, shell
 ]]
--- ${name}.lua — devops-flavored template. Declares "fs" and "process"
--- since it reads a deploy config file and can list/stop processes —
--- both prompt the user for one-time approval the first time this
--- plugin actually calls oxis.fs.*/oxis.process.* (see README § Plugin
--- Permissions); nothing here is granted just by existing.
+-- ${name}.lua: reads deploy.json ({ "app": "…", "target": "…",
+-- "command": "npm run deploy" }), asks, then runs the command with a
+-- spinner that stops when it's done.
 
 oxis.command("${name}-deploy", function()
   oxis.fs.read("deploy.json", function(err, content)
-    if err then
-      oxis.echo("no deploy.json found in the current directory")
-      return
-    end
-    oxis.echo("deploying with config: " .. content)
-    -- oxis.run("./deploy.sh")
+    if err then return oxis.echo("no deploy.json here (" .. err .. ")", "warn") end
+    local ok, cfg = pcall(oxis.json.decode, content)
+    if not ok then return oxis.echo("deploy.json isn't valid JSON", "err") end
+    local what = (cfg.app or "this project") .. " to " .. (cfg.target or "production")
+    oxis.ask("Deploy " .. what .. "? (yes/no)", function(answer)
+      if answer ~= "yes" then return oxis.echo("not deployed", "dim") end
+      local spin, i = { "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" }, 0
+      local line = oxis.line("⠋ deploying " .. what .. "…", "accent")
+      local tick = oxis.every(0.08, function()
+        i = i + 1
+        line:set(spin[i % #spin + 1] .. " deploying " .. what .. "…")
+      end)
+      oxis.process.spawn({ shell = cfg.command or "npm run deploy", lines = true }, {
+        stderr = function(l) oxis.echo(l, "dim") end,
+        exit = function(code)
+          tick:stop()
+          if code == 0 then line:set("✓ deployed " .. what, "ok")
+          else line:set("✗ the deploy failed (exit " .. tostring(code) .. ")", "err") end
+        end,
+      })
+    end, { label = "deploy" })
   end)
-end, "read deploy.json and (eventually) deploy")
-
-oxis.command("${name}-procs", function()
-  oxis.process.list(function(err, procs)
-    if err then oxis.echo("couldn't list processes: " .. tostring(err)); return end
-    oxis.echo(#procs .. " processes running")
-  end)
-end, "count running processes")
-
-oxis.task("${name}-watch", "while ($true) { Get-Date; Start-Sleep 5 }", "example long-running task (stop with Ctrl+C)")
+end, "deploy, using deploy.json, after asking")
 `,
 
   system: (name) =>
 `--[[@manifest
 version: 1.0.0
-description: ${name} — system info reporting
+description: ${name}: the machine, now and live
 author: you
 category: system
 permissions: system
 ]]
--- ${name}.lua — reads OS/CPU/memory info via oxis.system.info().
--- Declares "system" so that call prompts for one-time approval
--- instead of silently having access nothing else in this plugin asked
--- for.
+-- ${name}.lua: oxis.system.info answers with the OS, CPU and memory.
+
+local function gb(mb) return mb / 1024 end
 
 oxis.command("${name}-info", function()
   oxis.system.info(function(err, info)
-    if err then oxis.echo("system info unavailable: " .. tostring(err)); return end
-    oxis.echo(info.os .. " / " .. info.arch .. " — " .. info.numCPU .. " CPUs, " .. info.allocMB .. " MB allocated")
+    if err then return oxis.echo("system info unavailable: " .. err, "err") end
+    oxis.echo(("%s · %d CPUs at %.0f%% · %.1f of %.1f GB memory in use")
+      :format(info.osName, info.numCPU, info.cpuPercent, gb(info.memUsedMB), gb(info.memTotalMB)))
   end)
-end, "print OS/arch/CPU/memory info")
+end, "the machine now")
+
+-- A line that updates every second, until Ctrl+C.
+oxis.command("${name}-watch", function()
+  local line = oxis.line("…", "accent")
+  oxis.every(1, function()
+    oxis.system.info(function(err, info)
+      if err or info.memTotalMB == 0 then return end
+      line:set(("CPU %5.1f%%   memory %5.1f%%"):format(info.cpuPercent, 100 * info.memUsedMB / info.memTotalMB))
+    end)
+  end, { foreground = true, stop = function() line:set("stopped", "dim") end })
+end, "CPU and memory, live (Ctrl+C stops)")
+`,
+
+  interactive: (name) =>
+`--[[@manifest
+version: 1.0.0
+description: ${name}: guess the number, answering in the prompt
+author: you
+category: games
+permissions:
+]]
+-- ${name}.lua: oxis.ask makes the next line typed the answer; asking
+-- again from the answer keeps the conversation going. Ctrl+C gives up.
+
+oxis.command("${name}", function()
+  local secret, tries = math.random(1, 100), 0
+  local function ask()
+    oxis.ask("Guess 1–100:", function(answer)
+      local n = tonumber(answer)
+      if not n then
+        oxis.echo("a number, please", "warn")
+        return ask()
+      end
+      tries = tries + 1
+      if n == secret then
+        return oxis.echo(("🎉 %d, in %d tries"):format(secret, tries), "ok")
+      end
+      oxis.echo(n < secret and "higher ↑" or "lower ↓", "dim")
+      ask()
+    end, { label = "${name}", cancel = function() oxis.echo("it was " .. secret, "dim") end })
+  end
+  oxis.echo("I'm thinking of a number…", "accent")
+  ask()
+end, "guess a number (Ctrl+C gives up)")
 `,
 };
 

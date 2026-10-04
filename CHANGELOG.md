@@ -290,6 +290,11 @@ All notable changes to OXIS. The format follows
   of every built-in theme.
 
 ### Changed
+- `'plugin new`'s templates use today's API: `devops` reads
+  deploy.json, asks, and deploys with a spinner (oxis.ask, oxis.line,
+  oxis.every, oxis.process.spawn), `system` shows the machine live,
+  `dev` asks before undoing a commit, and the new `interactive` is a
+  game answered in the prompt. Each declares the permissions it uses.
 - The Linux package and its menu entry describe OXIS as a programmable
   workspace, listed under Development and Utility (with search
   keywords), and point at oxis.space.

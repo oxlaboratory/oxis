@@ -755,7 +755,7 @@ in OXIS itself ([Native Lua](#native-lua)), or Lua 5.3 in the page
 
 ```
 'plugin list / enable <n> / enable all / disable <n> / reload <n> / reloadall
-'plugin new <n> [--template=basic|dev|devops|system]   create one and open it in the editor
+'plugin new <n> [--template=basic|dev|devops|system|interactive]   create one and open it in the editor
 'plugin info <n> / docs <n> / validate <n> / test <n> / doctor
 'plugin permissions <n> [grant|revoke <namespace>]
 'plugin uninstall <n> [--force] / delete <n> / export <n> [path] / rollback <n>
