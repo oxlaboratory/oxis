@@ -23,8 +23,9 @@ All notable changes to OXIS. The format follows
   `'config set shell <name>` sets what new tabs start. Right-click a
   "+" for the same list. Before, only the `OXIS_SHELL` environment
   variable could.
-- macOS: the standard app, Edit and Window menus, so ⌘C ⌘V ⌘X ⌘A
-  work in the web view, and ⌘Q quits.
+- macOS: an app menu (⌘Q, ⌘H), a Window menu, and an Edit menu whose
+  ⌘C ⌘V ⌘X ⌘A ⌘Z ⌘⇧Z work in the prompt and the editor (undo is the
+  editor's own, and pasting several lines still asks first).
 - macOS: ⌘ works for OXIS's shortcuts (⌘T, ⌘W, ⌘=, ⌘⇧P, and in the
   editor ⌘S, ⌘F, ⌘Z, ⌘⇧Z…), ⌘K clears and ⌘F searches the output; Ctrl
   stays the shell's and ⌘C/⌘V/⌘X/⌘A the system's.

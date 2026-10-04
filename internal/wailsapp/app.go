@@ -684,6 +684,6 @@ func Run() error {
 			app,
 		},
 	}
-	platformOptions(opts)
+	platformOptions(opts, app)
 	return wails.Run(opts)
 }

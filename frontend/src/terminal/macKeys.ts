@@ -40,9 +40,11 @@ export const isMac = (): boolean =>
 
 /** On macOS, turns ⌘ shortcuts into the Ctrl ones OXIS handles. */
 let installed = false;
-export function installMacShortcuts(): void {
+export function installMacShortcuts(clipboard?: { read(): Promise<string>; write(text: string): Promise<void> }): void {
   if (installed || !isMac()) return;
   installed = true;
+  const rt = (window as { runtime?: { EventsOn?: (name: string, cb: (...args: unknown[]) => void) => void } }).runtime;
+  if (clipboard) rt?.EventsOn?.("menu_edit", (action) => { void macEditAction(String(action), clipboard); });
   window.addEventListener("keydown", (e) => {
     const target = e.target as Element | null;
     const inEditor = !!target?.closest?.(".editor");
@@ -55,4 +57,49 @@ export function installMacShortcuts(): void {
       bubbles: true, cancelable: true, composed: true,
     }));
   }, true);
+}
+
+type Editable = HTMLInputElement | HTMLTextAreaElement;
+const editable = (el: Element | null): el is Editable => el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement;
+
+/** What the macOS Edit menu asks for (internal/wailsapp/menu_darwin.go):
+ *  done here, so undo is the editor's and the clipboard is OXIS's. */
+export async function macEditAction(action: string, clipboard: { read(): Promise<string>; write(text: string): Promise<void> }): Promise<void> {
+  const el = document.activeElement;
+  const selected = (): string => editable(el)
+    ? el.value.slice(el.selectionStart ?? 0, el.selectionEnd ?? 0)
+    : window.getSelection()?.toString() ?? "";
+  switch (action) {
+    case "copy": case "cut": {
+      const text = selected();
+      if (!text) return;
+      await clipboard.write(text);
+      if (action === "cut" && editable(el) && !el.readOnly) document.execCommand("insertText", false, "");
+      return;
+    }
+    case "paste": {
+      if (!editable(el)) return;
+      const text = await clipboard.read();
+      if (!text) return;
+      // Through the paste event first: the prompt confirms several lines.
+      const data = new DataTransfer();
+      data.setData("text/plain", text);
+      if (el.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }))) {
+        document.execCommand("insertText", false, text);
+      }
+      return;
+    }
+    case "selectAll":
+      if (editable(el)) el.select(); else document.execCommand("selectAll");
+      return;
+    case "undo": case "redo":
+      // The editor has its own history (Ctrl+Z / Ctrl+Y); elsewhere the
+      // field's own. Never Ctrl+Z to the prompt: that suspends the program.
+      if (el?.closest(".editor")) {
+        el.dispatchEvent(new KeyboardEvent("keydown", { key: action === "undo" ? "z" : "y", ctrlKey: true, bubbles: true, cancelable: true }));
+      } else if (editable(el)) {
+        document.execCommand(action);
+      }
+      return;
+  }
 }

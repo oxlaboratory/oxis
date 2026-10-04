@@ -8654,7 +8654,7 @@ export default function App() {
     themeManager.apply(curTheme);
     applyAllSettings();
     installGlobalErrorCapture();
-    installMacShortcuts();
+    installMacShortcuts({ read: readClipboard, write: async (t) => { await copyToClipboard(t); } });
     void workspaceManager.runAutoUpdateIfNeeded();
     const showUpdate = (info: NativeUpdateInfo | null) => {
       if (info && !info.error) setUpdateMsg(info.available && info.latestCommit ? `build ${info.latestCommit.slice(0, 7)} available` : "");
