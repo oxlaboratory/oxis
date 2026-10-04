@@ -5454,8 +5454,10 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
   // This tab's shell directory; while the tab is selected it's the app's.
   const dirTracker = useMemo(() => new CwdTracker(), []);
   useEffect(() => dirTracker.subscribe(path => {
-    onTitleRef.current(path.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || path);
-  }), [dirTracker]);
+    const folder = path.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || path;
+    // A tab started with another shell ('shell wsl) says which.
+    onTitleRef.current(shell ? `${folder} · ${shell}` : folder);
+  }), [dirTracker, shell]);
   // ── output state ─────────────────────────────────────────
   const [lines,      setLines]      = useState<Line[]>(() => {
     if (!restore?.lines.length) {
@@ -8679,7 +8681,7 @@ export default function App() {
     hintFor.current.set(id, tabHint());
     startHere(id);
     if (shell) shellFor.current.set(id, shell);
-    setTabs(t => [...t, oneTab(id)]);
+    setTabs(t => [...t, oneTab(id, shell ?? "")]);
     setActiveTab(id);
     setView("shell");
   }, []);
