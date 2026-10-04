@@ -1,6 +1,10 @@
 <div align="center">
 
-<a href="https://oxis.space"><img src="assets/readme/banner.svg" width="100%" alt="OXIS — the terminal you can script. Your real PowerShell, bash, zsh or fish, plus an editor, workspaces, workflows, themes and Lua plugins."></a>
+<a href="https://oxis.space"><img src="assets/readme/banner.svg" width="100%" alt="OXIS — the workspace you program. Automate projects, edit documents and build workflows, in an app where you can change anything."></a>
+
+### OXIS is a programmable workspace for automating projects, editing documents and building workflows — with an entirely customizable experience.
+
+<sub>Free and open source · Windows and Linux · about 14 MB · no account, no telemetry</sub>
 
 <br>
 
@@ -38,9 +42,37 @@
 
 <br>
 
-<img src="assets/readme/h-why.svg" width="100%" alt="01 · Why OXIS">
+<img src="assets/readme/h-why.svg" width="100%" alt="01 · What OXIS is">
 
-<img src="assets/readme/features.svg" width="100%" alt="Your shell, unchanged: PowerShell, bash, zsh or fish in 24-bit colour, with vim, htop and lazygit. 'commands on top: 50+ built-ins, history search, completion, a palette, and each command's status and time. An editor that helps: errors underlined as you type, suggestions, Ctrl+P, a minimap, VS Code keys, Vim modes and a live preview. Workspaces: tasks, workflows, plugins and git remote per project. Lua plugins: commands, keymaps, events, processes, file watching and streamed AI answers, with permissions and a Market. Themes: 10 built in, 78 keys each, a live editor, Windows Terminal schemes.">
+## What is OXIS?
+
+OXIS is one desktop app for the work you do on a project — running
+it, editing it, automating it — and every part of it can be programmed
+and changed.
+
+- **A real terminal.** Your own PowerShell, bash, zsh or fish, not an
+  imitation of one, with tabs, split panes, full colour, and programs
+  like vim, htop and lazygit. A line that starts with `'` is an OXIS
+  command (`'help` lists them); everything else goes to your shell.
+- **An editor for code and documents.** `'edit` opens any file: errors
+  underlined as you type, suggestions, search across the project
+  (Ctrl+Shift+F), a live preview for HTML and Markdown, and Vim modes or
+  VS Code keys.
+- **Automation.** Each project gets tasks (`'task test`), workflows of
+  several steps with retries and exit codes (`'workflow release`), and
+  watchers that act when files change.
+- **Programmable in Lua.** A few lines add a command, a keybinding, a
+  task, a workflow or a whole tool. Plugins run programs and read their
+  output as it prints, watch files, call web APIs and edit the open
+  document. More are in the [Market](https://oxis.space/#market).
+- **Workspaces.** Every project keeps its own folder, tasks, plugins,
+  git repository and history; `'workspace switch api` moves between them.
+- **Change anything.** Themes with 78 settings each and a live editor,
+  the prompt, the keys, the layout, the Home screen and its pixel-art
+  sky — and whatever a plugin adds.
+
+**Who it's for:** people who work in a terminal and want a project's
+commands, files and automation in one place they can shape to fit.
 
 <br>
 

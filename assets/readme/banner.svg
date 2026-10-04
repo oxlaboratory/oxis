@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 560" width="1280" height="560" role="img" aria-label="OXIS — the terminal you can script">
-  <title>OXIS — the terminal you can script</title>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 560" width="1280" height="560" role="img" aria-label="OXIS — the workspace you program">
+  <title>OXIS — the workspace you program</title>
   <style>
 .t{font-family:'JetBrains Mono','Cascadia Code','SF Mono',Consolas,Menlo,'Liberation Mono',monospace;font-size:15px;white-space:pre}
 .h{font-family:'Segoe UI Variable Display','Segoe UI',Inter,-apple-system,BlinkMacSystemFont,'Helvetica Neue',Arial,sans-serif}
@@ -35,10 +35,10 @@
     <g transform="translate(80 72) scale(0.6400)"><path fill="#3dff64" fill-rule="evenodd" d="M37 0 74 19v62L37 100 0 81V19zm0 19-18.5 9.6v42.4L37 80.4l18.5-9.4V28.6z"/><path fill="#000" opacity=".22" d="M18.5 9.8 37 19l-18.5 9.6zM55.5 70.9 37 80.4 55.5 90z"/></g>
     <text class="h" x="140" y="118" fill="#e6edf3" font-size="38" font-weight="700" letter-spacing="7">OXIS</text>
 
-    <text class="h" x="78" y="238" fill="#e6edf3" font-size="74" font-weight="800" letter-spacing="-1.5">The terminal</text>
-    <text class="h" x="78" y="322" fill="#3dff64" font-size="74" font-weight="800" letter-spacing="-1.5" filter="url(#textglow)">you can script.</text>
-    <text class="h" x="80" y="378" fill="#8b98a8" font-size="21">Your real PowerShell, bash, zsh or fish — plus an editor,</text>
-    <text class="h" x="80" y="408" fill="#8b98a8" font-size="21">workspaces, workflows, themes and Lua plugins.</text>
+    <text class="h" x="78" y="238" fill="#e6edf3" font-size="74" font-weight="800" letter-spacing="-1.5">The workspace</text>
+    <text class="h" x="78" y="322" fill="#3dff64" font-size="74" font-weight="800" letter-spacing="-1.5" filter="url(#textglow)">you program.</text>
+    <text class="h" x="80" y="378" fill="#8b98a8" font-size="21">Automate projects, edit documents and build workflows,</text>
+    <text class="h" x="80" y="408" fill="#8b98a8" font-size="21">in an app where you can change anything.</text>
     <rect x="80" y="452" width="90" height="36" rx="18" fill="#10151d" stroke="#232b36"/><text class="t" x="125" y="475" fill="#e6edf3" text-anchor="middle" font-size="15">Windows</text><rect x="182.39999999999998" y="452" width="72" height="36" rx="18" fill="#10151d" stroke="#232b36"/><text class="t" x="218" y="475" fill="#e6edf3" text-anchor="middle" font-size="15">Linux</text><rect x="266.4" y="452" width="127" height="36" rx="18" fill="#10151d" stroke="#232b36"/><text class="t" x="330" y="475" fill="#e6edf3" text-anchor="middle" font-size="15">Open source</text><rect x="405.59999999999997" y="452" width="136" height="36" rx="18" fill="#10151d" stroke="#232b36"/><text class="t" x="474" y="475" fill="#e6edf3" text-anchor="middle" font-size="15">No telemetry</text>
 
     <g class="float">
