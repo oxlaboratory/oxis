@@ -457,6 +457,16 @@ without `-i`); anything more, such as `--login`, is used as it is. Without it (o
 directory by asking the shell after a `cd`, as before. The bash and zsh
 startup files OXIS uses are in `~/.oxis/shell`.
 
+### Links in the output
+
+URLs open in your browser. File paths open in the editor, at the line
+and column when the output gives one, the way compilers, linters and
+test runners print them: `src/app.ts:12:5`, `src/app.ts(12,5)` (tsc),
+`./main.go:40`, `File "app.py", line 3`. Relative paths start at the
+shell's folder; a bare name counts when it has an extension code uses
+(`.ts`, `.go`, `.py`, `.json`…), so `example.com` or `v1.2.1` stay text.
+A path coloured in pieces (tsc, eslint) is still one link.
+
 ### Full-screen programs
 
 vim, less, htop, lazygit, fzf, Microsoft Edit and anything else that

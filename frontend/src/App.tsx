@@ -83,6 +83,7 @@ import { commitAll, setupRemote, unlinkRemote, getRemotes, parseGitRemote, cance
 import { loadUserConfig } from "./terminal/userConfig";
 import { userConfigDir, runCommand } from "./native";
 import { completeShell, applyCompletion } from "./terminal/shellComplete";
+import { findLinks, resolveLinkPath, type OutputLink } from "./terminal/outputLinks";
 import { readFile, writeFile, listDir, makeDir, statPath, movePath, trashPath, copyPath, isNativeApp, openUrl, checkForUpdate, performUpdate, quitApp, windowGetSize, windowSetSize, systemInfo, previewUrl, isImagePath, readImage } from "./native";
 import type { NativeUpdateInfo } from "./native";
 import { BUILD, OXIS_VERSION, fullVersion, describe as describeBuild, shortCommit, channelLabel, formatStampDate } from "./buildInfo";
@@ -2844,6 +2845,14 @@ const CodeArea = React.forwardRef<HTMLTextAreaElement, {
     onCaret?.(ta.selectionStart, ta.selectionEnd);
   }, [starts, placeCurline, onCaret]);
   useLayoutEffect(() => { reportCaret(); }, [value, reportCaret]);
+  // Moving the caret from code fires no select event when nothing is
+  // selected; a jump (go to line, a clicked file:line) says so instead.
+  useEffect(() => {
+    const ta = taRef.current;
+    if (!ta) return;
+    ta.addEventListener("oxis-caret", reportCaret);
+    return () => ta.removeEventListener("oxis-caret", reportCaret);
+  }, [reportCaret]);
 
   const syncScroll = useCallback((e: React.UIEvent<HTMLTextAreaElement>) => {
     const { scrollTop, scrollLeft } = e.currentTarget;
@@ -4161,6 +4170,7 @@ function Editor({ file, onClose, onSave, onDirtyChange, pluginTarget = true }: {
       const style = window.getComputedStyle(ta);
       const lineHeight = parseFloat(style.lineHeight) || 18;
       ta.scrollTop = Math.max(0, (target - 1) * lineHeight - ta.clientHeight / 2);
+      ta.dispatchEvent(new Event("oxis-caret"));
     }, 60); // after the focus effect above and the first paint of `content`
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -5223,45 +5233,60 @@ function ensurePluginsInited(): void {
 }
 
 // Clickable URLs (open in the system browser) and file paths (open in
-// the editor) in terminal output. Only paths ending in an extension
-// count, so flags and ratios don't become links. A Windows path can
-// use either slash after the drive (C:\dev, or C:/dev from Git Bash).
-const LINE_LINK_RE = /(https?:\/\/[^\s"'<>()]+)|([A-Za-z]:[\\/][^\s"'<>]+?\.[A-Za-z0-9]{1,8}(?=[\s"'<>)]|$))|((?<=^|[\s"'(=:])\/[^\s"'<>]+?\.[A-Za-z0-9]{1,8}(?=[\s"'<>)]|$))/g;
+// the editor at the line a compiler or test runner gave), found by
+// outputLinks.ts on the whole line, so a path and its :12:5 in two
+// colours are still one link.
 
 // A mouseup that finishes a text selection also fires click; don't
 // treat that as opening the link.
 const selectionActive = () => (window.getSelection?.()?.toString().length ?? 0) > 0;
 
-function renderLineWithLinks(text: string, onOpenUrl: (url: string) => void, onOpenPath: (path: string) => void): React.ReactNode {
-  if (!text) return "\u00a0";
-  LINE_LINK_RE.lastIndex = 0;
-  const parts: React.ReactNode[] = [];
-  let last = 0, key = 0, m: RegExpExecArray | null;
-  while ((m = LINE_LINK_RE.exec(text)) !== null) {
-    if (m.index > last) parts.push(text.slice(last, m.index));
-    const matched = m[0];
-    if (m[1]) {
-      parts.push(<span key={key++} className="term-link" onClick={e => { e.stopPropagation(); if (!selectionActive()) onOpenUrl(matched); }} title={`open ${matched}`}>{matched}</span>);
-    } else {
-      parts.push(<span key={key++} className="term-link term-link--path" onClick={e => { e.stopPropagation(); if (!selectionActive()) onOpenPath(matched); }} title={`edit ${matched}`}>{matched}</span>);
-    }
-    last = LINE_LINK_RE.lastIndex;
-  }
-  if (last < text.length) parts.push(text.slice(last));
-  return parts;
+const openLineUrl = (url: string) => { void openUrl(url); };
+const openLinePath = (link: OutputLink) => {
+  const path = resolveLinkPath(link.path ?? "", cwdTracker.get(), isWindows());
+  void statPath(path).then(
+    (st) => {
+      if (st.exists && !st.isDir) _ctxRef.current?.openEditor(path, link.line, link.col ? link.col - 1 : undefined);
+      else _ctxRef.current?.print(`  ✗  ${path} isn't a file here`, "dim");
+    },
+    () => _ctxRef.current?.openEditor(path, link.line, link.col ? link.col - 1 : undefined),
+  );
+};
+
+function linkProps(link: OutputLink, key: string | number) {
+  const where = link.line ? `:${link.line}${link.col ? `:${link.col}` : ""}` : "";
+  return link.url
+    ? { key, className: "term-link", title: `open ${link.url}`, onClick: (e: React.MouseEvent) => { e.stopPropagation(); if (!selectionActive()) openLineUrl(link.url!); } }
+    : { key, className: "term-link term-link--path", title: `edit ${link.path}${where}`, onClick: (e: React.MouseEvent) => { e.stopPropagation(); if (!selectionActive()) openLinePath(link); } };
 }
 
-const openLineUrl = (url: string) => { void openUrl(url); };
-const openLinePath = (path: string) => { _ctxRef.current?.openEditor(path); };
-
-/** One output line. Memoised because the terminal re-renders on every
- *  keystroke in the prompt, and rebuilding (and re-scanning for links)
- *  up to 10,000 lines each time made typing lag. */
-/** Styled spans (shell colours); links are found within each span. */
-function renderSpans(spans: Span[]): React.ReactNode {
-  return spans.map((sp, i) => sp.s
-    ? <span key={i} style={cssText(sp.s)}>{renderLineWithLinks(sp.t, openLineUrl, openLinePath)}</span>
-    : <React.Fragment key={i}>{renderLineWithLinks(sp.t, openLineUrl, openLinePath)}</React.Fragment>);
+/** A line's text, or its styled spans (shell colours), with the links
+ *  in it clickable. */
+function renderLine(text: string, spans?: Span[]): React.ReactNode {
+  if (!text) return "\u00a0";
+  const links = findLinks(text);
+  const pieces = spans && spans.length ? spans : [{ t: text } as Span];
+  if (!links.length) {
+    return spans ? pieces.map((sp, i) => sp.s ? <span key={i} style={cssText(sp.s)}>{sp.t}</span> : <React.Fragment key={i}>{sp.t}</React.Fragment>) : text;
+  }
+  const out: React.ReactNode[] = [];
+  let at = 0, li = 0, key = 0;
+  for (const sp of pieces) {
+    const from = at, to = at + sp.t.length;
+    at = to;
+    let pos = from;
+    while (pos < to) {
+      while (li < links.length && links[li].end <= pos) li++;
+      const link = links[li];
+      const inLink = link && link.start <= pos;
+      const stop = inLink ? Math.min(to, link.end) : Math.min(to, link ? link.start : to);
+      const t = sp.t.slice(pos - from, stop - from);
+      const style = sp.s ? cssText(sp.s) : undefined;
+      out.push(inLink ? <span {...linkProps(link, key++)} style={style}>{t}</span> : style ? <span key={key++} style={style}>{t}</span> : t);
+      pos = stop;
+    }
+  }
+  return out;
 }
 
 const cssCache = new Map<string, React.CSSProperties>();
@@ -5288,7 +5313,7 @@ const OutputLine = memo(function OutputLine({ line, match }: { line: Line; match
     <div data-line-id={line.id}
       className={`term-line${match ? " term-line--match" : ""}${line.status ? " term-line--command" : ""}`}
       style={{ color: line.kind ? LINE_COLORS[line.kind] : undefined }}>
-      {line.spans && line.text ? renderSpans(line.spans) : renderLineWithLinks(line.text, openLineUrl, openLinePath)}
+      {renderLine(line.text, line.spans)}
       {line.status && <CommandStatus {...line.status} />}
     </div>
   );
@@ -7189,7 +7214,7 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
               </div>
               <div className="editor-peek-body" ref={el => { if (el) el.scrollTop = el.scrollHeight; }}>
                 <OutputBlock lines={shown.slice(-200)} matches={outputSearchSet} />
-                {partial && !screenOn && <div className="term-line">{partialSpans && !secretInput ? renderSpans(partialSpans) : partial}</div>}
+                {partial && !screenOn && <div className="term-line">{partialSpans && !secretInput ? renderLine(partialSpans.map(sp => sp.t).join(""), partialSpans) : partial}</div>}
               </div>
             </div>
           );
@@ -7215,7 +7240,7 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
         tabIndex={-1}
       >
         {outputBlocks.map(b => <OutputBlock key={b.key} lines={b.lines} matches={outputSearchSet} />)}
-        {partial && !screenOn && <div className="term-line">{partialSpans && !secretInput ? renderSpans(partialSpans) : partial}</div>}
+        {partial && !screenOn && <div className="term-line">{partialSpans && !secretInput ? renderLine(partialSpans.map(sp => sp.t).join(""), partialSpans) : partial}</div>}
       </div>
 
       {outputMenu && (

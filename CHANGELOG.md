@@ -6,6 +6,11 @@ All notable changes to OXIS. The format follows
 ## [Unreleased]
 
 ### Added
+- Clickable compiler output: relative paths (`src/app.ts:12:5`,
+  `src/app.ts(12,5)`, `./main.go:40`, Python's `File "…", line 3`) open
+  in the editor at that line and column, from the shell's folder. Only
+  absolute paths were links before, and a `:line` after one broke it.
+  A path in several colours is one link; a missing file says so.
 - Tab completes shell commands in the prompt, the same in bash,
   PowerShell, cmd or zsh: files and folders where the shell is (only
   folders after `cd`, Git Bash `/c/…` paths too), git subcommands and
@@ -478,6 +483,8 @@ All notable changes to OXIS. The format follows
 - The npm launcher downloads from the GitHub `latest-build` release.
 
 ### Fixed
+- After a jump to a line (search results, go to line), the status bar's
+  Ln/Col and the current-line highlight followed only on the next key.
 - The directory reported by Git Bash (`/c/Users/…`) is read as
   `C:\Users\…`, not as a network path. Its own folders (`/tmp`, other
   mounts) are reported as the Windows folder they are.
