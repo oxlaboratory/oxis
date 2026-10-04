@@ -387,12 +387,14 @@ class WorkspaceManager {
     // plugins (see pluginManager.ts's load()) for why this skips the
     // oxis.run()/oxis.task() shell-permission prompt.
     const bindings = buildLuaAPI({ ...this.apiCtx!, pluginName: WORKSPACE_PLUGIN_NAME, isTrusted: true });
-    const result = loadLuaPlugin(source, bindings);
-    if (!result.ok) {
+    const result = loadLuaPlugin(source, bindings, "workspace.lua");
+    const ran = await result.ready;
+    if (!result.ok || !ran.ok) {
+      if (result.ok) result.plugin.dispose();
       this.activeDir = null;
       this.activeNamed = null;
       events.emit("workspace_unloaded", {});
-      return { ok: false, message: `${path} failed to load: ${result.error}` };
+      return { ok: false, message: `${path} failed to load: ${result.ok ? (ran as { error: string }).error : result.error}` };
     }
     this.disposer = result.plugin;
     this.activeDir = dir;
@@ -468,9 +470,11 @@ class WorkspaceManager {
       catch { continue; }
       const pluginName = WORKSPACE_PLUGIN_NAME; // tasks defined this way ARE workspace tasks — 'workspace close/reload should undo them same as workspace.lua's own oxis.task() calls
       const bindings = buildLuaAPI({ ...this.apiCtx!, pluginName, isTrusted: true }); // the user's own local tasks/ folder, not third-party code — see workspace.lua's own load() above
-      const result = loadLuaPlugin(source, bindings);
-      if (!result.ok) {
-        this.apiCtx?.print(`  ✗  ${tasksDir}/${file.name} failed to load: ${result.error}`, "err");
+      const result = loadLuaPlugin(source, bindings, file.name);
+      const ran = await result.ready; // it must have run before its VM is let go below
+      if (!result.ok || !ran.ok) {
+        if (result.ok) result.plugin.dispose();
+        this.apiCtx?.print(`  ✗  ${tasksDir}/${file.name} failed to load: ${result.ok ? (ran as { error: string }).error : result.error}`, "err");
         continue;
       }
       try { result.plugin.dispose(); } catch { /* ignore — registered commands/tasks stay in the registry, only the Lua VM itself is disposable here */ }
@@ -488,9 +492,11 @@ class WorkspaceManager {
       catch { continue; }
       const pluginName = `__workflow_file__:${file.name}`;
       const bindings = buildLuaAPI({ ...this.apiCtx!, pluginName, isTrusted: true }); // the user's own local workflows/ folder, not third-party code
-      const result = loadLuaPlugin(source, bindings);
-      if (!result.ok) {
-        this.apiCtx?.print(`  ✗  ${workflowsDir}/${file.name} failed to load: ${result.error}`, "err");
+      const result = loadLuaPlugin(source, bindings, file.name);
+      const ran = await result.ready;
+      if (!result.ok || !ran.ok) {
+        if (result.ok) result.plugin.dispose();
+        this.apiCtx?.print(`  ✗  ${workflowsDir}/${file.name} failed to load: ${result.ok ? (ran as { error: string }).error : result.error}`, "err");
         continue;
       }
       // Only oxis.workflow() calls matter here — if the file also

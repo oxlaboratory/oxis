@@ -1,5 +1,7 @@
 /**
- * luaRuntime.ts — runs plugin Lua (5.3) with fengari.
+ * luaRuntime.ts — runs plugin Lua. Real Lua 5.4 in OXIS when it's there
+ * (nativeLua.ts, internal/luanative); otherwise, or with 'config set
+ * luaEngine fengari, Lua 5.3 in the page with fengari, here.
  *
  * The `oxis` table is built by hand from lua_pushcfunction functions
  * that read their arguments straight off the Lua stack. fengari-interop's
@@ -11,6 +13,7 @@
  */
 
 import { lua, lauxlib, lualib, to_luastring } from "fengari";
+import { loadNative, engineSetting } from "./nativeLua";
 
 // fengari's LuaState type isn't exported in a convenient form — treat
 // it as opaque outside this file.
@@ -123,6 +126,10 @@ export interface OxisBindings {
   storeGet(key: string): LuaJSValue;
   storeSet(key: string, value: LuaJSValue): void;
 
+  /** Throws unless the plugin may use the namespace (prompting for a
+   *  plugin without a manifest): native Lua's io, os and C modules. */
+  requirePermission?(ns: string): void;
+
   /** A Lua callback raised an error (shown to the user). */
   reportError?(message: string): void;
   /** The plugin is being unloaded: stop what it started. */
@@ -132,11 +139,20 @@ export interface OxisBindings {
 export interface LoadedLuaPlugin {
   /** Close this plugin's lua_State. Always call this on unload/reload/disable. */
   dispose(): void;
+  /** What it runs on: "native" (Lua 5.4) or "fengari" (Lua 5.3). */
+  readonly engine?: "native" | "fengari";
 }
 
-export type LuaLoadResult =
+/** Whether the plugin's file ran without an error. */
+export type LuaReady = { ok: true } | { ok: false; error: string };
+
+/** `ready` settles once the file has run: at once on fengari, after a
+ *  round trip on native Lua. `ok: false` here is a failure known at
+ *  once (fengari); with native Lua a failure shows in `ready`. */
+export type LuaLoadResult = (
   | { ok: true; plugin: LoadedLuaPlugin }
-  | { ok: false; error: string };
+  | { ok: false; error: string }
+) & { ready: Promise<LuaReady> };
 
 // ── Lua value <-> JS value marshaling (plain data only — functions
 // are handled separately via registry refs, see makeInvoker below) ──
@@ -602,9 +618,17 @@ function buildOxisTable(L: LuaState, b: OxisBindings, closedRef: StateRef): void
   lua.lua_setglobal(L, to_luastring("oxis"));
 }
 
-/** Runs Lua source in a new lua_State (its top level registers the
- *  commands, tasks, etc.). On failure the state is already closed. */
-export function loadLuaPlugin(source: string, bindings: OxisBindings): LuaLoadResult {
+/** Runs Lua source (its top level registers the commands, tasks,
+ *  etc.): on native Lua unless that's switched off or missing. `chunk`
+ *  names it in error messages. */
+export function loadLuaPlugin(source: string, bindings: OxisBindings, chunk = "plugin"): LuaLoadResult {
+  if (engineSetting() === "fengari") return loadFengari(source, bindings);
+  return loadNative(source, bindings, chunk, () => loadFengari(source, bindings));
+}
+
+/** Runs Lua source in a new fengari lua_State. On failure the state is
+ *  already closed. */
+function loadFengari(source: string, bindings: OxisBindings): LuaLoadResult {
   const L = lauxlib.luaL_newstate();
   lualib.luaL_openlibs(L);
   // A JS error thrown under a Lua call (a denied permission, a bad
@@ -624,12 +648,14 @@ export function loadLuaPlugin(source: string, bindings: OxisBindings): LuaLoadRe
     try { bindings.dispose?.(); } catch { /* best effort */ }
     closedRef.closed = true;
     lua.lua_close(L);
-    return { ok: false, error: err };
+    return { ok: false, error: err, ready: Promise.resolve({ ok: false, error: err }) };
   }
 
   return {
     ok: true,
+    ready: Promise.resolve({ ok: true }),
     plugin: {
+      engine: "fengari",
       dispose: () => {
         try { bindings.dispose?.(); } finally {
           closedRef.closed = true;

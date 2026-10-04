@@ -6,6 +6,26 @@ All notable changes to OXIS. The format follows
 ## [Unreleased]
 
 ### Added
+- Plugins run on real Lua 5.4.9 inside OXIS instead of fengari's Lua
+  5.3 in the page: each in its own thread, so a busy or stuck plugin
+  can't freeze the window (and unloading one stops it mid-loop). The
+  whole standard library, `require` from `~/.oxis/lua` and LuaRocks'
+  tree, and Lua C modules (luafilesystem, luasocket, lua-cjson…: on
+  Windows they share OXIS's `lua54.dll`). Lua's file, process and
+  native-code functions follow the plugin's permissions (`fs`, `shell`,
+  and the new `native`); `os.exit` is refused and precompiled chunks
+  aren't loaded. `'version` and `'plugin info` say what plugins run on;
+  `'config set luaEngine fengari` goes back to the old engine, and a
+  build without a C compiler uses it by itself.
+- While the editor fills a pane, what a command run at the prompt
+  prints shows in a panel under the editor, instead of out of sight
+  behind it.
+- The editor's Vim keys grew from a handful to the everyday set: counts
+  (`3j`, `2dd`, `d3w`), `e` `^` and `5G`, `yy`/`yw`/`y$` with `p` and
+  `P`, `D` `C` `cc` `cw` `s` `S` `r` `X`, `dj`/`dk`/`de`/`db`, `J`, `~`,
+  `>>`/`<<`, `u` and Ctrl+R, `/` `n` `N` `*` `#`, and in Visual mode
+  `c` `s` `p` `~` `>` `<`. `j` and `k` keep the column they started
+  from across shorter lines.
 - `oxis.line(text [, kind])` for Lua plugins: a line that `l:set()`
   redraws in place, for animations and progress; `oxis.every` now runs
   as often as every 0.03 s.
@@ -427,6 +447,14 @@ All notable changes to OXIS. The format follows
 - The npm launcher downloads from the GitHub `latest-build` release.
 
 ### Fixed
+- `'plugin validate` and the editor's Lua checks no longer call Lua 5.4
+  syntax (`<const>`, `<close>`) an error.
+- After a search, the first match was selected again with every key
+  typed, even with the find bar closed, so typing in Insert mode kept
+  jumping back to it.
+- Moving in Normal or Visual mode moved the caret a frame later, so a
+  key typed quickly after a motion (or in a window in the background)
+  acted where the caret had been.
 - Selecting text in the editor drew a second, bold-looking copy of the
   selected text over the code (and a theme's solid selection colour hid
   it); the selection now only tints the highlighted text.

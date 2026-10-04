@@ -27,7 +27,7 @@ export { OXIS_VERSION } from "../buildInfo";
 
 // Must match PermissionNamespace; unknown names in a manifest's
 // `permissions:` are dropped.
-const ALL_NAMESPACES: PermissionNamespace[] = ["fs", "process", "net", "system", "workspace", "editor", "terminal", "shell"];
+const ALL_NAMESPACES: PermissionNamespace[] = ["fs", "process", "net", "system", "workspace", "editor", "terminal", "shell", "native"];
 
 export interface PluginManifest {
   version?: string;

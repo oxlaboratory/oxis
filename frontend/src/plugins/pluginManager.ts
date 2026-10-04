@@ -11,7 +11,8 @@
 import { registry } from "../terminal/commandRegistry";
 import { events } from "../terminal/events";
 import { workspaceManager } from "../terminal/workspaceManager";
-import { loadLuaPlugin, checkLuaSyntax, type LoadedLuaPlugin } from "./luaRuntime";
+import { loadLuaPlugin, checkLuaSyntax, type LoadedLuaPlugin, type LuaReady } from "./luaRuntime";
+import { checkNative } from "./nativeLua";
 import { buildLuaAPI, UNDOCUMENTED_SENTINEL, type APIContext } from "./pluginAPI";
 import { isNativeApp, listPluginFiles, readPluginFile, writePluginFile, deletePluginFile, readFile, writeFile, listDir, deletePath, statPath } from "../native";
 import type { CommandHandler } from "../terminal/commandRegistry";
@@ -100,6 +101,7 @@ export function formatPluginError(info: PluginErrorInfo): string {
 class PluginManager {
   private plugins = new Map<string, PluginMeta>();
   private disposers = new Map<string, LoadedLuaPlugin>();
+  private readyByName = new Map<string, Promise<LuaReady>>();
   private warnedUndocumented = new Set<string>();
   private apiCtx: APIContext | null = null;
 
@@ -256,25 +258,55 @@ class PluginManager {
       // Built-in plugins are trusted (no shell prompt); every
       // Market/user plugin goes through requireShellPermission.
       const bindings = buildLuaAPI({ ...this.apiCtx, pluginName: name, isTrusted: p.builtin });
-      const result = loadLuaPlugin(p.lua, bindings);
-      if (!result.ok) {
-        console.warn(`[oxis:plugin] ${name} load error: ${result.error}`);
+      const result = loadLuaPlugin(p.lua, bindings, name);
+      const failed = (error: string) => {
+        console.warn(`[oxis:plugin] ${name} load error: ${error}`);
         const msg = formatPluginError({
-          plugin: name, error: result.error,
+          plugin: name, error,
           suggestion: "'plugin validate " + name + " to check its manifest, or 'plugin docs " + name + " for what it expects.",
         });
-        this.apiCtx.print(msg, "err");
+        this.apiCtx?.print(msg, "err");
         recordError(msg);
         // A plugin that threw during exec has zero working commands —
         // don't leave it marked enabled, or 'plugin list shows a
         // green dot for something that does nothing.
         p.enabled = false;
         this.persist();
+      };
+      if (!result.ok) {
+        failed(result.error);
         return false;
       }
       this.disposers.set(name, result.plugin);
+      // On native Lua the file runs a moment later, in OXIS: what
+      // depends on it having run waits for this.
+      const ready = result.ready.then((r: LuaReady) => {
+        if (this.disposers.get(name) !== result.plugin) return r; // unloaded or reloaded since
+        if (!r.ok) {
+          this.unload(name);
+          failed(r.error);
+        } else {
+          this.checkDocumented(name);
+        }
+        return r;
+      });
+      this.readyByName.set(name, ready);
+    }
 
-      // ── documentation compliance: warn + auto-fill, don't disable ──
+    if (!silent) events.emit("plugin_loaded", { name });
+    return true;
+  }
+
+  /** Resolves once a plugin loaded with load() has run its file. */
+  whenLoaded(name: string): Promise<LuaReady> {
+    return this.readyByName.get(name) ?? Promise.resolve({ ok: true });
+  }
+
+  /** Documentation compliance: warn and fill in, don't disable. */
+  private checkDocumented(name: string): void {
+    {
+      // On native Lua the commands register as the file runs, so this
+      // waits for that (load() calls it once the plugin is ready).
       const registered = registry.all().filter(c => c.fromPlugin === name);
       const undocumented = registered.filter(c => c.description === UNDOCUMENTED_SENTINEL);
       if (undocumented.length > 0) {
@@ -284,14 +316,11 @@ class PluginManager {
         if (!this.warnedUndocumented.has(name)) {
           this.warnedUndocumented.add(name);
           const names = undocumented.map(c => c.name.replace(/^task:/, "'task ")).join(", ");
-          this.apiCtx.print(`  ⚠  plugin ${name}: auto-generated descriptions for: ${names}`, "dim");
-          this.apiCtx.print(`     add a 3rd argument to oxis.command()/oxis.task() to improve 'help output`, "dim");
+          this.apiCtx?.print(`  ⚠  plugin ${name}: auto-generated descriptions for: ${names}`, "dim");
+          this.apiCtx?.print(`     add a 3rd argument to oxis.command()/oxis.task() to improve 'help output`, "dim");
         }
       }
     }
-
-    if (!silent) events.emit("plugin_loaded", { name });
-    return true;
   }
 
   /** Never lets a throwing dispose() abort the caller, so disable()
@@ -428,7 +457,7 @@ class PluginManager {
   /** 'plugin validate <name>: manifest, permissions, dependencies,
    *  compatibility and a Lua syntax check, without running any of the
    *  plugin's code ('plugin test does that). */
-  validate(name: string): { ok: boolean; issues: string[] } {
+  async validate(name: string): Promise<{ ok: boolean; issues: string[] }> {
     const p = this.plugins.get(name);
     if (!p) return { ok: false, issues: [`not found: ${name}`] };
     const issues: string[] = [];
@@ -446,7 +475,9 @@ class PluginManager {
 
     if (p.lua) {
       // Compile only, never run, so this is safe on a loaded plugin.
-      const syntaxCheck = checkLuaSyntax(p.lua);
+      // Lua 5.4 when it's there (fengari's 5.3 rejects <const> and
+      // <close>).
+      const syntaxCheck = (await checkNative(p.lua, name)) ?? checkLuaSyntax(p.lua);
       if (!syntaxCheck.ok) issues.push(`Lua syntax error: ${syntaxCheck.error}`);
     }
 
@@ -461,7 +492,7 @@ class PluginManager {
     const results: PluginDoctorResult[] = [];
     for (const p of this.plugins.values()) {
       if (p.builtin) continue;
-      const { issues } = this.validate(p.name);
+      const { issues } = await this.validate(p.name);
       const findings: PluginDoctorFinding[] = issues.map(issue => ({
         severity: !p.enabled ? "warning" : issue.startsWith("no manifest block") ? "info" : "error",
         message: issue,
@@ -510,6 +541,8 @@ class PluginManager {
       `category: ${p.category}   status: ${p.enabled ? "enabled" : "disabled"}   origin: ${p.builtin ? "built-in" : p.origin ?? "unknown"}`,
     ];
     if (p.author) lines.push(`author: ${p.author}`);
+    const engine = this.disposers.get(name)?.engine;
+    if (engine) lines.push(`runs on: ${engine === "native" ? "native Lua 5.4" : "fengari (Lua 5.3, in the page)"}`);
     if (m?.minOxisVersion) lines.push(`requires OXIS >= ${m.minOxisVersion} (running ${OXIS_VERSION})`);
     if (m?.os) lines.push(`supported OS: ${m.os.join(", ")}`);
     const declaredPerms = declaredPermissionsOf(name);
@@ -530,13 +563,13 @@ class PluginManager {
 
   /** 'plugin test <name>: loads the plugin for real, reports what it
    *  registered, then restores its previous enabled state. */
-  test(name: string): { ok: boolean; message: string } {
+  async test(name: string): Promise<{ ok: boolean; message: string }> {
     const p = this.plugins.get(name);
     if (!p) return { ok: false, message: `not found: ${name}` };
     const wasEnabled = p.enabled;
     if (wasEnabled) this.unload(name); // clean slate, don't double-register
     p.enabled = true;
-    const loaded = this.load(name);
+    const loaded = this.load(name) && (await this.whenLoaded(name)).ok;
     const commands = loaded ? registry.all().filter(c => c.fromPlugin === name) : [];
     if (!wasEnabled) {
       this.unload(name);

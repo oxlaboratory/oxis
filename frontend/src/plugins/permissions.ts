@@ -7,7 +7,7 @@
  * sandbox.
  */
 
-export type PermissionNamespace = "fs" | "process" | "net" | "system" | "workspace" | "editor" | "terminal" | "shell";
+export type PermissionNamespace = "fs" | "process" | "net" | "system" | "workspace" | "editor" | "terminal" | "shell" | "native";
 
 const STORAGE_KEY = "oxis-plugin-permissions-v1";
 // Denials aren't persisted (a user might change their mind), but are
@@ -100,6 +100,7 @@ export function requestPermission(plugin: string, ns: PermissionNamespace): bool
     editor: "read and change the file open in the editor, and open files in it",
     terminal: "open new terminal tabs",
     shell: "run arbitrary shell commands",
+    native: "load native code (Lua C modules) and use Lua's debug library — full access to your computer",
   };
   const ok = typeof confirm === "function"
     ? confirm(`Plugin "${plugin}" wants to ${label[ns]}.\n\nAllow this permission? You can change it later with 'plugin permissions ${plugin}.`)

@@ -58,12 +58,14 @@ export async function loadUserConfig(apiCtx: APIContext): Promise<UserConfigResu
   if (stat?.exists) {
     try {
       const source = await readFile(configPath);
-      const loaded = loadLuaPlugin(source, buildLuaAPI({ ...apiCtx, pluginName: "__config__", isTrusted: true }));
-      if (loaded.ok) {
+      const loaded = loadLuaPlugin(source, buildLuaAPI({ ...apiCtx, pluginName: "__config__", isTrusted: true }), "config.lua");
+      const ran = await loaded.ready;
+      if (loaded.ok && ran.ok) {
         configPlugin = loaded.plugin;
         result.configLoaded = true;
       } else {
-        result.problems.push(`config.lua: ${loaded.error}`);
+        if (loaded.ok) loaded.plugin.dispose();
+        result.problems.push(`config.lua: ${loaded.ok ? (ran as { error: string }).error : loaded.error}`);
       }
     } catch (err) {
       result.problems.push(`config.lua: ${err instanceof Error ? err.message : err}`);

@@ -163,9 +163,26 @@ const ldflags = IS_WIN ? `"-s -w -H windowsgui ${xflags}"` : `"-s -w ${xflags}"`
 const tags = ["desktop", "production"];
 const hasWebkit41 = IS_LINUX && spawnSync("pkg-config", ["--exists", "webkit2gtk-4.1"], { stdio:"pipe" }).status === 0;
 if (hasWebkit41) tags.push("webkit2_41");
+// Plugins run on real Lua 5.4 (internal/luanative), which needs cgo and
+// so a C compiler; Linux has one for GTK anyway. On Windows MinGW-w64's
+// gcc is found where the usual installers put it. Without one the build
+// still works: plugins run on fengari, in the page.
+let buildPath = augmentedPath;
+const buildEnv = {};
+if (IS_WIN) {
+  const gcc = require("./build-lua").findGcc();
+  if (gcc) {
+    if (gcc !== "gcc") buildPath = `${path.dirname(gcc)}${pathSep}${buildPath}`;
+    buildEnv.CGO_ENABLED = "1";
+    ok(`native Lua 5.4 for plugins (cgo with ${gcc})`);
+  } else {
+    buildEnv.CGO_ENABLED = "0";
+    log("   (no C compiler: plugins will run on fengari — install MinGW-w64 for native Lua)", col.grey);
+  }
+}
 // -trimpath: no paths from the machine that built it (a user's home
 // folder, the CI runner's) in the binary, so builds are reproducible.
-run(`"${GO}" build -trimpath -tags ${tags.join(",")} -ldflags=${ldflags} -o "${outBinary}" ./cmd/oxi`, ROOT, { PATH:augmentedPath });
+run(`"${GO}" build -trimpath -tags ${tags.join(",")} -ldflags=${ldflags} -o "${outBinary}" ./cmd/oxi`, ROOT, { PATH:buildPath, ...buildEnv });
 
 const sizeMB = (fs.statSync(outBinary).size / 1024 / 1024).toFixed(1);
 ok(`dist/${binaryName} (${sizeMB} MB)`);

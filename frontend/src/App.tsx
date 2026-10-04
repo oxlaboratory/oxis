@@ -48,9 +48,10 @@ import { getLicensedEmail, setLicensedEmail, checkLicense, listDevices, deactiva
 import type { EditorMode, CursorState }     from "./terminal/editorModes";
 import {
   moveLeft, moveRight, moveUp, moveDown, moveLineStart, moveLineEnd,
-  moveDocStart, moveDocEnd, moveWordForward, moveWordBackward,
-  deleteChar, deleteLine, deleteWord, openLineBelow, openLineAbove,
-  deleteSelection, selectedText,
+  moveDocStart, moveDocEnd, moveWordForward, moveWordBackward, moveWordEnd, moveFirstNonBlank,
+  columnOf, openLineBelow, openLineAbove, deleteSelection, selectionRange,
+  yankLines, deleteLines as vimDeleteLines, paste, deleteToLineEnd as vimDeleteToLineEnd, changeLine, changeWord,
+  replaceChar, joinLines, toggleCase, shiftLine, findNext as findNextFrom, type Register,
 } from "./terminal/editorModes";
 import { highlight, detectLang, escapeHtml } from "./terminal/syntaxHighlight";
 import { checkCode, type Problem, type Severity } from "./terminal/codeCheck";
@@ -73,6 +74,7 @@ import { pluginManager }                   from "./plugins/pluginManager";
 import { UNDOCUMENTED_SENTINEL }           from "./plugins/pluginAPI";
 import { initPlugins }                     from "./plugins/loader";
 import type { LuaJSValue }                 from "./plugins/luaRuntime";
+import { engineInfo as luaEngineInfo, connect as connectNativeLua } from "./plugins/nativeLua";
 import * as market                         from "./plugins/market";
 import { updatePlugin, updateAllPlugins, rollbackPlugin } from "./plugins/marketUpdate";
 import { exportSettings, importSettings, exportWorkspace, importWorkspace, exportPluginSource, createFullBackup, restoreFullBackup } from "./plugins/backup";
@@ -304,6 +306,11 @@ const SETTINGS: SettingDef[] = [
     apply: () => { /* read when a file opens */ },
   },
   {
+    key: "luaEngine", label: "Lua Engine", default: "auto", choices: ["auto", "native", "fengari"],
+    description: "What runs Lua plugins: native is real Lua 5.4 in OXIS (fast, C modules and LuaRocks packages work, a busy plugin can't freeze the window); fengari is Lua 5.3 in the page. auto uses native when this build has it. Takes effect as plugins load ('plugin reload <name>, or restart)",
+    apply: () => { /* read by luaRuntime.ts as plugins load */ },
+  },
+  {
     key: "editorMinimap", label: "Editor Minimap", default: true,
     description: "Show the whole file in miniature beside the editor, marking where its mistakes, find matches and unsaved changes are",
     apply: () => { /* read when the editor renders */ },
@@ -351,6 +358,12 @@ function isSettingSet(key: string): boolean {
 
 /** The setting's value: the user's, else the active theme's (for
  *  themed settings), else the default. */
+/** What runs plugins, for 'version: Lua 5.4 in OXIS, or fengari. */
+function luaEngineText(): string {
+  const e = luaEngineInfo();
+  return e.native ? `${e.engine} — native, C modules work` : `${e.engine}${e.reason ? ` (${e.reason})` : ""}`;
+}
+
 function getSetting(key: string): string | number | boolean {
   const def = settingDef(key);
   if (!def) return "";
@@ -1394,15 +1407,15 @@ function registerBuiltinCommands(): void {
         return; }
       if(sub==="validate"){
         if(!name){err("usage: 'plugin validate <name>");return;}
-        const r = pluginManager.validate(name);
-        if(r.ok){ ok(`${name}: no issues found`); return; }
-        err(`${name}: ${r.issues.length} issue(s)`);
-        r.issues.forEach(issue => dim(`  · ${issue}`));
+        pluginManager.validate(name).then(r => {
+          if(r.ok){ ok(`${name}: no issues found`); return; }
+          err(`${name}: ${r.issues.length} issue(s)`);
+          r.issues.forEach(issue => dim(`  · ${issue}`));
+        });
         return; }
       if(sub==="test"){
         if(!name){err("usage: 'plugin test <name>");return;}
-        const r = pluginManager.test(name);
-        (r.ok?ok:err)(r.message);
+        pluginManager.test(name).then(r => (r.ok?ok:err)(r.message));
         return; }
       if(sub==="doctor"){
         pluginManager.doctor().then(results => {
@@ -1437,7 +1450,7 @@ function registerBuiltinCommands(): void {
         return; }
       if(sub==="publish"){
         if(!name){err(`usage: 'plugin publish <name> [--price=4.99 --interval=month] [--email=you@example.com] [update]`);return;}
-        const check = checkPublishable(name);
+        void checkPublishable(name).then(check => {
         if(!check.ok || !check.metadata){
           err(`${name} isn't ready to publish (${check.issues.length} issue(s)):`);
           check.issues.forEach(issue => dim(`  · ${issue}`));
@@ -1487,6 +1500,7 @@ function registerBuiltinCommands(): void {
             });
           }).catch(e => err(`Stripe Connect onboarding failed: ${e instanceof Error ? e.message : e}`));
         }).catch(e => err(`couldn't check the Market for an existing listing: ${e instanceof Error ? e.message : e}`));
+        });
         return; }
       if(sub==="unpublish"){
         if(!name){err(`usage: 'plugin unpublish <name>`);return;}
@@ -1525,11 +1539,11 @@ function registerBuiltinCommands(): void {
         // 'plugin permissions <name>                 — list grants
         // 'plugin permissions <name> grant  <ns>      — grant fs/process/net/system
         // 'plugin permissions <name> revoke <ns>      — revoke it
-        if(!name){err("usage: 'plugin permissions <name> [grant|revoke <fs|process|net|system|workspace|editor|terminal|shell>]");return;}
+        if(!name){err("usage: 'plugin permissions <name> [grant|revoke <fs|process|net|system|workspace|editor|terminal|shell|native>]");return;}
         const action = args[2]?.toLowerCase();
         const ns = args[3]?.toLowerCase() as PermissionNamespace | undefined;
         // Must match PermissionNamespace in permissions.ts.
-        const VALID: PermissionNamespace[] = ["fs","process","net","system","workspace","editor","terminal","shell"];
+        const VALID: PermissionNamespace[] = ["fs","process","net","system","workspace","editor","terminal","shell","native"];
         if(action==="grant"||action==="revoke"){
           if(!ns || !VALID.includes(ns)){ err(`usage: 'plugin permissions ${name} ${action} <fs|process|net|system>`); return; }
           if(action==="grant") grantPermission(name, ns); else revokePermission(name, ns);
@@ -2176,6 +2190,7 @@ function registerBuiltinCommands(): void {
     const [sys, upd] = await Promise.all([
       native ? systemInfo().catch(() => null) : Promise.resolve(null),
       native ? Promise.race([latestUpdateCheck(2 * 60_000), new Promise<null>(r => setTimeout(() => r(null), 2500))]) : Promise.resolve(null),
+      connectNativeLua(), // so the lua row says what plugins run on
     ]);
     const ua = navigator.userAgent;
     const engines: Array<[RegExp, string]> = [
@@ -2210,6 +2225,7 @@ function registerBuiltinCommands(): void {
       ["os", sys ? `${sys.osName || sys.os} · ${sys.arch}` : `${isWindows() ? "Windows" : "Linux"} · browser tab`],
       ["shell", shellName],
       ["engine", [sys ? `Go ${sys.goVersion.replace(/^go/, "")}` : "", engine].filter(Boolean).join(" · ")],
+      ["lua", luaEngineText()],
       ["mode", native ? "desktop app" : `browser tab at ${location.origin}`],
     ];
     const headline = `  OXIS  v${OXIS_VERSION}${BUILD.buildNumber ? `  ·  build ${BUILD.buildNumber}` : ""}${BUILD.commit ? `  ·  ${shortCommit()}` : ""}`;
@@ -2225,7 +2241,7 @@ function registerBuiltinCommands(): void {
       ...BUILD, fullVersion: fullVersion(), describe: describeBuild() || null,
       update: upd ? { available: upd.available, latestCommit: upd.latestCommit, behind: upd.behind, ahead: upd.ahead, error: upd.error ?? null } : null,
       os: sys?.osName ?? null, arch: sys?.arch ?? null, goVersion: sys?.goVersion ?? null,
-      shell: currentShell() || null, engine, mode: native ? "desktop" : "browser",
+      shell: currentShell() || null, engine, lua: luaEngineInfo(), mode: native ? "desktop" : "browser",
     };
     return { lines, data };
   }
@@ -3042,6 +3058,19 @@ function patchTextarea(ta: HTMLTextAreaElement, next: string): boolean {
 // ══════════════════════════════════════════════════════════════
 // MODAL EDITING — Normal/Insert/Visual mode logic for the editor.
 // ══════════════════════════════════════════════════════════════
+/** What y, d, c and x last put away, for p and P in any editor. */
+let vimRegister: Register = { text: "", linewise: false };
+const lineStartAt = (text: string, pos: number) => pos === 0 ? 0 : text.lastIndexOf("\n", pos - 1) + 1;
+const lineEndAt = (text: string, pos: number) => { const nl = text.indexOf("\n", pos); return nl < 0 ? text.length : nl; };
+/** The word under (or just before) the cursor, for * and #. */
+function wordAt(text: string, pos: number): string {
+  const before = /[\w$]*$/.exec(text.slice(0, pos))![0];
+  const after = /^[\w$]*/.exec(text.slice(pos))![0];
+  return before + after;
+}
+async function readClipboard(): Promise<string> {
+  return navigator.clipboard?.readText ? navigator.clipboard.readText() : "";
+}
 function useModalEditor(opts: {
   taRef:   React.RefObject<HTMLTextAreaElement>;
   content: string;
@@ -3171,13 +3200,18 @@ function useModalEditor(opts: {
       // Visual mode: extend the real selection so it's visible, and
       // remember which end is active.
       const a = anchor ?? pos;
-      if (pos >= a) {
-        requestAnimationFrame(() => ta.setSelectionRange(a, Math.min(pos + 1, content.length), "forward"));
-      } else {
-        requestAnimationFrame(() => ta.setSelectionRange(pos, Math.min(a + 1, content.length), "backward"));
-      }
+      // At once, so the next key (typed before a frame is drawn, or in a
+      // window in the background) starts from here, and again after the
+      // next frame in case a render in between moved it.
+      const select = pos >= a
+        ? () => ta.setSelectionRange(a, Math.min(pos + 1, content.length), "forward")
+        : () => ta.setSelectionRange(pos, Math.min(a + 1, content.length), "backward");
+      select();
+      requestAnimationFrame(select);
     } else {
-      requestAnimationFrame(() => { ta.selectionStart = ta.selectionEnd = pos; });
+      const place = () => { ta.selectionStart = ta.selectionEnd = pos; };
+      place();
+      requestAnimationFrame(place);
       setAnchor(null);
     }
   }, [anchor, content, taRef]);
@@ -3201,98 +3235,6 @@ function useModalEditor(opts: {
     if (next.text !== content) commit(next.text, grouped);
     placeCaret(next.text, next.start, next.end);
   }, [content, commit, placeCaret]);
-
-  // ── Normal / Visual mode command dispatch ────────────────────
-  const handleModalKey = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    // Ctrl/Cmd combos (copy, select-all, browser/OXIS shortcuts, etc.)
-    // are never Normal/Visual-mode commands here — only bare keys and
-    // Shift are. Ctrl+S is handled a level up in onKeyDown before this
-    // is even called.
-    if (e.ctrlKey || e.metaKey || e.altKey) return;
-    const ta = taRef.current!;
-    // In Visual mode the caret is whichever end of the selection is
-    // active; otherwise it's selectionStart.
-    const pos = mode === "visual" && ta.selectionStart !== ta.selectionEnd
-      ? (ta.selectionDirection === "backward" ? ta.selectionStart : ta.selectionEnd - 1)
-      : ta.selectionStart;
-    const cur: CursorState = { content, pos, anchor: mode === "visual" ? (anchor ?? pos) : undefined };
-    const pending = pendingKeyRef.current;
-
-    // Two-key sequences: dd / dw / gg
-    if (pending === "d") {
-      pendingKeyRef.current = "";
-      e.preventDefault();
-      if (e.key === "d") { applyEdit(deleteLine(cur)); return; }
-      if (e.key === "w") { applyEdit(deleteWord(cur)); return; }
-      return; // unrecognised — drop the pending 'd'
-    }
-    if (pending === "g") {
-      pendingKeyRef.current = "";
-      e.preventDefault();
-      if (e.key === "g") { setPos(moveDocStart()); return; }
-      return;
-    }
-
-    switch (e.key) {
-      case "Escape":
-        e.preventDefault();
-        if (mode === "visual") { setPos(pos); setMode("normal"); return; }
-        onEscapeNormal();
-        return;
-      case "i": e.preventDefault(); setMode("insert"); return;
-      case "a": e.preventDefault(); setPos(moveRight(cur)); setMode("insert"); return;
-      case "A": e.preventDefault(); setPos(moveLineEnd(cur)); setMode("insert"); return;
-      case "I": e.preventDefault(); setPos(moveLineStart(cur)); setMode("insert"); return;
-      case "o": e.preventDefault(); applyEdit(openLineBelow(cur), { toInsert: true }); return;
-      case "O": e.preventDefault(); applyEdit(openLineAbove(cur), { toInsert: true }); return;
-      case "v":
-        if (e.ctrlKey || e.metaKey) return; // let Ctrl/Cmd+V paste through
-        e.preventDefault();
-        if (mode === "visual") { setPos(pos); setMode("normal"); }
-        else { setAnchor(pos); setMode("visual"); }
-        return;
-      case "h": case "ArrowLeft":  e.preventDefault(); setPos(moveLeft(cur),  mode === "visual"); return;
-      case "l": case "ArrowRight": e.preventDefault(); setPos(moveRight(cur), mode === "visual"); return;
-      case "j": case "ArrowDown":  e.preventDefault(); setPos(moveDown(cur),  mode === "visual"); return;
-      case "k": case "ArrowUp":    e.preventDefault(); setPos(moveUp(cur),    mode === "visual"); return;
-      case "0": e.preventDefault(); setPos(moveLineStart(cur), mode === "visual"); return;
-      case "$": e.preventDefault(); setPos(moveLineEnd(cur),   mode === "visual"); return;
-      case "G": e.preventDefault(); setPos(moveDocEnd(cur),    mode === "visual"); return;
-      case "w": e.preventDefault(); setPos(moveWordForward(cur), mode === "visual"); return;
-      case "b": e.preventDefault(); setPos(moveWordBackward(cur), mode === "visual"); return;
-      case "g": e.preventDefault(); pendingKeyRef.current = "g"; return;
-      case "x":
-        e.preventDefault();
-        if (mode === "visual") { applyEdit(deleteSelection(cur)); setMode("normal"); setAnchor(null); }
-        else applyEdit(deleteChar(cur));
-        return;
-      case "d":
-        e.preventDefault();
-        if (mode === "visual") { applyEdit(deleteSelection(cur)); setMode("normal"); setAnchor(null); }
-        else pendingKeyRef.current = "d";
-        return;
-      case "y":
-        if (mode === "visual") {
-          e.preventDefault();
-          void copyToClipboard(selectedText(cur));
-          setPos(pos); setMode("normal");
-        }
-        return;
-      case "Tab": {
-        e.preventDefault();
-        const s = ta.selectionStart, en = ta.selectionEnd;
-        const next = content.slice(0, s) + "  " + content.slice(en);
-        commit(next, false);
-        placeCaret(next, s + 2);
-        return;
-      }
-      default:
-        // Normal/Visual mode: plain characters are commands, never
-        // inserted. Modifier combos and function keys pass through.
-        if (!e.ctrlKey && !e.altKey && !e.metaKey && e.key.length === 1) e.preventDefault();
-        return;
-    }
-  }, [content, mode, anchor, onEscapeNormal, applyEdit, setPos, onEdit, taRef]);
 
   // ── Find / Find & Replace / Go to line ────────────────────────
   // Uses its own <input> (FindBar), outside the modal key handling.
@@ -3335,14 +3277,15 @@ function useModalEditor(opts: {
     ta.scrollTop = Math.max(0, ((lineNum - 4) / totalLines) * ta.scrollHeight);
   }, [matches, findQuery, content, taRef]);
 
+  // A new search (or the bar opening) goes to the first match. Only
+  // then: `matches` changes with every keystroke, and re-selecting the
+  // match on each one kept highlighting it after the bar was closed.
   useEffect(() => {
+    if (!findOpen) return;
     setMatchIndex(0);
     if (matches.length > 0) selectMatch(0);
-    // selectMatch intentionally omitted — it's derived from the same
-    // matches/findQuery this already re-runs on, including it would
-    // just re-fire this identically on every content keystroke.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [matches, findQuery]);
+  }, [findQuery, findOpen]);
 
   const openFind = useCallback((asMode: "find" | "replace" | "goto") => {
     setFindMode(asMode);
@@ -3410,6 +3353,340 @@ function useModalEditor(opts: {
     ta.scrollTop = Math.max(0, ((target - 4) / lines.length) * ta.scrollHeight);
   }, [content, taRef]);
 
+  // ── Normal / Visual mode command dispatch ────────────────────
+  // A count before a command repeats it ("3j", "2dd", "d3w"); j and k
+  // keep the column they started from; y, d, c and x put text in the
+  // register (shared by every editor, like Vim's, and copied to the
+  // clipboard) for p and P.
+  const countRef = useRef("");
+  const pendingCountRef = useRef(1);
+  const wantColRef = useRef<number | null>(null);
+  const handleModalKey = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // Ctrl/Cmd combos (copy, select-all, browser/OXIS shortcuts, etc.)
+    // are never Normal/Visual-mode commands here — only bare keys and
+    // Shift are. Ctrl+S and Ctrl+R are handled a level up in onKeyDown.
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    const k = e.key;
+    if (k === "Shift" || k === "CapsLock") return;
+    const ta = taRef.current!;
+    const visual = mode === "visual";
+    // In Visual mode the caret is whichever end of the selection is
+    // active; otherwise it's selectionStart.
+    const pos = visual && ta.selectionStart !== ta.selectionEnd
+      ? (ta.selectionDirection === "backward" ? ta.selectionStart : ta.selectionEnd - 1)
+      : ta.selectionStart;
+    const cur: CursorState = { content, pos, anchor: visual ? (anchor ?? pos) : undefined };
+    const pending = pendingKeyRef.current;
+
+    // Digits make a count (a 0 on its own is "line start").
+    if (pending !== "r" && /^[0-9]$/.test(k) && (k !== "0" || countRef.current !== "")) {
+      e.preventDefault();
+      countRef.current = (countRef.current + k).slice(0, 4);
+      return;
+    }
+    const typed = countRef.current;
+    countRef.current = "";
+    let n = Math.max(1, parseInt(typed || "1", 10));
+    const hadCount = typed !== "" || (pending !== "" && pendingCountRef.current > 1);
+    if (pending) n *= pendingCountRef.current;
+    const isVertical = k === "j" || k === "k" || k === "ArrowDown" || k === "ArrowUp";
+    const want = isVertical ? (wantColRef.current ?? columnOf(content, pos)) : null;
+    wantColRef.current = want;
+
+    const keep = (reg: Register) => { if (reg.text) { vimRegister = reg; void copyToClipboard(reg.text); } };
+    const removed = (next: CursorState, from: number) => content.slice(from, from + (content.length - next.content.length));
+    const times = (f: (c: CursorState) => number, count = n) => {
+      let at = pos;
+      for (let i = 0; i < count; i++) { const next = f({ content, pos: at }); if (next === at) break; at = next; }
+      return at;
+    };
+    const lineStartOf = (line: number) => {
+      let at = 0;
+      for (let i = 1; i < line; i++) { const nl = content.indexOf("\n", at); if (nl < 0) break; at = nl + 1; }
+      return at;
+    };
+    const unit = () => indentUnit(content);
+    const shiftLines = (out: boolean) => {
+      let st: CursorState = { content, pos };
+      for (let i = 0; i < n; i++) {
+        st = shiftLine(st, unit(), out);
+        const down = moveDown(st);
+        if (i < n - 1 && down === st.pos) break;
+        if (i < n - 1) st = { ...st, pos: down };
+      }
+      applyEdit({ content: st.content, pos: moveFirstNonBlank({ content: st.content, pos: lineStartOf(content.slice(0, pos).split("\n").length) }) });
+    };
+    const leaveVisual = () => { setMode("normal"); setAnchor(null); };
+
+    // Two-key sequences: d…, c…, y…, g…, r<char>, >>, <<.
+    if (pending) {
+      pendingKeyRef.current = "";
+      e.preventDefault();
+      if (k === "Escape") return;
+      if (pending === "r") {
+        if (k.length !== 1) return;
+        let st: CursorState = { content, pos };
+        for (let i = 0; i < n; i++) {
+          const at = pos + i;
+          if (at >= st.content.length || st.content[at] === "\n") break;
+          st = replaceChar({ ...st, pos: at }, k);
+        }
+        applyEdit({ content: st.content, pos: Math.max(pos, pos + Math.min(n, lineEndAt(content, pos) - pos) - 1) });
+        return;
+      }
+      if (pending === "g") {
+        if (k === "g") setPos(hadCount ? moveFirstNonBlank({ content, pos: lineStartOf(n) }) : moveDocStart(), visual);
+        return;
+      }
+      if (pending === ">" || pending === "<") {
+        if (k === pending) shiftLines(pending === "<");
+        return;
+      }
+      // d, c and y take a motion: the same key again means whole lines.
+      const op = pending;
+      if (k === op) {
+        if (op === "y") { keep(yankLines(cur, n)); return; }
+        if (op === "d") { const r = vimDeleteLines(cur, n); keep(r.register); applyEdit(r.state); return; }
+        if (op === "c") {
+          // cc empties the line (keeping its indentation) to type on; 3cc
+          // takes the two below it with it.
+          keep(yankLines(cur, n));
+          let st: CursorState = { content, pos };
+          const below = moveDown(st);
+          if (n > 1 && below !== pos) st = { content: vimDeleteLines({ content, pos: below }, n - 1).state.content, pos: lineStartAt(content, pos) };
+          applyEdit(changeLine(st), { toInsert: true });
+          return;
+        }
+        return;
+      }
+      if ((k === "j" || k === "k") && op !== "y") {
+        const startLine = k === "k" ? moveUp(cur, n) : pos;
+        const r = vimDeleteLines({ content, pos: startLine }, n + 1);
+        keep(r.register);
+        applyEdit(r.state, op === "c" ? { toInsert: true } : undefined);
+        return;
+      }
+      // Charwise motions: from the cursor to where the motion goes.
+      let to: number | null = null, inclusive = false;
+      switch (k) {
+        case "w": to = op === "c" ? null : times(moveWordForward); break;
+        case "e": to = times(moveWordEnd); inclusive = true; break;
+        case "b": to = times(moveWordBackward); break;
+        case "$": to = lineEndAt(content, pos); break;
+        case "0": to = moveLineStart(cur); break;
+        case "^": to = moveFirstNonBlank(cur); break;
+        case "h": to = moveLeft(cur, n); break;
+        case "l": to = moveRight(cur, n); break;
+      }
+      if (op === "c" && k === "w") {
+        // cw changes to the end of the word, like ce.
+        let st: CursorState = { content, pos };
+        st = changeWord(st);
+        for (let i = 1; i < n; i++) {
+          const end = moveWordEnd(st) + 1;
+          st = { content: st.content.slice(0, pos) + st.content.slice(Math.max(pos, end)), pos };
+        }
+        keep({ text: removed(st, pos), linewise: false });
+        applyEdit(st, { toInsert: true });
+        return;
+      }
+      if (to === null) return;
+      const from = Math.min(pos, to), end = Math.min(content.length, Math.max(pos, to) + (inclusive ? 1 : 0));
+      const text = content.slice(from, end);
+      if (op === "y") { keep({ text, linewise: false }); setPos(from); return; }
+      keep({ text, linewise: false });
+      const next = { content: content.slice(0, from) + content.slice(end), pos: from };
+      applyEdit(op === "d" ? { ...next, pos: Math.min(from, Math.max(lineStartAt(next.content, from), lineEndAt(next.content, from) - 1)) } : next,
+        op === "c" ? { toInsert: true } : undefined);
+      return;
+    }
+
+    switch (k) {
+      case "Escape":
+        e.preventDefault();
+        if (visual) { setPos(pos); leaveVisual(); return; }
+        if (typed) return; // Escape drops a half-typed count
+        onEscapeNormal();
+        return;
+      case "i": e.preventDefault(); if (visual) return; setMode("insert"); return;
+      case "a": e.preventDefault(); if (visual) return; setPos(Math.min(pos + 1, lineEndAt(content, pos))); setMode("insert"); return;
+      case "A": e.preventDefault(); setPos(moveLineEnd(cur)); leaveVisual(); setMode("insert"); return;
+      case "I": e.preventDefault(); setPos(moveFirstNonBlank(cur)); leaveVisual(); setMode("insert"); return;
+      case "o": e.preventDefault(); if (visual) return; applyEdit(openLineBelow(cur), { toInsert: true }); return;
+      case "O": e.preventDefault(); if (visual) return; applyEdit(openLineAbove(cur), { toInsert: true }); return;
+      case "v":
+        e.preventDefault();
+        if (visual) { setPos(pos); leaveVisual(); }
+        else { setAnchor(pos); setMode("visual"); }
+        return;
+      case "h": case "ArrowLeft":  e.preventDefault(); setPos(moveLeft(cur, n),  visual); return;
+      case "l": case "ArrowRight": e.preventDefault(); setPos(moveRight(cur, n), visual); return;
+      case "j": case "ArrowDown":  e.preventDefault(); setPos(moveDown(cur, n, want ?? undefined), visual); return;
+      case "k": case "ArrowUp":    e.preventDefault(); setPos(moveUp(cur, n, want ?? undefined),   visual); return;
+      case "0": case "Home": e.preventDefault(); setPos(moveLineStart(cur), visual); return;
+      case "^": e.preventDefault(); setPos(moveFirstNonBlank(cur), visual); return;
+      case "$": case "End": e.preventDefault(); setPos(moveLineEnd(cur), visual); return;
+      case "G":
+        e.preventDefault();
+        setPos(hadCount ? moveFirstNonBlank({ content, pos: lineStartOf(n) }) : moveDocEnd(cur), visual);
+        return;
+      case "w": e.preventDefault(); setPos(times(moveWordForward),  visual); return;
+      case "b": e.preventDefault(); setPos(times(moveWordBackward), visual); return;
+      case "e": e.preventDefault(); setPos(times(moveWordEnd),      visual); return;
+      case "g": case "r": case ">": case "<": case "d": case "c": case "y": {
+        e.preventDefault();
+        if (visual) {
+          const [s, en] = selectionRange(cur);
+          const end = Math.min(en, content.length);
+          const text = content.slice(s, end);
+          if (k === "d" || k === "c") {
+            keep({ text, linewise: false });
+            applyEdit({ content: content.slice(0, s) + content.slice(end), pos: s }, k === "c" ? { toInsert: true } : undefined);
+            if (k === "d") leaveVisual(); else setAnchor(null);
+            return;
+          }
+          if (k === "y") { keep({ text, linewise: false }); setPos(s); leaveVisual(); return; }
+          if (k === ">" || k === "<") {
+            const st: EditState = { text: content, start: s, end: Math.max(s, end) };
+            const next = k === ">" ? indentLines(st, unit()) : outdentLines(st, unit());
+            commit(next.text, false);
+            placeCaret(next.text, moveFirstNonBlank({ content: next.text, pos: lineStartAt(next.text, Math.min(s, next.text.length)) }));
+            leaveVisual();
+            return;
+          }
+          if (k !== "g") return;
+        }
+        if (k === "r" && visual) return;
+        pendingKeyRef.current = k;
+        pendingCountRef.current = n;
+        return;
+      }
+      case "x": case "Delete": {
+        e.preventDefault();
+        if (visual) {
+          const [s, en] = selectionRange(cur);
+          keep({ text: content.slice(s, Math.min(en, content.length)), linewise: false });
+          applyEdit(deleteSelection(cur)); leaveVisual();
+          return;
+        }
+        const end = Math.min(pos + n, lineEndAt(content, pos));
+        if (end <= pos) return;
+        keep({ text: content.slice(pos, end), linewise: false });
+        const next = { content: content.slice(0, pos) + content.slice(end), pos };
+        applyEdit({ ...next, pos: Math.max(lineStartAt(next.content, pos), Math.min(pos, lineEndAt(next.content, pos) - 1)) });
+        return;
+      }
+      case "X": {
+        e.preventDefault();
+        if (visual) return;
+        const from = Math.max(lineStartAt(content, pos), pos - n);
+        if (from >= pos) return;
+        keep({ text: content.slice(from, pos), linewise: false });
+        applyEdit({ content: content.slice(0, from) + content.slice(pos), pos: from });
+        return;
+      }
+      case "D": case "C": {
+        e.preventDefault();
+        if (visual) return;
+        const r = vimDeleteToLineEnd(cur);
+        keep(r.register);
+        applyEdit(k === "C" ? { content: r.state.content, pos } : r.state, k === "C" ? { toInsert: true } : undefined);
+        return;
+      }
+      case "s": {
+        e.preventDefault();
+        if (visual) {
+          const [s, en] = selectionRange(cur);
+          const end = Math.min(en, content.length);
+          keep({ text: content.slice(s, end), linewise: false });
+          applyEdit({ content: content.slice(0, s) + content.slice(end), pos: s }, { toInsert: true });
+          setAnchor(null);
+          return;
+        }
+        const end = Math.min(pos + n, lineEndAt(content, pos));
+        keep({ text: content.slice(pos, end), linewise: false });
+        applyEdit({ content: content.slice(0, pos) + content.slice(end), pos }, { toInsert: true });
+        return;
+      }
+      case "S": e.preventDefault(); if (visual) return; keep(yankLines(cur)); applyEdit(changeLine(cur), { toInsert: true }); return;
+      case "Y": e.preventDefault(); if (visual) return; keep(yankLines(cur, n)); return;
+      case "p": case "P": {
+        e.preventDefault();
+        const put = (reg: Register) => {
+          if (!reg.text) return;
+          const many: Register = { text: reg.text.repeat(n), linewise: reg.linewise };
+          if (visual) {
+            const [s, en] = selectionRange(cur);
+            const end = Math.min(en, content.length);
+            applyEdit({ content: content.slice(0, s) + many.text + content.slice(end), pos: s + many.text.length - 1 });
+            leaveVisual();
+            return;
+          }
+          applyEdit(paste(cur, many, k === "P"));
+        };
+        if (vimRegister.text) put(vimRegister);
+        else void readClipboard().then(text => put({ text, linewise: text.endsWith("\n") }), () => { /* no clipboard access: nothing to put */ });
+        return;
+      }
+      case "u": e.preventDefault(); if (visual) return; for (let i = 0; i < n; i++) undo(); return;
+      case "J": {
+        e.preventDefault();
+        if (visual) return;
+        let st: CursorState = { content, pos };
+        for (let i = 0; i < Math.max(1, n - 1); i++) st = joinLines(st);
+        applyEdit(st);
+        return;
+      }
+      case "~": {
+        e.preventDefault();
+        if (visual) {
+          const [s, en] = selectionRange(cur);
+          const end = Math.min(en, content.length);
+          const flipped = [...content.slice(s, end)].map(ch => ch === ch.toUpperCase() ? ch.toLowerCase() : ch.toUpperCase()).join("");
+          applyEdit({ content: content.slice(0, s) + flipped + content.slice(end), pos: s });
+          leaveVisual();
+          return;
+        }
+        let st: CursorState = { content, pos };
+        for (let i = 0; i < n; i++) { const next = toggleCase(st); if (next.pos === st.pos && next.content === st.content) break; st = next; }
+        applyEdit(st);
+        return;
+      }
+      case "/": case "?": e.preventDefault(); openFind("find"); return;
+      case "n": case "N": {
+        e.preventDefault();
+        let at: number | null = pos;
+        for (let i = 0; i < n && at !== null; i++) at = findNextFrom({ content, pos: at }, findQuery, k === "N");
+        if (at === null) { if (findQuery) onNotice?.(`"${findQuery}" isn't in this file`); return; }
+        setPos(at, visual);
+        return;
+      }
+      case "*": case "#": {
+        e.preventDefault();
+        const word = wordAt(content, pos);
+        if (!word) return;
+        setFindQuery(word);
+        const start = content.slice(0, pos + 1).search(/[\w$]+$/);
+        const at = findNextFrom({ content, pos: k === "#" && start >= 0 ? start : pos }, word, k === "#");
+        if (at !== null) setPos(at, visual);
+        return;
+      }
+      case "Tab": {
+        e.preventDefault();
+        const s = ta.selectionStart, en = ta.selectionEnd;
+        const next = content.slice(0, s) + "  " + content.slice(en);
+        commit(next, false);
+        placeCaret(next, s + 2);
+        return;
+      }
+      default:
+        // Normal/Visual mode: plain characters are commands, never
+        // inserted. Modifier combos and function keys pass through.
+        if (e.key.length === 1) e.preventDefault();
+        return;
+    }
+  }, [content, mode, anchor, onEscapeNormal, applyEdit, setPos, taRef, undo, commit, placeCaret, openFind, findQuery, setFindQuery, onNotice]);
+
   const onKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.ctrlKey && e.key === "s") { e.preventDefault(); onSave(); return; }
 
@@ -3427,6 +3704,12 @@ function useModalEditor(opts: {
       return;
     }
     if (e.ctrlKey && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "y") {
+      e.preventDefault();
+      redo();
+      return;
+    }
+    // Vim's redo, outside Insert mode.
+    if (e.ctrlKey && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "r" && mode !== "insert") {
       e.preventDefault();
       redo();
       return;
@@ -5328,6 +5611,13 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
   const [quickOpenRoot, setQuickOpenRoot] = useState<string | null>(null);
   const [searchIn, setSearchIn] = useState<{ root: string; query: string } | null>(null);
   const editorShowing = editorFiles.length > 0 || fileTreeOpen;
+  // While the editor fills this pane, what a command run at the prompt
+  // prints shows in a panel under it (from this line on), not out of
+  // sight behind it. Gone when the editor closes or with its ×.
+  const [peekFrom, setPeekFrom] = useState<number | null>(null);
+  const editorShowingRef = useRef(editorShowing);
+  editorShowingRef.current = editorShowing;
+  useEffect(() => { if (!editorShowing) setPeekFrom(null); }, [editorShowing]);
   const activeEditorPathRef = useRef(activeEditorPath);
   activeEditorPathRef.current = activeEditorPath;
   useEffect(() => {
@@ -5816,6 +6106,7 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
     const cmd = raw.trim();
     if (!cmd) { sendToShell("\r"); return; }
     if (!keepOutOfHistory(raw)) history.push(cmd);
+    if (editorShowingRef.current) setPeekFrom(nextLineId());
 
     const isOxis = cmd.startsWith("'") || /^oxi(\s|$)/i.test(cmd);
     if (isOxis) {
@@ -6733,6 +7024,22 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
               title="Close the editor (Esc)">close editor</button>
           </div>
         )}
+        {peekFrom !== null && (() => {
+          const shown = lines.filter(l => l.id >= peekFrom);
+          if (shown.length === 0 && !partial) return null;
+          return (
+            <div className="editor-peek" role="log" aria-label="Output of the last command">
+              <div className="editor-peek-bar">
+                <span>output</span>
+                <button className="editor-peek-close" title="Hide (the terminal still has it)" onClick={() => setPeekFrom(null)}>×</button>
+              </div>
+              <div className="editor-peek-body" ref={el => { if (el) el.scrollTop = el.scrollHeight; }}>
+                <OutputBlock lines={shown.slice(-200)} matches={outputSearchSet} />
+                {partial && !screenOn && <div className="term-line">{partialSpans && !secretInput ? renderSpans(partialSpans) : partial}</div>}
+              </div>
+            </div>
+          );
+        })()}
         </div>
       </div>
     );

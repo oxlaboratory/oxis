@@ -30,7 +30,7 @@
 
 <br><br>
 
-<img src="assets/demo.gif" width="100%" alt="A real OXIS session: Home under a pixel-art sun and drifting clouds, git log and status, the editor catching a missing bracket as it's typed and suggesting a function name, a split from the right-click menu opening in the project with the tests passing in it, installing a plugin from the Market and switching to the ember theme">
+<img src="assets/demo.gif" width="100%" alt="A real OXIS session: Home under a pixel-art sun and drifting clouds; git log and status in the real shell; the editor catching a missing bracket as it's typed, suggesting a function name, Vim's Visual mode and the file tree's right-click menu; a split with the project's tests passing; installing games from the Market, a die that tumbles and asks to roll again, a pokie machine's spinning reels; live CPU and memory stopped with Ctrl+C; and a switch to the ember theme">
 
 <sub>▲ Recorded from the app itself: every frame is OXIS running those commands in a real project.</sub>
 
@@ -105,7 +105,7 @@ curl -Lo oxis https://github.com/oxlaboratory/oxis/releases/download/latest-buil
 </tr>
 </table>
 
-**🛠️ From source** — Go 1.22+ and Node.js 24+:
+**🛠️ From source** — Go 1.22+ and Node.js 24+, and a C compiler for native Lua (Linux has one; on Windows MinGW-w64, e.g. MSYS2's `mingw-w64-x86_64-gcc`; without one, plugins run on fengari):
 
 ```bash
 git clone https://github.com/oxlaboratory/oxis.git && cd oxis && npm run setup && npm run build
@@ -578,11 +578,20 @@ Windows. Quote paths with spaces.
 - **Keys.** Ctrl+S save, Ctrl+Z / Ctrl+Y (or Ctrl+Shift+Z) undo/redo,
   Ctrl+F find, Ctrl+H replace, Ctrl+G go to line, Ctrl+B file tree.
   `'help hotkeys` lists every key in OXIS.
-- **Modes.** Normal (hjkl, `0`/`$`, `gg`/`G`, `w`/`b`, `x`, `dd`, `dw`,
-  `o`/`O`), Insert (`i`, `a`, `o`…) and Visual (`v`, then `d`/`x`/`y`);
-  the editing keys above work in all of them. Click the mode in the
-  editor bar (or `'config set editorVim false`) for an editor that
-  just types.
+- **Modes.** Normal, Insert and Visual, as in Vim; the editing keys
+  above work in all of them. Click the mode in the editor bar (or
+  `'config set editorVim false`) for an editor that just types.
+
+  | | Keys |
+  |---|---|
+  | Move | `h` `j` `k` `l` (and the arrows), `w` `b` `e`, `0` `^` `$`, `gg` `G`, `5G` to line 5; `j`/`k` keep their column |
+  | Counts | a number first repeats: `3j`, `2dd`, `d3w`, `5x` |
+  | Insert | `i` `a` `I` `A`, `o` `O`; Esc back to Normal |
+  | Delete / change | `x` `X`, `dd`, `dw` `de` `db` `d$` `dj` `dk`, `D`; `cc` (keeps the indentation), `cw` `ce` `c$`, `C`, `s` `S`, `r<char>` |
+  | Copy / paste | `yy` `Y` `yw` `y$`, then `p` (after) or `P` (before); what `y`, `d`, `c` and `x` take goes to the clipboard too, and `p` with nothing taken yet pastes the clipboard |
+  | Other edits | `J` joins lines, `~` flips case, `>>` `<<` indent, `u` undo, Ctrl+R redo |
+  | Search | `/` opens find, `n` `N` next and previous match, `*` `#` the word under the cursor |
+  | Visual | `v`, move, then `d` `x` `c` `s` `y` `p` `~` `>` `<` |
 - **Tabs** for several open files, with unsaved markers and Save All.
 - **File tree** rooted at the data folder, or at the linked project
   when the active workspace has one. Fully keyboard-driven; drag a file
@@ -737,8 +746,9 @@ steps still run one after another.
 
 ## Plugins
 
-A plugin is a Lua file run in its own embedded Lua 5.3 VM
-([fengari](https://fengari.io)).
+A plugin is a Lua file run in a Lua VM of its own: real Lua 5.4,
+in OXIS itself ([Native Lua](#native-lua)), or Lua 5.3 in the page
+([fengari](https://fengari.io)) in a build without it.
 
 ```
 'plugin list / enable <n> / enable all / disable <n> / reload <n> / reloadall
@@ -752,6 +762,40 @@ A plugin is a Lua file run in its own embedded Lua 5.3 VM
 `'plugin doctor` checks every installed plugin at once and suggests a
 fix for each problem. `'plugin rollback` restores the version from
 before the last `'market update`.
+
+### Native Lua
+
+Plugins, `config.lua`, `workspace.lua` and workspace tasks and
+workflows run on **Lua 5.4.9** inside OXIS, each in a state of its own
+on a thread of its own: a plugin doing heavy work, or stuck in a loop,
+never freezes the window, and unloading it stops it even mid-loop.
+Every `oxis.*` call works the same as before. `'version` says what's
+running plugins (`lua  Lua 5.4.9 — native, C modules work`), and
+`'plugin info <name>` says what one runs on.
+
+- **The whole language and standard library:** integers, `//`, `goto`,
+  `<const>` and `<close>` variables, `utf8`, `string.pack`, coroutines.
+  `print` writes to the terminal, like `oxis.echo`.
+- **`require`** finds modules in `~/.oxis/lua/` (`require("mylib")`
+  loads `~/.oxis/lua/mylib.lua` or `mylib/init.lua`), in LuaRocks' user
+  tree (`luarocks install --local --lua-version 5.4 <rock>`:
+  `%APPDATA%\luarocks` on Windows, `~/.luarocks` on Linux), on
+  `LUA_PATH_5_4` / `LUA_CPATH_5_4`, and on Linux in the distribution's
+  Lua 5.4 folders.
+- **C modules** load too: luafilesystem, luasocket, lua-cjson, any rock
+  with C code built for Lua 5.4. On Windows OXIS runs plugins on
+  `lua54.dll`, which modules link against, so they share the plugin's
+  Lua; on Linux Lua is part of the binary and exports its API to them.
+- **Lua's own libraries follow the plugin's permissions.** Files
+  (`io.open`, `io.lines`, `os.remove`, `os.rename`, `dofile`,
+  `loadfile`…) need `fs`; `os.execute` and `io.popen` need `shell`; C
+  modules, `package.loadlib` and the `debug` library need `native`
+  (native code can do anything). `os.exit` is refused (it would close
+  OXIS), `load` takes text only (precompiled chunks aren't checked by
+  Lua), and a plugin can hold at most 512 MB.
+- `'config set luaEngine fengari` runs plugins in the page instead, as
+  older versions did; `auto` (the default) uses native Lua when the
+  build has it. A build made without a C compiler only has fengari.
 
 ### Built-in plugins
 
@@ -809,6 +853,8 @@ These calls need a permission for the plugin that makes them:
 `oxis.fs.*` (fs), `oxis.process.*` (process), `oxis.net.*` (net),
 `oxis.system.*` (system), `oxis.workspace()` (workspace),
 `oxis.newTerminal()` (terminal), and `oxis.run()`/`oxis.task()` (shell).
+On native Lua, so do Lua's own libraries: files (fs), running programs
+(shell), and C modules or the `debug` library (native).
 
 - A plugin **without** a manifest asks once per permission ("Plugin X
   wants to …"), and the answer is remembered.
@@ -1257,6 +1303,7 @@ printed in the terminal and listed by `'diagnostics`.
 | `updateCheckOnStartup` | `true` | Check for a newer build at startup |
 | `promptColors` | `true` | Colour the prompt and the commands you ran |
 | `editorVim` | `true` | The editor's Normal, Insert and Visual modes; off, it just types |
+| `luaEngine` | `auto` | What runs Lua plugins: `native` (Lua 5.4 in OXIS; C modules work), `fengari` (Lua 5.3 in the page), or `auto` (native when the build has it) |
 | `editorMinimap` | `true` | The minimap beside the editor's text |
 | `countInstalls` | `true` | After `'update install` builds a new version from source, add one to the public download count (nothing else is sent) |
 | `newShellHere` | `true` | Open a new tab or split pane in the focused pane's folder, not the default one |
@@ -1398,13 +1445,15 @@ uploading.
 ```mermaid
 flowchart TB
     subgraph WIN["Native window (Wails v2, frameless)"]
-        UI["React + TypeScript<br>terminal · editor · home · plugins (fengari Lua)"]
+        UI["React + TypeScript<br>terminal · editor · home · plugin bindings"]
     end
     subgraph SRV["Local server on 127.0.0.1:1420"]
         WS["/ws → PTY (ConPTY / creack/pty)"]
+        LUA["/lua → plugins on Lua 5.4 (internal/luanative)"]
         WEB["/ → the same frontend, for browser tabs"]
     end
-    WIN -->|"terminal only"| WS
+    WIN -->|"terminal"| WS
+    WIN -->|"oxis.* calls"| LUA
 ```
 
 - `cmd/oxi` starts `internal/wailsapp`, which opens the window, serves

@@ -118,6 +118,12 @@ if (IS_WIN) {
     warn("Install: winget install NSIS.NSIS");
   }
 
+  // A C compiler, for plugins on native Lua 5.4 (cgo). Optional: without
+  // one the build works and plugins run on fengari.
+  const gcc = require("./build-lua").findGcc();
+  if (gcc) ok(`C compiler for native Lua: ${gcc}`);
+  else warn("No C compiler — plugins will run on fengari. For native Lua: MSYS2, then pacman -S mingw-w64-x86_64-gcc");
+
   // WiX
   const wixFound = check("candle --version") ||
     fs.existsSync("C:\\Program Files (x86)\\WiX Toolset v3.11\\bin\\candle.exe") ||

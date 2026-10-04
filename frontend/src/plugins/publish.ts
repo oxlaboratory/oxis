@@ -41,7 +41,7 @@ const REQUIRED_OS = ["windows", "unix"];
 
 /** Publish checks: validate() plus the manifest fields a Market
  *  listing needs (optional for plugins you only run yourself). */
-export function checkPublishable(name: string): PublishCheckResult {
+export async function checkPublishable(name: string): Promise<PublishCheckResult> {
   const p = pluginManager.get(name);
   if (!p) return { ok: false, issues: [`not installed: ${name}`] };
   if (p.builtin) return { ok: false, issues: [`${name} is built-in — nothing to publish`] };
@@ -50,7 +50,7 @@ export function checkPublishable(name: string): PublishCheckResult {
   }
 
   const issues: string[] = [];
-  const { issues: validateIssues } = pluginManager.validate(name);
+  const { issues: validateIssues } = await pluginManager.validate(name);
   issues.push(...validateIssues);
 
   const m = p.manifest;

@@ -109,12 +109,29 @@ jobs:
           }
         shell: pwsh
 
+      # Native Lua for plugins (internal/luanative) is built with cgo:
+      # put a MinGW-w64 gcc on PATH (the image usually has one).
+      - name: C compiler for cgo
+        run: |
+          $gcc = Get-Command gcc -ErrorAction SilentlyContinue
+          if (-not $gcc) {
+            foreach ($dir in "C:\mingw64\bin", "C:\msys64\mingw64\bin", "C:\ProgramData\mingw64\mingw64\bin") {
+              if (Test-Path "$dir\gcc.exe") { $dir | Out-File -Append -Encoding utf8 $env:GITHUB_PATH; $gcc = $dir; break }
+            }
+          }
+          if (-not $gcc) {
+            choco install mingw -y --no-progress
+            "C:\ProgramData\mingw64\mingw64\bin" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
+          }
+        shell: pwsh
+
       - name: Build (frontend + Go binary)
         run: npm run build
         shell: cmd
 
       - name: Test
         run: |
+          set CGO_ENABLED=1
           go test -tags desktop,production ./internal/... > test.log 2>&1
           set status=%errorlevel%
           type test.log

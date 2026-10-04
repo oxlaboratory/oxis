@@ -11,6 +11,7 @@ import (
 	"strconv"
 
 	"github.com/gorilla/websocket"
+	"github.com/oxis/oxis/internal/luanative"
 	"github.com/oxis/oxis/internal/pty"
 )
 
@@ -107,6 +108,20 @@ func Listen(preferredPort int) (port int, err error) {
 			return
 		}
 		go pty.HandleSession(conn)
+	})
+	// Plugins on native Lua (internal/luanative): the page sends their
+	// source here and runs their oxis.* calls.
+	mux.HandleFunc("/lua", func(w http.ResponseWriter, r *http.Request) {
+		if !isLocalhost(r) {
+			http.Error(w, "Forbidden", http.StatusForbidden)
+			return
+		}
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			log.Printf("[oxis] lua ws upgrade: %v", err)
+			return
+		}
+		go luanative.HandleSession(conn)
 	})
 	mux.Handle("/", http.FileServer(http.FS(distFS)))
 

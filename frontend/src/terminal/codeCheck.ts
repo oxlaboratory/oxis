@@ -14,6 +14,7 @@
  */
 
 import { checkLuaSyntax } from "../plugins/luaRuntime";
+import { checkNative } from "../plugins/nativeLua";
 
 export type Severity = "error" | "warning";
 
@@ -55,7 +56,7 @@ export async function checkCode(text: string, path: string): Promise<Problem[]> 
       problems = await checkScript(text, ext);
       break;
     case "lua":
-      problems = checkLua(text);
+      problems = await checkLua(text);
       break;
     case "py": case "pyw":
       problems = checkBrackets(text, PYTHON);
@@ -420,8 +421,8 @@ async function checkScript(t: string, ext: string, base = 0): Promise<Problem[]>
 
 // ── Lua ─────────────────────────────────────────────────────────────
 
-function checkLua(t: string): Problem[] {
-  const r = checkLuaSyntax(t);
+async function checkLua(t: string): Promise<Problem[]> {
+  const r = (await checkNative(t, "file").catch(() => null)) ?? checkLuaSyntax(t);
   if (r.ok) return [];
   // [string "..."]:12: 'end' expected (to close 'function' at line 3) near <eof>
   const m = /:(\d+):\s*([\s\S]*)$/.exec(r.error);

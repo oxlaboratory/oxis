@@ -523,6 +523,7 @@ export function buildLuaAPI(ctx: APIContext): OxisBindings {
       cleanups.add(events.on(internal, (payload) => cb(toLua(payload))));
     },
 
+    requirePermission: (ns) => need(ns as PermissionNamespace),
     reportError: (msg) => ctx.print(`  ✗  ${ctx.pluginName}: ${msg}`, "err"),
     dispose: () => {
       for (const undo of [...cleanups]) { try { undo(); } catch { /* keep going */ } }
