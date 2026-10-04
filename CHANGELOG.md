@@ -450,6 +450,10 @@ All notable changes to OXIS. The format follows
 - The npm launcher downloads from the GitHub `latest-build` release.
 
 ### Fixed
+- A line typed while a plugin's animation or live view ran went to the
+  shell (answering a game's die before it landed ran `yes 5`, which
+  floods the terminal). It waits now, like type-ahead: it answers that
+  plugin's next question, or runs once nothing is running.
 - `'plugin enable` and `'plugin reload` find a plugin file copied into
   a plugins folder after OXIS started, and only say a plugin is on once
   it has actually run.

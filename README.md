@@ -960,7 +960,10 @@ A plugin can hold a conversation in the terminal. `oxis.ask` prints a
 question and hands the next line typed to its function; asking again
 from there keeps it going, and Ctrl+C walks away. `oxis.every` with
 `foreground = true` is something live (a monitor, an auto-spin) that
-Ctrl+C stops, the way it stops a program in the shell.
+Ctrl+C stops, the way it stops a program in the shell. What you type
+while it runs waits, as type-ahead does in a terminal: it answers that
+plugin's next question (Enter during a spin spins again), or runs as
+typed once nothing is running; Ctrl+C throws it away.
 
 ```lua
 oxis.command("pick", function()

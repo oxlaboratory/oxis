@@ -6110,6 +6110,15 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
       return;
     }
     const cmd = raw.trim();
+    // A plugin's animation or live view is running and nothing asks yet:
+    // the line waits for its question (an OXIS command still runs). An
+    // empty one too: Enter is "spin again" in the middle of a spin.
+    if (!cmd.startsWith("'") && promptCapture.holdIfBusy(raw)) {
+      promptCapture.onUnclaimed(line => runLineRef.current(line)); // unclaimed, it runs here
+      addLine(`  › ${raw}`, "cmd");
+      scrollToBottom(true);
+      return;
+    }
     if (!cmd) { sendToShell("\r"); return; }
     if (!keepOutOfHistory(raw)) history.push(cmd);
     if (editorShowingRef.current) setPeekFrom(nextLineId());
@@ -6132,6 +6141,8 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
     }
     scrollToBottom(true);
   }, [sendToShell, addLine, dispatchOxisCmd, scrollToBottom, probeCwd]);
+  const runLineRef = useRef(runLine);
+  runLineRef.current = runLine;
 
 
   // PTY size from .app-body, which the terminal fills and which stays
