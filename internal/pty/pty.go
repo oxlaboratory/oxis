@@ -164,8 +164,9 @@ func splitForNextRead(data []byte) (complete, hold []byte) {
 }
 
 // heldFlushDelay is how long held output waits for the rest of it
-// before being sent as it is.
-const heldFlushDelay = 30 * time.Millisecond
+// before being sent as it is. (A variable so tests that feed output
+// instantly can wait longer, and not depend on the machine's speed.)
+var heldFlushDelay = 30 * time.Millisecond
 
 // traceEnv names a file that gets a copy of the shell's raw output,
 // escape sequences included, for diagnosing rendering problems. The
@@ -221,9 +222,12 @@ var (
 	repaintEndRe = regexp.MustCompile(`\x1b\[\?25h`)
 )
 
-const (
+var (
 	repaintWait  = 250 * time.Millisecond
 	repaintQuiet = 20 * time.Millisecond
+)
+
+const (
 	// repaintMax caps what's dropped as one repaint, in case its end
 	// never comes.
 	repaintMax = 1 << 20

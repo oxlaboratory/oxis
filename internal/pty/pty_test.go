@@ -2,11 +2,28 @@ package pty
 
 import (
 	"io"
+	"os"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 )
+
+// TestMain gives the output pump long timeouts: most tests here feed it
+// output instantly and check how it's parsed, which mustn't depend on
+// the machine keeping up (a busy CI runner can stall a goroutine for
+// longer than repaintQuiet). Tests of the timeouts use realTimers.
+func TestMain(m *testing.M) {
+	heldFlushDelay, repaintQuiet, repaintWait = 5*time.Second, 5*time.Second, time.Minute
+	os.Exit(m.Run())
+}
+
+// realTimers puts the pump's real timeouts back for one test.
+func realTimers(t *testing.T) {
+	held, quiet, wait := heldFlushDelay, repaintQuiet, repaintWait
+	heldFlushDelay, repaintQuiet, repaintWait = 30*time.Millisecond, 20*time.Millisecond, 250*time.Millisecond
+	t.Cleanup(func() { heldFlushDelay, repaintQuiet, repaintWait = held, quiet, wait })
+}
 
 func TestSplitIncompleteUTF8(t *testing.T) {
 	emoji := []byte("hi 🎉")
@@ -228,6 +245,7 @@ func (r *slowReader) Read(p []byte) (int, error) {
 func TestRepaintWithTheCursorHidden(t *testing.T) {
 	// A menu hid the cursor, so the repaint doesn't end by showing it:
 	// it ends when the output stops.
+	realTimers(t)
 	var guard RepaintGuard
 	guard.Arm()
 	p := &page{t: t}
@@ -266,6 +284,7 @@ func TestResizeWhileAMenuIsUp(t *testing.T) {
 	// The window narrows while a menu (cursor hidden) waits for a key:
 	// ConPTY repaints, then the program redraws the menu. It must replace
 	// the menu, not add a second one.
+	realTimers(t)
 	var guard RepaintGuard
 	size := newTermSize(80, 10)
 	p := &page{t: t}
