@@ -1728,7 +1728,7 @@ $('#codeCopy').addEventListener('click', async e => {
 });
 
 const SHOTS = [
-  ['demo', 'Recorded', 'Recorded from the app, not mocked up: Home under its pixel-art sky, git, the editor catching a mistake as it is typed and suggesting a name, a split from the right-click menu with the tests passing in it, a plugin from the Market and a theme switch.', 52500],
+  ['demo', 'Recorded', 'Recorded from the app, not mocked up: Home under its pixel-art sky, git in the real shell, the editor catching a mistake and finishing a name, Vim keys and the file tree, a split with the tests passing, games that animate and ask, live monitoring stopped with Ctrl+C, and a theme switch.', 66000],
   ['app-home', 'Home', 'Home: the active workspace, its git remote, plugins and tasks at a glance, under a pixel-art sky.'],
   ['app-panes', 'Split panes', 'Tabs and split panes: git on the left, the tests on the right, each its own shell. New ones open in the folder you are in.'],
   ['app-search', 'Search', 'Search in files (Ctrl+Shift+F): every match in the project, grouped by file.'],
@@ -1744,7 +1744,8 @@ const SHOTS = [
 ];
 (function gallery(){
   const stage = $('#gstage'), tabs = $('#gtabs');
-  stage.innerHTML = SHOTS.map(([f, , cap], i) => `<img src="assets/${f}.webp" alt="${escapeHtml(cap)}" ${i ? 'loading="lazy"' : ''} width="1650" height="1050" class="${i ? '' : 'on'}">`).join('');
+  // All lazy: the gallery is far down the page, and the recording is big.
+  stage.innerHTML = SHOTS.map(([f, , cap], i) => `<img src="assets/${f}.webp" alt="${escapeHtml(cap)}" loading="lazy" decoding="async" width="1650" height="1050" class="${i ? '' : 'on'}">`).join('');
   tabs.innerHTML = SHOTS.map(([, name], i) => `<button class="gtab ${i ? '' : 'on'}" data-i="${i}">${name}</button>`).join('');
   let cur = 0, timer;
   const show = i => {
