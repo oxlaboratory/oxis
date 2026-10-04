@@ -7,7 +7,7 @@ package luanative
 #cgo linux CFLAGS: -DLUA_USE_LINUX
 #cgo darwin CFLAGS: -DLUA_USE_MACOSX
 #cgo linux LDFLAGS: -Wl,-E -ldl -lm
-#cgo darwin LDFLAGS: -Wl,-export_dynamic
+#cgo darwin LDFLAGS: -rdynamic
 #include <stdlib.h>
 #include "shim.h"
 */
