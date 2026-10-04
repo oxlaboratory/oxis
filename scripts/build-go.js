@@ -29,6 +29,7 @@ const EMBED_DIST = path.join(ROOT, "internal", "server", "dist");
 const OUT        = path.join(ROOT, "dist");
 const IS_WIN     = process.platform === "win32";
 const IS_LINUX   = process.platform === "linux";
+const IS_MAC     = process.platform === "darwin";
 const { stamp, ldflags: stampFlags } = require("./buildstamp");
 
 // Computed once, before npm/goversioninfo touch tracked files, and
@@ -274,6 +275,59 @@ StartupWMClass=oxis
   } else {
     log("   (skipping .deb — dpkg-deb not found)", col.grey);
   }
+}
+
+// ── Step 8: OXIS.app, zipped (macOS) ──────────────────────────
+// Unsigned: the first start needs right-click → Open (or
+// xattr -dr com.apple.quarantine OXIS.app).
+if (IS_MAC) {
+  step(5, "Building OXIS.app...");
+  const app = path.join(OUT, "OXIS.app");
+  fs.rmSync(app, { recursive: true, force: true });
+  const macos = path.join(app, "Contents", "MacOS");
+  const res = path.join(app, "Contents", "Resources");
+  [macos, res].forEach(d => fs.mkdirSync(d, { recursive: true }));
+  fs.copyFileSync(outBinary, path.join(macos, "oxis"));
+  fs.chmodSync(path.join(macos, "oxis"), 0o755);
+  // The icon: an .icns made from logo.png with the system's own tools.
+  let icon = "";
+  if (fs.existsSync(logoSrc)) {
+    const set = path.join(OUT, "oxis.iconset");
+    fs.rmSync(set, { recursive: true, force: true });
+    fs.mkdirSync(set);
+    let made = true;
+    for (const size of [16, 32, 128, 256, 512]) {
+      for (const [scale, suffix] of [[1, ""], [2, "@2x"]]) {
+        const r = spawnSync("sips", ["-z", String(size * scale), String(size * scale), logoSrc, "--out", path.join(set, `icon_${size}x${size}${suffix}.png`)], { stdio: "pipe" });
+        if (r.status !== 0) made = false;
+      }
+    }
+    if (made && spawnSync("iconutil", ["-c", "icns", set, "-o", path.join(res, "oxis.icns")], { stdio: "pipe" }).status === 0) icon = "oxis";
+    fs.rmSync(set, { recursive: true, force: true });
+  }
+  fs.writeFileSync(path.join(app, "Contents", "Info.plist"), `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key><string>OXIS</string>
+  <key>CFBundleDisplayName</key><string>OXIS</string>
+  <key>CFBundleIdentifier</key><string>space.oxis.app</string>
+  <key>CFBundleExecutable</key><string>oxis</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>${VERSION}</string>
+  <key>CFBundleVersion</key><string>${VERSION}</string>
+  ${icon ? `<key>CFBundleIconFile</key><string>${icon}</string>` : ""}
+  <key>LSMinimumSystemVersion</key><string>11.0</string>
+  <key>NSHighResolutionCapable</key><true/>
+  <key>LSApplicationCategoryType</key><string>public.app-category.developer-tools</string>
+</dict>
+</plist>
+`);
+  const arch = process.arch === "arm64" ? "arm64" : "x64";
+  const zipName = `oxis-${VERSION}-macos-${arch}.zip`;
+  fs.rmSync(path.join(OUT, zipName), { force: true });
+  run(`ditto -c -k --keepParent "OXIS.app" "${zipName}"`, OUT);
+  ok(`dist/OXIS.app${icon ? " (with icon)" : ""} and dist/${zipName}`);
 }
 
 // The Windows installer is a separate step: npm run build:msi
