@@ -769,6 +769,9 @@ Plugins, `config.lua`, `workspace.lua` and workspace tasks and
 workflows run on **Lua 5.4.9** inside OXIS, each in a state of its own
 on a thread of its own: a plugin doing heavy work, or stuck in a loop,
 never freezes the window, and unloading it stops it even mid-loop.
+It's also about 7× faster than the old engine: a CPU-heavy test
+(`fib(27)` and a 1.3 MB string built from 200,000 pieces) takes 180 ms
+on native Lua and 1.3 s on fengari.
 Every `oxis.*` call works the same as before. `'version` says what's
 running plugins (`lua  Lua 5.4.9 — native, C modules work`), and
 `'plugin info <name>` says what one runs on.

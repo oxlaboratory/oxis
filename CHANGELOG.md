@@ -450,6 +450,9 @@ All notable changes to OXIS. The format follows
 - The npm launcher downloads from the GitHub `latest-build` release.
 
 ### Fixed
+- `'plugin enable` and `'plugin reload` find a plugin file copied into
+  a plugins folder after OXIS started, and only say a plugin is on once
+  it has actually run.
 - `'plugin validate` and the editor's Lua checks no longer call Lua 5.4
   syntax (`<const>`, `<close>`) an error.
 - After a search, the first match was selected again with every key

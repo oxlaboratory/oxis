@@ -1362,23 +1362,29 @@ function registerBuiltinCommands(): void {
           if(failed.length) err(`didn't load (see messages above): ${failed.join(", ")}`);
           if(!enabled.length && !alreadyOn.length && !failed.length) dim("no plugins registered");
           return; }
-        if(!pluginManager.get(name)){ err(`not found: ${name}`); return; }
-        pluginManager.enable(name);
-        // enable() sets enabled=true optimistically, then load() may
-        // set it straight back to false (exec error / undocumented
-        // command) and print exactly why — check the real state
-        // rather than assuming "found the plugin" means "it's working".
-        if(pluginManager.get(name)?.enabled) ok(`${name} enabled`);
-        else err(`${name} didn't load — see the message above for why`);
+        // A file copied into a plugins folder since OXIS started is
+        // found here too.
+        void pluginManager.findOnDisk(name).then(async found => {
+          if(!found){ err(`not found: ${name}`); return; }
+          pluginManager.enable(name);
+          // load() may switch it straight back off (an error in the
+          // file, at once on fengari, a moment later on native Lua) and
+          // print exactly why: report once it has really run.
+          const ran = await pluginManager.whenLoaded(name);
+          if(ran.ok && pluginManager.get(name)?.enabled) ok(`${name} enabled`);
+          else err(`${name} didn't load — see the message above for why`);
+        });
         return; }
       if(sub==="disable"){
         if(!name){err("usage: 'plugin disable <name>");return;}
         if(pluginManager.disable(name)) ok(`${name} disabled`); else err(`not found: ${name}`); return; }
       if(sub==="reload"){
         if(!name){err("usage: 'plugin reload <name>");return;}
-        if(!pluginManager.get(name)){ err(`not found: ${name}`); return; }
-        void pluginManager.reloadFromDisk(name).then(() => {
-          if(pluginManager.get(name)?.enabled) ok(`${name} reloaded`);
+        void pluginManager.findOnDisk(name).then(async found => {
+          if(!found){ err(`not found: ${name}`); return; }
+          await pluginManager.reloadFromDisk(name);
+          const ran = await pluginManager.whenLoaded(name);
+          if(ran.ok && pluginManager.get(name)?.enabled) ok(`${name} reloaded`);
           else err(`${name} didn't reload cleanly — see the message above for why`);
         });
         return; }

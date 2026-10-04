@@ -379,6 +379,23 @@ class PluginManager {
   /** 'plugin reload: reads a user or Market plugin's file again first,
    *  so an edit on disk takes effect (built-in and premium plugins have
    *  no file to read and reload as they are). */
+  /** A plugin file added since OXIS started (copied into the
+   *  workspace's plugins/ folder, or the Market's): registered now,
+   *  switched off until it's enabled. False if there's no such file. */
+  async findOnDisk(name: string): Promise<boolean> {
+    if (this.plugins.has(name)) return true;
+    if (!isNativeApp() || !/^[A-Za-z0-9_-]+$/.test(name)) return false;
+    const found = async (origin: "user" | "market", read: () => Promise<string>): Promise<boolean> => {
+      try {
+        const lua = await read();
+        this.register({ name, desc: "User Lua plugin", category: "plugin", builtin: false, enabled: false, lua, origin });
+        return true;
+      } catch { return false; }
+    };
+    return (await found("user", () => readFile(`${workspaceManager.pluginsDir()}/${name}.lua`)))
+      || (await found("market", () => readPluginFile(name)));
+  }
+
   async reloadFromDisk(name: string): Promise<void> {
     const p = this.plugins.get(name);
     if (p && isNativeApp() && (p.origin === "user" || p.origin === "market")) {
