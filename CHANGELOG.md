@@ -466,6 +466,10 @@ All notable changes to OXIS. The format follows
 - The npm launcher downloads from the GitHub `latest-build` release.
 
 ### Fixed
+- Windows: Esc in a full-screen program works. ConPTY held a lone Esc
+  until the next key, which then arrived as Alt+key, so vim never left
+  Insert mode and `Esc :wq` typed `:wq` into the file. Esc is now sent
+  as a key event, the way Windows Terminal sends it.
 - `clear`, `cls` or `Clear-Host` typed at the prompt empties the view,
   as in any terminal (it used to only clear the shell's own screen,
   which the line view keeps as history). The prompt line stays.

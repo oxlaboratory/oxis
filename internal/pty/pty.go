@@ -58,6 +58,21 @@ type outMsg struct {
 // and a key with no character does nothing in any console program.
 const shiftTap = "\x1b[16;42;0;1;16;1_\x1b[16;42;0;0;0;1_"
 
+// escKey is the Escape key as win32-input-mode press and release events.
+// ConPTY reads a lone ESC byte as the start of an escape sequence and
+// holds it until the next key, which then arrives as Alt+key: Esc in
+// vim never left Insert mode, and Esc : came out as Alt+:. Sent as a key
+// event, it's just Escape (Windows Terminal sends keys this way too).
+const escKey = "\x1b[27;1;27;1;0;1_\x1b[27;1;27;0;0;1_"
+
+// consoleInput is what to write to ConPTY for keys from the page.
+func consoleInput(data string) string {
+	if data == "\x1b" {
+		return escKey
+	}
+	return data
+}
+
 // losesKeyAfterResize says whether a shell command line starts one of
 // those shells.
 func losesKeyAfterResize(command string) bool {

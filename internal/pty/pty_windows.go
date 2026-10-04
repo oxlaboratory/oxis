@@ -91,7 +91,7 @@ func HandleSession(conn *websocket.Conn) {
 		switch m.Type {
 		case "input":
 			if m.Data != "" {
-				data := m.Data
+				data := consoleInput(m.Data)
 				if resized.Swap(false) {
 					data = shiftTap + data
 				}

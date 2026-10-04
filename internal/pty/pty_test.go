@@ -212,6 +212,18 @@ func TestLosesKeyAfterResize(t *testing.T) {
 	}
 }
 
+func TestLoneEscapeIsAKeyEvent(t *testing.T) {
+	if got := consoleInput("\x1b"); got != escKey {
+		t.Errorf("lone ESC: got %q", got)
+	}
+	// Alt+x, arrows and pastes are complete sequences: left alone.
+	for _, in := range []string{"\x1bx", "\x1b[A", "a", ":wq\r", "\x1b\x1b"} {
+		if got := consoleInput(in); got != in {
+			t.Errorf("%q changed to %q", in, got)
+		}
+	}
+}
+
 func TestRepaintEndingWithoutACursorJump(t *testing.T) {
 	// From a trace: the cursor was already on the right row, so the
 	// repaint ends by moving it right and showing it. What follows (the
