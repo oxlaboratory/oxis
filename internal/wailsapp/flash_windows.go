@@ -4,6 +4,7 @@ package wailsapp
 
 import (
 	"os"
+	"sync"
 	"syscall"
 	"unsafe"
 )
@@ -32,14 +33,16 @@ const (
 	gwOwner         = 4
 )
 
-// mainWindow is this process's visible top-level window.
-func mainWindow() uintptr {
-	pid := uint32(os.Getpid())
-	var found uintptr
-	cb := syscall.NewCallback(func(hwnd, _ uintptr) uintptr {
+// The window search: one callback for the process (Go allows only so
+// many), reporting into found under findMu.
+var (
+	findMu   sync.Mutex
+	found    uintptr
+	findPID  = uint32(os.Getpid())
+	findEach = syscall.NewCallback(func(hwnd, _ uintptr) uintptr {
 		var owner uint32
 		procGetWindowThreadPID.Call(hwnd, uintptr(unsafe.Pointer(&owner)))
-		if owner != pid {
+		if owner != findPID {
 			return 1
 		}
 		if v, _, _ := procIsWindowVisible.Call(hwnd); v == 0 {
@@ -51,7 +54,14 @@ func mainWindow() uintptr {
 		found = hwnd
 		return 0
 	})
-	procEnumWindows.Call(cb, 0)
+)
+
+// mainWindow is this process's visible top-level window.
+func mainWindow() uintptr {
+	findMu.Lock()
+	defer findMu.Unlock()
+	found = 0
+	procEnumWindows.Call(findEach, 0)
 	return found
 }
 
