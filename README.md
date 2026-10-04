@@ -502,6 +502,8 @@ the editor.
 
 Programs can copy to the clipboard with OSC 52 (tmux, Neovim, a remote
 shell); the status bar says when one does. They can't read it.
+Progress a program reports (OSC 9;4 — winget, PowerShell 7.4+, cargo)
+shows as a bar in the status bar.
 
 ### Full-screen programs
 

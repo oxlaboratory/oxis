@@ -372,6 +372,12 @@ func (m *lineScreen) osc(payload string) {
 		}
 		return
 	}
+	// OSC 9 ; 4 ; state ; percent: progress (winget, PowerShell 7.4+,
+	// cargo…), shown in the status bar.
+	if strings.HasPrefix(payload, "9;4;") || payload == "9;4" {
+		m.send(kindMark, payload)
+		return
+	}
 	if strings.HasPrefix(payload, "133;D") || strings.HasPrefix(payload, "7;") || strings.HasPrefix(payload, "9;9;") {
 		m.flush()
 		m.send(kindMark, payload)

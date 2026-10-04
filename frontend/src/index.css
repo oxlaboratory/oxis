@@ -1398,3 +1398,13 @@ input, textarea { font-family: var(--font); }
 /* Right-click on a "+": a new tab with another shell. */
 .term-shell-menu { min-width: 300px; }
 .term-shell-menu .term-ctx-item { white-space: nowrap; gap: 24px; }
+
+/* A program's progress in the status bar (OSC 9;4: winget, PowerShell…). */
+.sl-progress-bar {
+  display: inline-block; width: 60px; height: 6px; vertical-align: middle;
+  background: rgba(0,0,0,.25); border-radius: 3px; overflow: hidden;
+}
+.sl-progress-bar > span { display: block; height: 100%; background: currentColor; transition: width .2s; }
+.sl-progress--busy .sl-progress-bar > span { animation: sl-busy 1.2s ease-in-out infinite; width: 40% !important; }
+.sl-progress--err { color: var(--err); }
+@keyframes sl-busy { 0% { transform: translateX(-100%); } 100% { transform: translateX(250%); } }

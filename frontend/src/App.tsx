@@ -6248,10 +6248,18 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
   // A shell-integration mark: the directory, or a command finishing.
   const onMark = useCallback((mark: string) => {
     if (mark.startsWith("52;")) { programCopy(mark.slice(3)); return; }
+    // OSC 9;4;state;percent — 0 done, 1 percent, 2 error, 3 busy, 4 paused.
+    if (mark.startsWith("9;4")) {
+      const [, , st = "0", pct = "0"] = mark.split(";");
+      events.emit("shell_progress", { tab: id, state: Number(st) || 0, pct: Math.max(0, Math.min(100, Number(pct) || 0)) });
+      return;
+    }
     shellIntegrated.current = true;
     const cwd = cwdFromMark(mark, isWindows());
     if (cwd !== null) { dirTracker.set(cwd); return; }
     const done = /^133;D(?:;(-?\d+))?/.exec(mark);
+    // A finished command takes its progress with it (Ctrl+C included).
+    if (done) events.emit("shell_progress", { tab: id, state: 0, pct: 0 });
     const cmd = runningCommand.current;
     if (!done || !cmd) return;
     runningCommand.current = null;
@@ -8063,6 +8071,12 @@ function StatusBar({ mode, count, idx, ready, theme, project, updateMsg }: {
     });
     return () => { off(); clearTimeout(timer); };
   }, []);
+  // A program's progress (OSC 9;4), the latest from any tab.
+  const [progress, setProgress] = useState<{ tab: string; state: number; pct: number } | null>(null);
+  useEffect(() => events.on("shell_progress", p => {
+    const pr = p as { tab: string; state: number; pct: number };
+    setProgress(cur => (pr.state === 0 ? (cur && cur.tab !== pr.tab ? cur : null) : pr));
+  }), []);
   return (
     <div className="statusline">
       <div className="sl-mode">{mode === "home" ? "HOME" : "SHELL"}</div>
@@ -8071,6 +8085,14 @@ function StatusBar({ mode, count, idx, ready, theme, project, updateMsg }: {
         {ready ? "● connected" : "○ connecting"}
         {project && <><span className="sl-dot"> · </span><span className="sl-project">{project}</span></>}
         {updateMsg && <span className="sl-update"> · ⬆ {updateMsg}</span>}
+        {progress && (
+          <span className={`sl-progress sl-progress--${["", "run", "err", "busy", "paused"][progress.state] ?? "run"}`}
+            title="A program's progress (OSC 9;4)">
+            {" · "}
+            <span className="sl-progress-bar"><span style={{ width: progress.state === 3 ? "100%" : `${progress.pct}%` }} /></span>
+            {progress.state === 3 ? " working…" : ` ${progress.pct}%`}{progress.state === 2 ? " failed" : progress.state === 4 ? " paused" : ""}
+          </span>
+        )}
         {flash && <span className="sl-flash"> · {flash}</span>}
       </div>
       <div className="sl-right">

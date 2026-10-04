@@ -6,6 +6,10 @@ All notable changes to OXIS. The format follows
 ## [Unreleased]
 
 ### Added
+- Progress from programs (OSC 9;4: winget, PowerShell 7.4+, cargo…)
+  shows in the status bar: a bar with the percentage, "working…", or
+  red when it failed. It goes when the program says so or its command
+  ends.
 - OSC 52: programs that copy to the clipboard (tmux, Neovim, a remote
   shell) can, in the line view and in full-screen programs; the status
   bar says each time. Reading the clipboard this way is never allowed.
