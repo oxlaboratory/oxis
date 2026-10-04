@@ -479,7 +479,8 @@ All notable changes to OXIS. The format follows
 
 ### Fixed
 - The directory reported by Git Bash (`/c/Users/…`) is read as
-  `C:\Users\…`, not as a network path.
+  `C:\Users\…`, not as a network path. Its own folders (`/tmp`, other
+  mounts) are reported as the Windows folder they are.
 - Windows: Esc in a full-screen program works. ConPTY held a lone Esc
   until the next key, which then arrived as Alt+key, so vim never left
   Insert mode and `Esc :wq` typed `:wq` into the file. Esc is now sent

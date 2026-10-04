@@ -894,6 +894,7 @@
           <li><code>'task test</code> runs the project's tests; <code>'autotest</code> runs them on every save</li>
           <li><code>'healthcheck https://… every 30</code> watches a service and says when it changes</li>
           <li><code>'mon</code>, <code>'top</code> and <code>'watch-mem</code> show the machine live — Ctrl+C stops them</li>
+          <li>Tab completes files, git branches and <code>npm run</code> scripts in PowerShell, bash or cmd</li>
           <li>Right-click the file tree to create, rename, duplicate or delete</li>
         </ul>
         <img class="mshot" src="assets/app-panes.webp" alt="OXIS with git on the left and the project's tests passing on the right" loading="lazy" width="1650" height="1050">
@@ -918,7 +919,7 @@
           <li>Real Lua 5.4 inside OXIS: about 7× faster than before, LuaRocks packages and C modules load, and a busy plugin never freezes the window</li>
           <li><code>oxis.workflow</code>: steps with retries, conditions, env and parallel runs</li>
           <li><code>oxis.ask</code> holds a conversation in the prompt; <code>oxis.line</code> redraws in place</li>
-          <li>Each plugin declares its permissions — <code>fs</code>, <code>net</code>, <code>shell</code> — and can't get more</li>
+          <li>Each plugin declares its permissions — <code>fs</code>, <code>net</code>, <code>shell</code> — and can't get more; the first use asks in the prompt</li>
           <li><code>'plugin publish</code> sends yours to the Market</li>
         </ul>
         <img class="mshot" src="assets/app-autotest.webp" alt="The autotest plugin re-running tests on save" loading="lazy" width="1650" height="1050">
