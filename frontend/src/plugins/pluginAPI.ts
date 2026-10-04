@@ -239,7 +239,8 @@ export function buildLuaAPI(ctx: APIContext): OxisBindings {
     quote: (text) => shellQuote(text),
     theme: (name) => { themeManager.apply(name); },
     cwd: () => ctx.getCwd(),
-    newTerminal: () => { need("terminal"); ctx.newTerminal(); },
+    // Nothing to return, so these wait for the answer in the prompt.
+    newTerminal: () => { void needAsync("terminal").then(() => ctx.newTerminal(), (e) => ctx.print(`  ✗  ${ctx.pluginName}: ${message(e)}`, "err")); },
 
     // oxis.option("key") -> value   |   oxis.option("key", value) -> sets it
     getOption: (key) => (options[key] ?? ctx.getOption(key)),
@@ -274,7 +275,7 @@ export function buildLuaAPI(ctx: APIContext): OxisBindings {
 
     // Permission-gated: these change what the user sees or which
     // configuration is active.
-    workspace: (path) => { need("workspace"); events.emit("workspace_loaded", { path }); },
+    workspace: (path) => { void needAsync("workspace").then(() => events.emit("workspace_loaded", { path }), (e) => ctx.print(`  ✗  ${ctx.pluginName}: ${message(e)}`, "err")); },
     dashboard: (config) => events.emit("dashboard_config", { config }),
     workflow: (name, def, description) => {
       const warnings = workflowRunner.register(name, def, description);
