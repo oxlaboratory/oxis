@@ -466,6 +466,9 @@ All notable changes to OXIS. The format follows
 - The npm launcher downloads from the GitHub `latest-build` release.
 
 ### Fixed
+- `clear`, `cls` or `Clear-Host` typed at the prompt empties the view,
+  as in any terminal (it used to only clear the shell's own screen,
+  which the line view keeps as history). The prompt line stays.
 - `oxis.fs.read/write/list/stat/mkdir/remove` resolve relative paths
   from the shell's current folder, like `oxis.fs.search` and
   `oxis.edit` already did, not from the folder OXIS started in.

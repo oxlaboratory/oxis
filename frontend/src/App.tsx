@@ -103,7 +103,7 @@ interface ShellCtx {
   printLines:  (entries: Array<[string, LineKind?]>) => void;
   /** A line in several colours: [text, tone] parts (see TONE_CSS). */
   printRich:   (parts: RichPart[]) => void;
-  clear:       () => void;
+  clear:       (keepPrompt?: boolean) => void;
   /** `line`, when given, is a 1-based line number the editor jumps
    *  the cursor/scroll position to once the file finishes loading —
    *  see 'oxis resize for the motivating case (pointing the user at
@@ -1011,10 +1011,10 @@ function registerBuiltinCommands(): void {
 
   // ── shell ─────────────────────────────────────────────
   registry.register({ name:"clear",   category:"shell", description:"Clear terminal output",
-    handler:()=>_ctxRef.current?.clear() });
+    handler:()=>_ctxRef.current?.clear(true) });
 
   registry.register({ name:"cls",     category:"shell", description:"Clear terminal output",
-    handler:()=>_ctxRef.current?.clear() });
+    handler:()=>_ctxRef.current?.clear(true) });
 
   registry.register({ name:"home",    category:"shell", description:"Return to OXIS home screen",
     handler:()=>_goHomeRef.current?.() });
@@ -5671,9 +5671,9 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
     return () => { u1(); u2(); u3(); };
   }, [selected, addLine]);
 
-  const clear = useCallback(() => {
-    setPartial("");
-    pending.current = "";
+  // keepPrompt: the shell's prompt line stays (clearing at the prompt).
+  const clear = useCallback((keepPrompt = false) => {
+    if (!keepPrompt) { setPartial(""); pending.current = ""; }
     outQueue.current = [];
     shellLineIds.current = [];
     takenBack.current = new Set();
@@ -6215,6 +6215,12 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
         : cmd.replace(/^oxi\s*/i, "");
       addLine("  '" + disp, "cmd");
       if (!dispatchOxisCmd(cmd)) addLine("  ✗  unknown command — type 'help", "err");
+    } else if (/^(clear|cls|clear-host)$/i.test(cmd) && !runningCommand.current && !scriptRunTracker.isBusy()) {
+      // Typed at the prompt, clear empties the view as in any terminal.
+      // (A program clearing the screen doesn't: in the line view what it
+      // drew before stays as history.) The shell's prompt line stays.
+      clear(true);
+      return;
     } else {
       if (shellIntegrated.current && !runningCommand.current && !scriptRunTracker.isBusy()) {
         runningCommand.current = { text: cmd, afterId: nextLineId(), startedAt: performance.now() };
@@ -6225,7 +6231,7 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
       if (looksLikeDirectoryChange(cmd)) setTimeout(probeCwd, 400);
     }
     scrollToBottom(true);
-  }, [sendToShell, addLine, dispatchOxisCmd, scrollToBottom, probeCwd]);
+  }, [sendToShell, addLine, dispatchOxisCmd, scrollToBottom, probeCwd, clear]);
   const runLineRef = useRef(runLine);
   runLineRef.current = runLine;
 
