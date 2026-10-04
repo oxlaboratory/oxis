@@ -6,6 +6,9 @@ All notable changes to OXIS. The format follows
 ## [Unreleased]
 
 ### Added
+- macOS: ⌘ works for OXIS's shortcuts (⌘T, ⌘W, ⌘=, ⌘⇧P, and in the
+  editor ⌘S, ⌘F, ⌘Z, ⌘⇧Z…), ⌘K clears and ⌘F searches the output; Ctrl
+  stays the shell's and ⌘C/⌘V/⌘X/⌘A the system's.
 - A macOS build (Apple silicon), as a preview: `OXIS.app`, zipped, in
   the `latest-build` release. CI builds it and runs the Go tests on
   macOS; it hasn't been tried on a Mac yet. System stats (`'mon`,

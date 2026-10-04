@@ -84,6 +84,7 @@ import { loadUserConfig } from "./terminal/userConfig";
 import { userConfigDir, runCommand, flashWindow } from "./native";
 import { completeShell, applyCompletion } from "./terminal/shellComplete";
 import { findLinks, resolveLinkPath, type OutputLink } from "./terminal/outputLinks";
+import { installMacShortcuts } from "./terminal/macKeys";
 import { readFile, writeFile, listDir, makeDir, statPath, movePath, trashPath, copyPath, isNativeApp, openUrl, checkForUpdate, performUpdate, quitApp, windowGetSize, windowSetSize, systemInfo, previewUrl, isImagePath, readImage } from "./native";
 import type { NativeUpdateInfo } from "./native";
 import { BUILD, OXIS_VERSION, fullVersion, describe as describeBuild, shortCommit, channelLabel, formatStampDate } from "./buildInfo";
@@ -8545,6 +8546,7 @@ export default function App() {
     themeManager.apply(curTheme);
     applyAllSettings();
     installGlobalErrorCapture();
+    installMacShortcuts();
     void workspaceManager.runAutoUpdateIfNeeded();
     const showUpdate = (info: NativeUpdateInfo | null) => {
       if (info && !info.error) setUpdateMsg(info.available && info.latestCommit ? `build ${info.latestCommit.slice(0, 7)} available` : "");

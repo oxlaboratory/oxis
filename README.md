@@ -390,6 +390,11 @@ with the app). Setting `restoreSession` turns it off.
 
 ### Keys
 
+On macOS, ⌘ does what Ctrl does below for OXIS's own shortcuts (⌘T a
+new tab, ⌘= zoom, ⌘S save in the editor, ⌘K clear, ⌘F search the
+output), while Ctrl stays the shell's (Ctrl+C interrupts) and ⌘C ⌘V
+are copy and paste.
+
 | Key | Action |
 |---|---|
 | ↑ / ↓, Ctrl+P / Ctrl+N | Previous / next command. If you typed something first, only commands starting with it are shown. |
