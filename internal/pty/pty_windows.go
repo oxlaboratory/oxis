@@ -50,7 +50,7 @@ func HandleSession(conn *websocket.Conn) {
 		rows = 50
 	}
 
-	shellCmd := buildShellCmd()
+	shellCmd := buildShellCmd(msg.Shell)
 	opts := []conpty.ConPtyOption{conpty.ConPtyDimensions(cols, rows), conpty.ConPtyEnv(shellEnv("COLORTERM=truecolor"))}
 	if dir := startDir(msg.Dir); dir != "" {
 		opts = append(opts, conpty.ConPtyWorkDir(dir))
@@ -148,10 +148,15 @@ func withIntegration(custom string) string {
 // is a script with quotes in it, which this command line can't carry.)
 var plainShellRe = regexp.MustCompile(`(?i)^"?([^"]*[\\/])?(bash(?:\.exe)?)"?(\s+-i)?$`)
 
-func buildShellCmd() string {
+func buildShellCmd(choice string) string {
 	// OXIS_SHELL overrides the pwsh 7 > Windows PowerShell > cmd.exe
 	// chain. It is used verbatim as the command line, so quote paths
 	// with spaces, e.g. OXIS_SHELL="\"C:\Program Files\Git\bin\bash.exe\"".
+	// One picked in OXIS (the setting "shell", or 'shell <name>) comes
+	// first: it's the most recent choice.
+	if sh, ok := shellByName(choice); ok {
+		return shellCommand(sh)
+	}
 	if custom := os.Getenv("OXIS_SHELL"); custom != "" {
 		return withIntegration(custom)
 	}

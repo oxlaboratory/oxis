@@ -355,6 +355,17 @@ scrolls above it and never goes underneath it.
 - The terminal shows `OXIS` in its top-right corner. There's no startup
   splash; the app opens straight onto Home.
 
+### Choosing the shell
+
+`'shell` lists the shells on this machine — on Windows PowerShell 7,
+Windows PowerShell, Git Bash, WSL and Command Prompt; elsewhere your
+`$SHELL`, zsh, bash, fish — and `'shell gitbash` (or `wsl`, `cmd`,
+`zsh`…) opens a tab with one. `'config set shell gitbash` makes it what
+every new tab and pane starts (`auto`, the default, is PowerShell on
+Windows and your `$SHELL` elsewhere). Git Bash gets shell integration
+too. A shell picked in OXIS comes before the `OXIS_SHELL` environment
+variable.
+
 ### Tabs and split panes
 
 Each terminal tab is its own shell. **Ctrl+T** in the terminal (or
@@ -1342,6 +1353,7 @@ printed in the terminal and listed by `'diagnostics`.
 | `editorMinimap` | `true` | The minimap beside the editor's text |
 | `countInstalls` | `true` | After `'update install` builds a new version from source, add one to the public download count (nothing else is sent) |
 | `newShellHere` | `true` | Open a new tab or split pane in the focused pane's folder, not the default one |
+| `shell` | `auto` | The shell new tabs and panes start: `auto`, or a name `'shell` lists (`gitbash`, `wsl`, `cmd`, `pwsh`, `zsh`…) |
 | `notifyAfter` | `10` | When a command that ran this many seconds or more finishes while OXIS is in the background, flash its taskbar button (Windows); `0` turns it off |
 | `restoreSession` | `true` | Bring back tabs, their directories and output, open files and unsaved text at startup |
 | `editorSuggest` | `true` | Suggest words and keywords while typing in the editor |

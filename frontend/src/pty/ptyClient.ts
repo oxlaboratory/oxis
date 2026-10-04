@@ -48,6 +48,8 @@ export interface PtySession {
 }
 
 export interface PtyOptions {
+  /** A shell's name from Shells() ("gitbash", "zsh"…); the default when unset. */
+  shell?: string;
   cols:     number;
   rows:     number;
   /** The folder to start the shell in (a restored tab's). */
@@ -109,7 +111,7 @@ export function openPty(opts: PtyOptions): PtySession {
     ws = socket;
 
     socket.addEventListener("open", () => {
-      socket.send(JSON.stringify({ type: "init", ...size, ...(opts.dir ? { dir: opts.dir } : {}) }));
+      socket.send(JSON.stringify({ type: "init", ...size, ...(opts.dir ? { dir: opts.dir } : {}), ...(opts.shell ? { shell: opts.shell } : {}) }));
     });
 
     socket.addEventListener("message", (ev) => {

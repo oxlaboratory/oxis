@@ -53,6 +53,10 @@ func HandleSession(conn *websocket.Conn) {
 
 			// OXIS_SHELL overrides $SHELL; /bin/bash is the last resort.
 			shell := os.Getenv("OXIS_SHELL")
+			custom := shell != ""
+			if sh, ok := shellByName(msg.Shell); ok {
+				shell, custom = sh.Path, false // picked in OXIS: comes first
+			}
 			if shell == "" {
 				shell = os.Getenv("SHELL")
 			}
@@ -62,7 +66,7 @@ func HandleSession(conn *websocket.Conn) {
 
 			// Shell integration (shellhooks.go), except for a custom shell.
 			var args, extra []string
-			if os.Getenv("OXIS_SHELL") == "" {
+			if !custom {
 				args, extra = shellStart(shell)
 			}
 			cmd = exec.Command(shell, args...)

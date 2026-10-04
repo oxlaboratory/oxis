@@ -81,7 +81,7 @@ import { exportSettings, importSettings, exportWorkspace, importWorkspace, expor
 import { checkPublishable, findExistingListing, prepareFreePublish, submitPaidPlugin, startConnectOnboarding, requestPluginDeletion } from "./plugins/publish";
 import { commitAll, setupRemote, unlinkRemote, getRemotes, parseGitRemote, cancelActiveCommit, type GitProvider } from "./plugins/git";
 import { loadUserConfig } from "./terminal/userConfig";
-import { userConfigDir, runCommand, flashWindow } from "./native";
+import { userConfigDir, runCommand, flashWindow, listShells } from "./native";
 import { completeShell, applyCompletion } from "./terminal/shellComplete";
 import { findLinks, resolveLinkPath, type OutputLink } from "./terminal/outputLinks";
 import { installMacShortcuts } from "./terminal/macKeys";
@@ -342,6 +342,11 @@ const SETTINGS: SettingDef[] = [
     key: "promptColors", label: "Colour Prompts", default: true,
     description: "Colour the shell's prompt and the commands you ran in the output: the path, the command, its options, strings and variables",
     apply: () => { /* read for each new line of output */ },
+  },
+  {
+    key: "shell", label: "Shell", default: "auto",
+    description: "The shell new tabs and panes start: auto (PowerShell on Windows, your $SHELL elsewhere), or one 'shell lists — gitbash, wsl, cmd, pwsh, zsh, fish… ('shell <name> opens one tab with another)",
+    apply: () => { /* read when a tab or pane opens */ },
   },
   {
     key: "notifyAfter", label: "Flash When Done", default: 10,
@@ -1024,6 +1029,27 @@ function registerBuiltinCommands(): void {
 
   registry.register({ name:"cls",     category:"shell", description:"Clear terminal output",
     handler:()=>_ctxRef.current?.clear(true) });
+
+  // 'shell: the shells this machine has; 'shell <name>: a tab with one.
+  registry.register({ name:"shell", category:"shell", description:"List the shells you can use, or open a tab with one: 'shell gitbash",
+    handler: async (args) => {
+      const shells = await listShells();
+      if (!shells.length) { err("no shells found (the browser version can't start one)"); return; }
+      const want = (args[0] ?? "").toLowerCase();
+      const setting = String(getSetting("shell") ?? "auto");
+      if (!want) {
+        const def = setting === "auto" ? shells[0].name : setting;
+        _ctxRef.current?.printLines([
+          ["  shells here — 'shell <name> opens a tab with one", "accent"],
+          ...shells.map((sh): [string, LineKind?] => [`  ${sh.name === def ? "●" : "○"}  ${sh.name.padEnd(11)} ${sh.label}`, sh.name === def ? "ok" : undefined]),
+          [`  new tabs start ${setting === "auto" ? `the default (${shells[0].label})` : setting} — 'config set shell <name> to change`, "dim"],
+        ]);
+        return;
+      }
+      const sh = shells.find(x => x.name === want) ?? shells.find(x => x.label.toLowerCase().includes(want));
+      if (!sh) { err(`no shell called ${want} here — 'shell lists them`); return; }
+      events.emit("tab_request", { action: "new", shell: sh.name });
+    } });
 
   registry.register({ name:"home",    category:"shell", description:"Return to OXIS home screen",
     handler:()=>_goHomeRef.current?.() });
@@ -5182,6 +5208,8 @@ interface TermProps {
   hint?:       string | null;
   /** The folder to start the shell in (the pane it was opened from). */
   startDir?:   string;
+  /** The shell to start, by name ("gitbash"…); the setting's when unset. */
+  shell?:      string;
   /** The only pane in its tab (the right-click menu's Close says tab). */
   alone:       boolean;
   /** Element the global prompt is portalled into — the fixed bar above
@@ -5415,7 +5443,7 @@ function groupOutput(lines: Line[], cache: Map<number, Line[]>): { blocks: Array
  *  for 'https://github.com':", "Enter PIN:". */
 const SECRET_PROMPT_RE = /(password|passphrase|\bpin\b)[^\n]*:\s*$/i;
 
-function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore, hint, startDir, alone, promptHost, onReady, onShowShell, onCloseTab }: TermProps) {
+function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore, hint, startDir, shell, alone, promptHost, onReady, onShowShell, onCloseTab }: TermProps) {
   const onNewTab = onShowShell;
   const selectedRef = useRef(selected);
   selectedRef.current = selected;
@@ -6375,6 +6403,7 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
     session.current = openPty({
       ...ptySize.current,
       dir: restore?.cwd || startDir || undefined,
+      shell: shell || (String(getSetting("shell") ?? "auto") === "auto" ? undefined : String(getSetting("shell"))),
       onOutput,
       onRewind,
       onCursor: (hidden) => { programCursorHidden.current = hidden; },
@@ -8611,6 +8640,8 @@ export default function App() {
   // folder it starts in: the focused pane's (setting newShellHere).
   const hintFor = useRef(new Map<string, string | null>());
   const dirFor = useRef(new Map<string, string>());
+  // A shell picked for a new tab ('shell <name>).
+  const shellFor = useRef(new Map<string, string>());
   const startHere = (id: string) => {
     const dir = getSetting("newShellHere") === false ? "" : cwdTracker.get();
     if (dir) dirFor.current.set(id, dir);
@@ -8643,10 +8674,11 @@ export default function App() {
     setTabs(t => t.some(x => x.id === id && x.activity) ? t.map(x => x.id === id ? { ...x, activity: false } : x) : t);
     setView("shell");
   }, []);
-  const newTab = useCallback(() => {
+  const newTab = useCallback((shell?: string) => {
     const id = `t${nextTabNumber.current++}`;
     hintFor.current.set(id, tabHint());
     startHere(id);
+    if (shell) shellFor.current.set(id, shell);
     setTabs(t => [...t, oneTab(id)]);
     setActiveTab(id);
     setView("shell");
@@ -8752,7 +8784,7 @@ export default function App() {
   useEffect(() => events.on("tab_request", p => {
     const action = String((p as { action?: string } | undefined)?.action ?? "list");
     const t = tabsRef.current;
-    if (action === "new") newTab();
+    if (action === "new") newTab((p as { shell?: string } | undefined)?.shell);
     else if (action === "close") closeTab(activeTabRef.current);
     else if (action === "next") stepTab(1);
     else if (action === "prev") stepTab(-1);
@@ -8902,7 +8934,7 @@ export default function App() {
                     onClick={e => { e.stopPropagation(); closeTab(t.id); }}>×</span>
                 </div>
               ))}
-              <button className="term-tabs-new" onClick={newTab} title="New tab (Ctrl+T)">+</button>
+              <button className="term-tabs-new" onClick={() => newTab()} title="New tab (Ctrl+T)">+</button>
             </div>
           )}
           {tabs.map(t => (
@@ -8917,7 +8949,7 @@ export default function App() {
                     style={{ flex: `${(100 * (t.sizes[i] ?? 1)) / t.sizes.reduce((a, b) => a + b, 0)} 1 0` }}
                     onMouseDownCapture={() => focusPane(t.id, pane)}>
                     <div className="term-pane-bar" onMouseDown={e => e.preventDefault()}>
-                      <button onClick={newTab} title="New tab (Ctrl+T)">+</button>
+                      <button onClick={() => newTab()} title="New tab (Ctrl+T)">+</button>
                       <button onClick={() => splitPane("row", pane)} title="Split beside: a new shell next to this one (Ctrl+Shift+\ or Alt+Shift+=)">
                         <svg viewBox="0 0 12 12" aria-hidden="true"><rect x="1" y="1.5" width="10" height="9" /><path d="M6 1.5v9" /></svg>
                       </button>
@@ -8936,6 +8968,7 @@ export default function App() {
                       restore={restoreFor.current.get(pane)}
                       hint={hintFor.current.get(pane)}
                       startDir={dirFor.current.get(pane)}
+                      shell={shellFor.current.get(pane)}
                       alone={t.panes.length === 1}
                       onTitle={title => setTabs(cur => cur.some(x => x.id === t.id && x.titles[pane] !== title)
                         ? cur.map(x => x.id === t.id ? { ...x, titles: { ...x.titles, [pane]: title } } : x) : cur)}

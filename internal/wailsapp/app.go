@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/oxis/oxis/internal/pty"
 	"github.com/oxis/oxis/internal/server"
 	"github.com/oxis/oxis/internal/update"
 	"github.com/wailsapp/wails/v2"
@@ -87,6 +88,10 @@ func (a *App) ReadClipboard() (string, error) {
 // the native window location.host is the Wails asset origin, so the
 // frontend needs this to find the WebSocket.
 func (a *App) GetPTYPort() int { return a.ptyPort }
+
+// Shells lists the shells this machine has that a tab can start, by
+// name (the setting "shell"), the default first.
+func (a *App) Shells() []pty.Shell { return pty.Shells() }
 
 // FlashWindow asks for attention from the background (Windows: the
 // taskbar button flashes until OXIS is in front). false if it couldn't,

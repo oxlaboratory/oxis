@@ -25,6 +25,9 @@ type inMsg struct {
 	// Dir, with "init": the folder to start the shell in (a restored
 	// tab's); ignored unless it's an existing directory.
 	Dir string `json:"dir,omitempty"`
+	// Shell, with "init": a shell's name from Shells() ("gitbash", "zsh"…);
+	// empty or unknown starts OXIS_SHELL or the default.
+	Shell string `json:"shell,omitempty"`
 }
 
 // startDir is dir if it's an existing directory, else "" (the default).

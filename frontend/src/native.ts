@@ -44,6 +44,7 @@ declare global {
           OpenURL?: (url: string) => Promise<void>;
           WriteClipboard?: (text: string) => Promise<void>;
           FlashWindow?: () => Promise<boolean>;
+          Shells?: () => Promise<{ name: string; label: string; path: string }[]>;
           ReadClipboard?: () => Promise<string>;
           CheckForUpdate?: () => Promise<NativeUpdateInfo>;
           /** Builds the latest source and swaps it in (see
@@ -354,6 +355,13 @@ export async function writeClipboard(text: string): Promise<void> {
 export async function flashWindow(): Promise<boolean> {
   const fn = window.go?.wailsapp?.App?.FlashWindow;
   return fn ? fn() : false;
+}
+
+/** The shells a tab can start here, by name; the default first. */
+export interface NativeShell { name: string; label: string; path: string }
+export async function listShells(): Promise<NativeShell[]> {
+  const fn = window.go?.wailsapp?.App?.Shells;
+  return fn ? fn() : [];
 }
 
 export async function readClipboard(): Promise<string> {

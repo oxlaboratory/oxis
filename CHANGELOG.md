@@ -6,6 +6,11 @@ All notable changes to OXIS. The format follows
 ## [Unreleased]
 
 ### Added
+- Choose the shell in OXIS: `'shell` lists the ones on this machine
+  (PowerShell 7, Windows PowerShell, Git Bash, WSL, cmd; or `$SHELL`,
+  zsh, bash, fish), `'shell gitbash` opens a tab with one, and
+  `'config set shell <name>` sets what new tabs start. Before, only the
+  `OXIS_SHELL` environment variable could.
 - macOS: ⌘ works for OXIS's shortcuts (⌘T, ⌘W, ⌘=, ⌘⇧P, and in the
   editor ⌘S, ⌘F, ⌘Z, ⌘⇧Z…), ⌘K clears and ⌘F searches the output; Ctrl
   stays the shell's and ⌘C/⌘V/⌘X/⌘A the system's.
