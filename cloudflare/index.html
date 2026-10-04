@@ -55,7 +55,7 @@
         "Runs your real PowerShell, bash, zsh or fish",
         "Built-in code editor with live problems, suggestions, search and Vim modes",
         "Per-project workspaces with their own git, tasks and workflows",
-        "Lua 5.4 plugins with permissions, timers, questions and animation",
+        "Plugins on real Lua 5.4 (LuaRocks and C modules) with permissions, timers, questions and animation",
         "A plugin Market",
         "85 theme settings, a live theme editor and a customizable Home sky",
         "Self-updating, no account, no telemetry"
@@ -867,7 +867,7 @@
         <span class="pn">03</span>
         <h3>Build workflows</h3>
         <p>Commands, workflows and whole tools in plain Lua — with questions, timers and animation.</p>
-        <ul><li>Retries, conditions, parallel steps</li><li>Plugins with permissions</li><li>Publish to the Market</li></ul>
+        <ul><li>Real Lua 5.4, LuaRocks too</li><li>Retries, conditions, parallel steps</li><li>Plugins with permissions</li></ul>
         <span class="more">Write one <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></span>
       </a>
       <a class="pillar rv" href="#customize" style="--pc:var(--amber); --d:.24s">
@@ -915,6 +915,7 @@
         <h3>Program the workspace.</h3>
         <p>Commands, workflows, keymaps and events are plain Lua — in a plugin, a project's <code>workspace.lua</code> or your <code>config.lua</code>. Save, and it reloads. Plugins can ask questions, run on timers, animate a line and stream a program's output.</p>
         <ul class="ticks">
+          <li>Real Lua 5.4 inside OXIS: about 7× faster than before, LuaRocks packages and C modules load, and a busy plugin never freezes the window</li>
           <li><code>oxis.workflow</code>: steps with retries, conditions, env and parallel runs</li>
           <li><code>oxis.ask</code> holds a conversation in the prompt; <code>oxis.line</code> redraws in place</li>
           <li>Each plugin declares its permissions — <code>fs</code>, <code>net</code>, <code>shell</code> — and can't get more</li>
