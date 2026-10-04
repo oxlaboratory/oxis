@@ -58,6 +58,7 @@ jobs:
       # read on the run's page (the log needs a sign-in).
       - name: Test
         run: |
+          set -o pipefail # else the step gets tee's status, and failing tests pass
           if ! go test -tags desktop,production,webkit2_41 ./internal/... 2>&1 | tee test.log; then
             grep -E '^\s+\S+_test\.go:[0-9]+:|^--- FAIL|^FAIL' test.log | head -30 | sed -E 's/^\s*/::error::/'
             exit 1
@@ -107,6 +108,7 @@ jobs:
         env:
           CGO_LDFLAGS: -framework UniformTypeIdentifiers
         run: |
+          set -o pipefail # else the step gets tee's status, and failing tests pass
           if ! go test -tags desktop,production ./internal/... 2>&1 | tee test.log; then
             grep -E '^\s+\S+_test\.go:[0-9]+:|^--- FAIL|^FAIL' test.log | head -30 | sed -E 's/^\s*/::error::/'
             exit 1
