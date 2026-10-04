@@ -661,7 +661,7 @@ func Run() error {
 	// Saved by 'oxis resize (window.json); defaults to 940x600.
 	winWidth, winHeight := loadWindowSize()
 
-	return wails.Run(&options.App{
+	opts := &options.App{
 		Title:     "OXIS",
 		Width:     winWidth,
 		Height:    winHeight,
@@ -683,5 +683,7 @@ func Run() error {
 		Bind: []interface{}{
 			app,
 		},
-	})
+	}
+	platformOptions(opts)
+	return wails.Run(opts)
 }
