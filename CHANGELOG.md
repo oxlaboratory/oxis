@@ -6,6 +6,9 @@ All notable changes to OXIS. The format follows
 ## [Unreleased]
 
 ### Added
+- OSC 8 hyperlinks: text a program links (`ls --hyperlink`, gcc,
+  cargo, `gh`, delta…) is clickable, web links in the browser and
+  `file://` ones in the editor. They used to show as plain text.
 - Choose the shell in OXIS: `'shell` lists the ones on this machine
   (PowerShell 7, Windows PowerShell, Git Bash, WSL, cmd; or `$SHELL`,
   zsh, bash, fish), `'shell gitbash` opens a tab with one, and

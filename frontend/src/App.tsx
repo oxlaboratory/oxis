@@ -5302,12 +5302,38 @@ function linkProps(link: OutputLink, key: string | number) {
     : { key, className: "term-link term-link--path", title: `edit ${link.path}${where}`, onClick: (e: React.MouseEvent) => { e.stopPropagation(); if (!selectionActive()) openLinePath(link); } };
 }
 
+/** Where an OSC 8 hyperlink goes: a web page, or a file:// opened in the
+ *  editor (file:///C:/dev/a.ts → C:/dev/a.ts). Other schemes stay text. */
+function osc8Target(uri: string): Pick<OutputLink, "url" | "path"> | null {
+  if (/^(https?|mailto):/i.test(uri)) return { url: uri };
+  if (/^file:/i.test(uri)) {
+    try {
+      let path = decodeURIComponent(new URL(uri).pathname);
+      if (/^\/[A-Za-z]:/.test(path)) path = path.slice(1);
+      return path ? { path } : null;
+    } catch { return null; }
+  }
+  return null;
+}
+
 /** A line's text, or its styled spans (shell colours), with the links
  *  in it clickable. */
 function renderLine(text: string, spans?: Span[]): React.ReactNode {
   if (!text) return "\u00a0";
-  const links = findLinks(text);
   const pieces = spans && spans.length ? spans : [{ t: text } as Span];
+  // Links the program made itself (OSC 8) come first; found ones fill in
+  // the rest of the line.
+  const own: OutputLink[] = [];
+  for (let at = 0, i = 0; i < pieces.length; at += pieces[i].t.length, i++) {
+    const target = pieces[i].l ? osc8Target(pieces[i].l!) : null;
+    if (!target) continue;
+    const prev = own[own.length - 1];
+    if (prev && prev.end === at && (prev.url ?? prev.path) === (target.url ?? target.path)) prev.end += pieces[i].t.length;
+    else own.push({ start: at, end: at + pieces[i].t.length, ...target });
+  }
+  const links = own.length
+    ? [...own, ...findLinks(text).filter(f => !own.some(o => f.start < o.end && o.start < f.end))].sort((a, b) => a.start - b.start)
+    : findLinks(text);
   if (!links.length) {
     return spans ? pieces.map((sp, i) => sp.s ? <span key={i} style={cssText(sp.s)}>{sp.t}</span> : <React.Fragment key={i}>{sp.t}</React.Fragment>) : text;
   }

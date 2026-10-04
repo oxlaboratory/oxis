@@ -101,6 +101,7 @@ func (c cell) blank() bool {
 type pen struct {
 	fg, bg uint32 // 0 is the default; colorIndexed|n or colorRGB|0xrrggbb
 	attrs  uint8
+	link   string // an OSC 8 hyperlink's target, while one is open
 }
 
 const (
@@ -348,6 +349,19 @@ func (m *lineScreen) escape(s string) int {
 // osc passes shell-integration marks on to the page, after the output
 // before them. Other OSC strings (the window title…) are dropped.
 func (m *lineScreen) osc(payload string) {
+	// OSC 8 ; params ; URI: the text written until the next OSC 8 links
+	// there (ls --hyperlink, gcc, cargo, gh…). An empty URI ends it.
+	if strings.HasPrefix(payload, "8;") {
+		uri := ""
+		if parts := strings.SplitN(payload, ";", 3); len(parts) == 3 {
+			uri = parts[2]
+		}
+		if len(uri) > 2048 || strings.ContainsAny(uri, "\x1b\x07") {
+			uri = ""
+		}
+		m.pen.link = uri
+		return
+	}
 	if strings.HasPrefix(payload, "133;D") || strings.HasPrefix(payload, "7;") || strings.HasPrefix(payload, "9;9;") {
 		m.flush()
 		m.send(kindMark, payload)
@@ -1285,6 +1299,15 @@ func writeCells(b *strings.Builder, cells []cell) {
 		if c.wide == 2 {
 			continue
 		}
+		// OSC 8 ends with ST (ESC \), not BEL: the page drops BELs.
+		if c.pen.link != p.link {
+			if p.link != "" {
+				b.WriteString("\x1b]8;;\x1b\\")
+			}
+			if c.pen.link != "" {
+				b.WriteString("\x1b]8;;" + c.pen.link + "\x1b\\")
+			}
+		}
 		if c.pen != p {
 			writeSGR(b, c.pen)
 			p = c.pen
@@ -1294,6 +1317,9 @@ func writeCells(b *strings.Builder, cells []cell) {
 		} else {
 			b.WriteString(c.s)
 		}
+	}
+	if p.link != "" {
+		b.WriteString("\x1b]8;;\x1b\\")
 	}
 	if p != (pen{}) {
 		b.WriteString("\x1b[0m")
@@ -1332,8 +1358,9 @@ func writeColor(b *strings.Builder, c uint32, base, bright int, ext string) {
 
 // sgr applies an SGR sequence's parameters (ESC [ params m).
 func (p pen) sgr(params string) pen {
+	// A reset clears colours and styles, not an open hyperlink.
 	if params == "" {
-		return pen{}
+		return pen{link: p.link}
 	}
 	f := strings.Split(params, ";")
 	for i := 0; i < len(f); i++ {
@@ -1360,7 +1387,7 @@ func (p pen) sgr(params string) pen {
 		n, _ := strconv.Atoi(f[i])
 		switch {
 		case n == 0:
-			p = pen{}
+			p = pen{link: p.link}
 		case n == 1:
 			p.attrs |= attrBold
 		case n == 2:

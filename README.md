@@ -490,6 +490,9 @@ test runners print them: `src/app.ts:12:5`, `src/app.ts(12,5)` (tsc),
 shell's folder; a bare name counts when it has an extension code uses
 (`.ts`, `.go`, `.py`, `.json`…), so `example.com` or `v1.2.1` stay text.
 A path coloured in pieces (tsc, eslint) is still one link.
+Links programs make themselves (OSC 8: `ls --hyperlink`, gcc, cargo,
+`gh`, delta) work too: web links open in the browser, `file://` links in
+the editor.
 
 ### Full-screen programs
 

@@ -14,6 +14,8 @@ export interface Span {
   t: string;
   /** Inline CSS for this span; undefined for plain text. */
   s?: string;
+  /** Where an OSC 8 hyperlink around this text goes. */
+  l?: string;
 }
 
 interface Style {
@@ -28,10 +30,12 @@ interface Style {
   hidden?: boolean;
 }
 
-const SGR_RE = /\x1b\[([0-9;:]*)m/g;
-const HAS_SGR = /\x1b\[[0-9;:]*m/;
+// Colour codes (ESC [ … m) and OSC 8 hyperlinks (ESC ] 8 ; params ; URI,
+// ended by BEL or ESC \): the codes the PTY leaves in lines.
+const SGR_RE = /\x1b\[([0-9;:]*)m|\x1b\]8;[^;\x07\x1b]*;([^\x07\x1b]*)(?:\x07|\x1b\\)/g;
+const HAS_SGR = /\x1b\[[0-9;:]*m|\x1b\]8;/;
 
-/** Removes colour codes, leaving the text. */
+/** Removes colour codes (and hyperlinks' codes), leaving the text. */
 export function stripSgr(s: string): string {
   return s.includes("\x1b") ? s.replace(SGR_RE, "") : s;
 }
@@ -148,22 +152,27 @@ export class AnsiParser {
     }
     const spans: Span[] = [];
     let last = 0;
+    // The PTY ends a hyperlink with each piece of a line, so it doesn't
+    // carry over like a colour.
+    let link: string | undefined;
+    const piece = (t: string): Span => (link ? { t, s: css(this.style), l: link } : { t, s: css(this.style) });
     SGR_RE.lastIndex = 0;
     let m: RegExpExecArray | null;
     while ((m = SGR_RE.exec(line)) !== null) {
-      if (m.index > last) spans.push({ t: line.slice(last, m.index), s: css(this.style) });
-      this.style = apply(this.style, m[1]);
+      if (m.index > last) spans.push(piece(line.slice(last, m.index)));
+      if (m[1] !== undefined) this.style = apply(this.style, m[1]);
+      else link = m[2] || undefined;
       last = SGR_RE.lastIndex;
     }
-    if (last < line.length) spans.push({ t: line.slice(last), s: css(this.style) });
-    // Merge neighbours with the same style.
+    if (last < line.length) spans.push(piece(line.slice(last)));
+    // Merge neighbours with the same style (and link).
     const merged: Span[] = [];
     for (const sp of spans) {
       const prev = merged[merged.length - 1];
-      if (prev && prev.s === sp.s) prev.t += sp.t;
+      if (prev && prev.s === sp.s && prev.l === sp.l) prev.t += sp.t;
       else merged.push({ ...sp });
     }
     const text = merged.map(s => s.t).join("");
-    return merged.some(s => s.s) ? { text, spans: merged } : { text };
+    return merged.some(s => s.s || s.l) ? { text, spans: merged } : { text };
   }
 }

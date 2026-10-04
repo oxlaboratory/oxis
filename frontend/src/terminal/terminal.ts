@@ -32,7 +32,8 @@ export function stripAnsi(s: string): string {
     .replace(/[\x00\x07\x08]/g, "");   // NUL / BEL / BS
 }
 
-const SGR_ONLY_RE = /^\x1b\[[0-9;:]*m$/;
+// Kept in lines: colour codes and OSC 8 hyperlinks (ansi.ts reads both).
+const SGR_ONLY_RE = /^(?:\x1b\[[0-9;:]*m|\x1b\]8;[^\x07\x1b]*(?:\x07|\x1b\\))$/;
 
 /** Like stripAnsi, but keeps colour/style sequences (see ansi.ts). */
 export function stripAnsiKeepSgr(s: string): string {
