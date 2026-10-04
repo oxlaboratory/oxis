@@ -4,7 +4,7 @@
 
 ### OXIS is a programmable workspace for automating projects, editing documents and building workflows — with an entirely customizable experience.
 
-<sub>Free and open source · Windows and Linux · about 14 MB · no account, no telemetry</sub>
+<sub>Free and open source · Windows, Linux and macOS (preview) · about 14 MB · no account, no telemetry</sub>
 
 <br>
 
@@ -1537,7 +1537,7 @@ npm/                     npm launcher package (downloads the prebuilt binary)
 | `publish-release` (pushes to `main` only) | both of the above, published together to the `latest-build` release |
 
 Both build jobs also run the Go tests (`go test ./internal/...`), so the
-process, file-watching and streaming code is tested on Windows and Linux.
+process, file-watching and streaming code is tested on Windows, Linux and macOS.
 The Linux job runs the frontend's tests too (`cd frontend && npm test`,
 Vitest): output and colour parsing, readline editing, sessions, editor
 suggestions, Go to symbol, the directory probe and history filtering.
