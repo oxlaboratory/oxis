@@ -194,6 +194,13 @@ html, body, #root {
   position: absolute; left: 0; top: 0; visibility: hidden;
   white-space: pre; font-family: var(--font); font-size: var(--fs);
 }
+/* The rest of a command from history, after the cursor (→ takes it). */
+.term-ghost {
+  position: absolute; top: 0; white-space: pre; pointer-events: none;
+  font-family: var(--font); font-size: var(--fs); line-height: var(--lh);
+  letter-spacing: var(--ls, 0); font-weight: var(--fw, 400);
+  color: var(--dim); opacity: .75;
+}
 /* At a password prompt: dots instead of text, on the input and on its
    mirror so the caret still lines up. */
 .term-secret { -webkit-text-security: disc; }

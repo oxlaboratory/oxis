@@ -5599,6 +5599,21 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
 
   const clearInput = useCallback(() => syncInput("", 0), [syncInput]);
 
+  // What history suggests after what's typed (fish-style): the newest
+  // command that starts with it, shown dim after the cursor; → or End at
+  // the end of the line takes it.
+  const ghost = useMemo(() => {
+    if (!inputVal || secretInput || searching || promptCapture.get() || inputVal.includes("\n")) return "";
+    const all = history.all();
+    for (let i = all.length - 1; i >= 0; i--) {
+      const h = all[i];
+      if (h.length > inputVal.length && h.startsWith(inputVal)) return h.slice(inputVal.length);
+    }
+    return "";
+  }, [inputVal, secretInput, searching]);
+  const ghostRef = useRef("");
+  ghostRef.current = ghost;
+
   // ── scroll ────────────────────────────────────────────────
   const scrollToBottom = useCallback((force = false) => {
     if (!force && userScrolled.current) return;
@@ -6674,6 +6689,15 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
     }
     if (ctrl && k === "0") { e.preventDefault(); resetSetting("fontSize"); return; }
 
+    // ── HISTORY SUGGESTION: → / End / Ctrl+F / Ctrl+E at the end takes it ──
+    if (ghostRef.current && cur === val.length && !alt && !e.shiftKey &&
+        ((!ctrl && (k === "ArrowRight" || k === "End")) || (ctrl && (k === "f" || k === "e")))) {
+      e.preventDefault();
+      const full = val + ghostRef.current;
+      syncInput(full, full.length);
+      return;
+    }
+
     // ── PASSTHROUGH with an empty prompt (a program is reading keys) ──
     // Up/Down stay OXIS's history, unless the program hid the cursor to
     // draw a menu: then they (and Space, to tick an option) are its.
@@ -7045,12 +7069,15 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
             aria-label="OXIS command prompt"
           />
           <span ref={mirrorRef} className={`term-input-mirror${secretInput ? " term-secret" : ""}`} aria-hidden="true" />
+          {ghost && caret.ch === " " && !caret.hasSel && (
+            <span className="term-ghost" style={{ left: caret.left }} aria-hidden="true">{ghost}</span>
+          )}
           {!caret.hasSel && (
             <span
               className={`term-caret ${ready && promptFocused ? "term-caret--on" : "term-caret--off"}`}
               style={{ left: caret.left }}
               aria-hidden="true"
-            >{caret.ch === " " ? " " : secretInput ? "•" : caret.ch}</span>
+            >{caret.ch === " " ? (ghost ? ghost[0] : " ") : secretInput ? "•" : caret.ch}</span>
           )}
         </div>
       </div>

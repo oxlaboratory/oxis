@@ -6,6 +6,9 @@ All notable changes to OXIS. The format follows
 ## [Unreleased]
 
 ### Added
+- Suggestions from history as you type, as in fish: the rest of the
+  newest command starting with what's typed shows dim after the cursor,
+  and →, End, Ctrl+F or Ctrl+E at the end of the line takes it.
 - Clickable compiler output: relative paths (`src/app.ts:12:5`,
   `src/app.ts(12,5)`, `./main.go:40`, Python's `File "…", line 3`) open
   in the editor at that line and column, from the shell's folder. Only
