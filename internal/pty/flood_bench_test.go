@@ -30,7 +30,7 @@ func BenchmarkFlood(b *testing.B) {
 		buf.WriteString(strconv.Itoa(i))
 		buf.WriteString("\r\n")
 	}
-	for b.Loop() {
+	for i := 0; i < b.N; i++ {
 		sends := 0
 		var g RepaintGuard
 		_ = pumpOutput(&chunked{data: buf.Bytes(), n: 8192}, newTermSize(120, 40), func(kind, data string) { sends++ }, &g, true)
