@@ -6,6 +6,18 @@ All notable changes to OXIS. The format follows
 ## [Unreleased]
 
 ### Added
+- `oxis.line(text [, kind])` for Lua plugins: a line that `l:set()`
+  redraws in place, for animations and progress; `oxis.every` now runs
+  as often as every 0.03 s.
+- games 2.1.0 animates: the pokie reels spin and stop left to right
+  and wins count up (a big win flashes), the coin spins in the air
+  before it lands, the die tumbles. Ctrl+C shows the result at once and
+  leaves the table.
+- File tree: right-click a file or folder for Rename (F2; typed in
+  place, the name without its extension selected, and files open in the
+  editor follow), Duplicate (Ctrl+D; "name copy", "name copy 2"…, whole
+  folders too) and Delete… (Delete key; moves it to the Recycle Bin, the
+  Trash on macOS and Linux, after a confirmation in the menu).
 - Plugins can talk and keep time: `oxis.ask(question, fn)` takes the
   next line typed as the answer (the prompt shows whose question it is,
   Ctrl+C cancels), `oxis.after`/`oxis.every` run later or repeatedly (a
@@ -415,6 +427,9 @@ All notable changes to OXIS. The format follows
 - The npm launcher downloads from the GitHub `latest-build` release.
 
 ### Fixed
+- Selecting text in the editor drew a second, bold-looking copy of the
+  selected text over the code (and a theme's solid selection colour hid
+  it); the selection now only tints the highlighted text.
 - `'plugin reload` reran the copy already loaded, so an edit to a
   plugin's file didn't take effect until OXIS restarted; it reads the
   file again now.

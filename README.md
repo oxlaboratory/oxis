@@ -586,7 +586,10 @@ Windows. Quote paths with spaces.
 - **Tabs** for several open files, with unsaved markers and Save All.
 - **File tree** rooted at the data folder, or at the linked project
   when the active workspace has one. Fully keyboard-driven; drag a file
-  onto a folder to move it.
+  onto a folder to move it. Right-click for New File, New Folder,
+  Rename (F2, typed in place; open tabs follow), Duplicate (Ctrl+D,
+  "name copy" beside it, folders included) and Delete (Delete key),
+  which moves it to the Recycle Bin or Trash after asking.
 - **Syntax highlighting** for TypeScript/JavaScript, Go, Lua, Python,
   JSON, CSS, HTML, Markdown, shell and YAML; turned off above 500,000
   characters so huge files stay responsive.
@@ -835,7 +838,7 @@ version, and restores it automatically if the new one fails to load.
 
 | Plugin | What it gives you |
 |---|---|
-| **games** | `'pokies` (5 reels, 9 paylines, wilds, scatters, free spins, `'pokies auto <n>`), `'blackjack` (double down, split), `'roll <n> [bet]` (call the die; "yes 5" to go again), `'coinflip`, `'guess`, `'hangman`, `'8ball`, and one chip bank across them (`'chips`). You answer in the prompt; Ctrl+C leaves any table |
+| **games** | `'pokies` (5 animated reels that stop one by one, 9 paylines, wilds, scatters, free spins, wins that count up, `'pokies auto <n>`), `'blackjack` (double down, split), `'roll <n> [bet]` (the die tumbles, then lands; "yes 5" to go again), `'coinflip` (the coin spins in the air), `'guess`, `'hangman`, `'8ball`, and one chip bank across them (`'chips`). You answer in the prompt; Ctrl+C leaves any table |
 | **monitoring** | `'mon` (live CPU and memory with a sparkline), `'top` and `'watch-mem` (who's using memory and what's growing), `'tail <log>` (followed, errors in red), `'healthcheck <url>… [every n]` (status, latency, up/down), `'alert cpu|mem <percent>` |
 | **autotest** | `'autotest`: re-runs the project's tests on every save (npm, Go, Cargo or pytest found by itself) and says in one line whether they pass |
 | **ai-devops** | Premium: an AI assistant for the terminal and editor |
@@ -898,6 +901,7 @@ Everything is on the global `oxis` table.
 | `oxis.fs.search(root, query [, opts], cb)` | The editor's Search in files: `opts` `{ regex, caseSensitive, wholeWord, max }` → `{ matches = { { path, line, col, text } }, files, truncated }`; skips dependency and build folders and binary files |
 | `oxis.ask(question, fn(answer) [, { label, cancel }])` | Ask in the terminal: the next line typed is the answer (the prompt shows `label ❯` meanwhile); Ctrl+C calls `cancel`. Ask again from `fn` for a conversation ([below](#asking-and-timing)) |
 | `oxis.after(seconds, fn)` / `oxis.every(seconds, fn [, { foreground, stop }])` | Run later, or again and again until `h:stop()`. A `foreground` one also stops on Ctrl+C, then `stop` runs |
+| `oxis.line(text [, kind])` | A line that can be rewritten in place: `l:set(text [, kind])` redraws it (a kind left out keeps its colour). For animations, progress and live readouts ([below](#animation)) |
 | `oxis.store.get(key)` / `.set(key, value)` | The plugin's own values, kept between runs (no permission needed) |
 | `oxis.input(text)` | Put text in the prompt, ready to edit or run |
 
@@ -927,6 +931,27 @@ oxis.command("clock", function()
   oxis.every(1, function() oxis.echo(os.date("%H:%M:%S")) end,
     { foreground = true, stop = function() oxis.echo("clock stopped", "dim") end })
 end, "a clock until Ctrl+C")
+```
+
+### Animation
+
+`oxis.line` prints a line and gives it back to you; `l:set()` redraws
+it where it is. Drive the frames with `oxis.every` (down to 0.03 s);
+with `foreground = true`, Ctrl+C ends the animation and `stop` can show
+the final frame. This is how the games plugin spins its reels, tosses
+its coin and rolls its dice.
+
+```lua
+oxis.command("spin", function()
+  local frames = { "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" }
+  local l, i = oxis.line("⠋ working…", "accent"), 0
+  local h
+  h = oxis.every(0.08, function()
+    i = i + 1
+    l:set(frames[i % #frames + 1] .. " working… " .. i * 2 .. "%")
+    if i >= 50 then h:stop() end
+  end, { foreground = true, stop = function() l:set("✓ done", "ok") end })
+end, "a spinner")
 ```
 
 Events for `oxis.autocmd`: `ShellOpen` (alias `TerminalOpen`),

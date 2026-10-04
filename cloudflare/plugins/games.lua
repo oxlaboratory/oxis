@@ -1,5 +1,5 @@
 --[[@manifest
-version: 2.0.0
+version: 2.1.0
 description: Casino night in your terminal — a pokie machine, blackjack, dice you call before they land, coin tosses, guess-the-number and hangman. One chip bank across every game, kept between runs. Answer in the prompt; Ctrl+C walks away from any table.
 author: Oxide Labs
 category: games
@@ -93,14 +93,45 @@ end
 local function yes(w) return w == "y" or w == "yes" or w == "yeah" or w == "again" or w == "sure" end
 local function no(w) return w == "n" or w == "no" or w == "nope" or w == "quit" or w == "q" or w == "stop" end
 
+-- ── animation ───────────────────────────────────────────────
+-- animate(frames, seconds, onFrame(i), onDone(interrupted)): a frame
+-- every `seconds` (oxis.every), drawn into oxis.line lines. Ctrl+C ends
+-- it at once with interrupted = true, and the game shows the result and
+-- leaves the table. Builds without oxis.line skip straight to onDone.
+local canAnimate = oxis.line ~= nil and oxis.every ~= nil
+local function animate(frames, seconds, onFrame, onDone)
+  if not canAnimate then onDone(false) return end
+  local i, completed = 0, false
+  local h
+  h = oxis.every(seconds, function()
+    i = i + 1
+    onFrame(i)
+    if i >= frames then completed = true h:stop() end
+  end, { foreground = true, stop = function() onDone(not completed) end })
+end
+
+-- A line to draw frames into, or a stand-in that prints only its last
+-- text on builds without oxis.line.
+local function liveLine(text, kind)
+  if canAnimate then return oxis.line(text, kind) end
+  local last, lastKind = text, kind
+  return {
+    set = function(_, t, k) last, lastKind = t, k or lastKind end,
+    flush = function() oxis.echo(last, lastKind) end,
+  }
+end
+local function flush(l) if l.flush then l:flush() end end
+
 -- ── dice ────────────────────────────────────────────────────
 
-local function dice(sides, guess, bet)
-  topUp()
-  if bet > chips() then bet = chips() end
-  setChips(chips() - bet)
-  local rolled = math.random(1, sides)
-  local face = sides == 6 and ({ "⚀", "⚁", "⚂", "⚃", "⚄", "⚅" })[rolled] or ("d" .. sides)
+local FACES = { "⚀", "⚁", "⚂", "⚃", "⚄", "⚅" }
+local function faceOf(sides, n) return sides == 6 and FACES[n] or ("d" .. sides .. ":" .. n) end
+
+local dice
+local function diceResult(sides, guess, bet, rolled, rollLine, interrupted)
+  local face = faceOf(sides, rolled)
+  rollLine:set(("🎲 %s  landed on %d"):format(face, rolled), rolled == guess and "ok" or "err")
+  flush(rollLine)
   local streak = store("diceStreak", 0)
   if rolled == guess then
     local win = bet * (sides - 1) + bet
@@ -116,6 +147,7 @@ local function dice(sides, guess, bet)
     oxis.echo(("🎲 %s Sorry, you lose — rolled %d, you called %d. −%s chips (bank %s)"):format(face, rolled, guess, fmt(bet), fmt(chips())), "err")
     record("dice", -bet)
   end
+  if interrupted then oxis.echo("🎲 Walked away. Bank: " .. fmt(chips()), "dim") return end
   oxis.ask("Roll again? (yes [number] [bet] · no)", function(answer)
     local w = words(answer)
     if #w == 0 or yes(w[1]) or tonumber(w[1]) then
@@ -132,6 +164,26 @@ local function dice(sides, guess, bet)
       oxis.echo("🎲 Thanks for playing. Bank: " .. fmt(chips()) .. " chips", "dim")
     end
   end, { label = "dice" })
+end
+
+-- The die tumbles, slowing down, then lands.
+dice = function(sides, guess, bet)
+  topUp()
+  if bet > chips() then bet = chips() end
+  setChips(chips() - bet)
+  local rolled = math.random(1, sides)
+  local line = liveLine(("🎲 rolling for a %d…"):format(guess), "accent")
+  local shown = 1
+  -- Frames where the face changes, further apart as it slows.
+  local changes = { [1]=1, [2]=1, [3]=1, [4]=1, [5]=1, [7]=1, [9]=1, [12]=1, [15]=1, [19]=1 }
+  animate(22, 0.05, function(i)
+    if changes[i] then
+      local n = math.random(1, sides)
+      if n == shown then n = n % sides + 1 end
+      shown = n
+      line:set(("🎲 %s  %s"):format(faceOf(sides, n), ("·"):rep(1 + i % 4)), "accent")
+    end
+  end, function(interrupted) diceResult(sides, guess, bet, rolled, line, interrupted) end)
 end
 
 oxis.command("roll", function(args)
@@ -160,10 +212,15 @@ end, "call a die roll before it lands — 'roll 4 [bet], 'roll d20 13; answer th
 
 -- ── coin flip ───────────────────────────────────────────────
 
-local function flip(call, bet)
-  topUp()
-  if bet > chips() then bet = chips() end
-  local side = math.random(0, 1) == 0 and "heads" or "tails"
+-- The coin spins edge-on and face-up, rising and falling, and slows to
+-- a stop on one side.
+local COIN = { "( H )", "( ◖ )", "(  | )", "( ◗ )", "( T )", "( ◖ )", "( |  )", "( ◗ )" }
+local HEIGHT = { 0, 1, 2, 3, 4, 4, 5, 5, 5, 4, 4, 3, 2, 1, 0 }
+
+local flip
+local function flipResult(call, bet, side, coinLine, interrupted)
+  coinLine:set(("🪙 %s  %s"):format(side == "heads" and "( H )" or "( T )", side:upper()), call == side and "ok" or "err")
+  flush(coinLine)
   if call == side then
     setChips(chips() + bet)
     oxis.echo(("🪙 %s — you called it. +%s (bank %s)"):format(side, fmt(bet), fmt(chips())), "ok")
@@ -173,6 +230,7 @@ local function flip(call, bet)
     oxis.echo(("🪙 %s — not your toss. −%s (bank %s)"):format(side, fmt(bet), fmt(chips())), "err")
     record("coinflip", -bet)
   end
+  if interrupted then oxis.echo("🪙 Walked away. Bank: " .. fmt(chips()), "dim") return end
   oxis.ask("Again? (heads/tails [bet] · no)", function(answer)
     local w = words(answer)
     local c = w[1]
@@ -182,6 +240,21 @@ local function flip(call, bet)
     if not b then oxis.echo(err, "warn") b = math.min(bet, chips()) end
     flip(c, b)
   end, { label = "coin" })
+end
+
+flip = function(call, bet)
+  topUp()
+  if bet > chips() then bet = chips() end
+  local side = math.random(0, 1) == 0 and "heads" or "tails"
+  local line = liveLine(("🪙 you call %s — tossing…"):format(call), "accent")
+  local face = 0
+  -- Every frame while it's in the air, then less and less often as it settles.
+  local slow = { [16]=1, [18]=1, [21]=1, [24]=1 }
+  animate(26, 0.06, function(i)
+    if i <= #HEIGHT or slow[i] then face = face % #COIN + 1 end
+    local h = HEIGHT[i] or 0
+    line:set(("🪙 %s%s%s"):format((" "):rep(h * 2), COIN[face], h > 0 and ("  " .. ("˙"):rep(h)) or ""), "accent")
+  end, function(interrupted) flipResult(call, bet, side, line, interrupted) end)
 end
 
 oxis.command("coinflip", function(args)
@@ -254,7 +327,23 @@ end
 
 local freeSpins = 0
 
-local function pokieSpin(bet)
+local function rowText(grid, row, stopped)
+  local cells = {}
+  for reel = 1, 5 do
+    cells[reel] = reel <= stopped and grid[reel][row].s or spinSymbol().s
+  end
+  return "┃  " .. table.concat(cells, "  ")
+end
+
+-- Open on the right: emoji are drawn narrower than two columns in some
+-- fonts, so a closing edge wouldn't line up.
+local FRAME = { plain = "┏━━━ 🎰 ━━━━━━━━━━━━━━", free = "┏━━━ 🎰 free spin ━━━━━",
+  win = "┏━━━ ✨ WIN ✨ ━━━━━━━━", big1 = "┏━━━ 💰 BIG WIN 💰 ━━━━", big2 = "┏━━━ 💰 B I G  W I N 💰 " }
+local BOTTOM = "┗━━━━━━━━━━━━━━━━━━━━━━"
+
+-- Spins (paid for at once), draws the reels stopping left to right,
+-- then shows the win, counting it up; done(interrupted) after.
+local function pokieSpin(bet, done)
   topUp()
   local free = freeSpins > 0
   if free then freeSpins = freeSpins - 1
@@ -287,23 +376,50 @@ local function pokieSpin(bet)
   end
   total = math.floor(total + 0.5)
   setChips(chips() + total)
-  oxis.echo("┌──────────────────────────┐", "dim")
-  for row = 1, 3 do
-    local cells = {}
-    for reel = 1, 5 do cells[reel] = grid[reel][row].s end
-    oxis.echo("│  " .. table.concat(cells, "  ") .. "  │", row == 2 and "accent" or "info")
+  record("pokies", total - (free and 0 or bet))
+
+  local top = liveLine(free and FRAME.free or FRAME.plain, "dim")
+  local rows = {}
+  for row = 1, 3 do rows[row] = liveLine(rowText(grid, row, 0), row == 2 and "accent" or "info") end
+  local bottom = liveLine(BOTTOM, "dim")
+
+  local function summary(interrupted)
+    oxis.echo(("Bank %s chips%s"):format(fmt(chips()), freeSpins > 0 and ("  ·  " .. freeSpins .. " free spins left") or ""), "dim")
+    if done then done(interrupted) end
   end
-  oxis.echo("└──────────────────────────┘", "dim")
-  local net = total - (free and 0 or bet)
-  if total > 0 then
+  local function showWin(interrupted)
+    for row = 1, 3 do rows[row]:set(rowText(grid, row, 5)) end
+    if total > 0 then top:set(FRAME.win, "ok") end
+    flush(top) for row = 1, 3 do flush(rows[row]) end flush(bottom)
+    if total <= 0 then
+      oxis.echo(free and "No luck on that free spin." or ("No win. −" .. fmt(bet)), "dim")
+      return summary(interrupted)
+    end
     local big = total >= bet * 20
-    oxis.echo(("%s %s  +%s chips%s"):format(big and "💰 BIG WIN!" or "✨ Win —", table.concat(wins, " · "), fmt(total),
-      free and " (free spin)" or ""), "ok")
-  else
-    oxis.echo(free and "No luck on that free spin." or ("No win. −" .. fmt(bet)), "dim")
+    local head = big and "💰 BIG WIN!" or "✨ Win —"
+    local tail = table.concat(wins, " · ")
+    local winLine = liveLine(("%s %s  +0"):format(head, tail), "ok")
+    local function final()
+      winLine:set(("%s %s  +%s chips%s"):format(head, tail, fmt(total), free and " (free spin)" or ""))
+      flush(winLine)
+      if big then top:set(FRAME.big1, "ok") end
+    end
+    if interrupted then final() return summary(true) end
+    -- The win counts up; a big one takes longer, and the frame flashes.
+    local steps = big and 24 or 10
+    animate(steps, 0.05, function(i)
+      winLine:set(("%s %s  +%s"):format(head, tail, fmt(total * i / steps)))
+      if big then top:set(i % 2 == 0 and FRAME.big1 or FRAME.big2, i % 2 == 0 and "ok" or "warn") end
+    end, function(intr) final() summary(intr) end)
   end
-  oxis.echo(("Bank %s chips%s"):format(fmt(chips()), freeSpins > 0 and ("  ·  " .. freeSpins .. " free spins left") or ""), "dim")
-  record("pokies", net)
+
+  -- Each reel spins a little longer than the one before it.
+  local STOP = { 6, 9, 12, 15, 18 }
+  animate(STOP[5], 0.06, function(i)
+    local stopped = 0
+    for reel = 1, 5 do if i >= STOP[reel] then stopped = reel end end
+    for row = 1, 3 do rows[row]:set(rowText(grid, row, stopped)) end
+  end, showWin)
   return bet
 end
 
@@ -311,14 +427,18 @@ local function pokieAsk(bet)
   oxis.ask(("Spin? (Enter spins %s · bet <n> · auto <n> · paytable · no)"):format(fmt(bet)), function(answer)
     local w = words(answer)
     if #w == 0 or yes(w[1]) or w[1] == "spin" then
-      pokieSpin(bet)
-      return pokieAsk(math.min(bet, math.max(chips(), 1)))
+      return pokieSpin(bet, function(interrupted)
+        if interrupted then return oxis.echo("🎰 Cashed out with " .. fmt(chips()) .. " chips.", "dim") end
+        pokieAsk(math.min(bet, math.max(chips(), 1)))
+      end)
     end
     if w[1] == "bet" then
       local b, err = parseBet(w[2], bet)
       if not b then oxis.echo(err, "warn") return pokieAsk(bet) end
-      pokieSpin(b)
-      return pokieAsk(b)
+      return pokieSpin(b, function(interrupted)
+        if interrupted then return oxis.echo("🎰 Cashed out with " .. fmt(chips()) .. " chips.", "dim") end
+        pokieAsk(b)
+      end)
     end
     if w[1] == "auto" then return oxis.echo("type 'pokies auto " .. (w[2] or "10") .. " to spin by itself", "dim") end
     if w[1] == "paytable" or w[1] == "pays" then
@@ -341,19 +461,27 @@ oxis.command("pokies", function(args)
     local bet = parseBet(args[3], 9) or 9
     local left = n
     oxis.echo(("🎰 Auto-spinning %d times at %s a spin — Ctrl+C stops."):format(n, fmt(bet)), "accent")
-    local h
-    h = oxis.every(0.8, function()
-      if left <= 0 or chips() <= 0 then h:stop() return end
+    local function over() oxis.echo("🎰 Auto-spin over. Bank: " .. fmt(chips()), "dim") end
+    local nextSpin
+    nextSpin = function()
+      if left <= 0 or (chips() <= 0 and freeSpins == 0) then return over() end
       left = left - 1
-      pokieSpin(bet)
-    end, { foreground = true, stop = function() oxis.echo("🎰 Auto-spin over. Bank: " .. fmt(chips()), "dim") end })
+      pokieSpin(bet, function(interrupted)
+        if interrupted then return over() end
+        -- A short pause between spins (Ctrl+C stops here too).
+        animate(8, 0.05, function() end, function(intr) if intr then over() else nextSpin() end end)
+      end)
+    end
+    nextSpin()
     return
   end
   local bet, err = parseBet(args[1], 9)
   if not bet then oxis.echo(err, "warn") return end
   oxis.echo("🎰 Five reels, nine lines. 🃏 is wild, three ⭐ pay ten free spins.", "accent")
-  pokieSpin(bet)
-  pokieAsk(bet)
+  pokieSpin(bet, function(interrupted)
+    if interrupted then return oxis.echo("🎰 Cashed out with " .. fmt(chips()) .. " chips.", "dim") end
+    pokieAsk(bet)
+  end)
 end, "a 5-reel pokie machine: 9 paylines, wilds, scatters and free spins — 'pokies [bet], 'pokies auto <n>")
 
 -- ── blackjack ───────────────────────────────────────────────

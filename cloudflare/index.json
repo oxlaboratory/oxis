@@ -9,9 +9,9 @@
   },
   {
     "name": "games",
-    "desc": "Casino night in your terminal: a 5-reel pokie machine with wilds and free spins, blackjack with doubles and splits, dice you call before they land, coin tosses, guess-the-number and hangman. One chip bank across every game; answer in the prompt, Ctrl+C walks away.",
+    "desc": "Casino night in your terminal: an animated 5-reel pokie machine with wilds and free spins, blackjack with doubles and splits, dice you call before they land, spinning coin tosses, guess-the-number and hangman. One chip bank across every game; answer in the prompt, Ctrl+C walks away.",
     "category": "games",
-    "version": "2.0.0",
+    "version": "2.1.0",
     "author": "Oxide Labs",
     "file": "plugins/games.lua"
   },
