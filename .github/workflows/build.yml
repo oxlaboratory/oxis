@@ -93,7 +93,8 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.22"
+          # Go 1.22's object files are refused by Xcode 26's linker.
+          go-version: "stable"
 
       - uses: actions/setup-node@v4
         with:
