@@ -81,8 +81,13 @@ const bashIntegration = `# Written by OXIS for its terminal (shell integration);
 [ -f /etc/bash.bashrc ] && . /etc/bash.bashrc
 [ -f ~/.bashrc ] && . ~/.bashrc
 __oxis_status() {
-  local s=$?
-  printf '\e]133;D;%s\a\e]7;file://%s%s\a' "$s" "${HOSTNAME:-}" "$PWD"
+  local s=$? d=$PWD
+  # Git Bash, MSYS2, Cygwin: their own folders (/tmp, ~ elsewhere,
+  # mounts) are reported as the Windows folder, C:/…; /c/… already says it.
+  case $OSTYPE in msys*|cygwin*)
+    case $PWD in /[a-zA-Z]|/[a-zA-Z]/*) ;; *) d=/$(pwd -W 2>/dev/null || cygpath -m "$PWD" 2>/dev/null) || d=$PWD ;; esac ;;
+  esac
+  printf '\e]133;D;%s\a\e]7;file://%s%s\a' "$s" "${HOSTNAME:-}" "$d"
   return $s
 }
 if [[ "$(declare -p PROMPT_COMMAND 2>/dev/null)" == "declare -a"* ]]; then
