@@ -15,7 +15,7 @@ func TestShells(t *testing.T) {
 			t.Errorf("cmd not found among %+v", shells)
 		}
 	}
-	for _, name := range []string{"", "auto", "C:\Windows\System32\cmd.exe", "/bin/sh", "nope"} {
+	for _, name := range []string{"", "auto", `C:\Windows\System32\cmd.exe`, "/bin/sh", "nope"} {
 		if _, ok := shellByName(name); ok {
 			t.Errorf("%q picked a shell; only names from Shells() may", name)
 		}
