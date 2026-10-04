@@ -6,7 +6,7 @@
 #
 #   build-linux    → dist/oxis, dist/deb/oxis_<ver>_amd64.deb,
 #                    dist/oxis-<ver>-linux-portable.tar.gz
-#   build-macos    → dist/oxis-<ver>-macos-arm64.zip (OXIS.app; artifact only)
+#   build-macos    → dist/oxis-<ver>-macos-arm64.zip (OXIS.app, preview)
 #   build-windows  → dist/wix/oxis-<ver>.msi and the bare dist/oxis.exe
 #                    ('update install can only swap in a bare binary)
 
@@ -83,7 +83,8 @@ jobs:
           path: release-files/
           retention-days: 30
 
-  # macOS (Apple silicon): OXIS.app, zipped. Not in the release yet.
+  # macOS (Apple silicon): OXIS.app, zipped. A preview: built and tested
+  # here, not yet tried on a Mac.
   build-macos:
     runs-on: macos-latest
     steps:
@@ -199,7 +200,7 @@ jobs:
 
   # Never publish from a pull request.
   publish-release:
-    needs: [build-linux, build-windows]
+    needs: [build-linux, build-windows, build-macos]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
@@ -237,6 +238,12 @@ jobs:
         if: steps.app.outputs.publish == 'true'
         with:
           name: oxis-windows-${{ github.sha }}
+          path: release-files
+
+      - uses: actions/download-artifact@v4
+        if: steps.app.outputs.publish == 'true'
+        with:
+          name: oxis-macos-${{ github.sha }}
           path: release-files
 
       # The release action only creates the tag; move it to this build so

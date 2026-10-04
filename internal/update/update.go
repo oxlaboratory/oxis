@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"runtime"
 	"strings"
 	"time"
 
@@ -256,8 +257,10 @@ func pickAsset(assets []ghAsset, goos string) string {
 		exts = []string{".msi", ".exe"}
 	case "linux":
 		exts = []string{".deb", ".tar.gz"}
+	case "darwin":
+		exts = []string{"-macos-" + macArch() + ".zip"}
 	default:
-		return "" // no macOS build is published
+		return ""
 	}
 	for _, ext := range exts {
 		for _, a := range assets {
@@ -302,4 +305,12 @@ func artifactIsAccessible(url string) bool {
 	}
 	defer resp.Body.Close()
 	return resp.StatusCode >= 200 && resp.StatusCode < 300
+}
+
+// macArch names the macOS build for this machine, as the release does.
+func macArch() string {
+	if runtime.GOARCH == "arm64" {
+		return "arm64"
+	}
+	return "x64"
 }

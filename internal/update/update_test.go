@@ -3,6 +3,7 @@ package update
 import (
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -146,5 +147,24 @@ func TestCheckUnpushedBuild(t *testing.T) {
 				t.Errorf("Available=%v Unpushed=%v, want %v true", got.Available, got.Unpushed, c.wantAvailable)
 			}
 		})
+	}
+}
+
+func TestPickAssetMacOS(t *testing.T) {
+	assets := []ghAsset{
+		{Name: "oxis-1.2.1.msi", BrowserDownloadURL: "msi"},
+		{Name: "oxis_1.2.1_amd64.deb", BrowserDownloadURL: "deb"},
+		{Name: "oxis-1.2.1-macos-arm64.zip", BrowserDownloadURL: "mac-arm"},
+		{Name: "oxis-1.2.1-macos-x64.zip", BrowserDownloadURL: "mac-x64"},
+	}
+	want := map[string]string{"arm64": "mac-arm", "amd64": "mac-x64"}[runtime.GOARCH]
+	if want == "" {
+		t.Skip("no macOS build for " + runtime.GOARCH)
+	}
+	if got := pickAsset(assets, "darwin"); got != want {
+		t.Errorf("darwin: %q, want %q", got, want)
+	}
+	if got := pickRawBinary(assets, "darwin"); got != "" {
+		t.Errorf("darwin has no bare binary to swap in, got %q", got)
 	}
 }

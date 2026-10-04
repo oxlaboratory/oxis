@@ -252,13 +252,16 @@ Every push to `main` is built by GitHub Actions and published to the
 |---|---|
 | Windows (x64) | `oxis-<version>.msi` installer, or the bare `oxis.exe` |
 | Linux (x64) | `oxis_<version>_amd64.deb`, `oxis-<version>-linux-portable.tar.gz`, or the bare `oxis` binary |
+| macOS (Apple silicon) — preview | `oxis-<version>-macos-arm64.zip` (OXIS.app) |
 
 Linux needs GTK 3 and WebKitGTK (`libgtk-3-0`, `libwebkit2gtk-4.1-0`);
 the `.deb` pulls them in. Windows needs the WebView2 runtime, which
 ships with Windows 10 and 11.
 
-There is no macOS build. Wails supports macOS, so building from source
-should work, but it isn't tested.
+The macOS build is a preview: CI builds it and runs the tests on
+macOS, but nobody has used it on a Mac yet, so please report what you
+find. It isn't signed, so the first time, right-click OXIS.app → Open
+(or run `xattr -dr com.apple.quarantine OXIS.app`).
 
 ### Build from source
 
@@ -269,7 +272,7 @@ Requirements: Go 1.22+, Node.js 24+, and on Linux
 git clone https://github.com/oxlaboratory/oxis.git
 cd oxis
 npm run setup        # checks tools, installs dependencies
-npm run build        # → dist/oxis.exe (Windows) or dist/oxis + .deb (Linux)
+npm run build        # → dist/oxis.exe (Windows), dist/oxis + .deb (Linux), dist/OXIS.app + .zip (macOS)
 npm run build:msi    # Windows installer (WiX, or NSIS as a fallback)
 npm run dev          # the app with hot reload (see below)
 ```

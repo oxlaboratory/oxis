@@ -6,6 +6,10 @@ All notable changes to OXIS. The format follows
 ## [Unreleased]
 
 ### Added
+- A macOS build (Apple silicon), as a preview: `OXIS.app`, zipped, in
+  the `latest-build` release. CI builds it and runs the Go tests on
+  macOS; it hasn't been tried on a Mac yet. System stats (`'mon`,
+  `oxis.system.info`) read macOS's own counters.
 - A long command (10 s or more, setting `notifyAfter`) that finishes
   while OXIS is in the background flashes its taskbar button on Windows
   until you come back.
@@ -491,6 +495,8 @@ All notable changes to OXIS. The format follows
 - The npm launcher downloads from the GitHub `latest-build` release.
 
 ### Fixed
+- CI: failing Go tests on Linux passed the build, because the test step
+  piped into `tee` without `pipefail`.
 - After a jump to a line (search results, go to line), the status bar's
   Ln/Col and the current-line highlight followed only on the next key.
 - The directory reported by Git Bash (`/c/Users/…`) is read as
