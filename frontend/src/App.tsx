@@ -8294,6 +8294,7 @@ const HOME_COMMANDS: Array<[string, string, string?]> = [
   ["'edit <file>", "open the editor", "'edit "],
   ["'market list", "plugins to install"],
   ["'theme <name>", "change the look", "'theme "],
+  ["'shell <name>", "another shell", "'shell "],
 ];
 const HOME_SHORTCUTS: Array<[string, string, KeyboardEventInit]> = [
   ["Ctrl+T", "terminal & tabs", { key: "t", ctrlKey: true }],
