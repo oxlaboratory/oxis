@@ -1426,3 +1426,12 @@ input, textarea { font-family: var(--font); }
 .term-line--command:hover .term-fold { opacity: .8; }
 .term-line--folded .term-fold { opacity: 1; color: var(--purple3); background: var(--bg3); }
 .term-fold:hover { color: var(--purple3); }
+
+/* The command whose output you're scrolled into, pinned at the top. */
+.term-sticky-wrap { position: sticky; top: -10px; height: 0; z-index: 4; } /* -10px: .term-out's top padding */
+.term-sticky {
+  background: var(--bg1); border-bottom: 1px solid var(--border); color: var(--muted);
+  padding: 3px var(--term-pad, 18px); margin: 0 calc(-1 * var(--term-pad, 18px)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  cursor: pointer; box-shadow: 0 4px 10px rgba(0,0,0,.25);
+}
+.term-sticky:hover { color: var(--text); }

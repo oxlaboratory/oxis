@@ -5729,11 +5729,32 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
     });
   }, []);
 
+  // The command whose output is at the top while scrolled up through it,
+  // pinned above the output (click it to go to its line).
+  const [stickyCmd, setStickyCmd] = useState<{ id: number; text: string } | null>(null);
+  const stickyFrame = useRef(0);
+  const updateSticky = useCallback(() => {
+    stickyFrame.current = 0;
+    const el = outRef.current;
+    if (!el || el.scrollTop < 4) { setStickyCmd(null); return; }
+    const box = el.getBoundingClientRect();
+    // The line at the top, looking through the pinned line itself.
+    const top = document.elementsFromPoint(box.left + 24, box.top + 30).map(e => e.closest("[data-line-id]")).find(Boolean);
+    const id = Number(top?.getAttribute("data-line-id"));
+    const all = linesRef.current;
+    let i = all.findIndex(l => l.id === id);
+    if (i < 0) { setStickyCmd(null); return; }
+    while (i >= 0 && !all[i].status) i--;
+    if (i < 0 || all[i].id === id) { setStickyCmd(null); return; }
+    const cmd = all[i];
+    setStickyCmd(cur => (cur?.id === cmd.id ? cur : { id: cmd.id, text: cmd.text.trimEnd() }));
+  }, []);
   const handleScroll = useCallback(() => {
     const el = outRef.current;
     if (!el) return;
     userScrolled.current = (el.scrollHeight - el.scrollTop - el.clientHeight) > 60;
-  }, []);
+    if (!stickyFrame.current) stickyFrame.current = requestAnimationFrame(updateSticky);
+  }, [updateSticky]);
 
   // ── output helpers ────────────────────────────────────────
   /** Applies queued output (see outQueue). Scrolling to the bottom
@@ -7434,6 +7455,15 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
         onContextMenu={openOutputMenu}
         tabIndex={-1}
       >
+        {stickyCmd && (
+          <div className="term-sticky-wrap">
+            <div className="term-sticky" title="Go to this command"
+              onMouseDown={e => e.stopPropagation()}
+              onClick={() => outRef.current?.querySelector(`[data-line-id="${stickyCmd.id}"]`)?.scrollIntoView({ block: "start" })}>
+              {stickyCmd.text}
+            </div>
+          </div>
+        )}
         {outputBlocks.map(b => <OutputBlock key={b.key} lines={b.lines} matches={outputSearchSet} hidden={folding.hidden} />)}
         {partial && !screenOn && <div className="term-line">{partialSpans && !secretInput ? renderLine(partialSpans.map(sp => sp.t).join(""), partialSpans) : partial}</div>}
       </div>

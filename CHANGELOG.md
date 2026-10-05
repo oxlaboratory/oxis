@@ -6,6 +6,8 @@ All notable changes to OXIS. The format follows
 ## [Unreleased]
 
 ### Added
+- Scrolled up into a command's output, its command line stays pinned at
+  the top (click it to jump there).
 - Fold a command's output: hover its line and click ▾; it shows
   "▸ 120 lines" until you click again.
 - Searching the output (Ctrl+Shift+F): an upper-case letter makes it

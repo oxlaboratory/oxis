@@ -481,6 +481,8 @@ Windows Terminal do. With it:
   **Copy Output** or **Copy Command and Output**.
 - Hover a command's line and click **▾** to fold its output away
   ("▸ 120 lines"); click again to see it.
+- Scrolled up into long output, the command that printed it stays
+  pinned at the top; click it to jump to it.
 - A command that ran 10 seconds or more and finishes while OXIS is in
   the background flashes its taskbar button (setting `notifyAfter`).
 - OXIS follows the directory exactly (`cd`, `z`, `Push-Location`,
