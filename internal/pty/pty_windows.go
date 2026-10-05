@@ -69,9 +69,11 @@ func HandleSession(conn *websocket.Conn) {
 	// Set by a resize for a shell that may lose the next key (shiftTap).
 	tapKey := losesKeyAfterResize(shellCmd)
 	var resized atomic.Bool
+	var rec recorder // 'record
+	defer rec.Stop()
 
 	go func() {
-		err := pumpOutput(cpty, size, func(kind, data string) {
+		err := pumpOutput(recordingReader{cpty, &rec}, size, func(kind, data string) {
 			safeSend(conn, &mu, outMsg{Type: kind, Data: data})
 		}, &repaint, true)
 		if err != io.EOF {
@@ -104,6 +106,7 @@ func HandleSession(conn *websocket.Conn) {
 			if m.Cols > 0 && m.Rows > 0 {
 				repaint.Arm()
 				size.set(int(m.Cols), int(m.Rows))
+				rec.Resize(int(m.Cols), int(m.Rows))
 				_ = cpty.Resize(int(m.Cols), int(m.Rows))
 				if tapKey {
 					resized.Store(true)
@@ -111,6 +114,8 @@ func HandleSession(conn *websocket.Conn) {
 			}
 		case "screen-exit":
 			repaint.LeaveScreen()
+		case "record-start", "record-stop":
+			recordMsg(&rec, m, size, func(o outMsg) { safeSend(conn, &mu, o) })
 		case "kill":
 			cpty.Close()
 			return

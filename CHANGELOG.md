@@ -6,6 +6,9 @@ All notable changes to OXIS. The format follows
 ## [Unreleased]
 
 ### Added
+- `'record [name]` / `'record stop`: a tab's session saved as an
+  asciinema cast (`created-documents/recordings/`), with ● REC and the
+  time in the status bar. `asciinema play` and asciinema.org play it.
 - Tab completes SSH hosts after `ssh`, `scp`, `sftp`, `mosh` and `rsync`
   (from `~/.ssh/config`, `known_hosts` and earlier commands, keeping a
   `user@`; scp's ends in `:`), and Makefile targets after `make`.

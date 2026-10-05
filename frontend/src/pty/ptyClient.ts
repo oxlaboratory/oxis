@@ -11,6 +11,8 @@
  *                    { type: "input", data }
  *                    { type: "resize", cols, rows }
  *                    { type: "screen-exit" }  (leave a full-screen view by hand)
+ *                    { type: "record-start", data: path, shell: title } / { type: "record-stop" }
+ *                      ('record: the session as an asciinema cast)
  *                    { type: "kill" }
  *   Server → Client: { type: "output", data }  (line view: text and colour codes)
  *                    { type: "rewind", data: N }  (take back the unfinished line and
@@ -23,6 +25,8 @@
  *                    { type: "ready" }
  *                    { type: "exit", code }
  *                    { type: "error", message }
+ *                    { type: "recording", data: path } / { type: "recorded", data: JSON }
+ *                    { type: "record-error", message }
  */
 
 import { getPtyPort, isNativeApp } from "../native";
@@ -44,6 +48,9 @@ export interface PtySession {
   resize : (cols: number, rows: number) => void;
   /** Back to the line view when a full-screen program never switched back. */
   leaveScreen: () => void;
+  /** Starts saving the session to path (a full path) as an asciinema cast. */
+  record: (path: string, title?: string) => void;
+  stopRecord: () => void;
   kill   : () => void;
 }
 
@@ -64,6 +71,9 @@ export interface PtyOptions {
   onCursor?: (hidden: boolean) => void;
   /** A shell-integration mark (see the protocol above), in order with the output. */
   onMark?: (mark: string) => void;
+  /** 'record: started (data: the path), finished (data: JSON with path,
+   *  seconds, bytes) or refused (data: why). */
+  onRecord?: (event: "recording" | "recorded" | "error", data: string) => void;
   /** Auto-reconnect on unexpected close. Default: false */
   reconnect?: boolean;
 }
@@ -130,6 +140,9 @@ export function openPty(opts: PtyOptions): PtySession {
         case "rewind":       onRewind?.(Number(msg.data) || 0); break;
         case "cursor":       onCursor?.(msg.data === "hidden"); break;
         case "mark":         if (msg.data) onMark?.(msg.data); break;
+        case "recording":    opts.onRecord?.("recording", msg.data ?? ""); break;
+        case "recorded":     opts.onRecord?.("recorded", msg.data ?? "{}"); break;
+        case "record-error": opts.onRecord?.("error", msg.message ?? ""); break;
       }
     });
 
@@ -156,6 +169,8 @@ export function openPty(opts: PtyOptions): PtySession {
     write : (data) => send({ type: "input", data }),
     resize: (c, r) => { size = { cols: c, rows: r }; send({ type: "resize", cols: c, rows: r }); },
     leaveScreen: () => send({ type: "screen-exit" }),
+    record: (path, title) => send({ type: "record-start", data: path, ...(title ? { shell: title } : {}) }),
+    stopRecord: () => send({ type: "record-stop" }),
     kill  : () => {
       dead = true;
       send({ type: "kill" });

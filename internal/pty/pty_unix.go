@@ -26,7 +26,9 @@ func HandleSession(conn *websocket.Conn) {
 		// the page leaves a full-screen view by hand.
 		screen RepaintGuard
 		size   = newTermSize(120, 30)
+		rec    recorder // 'record
 	)
+	defer rec.Stop()
 
 	// Read the first message to init the PTY
 	for {
@@ -87,7 +89,7 @@ func HandleSession(conn *websocket.Conn) {
 
 			// PTY → WebSocket in background
 			go func() {
-				_ = pumpOutput(ptmx, size, func(kind, data string) {
+				_ = pumpOutput(recordingReader{ptmx, &rec}, size, func(kind, data string) {
 					safeSend(conn, &mu, outMsg{Type: kind, Data: data})
 				}, &screen, false)
 				code := 0
@@ -131,6 +133,7 @@ readLoop:
 		case "resize":
 			if ptmx != nil && msg.Cols > 0 && msg.Rows > 0 {
 				size.set(int(msg.Cols), int(msg.Rows))
+				rec.Resize(int(msg.Cols), int(msg.Rows))
 				_ = gpty.Setsize(ptmx, &gpty.Winsize{
 					Rows: msg.Rows,
 					Cols: msg.Cols,
@@ -138,6 +141,8 @@ readLoop:
 			}
 		case "screen-exit":
 			screen.LeaveScreen()
+		case "record-start", "record-stop":
+			recordMsg(&rec, msg, size, func(o outMsg) { safeSend(conn, &mu, o) })
 		case "kill":
 			if ptmx != nil {
 				ptmx.Close()

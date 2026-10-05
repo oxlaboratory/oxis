@@ -1100,6 +1100,10 @@ function registerBuiltinCommands(): void {
   registry.register({ name:"save-output", category:"shell", description:"Save this tab's output to a text file in created-documents/ ('save-output [name])",
     handler: (args) => { events.emit("save_output", { name: args.join(" ") }); } });
 
+  // 'record [name] / 'record stop: this tab's session as an asciinema cast.
+  registry.register({ name:"record", category:"shell", description:"Record this tab to a .cast file that asciinema plays ('record [name] · 'record stop)",
+    handler: (args) => { events.emit("record", { args }); } });
+
   // 'sound: the sound effects — list, play, change (presets or your own
   // files), a folder of them at once, on/off and volume.
   registry.register({ name:"sound", category:"shell", description:"Sound effects: 'sound lists them · 'sound play <event|sound> · 'sound set <event> <sound|file> · 'sound pack <folder> · 'sound on|off · 'sound volume <0-100>",
@@ -6195,6 +6199,55 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
     void saveOutput((p as { name?: string } | undefined)?.name);
   }), [saveOutput]);
 
+  // 'record: the shell's output goes to an asciinema cast as it arrives
+  // (internal/pty/record.go), until 'record stop or the tab closes.
+  const recordingPath = useRef<string | null>(null);
+  const onRecordRef = useRef<(event: "recording" | "recorded" | "error", data: string) => void>(() => {});
+  onRecordRef.current = (event, data) => {
+    if (event === "error") { addLine(`  ✗  ${data}`, "err"); scrollToBottom(true); return; }
+    if (event === "recording") {
+      recordingPath.current = data;
+      events.emit("recording_changed", { tab: id, since: Date.now() });
+      addLine(`  ● recording this tab to ${data.replace(/\\/g, "/")} — 'record stop to finish`, "accent");
+    } else {
+      recordingPath.current = null;
+      events.emit("recording_changed", { tab: id, since: 0 });
+      let r: { path?: string; seconds?: number; bytes?: number; error?: string } = {};
+      try { r = JSON.parse(data); } catch { /* an older server */ }
+      const where = (r.path ?? "").replace(/\\/g, "/");
+      const secs = r.seconds ?? 0;
+      const len = secs >= 60 ? `${Math.floor(secs / 60)}m ${Math.round(secs % 60)}s` : `${secs.toFixed(1)}s`;
+      if (r.error) addLine(`  ⚠  ${r.error}`, "warn");
+      addLine(`  ■ saved ${len} (${Math.max(1, Math.round((r.bytes ?? 0) / 1024))} KB) to ${where}`, "ok");
+      addLine(`     asciinema play "${where}"  ·  or upload it to asciinema.org, or open it in any asciinema player`, "dim");
+    }
+    scrollToBottom(true);
+  };
+  useEffect(() => events.on("record", p => {
+    if (!selectedRef.current) return; // the selected tab
+    const args = ((p as { args?: string[] } | undefined)?.args ?? []).filter(Boolean);
+    const s = session.current;
+    if (!s) return;
+    if ((args[0] ?? "").toLowerCase() === "stop") {
+      if (!recordingPath.current) { addLine("  this tab isn't being recorded — 'record [name] starts", "dim"); return; }
+      s.stopRecord();
+      return;
+    }
+    if (recordingPath.current) { addLine(`  already recording to ${recordingPath.current.replace(/\\/g, "/")} — 'record stop first`, "warn"); return; }
+    void (async () => {
+      const stamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-");
+      let file = args.join(" ").trim() || `recording-${stamp}`;
+      if (!/\.cast$/i.test(file)) file += ".cast";
+      let path = file;
+      if (!/^([A-Za-z]:)?[\\/]/.test(file)) {
+        const base = (await appDir().catch(() => "")).replace(/[\\/]+$/, "");
+        if (!base) { addLine("  ✗  recording needs the desktop app", "err"); return; }
+        path = `${base}/${workspaceManager.documentsDir()}/recordings/${file}`;
+      }
+      s.record(path, `OXIS — ${currentShell() || "shell"}`);
+    })();
+  }), [addLine, id]);
+
   const copyBlock = useCallback((withCommand: boolean) => {
     const b = outputMenu?.block;
     setOutputMenu(null);
@@ -6715,6 +6768,7 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
       onRewind,
       onCursor: (hidden) => { programCursorHidden.current = hidden; },
       onMark,
+      onRecord: (event, data) => onRecordRef.current(event, data),
       onScreen: (event, data) => {
         if (event === "start") { screenQueue.current = []; setScreenOn(true); return; }
         if (event === "data") {
@@ -8367,6 +8421,19 @@ function StatusBar({ mode, count, idx, ready, theme, project, updateMsg }: {
     const pr = p as { tab: string; state: number; pct: number };
     setProgress(cur => (pr.state === 0 ? (cur && cur.tab !== pr.tab ? cur : null) : pr));
   }), []);
+  // 'record: a tab being recorded, and for how long.
+  const [recording, setRecording] = useState<Record<string, number>>({});
+  const [, tick] = useState(0);
+  useEffect(() => events.on("recording_changed", p => {
+    const r = p as { tab: string; since: number };
+    setRecording(cur => { const next = { ...cur }; if (r.since) next[r.tab] = r.since; else delete next[r.tab]; return next; });
+  }), []);
+  const recSince = Math.min(...Object.values(recording));
+  useEffect(() => {
+    if (!Number.isFinite(recSince)) return;
+    const t = setInterval(() => tick(n => n + 1), 1000);
+    return () => clearInterval(t);
+  }, [recSince]);
   return (
     <div className="statusline">
       <div className="sl-mode">{mode === "home" ? "HOME" : "SHELL"}</div>
@@ -8381,6 +8448,11 @@ function StatusBar({ mode, count, idx, ready, theme, project, updateMsg }: {
             {" · "}
             <span className="sl-progress-bar"><span style={{ width: progress.state === 3 ? "100%" : `${progress.pct}%` }} /></span>
             {progress.state === 3 ? " working…" : ` ${progress.pct}%`}{progress.state === 2 ? " failed" : progress.state === 4 ? " paused" : ""}
+          </span>
+        )}
+        {Number.isFinite(recSince) && (
+          <span className="sl-rec" title="'record stop to finish">
+            {" · "}<span className="sl-rec-dot">●</span> REC {(() => { const s = Math.floor((Date.now() - recSince) / 1000); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; })()}
           </span>
         )}
         {flash && <span className="sl-flash"> · {flash}</span>}

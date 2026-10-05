@@ -588,6 +588,17 @@ If the WebView's clipboard is unavailable, OXIS writes to the OS
 clipboard directly (Win32 on Windows; `pbcopy`, `xclip`, `xsel` or
 `wl-copy` elsewhere).
 
+### Recording a session
+
+`'record [name]` records the tab, everything the shell and its programs
+print with when they printed it, until `'record stop` (or the tab
+closes); the status bar shows **● REC** and how long. The recording is an
+[asciinema](https://asciinema.org) cast in `created-documents/recordings/`
+(or the path you give): `asciinema play` replays it in any terminal, and
+asciinema.org or its web player put it on a page, as sharp as text,
+selectable and tiny. What you type isn't recorded apart from what the
+shell echoes, so a password typed at a prompt stays out of it.
+
 ### Window size
 
 ```
