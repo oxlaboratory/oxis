@@ -1366,6 +1366,7 @@ printed in the terminal and listed by `'diagnostics`.
 | `luaEngine` | `auto` | What runs Lua plugins: `native` (Lua 5.4 in OXIS; C modules work), `fengari` (Lua 5.3 in the page), or `auto` (native when the build has it) |
 | `editorMinimap` | `true` | The minimap beside the editor's text |
 | `countInstalls` | `true` | After `'update install` builds a new version from source, add one to the public download count (nothing else is sent) |
+| `copyOnSelect` | `false` | Copy output text as soon as it's selected with the mouse |
 | `newShellHere` | `true` | Open a new tab or split pane in the focused pane's folder, not the default one |
 | `shell` | `auto` | The shell new tabs and panes start: `auto`, or a name `'shell` lists (`gitbash`, `wsl`, `cmd`, `pwsh`, `zsh`…) |
 | `notifyAfter` | `10` | When a command that ran this many seconds or more finishes while OXIS is in the background, flash its taskbar button (Windows); `0` turns it off |

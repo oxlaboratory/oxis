@@ -6,6 +6,8 @@ All notable changes to OXIS. The format follows
 ## [Unreleased]
 
 ### Added
+- Setting `copyOnSelect`: selecting output copies it, as in Windows
+  Terminal and PuTTY (off by default).
 - Progress from programs (OSC 9;4: winget, PowerShell 7.4+, cargo…)
   shows in the status bar: a bar with the percentage, "working…", or
   red when it failed. On Windows the taskbar button shows it too, as

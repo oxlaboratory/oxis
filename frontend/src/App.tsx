@@ -336,6 +336,11 @@ const SETTINGS: SettingDef[] = [
     apply: () => { /* read by 'update install */ },
   },
   {
+    key: "copyOnSelect", label: "Copy on Select", default: false,
+    description: "Copy text in the output as soon as it's selected with the mouse, as in Windows Terminal and PuTTY",
+    apply: () => { /* read when a selection is made */ },
+  },
+  {
     key: "newShellHere", label: "New Shells Start Here", default: true,
     description: "Open a new tab or split pane in the folder you're working in (the focused pane's), not the default one",
     apply: () => { /* read when a tab or pane opens */ },
@@ -7379,7 +7384,15 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
         className="term-out"
         ref={outRef}
         onScroll={handleScroll}
-        onMouseUp={e => { if (e.button === 0) focusUnlessSelecting(); }}
+        onMouseUp={e => {
+          if (e.button !== 0) return;
+          // Setting copyOnSelect: a selection in the output is copied as it's made.
+          if (getSetting("copyOnSelect") === true) {
+            const text = outputSelectionText();
+            if (text) { void copyToClipboard(text); events.emit("status_flash", { text: `copied ${text.length} character${text.length === 1 ? "" : "s"}` }); }
+          }
+          focusUnlessSelecting();
+        }}
         onContextMenu={openOutputMenu}
         tabIndex={-1}
       >
