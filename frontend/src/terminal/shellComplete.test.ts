@@ -98,6 +98,10 @@ describe("Tab for shell commands", () => {
     expect(await tab("get-chi", env({ shell: "bash" }))).toBeNull();
   });
 
+  it("programs on PATH", async () => {
+    expect((await tab("dock", env({ pathCommands: async () => ["docker", "docker-compose", "node"] })))?.all).toEqual(["docker", "docker-compose"]);
+  });
+
   it("commands used before", async () => {
     expect((await tab("pyt"))?.line).toBe("python ");
     expect(await tab("")).toBeNull();

@@ -81,7 +81,7 @@ import { exportSettings, importSettings, exportWorkspace, importWorkspace, expor
 import { checkPublishable, findExistingListing, prepareFreePublish, submitPaidPlugin, startConnectOnboarding, requestPluginDeletion } from "./plugins/publish";
 import { commitAll, setupRemote, unlinkRemote, getRemotes, parseGitRemote, cancelActiveCommit, type GitProvider } from "./plugins/git";
 import { loadUserConfig } from "./terminal/userConfig";
-import { userConfigDir, runCommand, flashWindow, listShells, taskbarProgress, type NativeShell } from "./native";
+import { userConfigDir, runCommand, flashWindow, listShells, taskbarProgress, pathCommands, type NativeShell } from "./native";
 import { completeShell, applyCompletion } from "./terminal/shellComplete";
 import { findLinks, resolveLinkPath, type OutputLink } from "./terminal/outputLinks";
 import { installMacShortcuts } from "./terminal/macKeys";
@@ -6413,6 +6413,7 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
       history: history.all(),
       home: await homeFolder(),
       shell: currentShell(),
+      pathCommands,
     });
     // Typed on meanwhile: the answer is for a line that's gone.
     if (!c || inputRef.current.value !== val) return;

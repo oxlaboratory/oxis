@@ -21,6 +21,8 @@ export interface CompleteEnv {
   home?: string;
   /** The tab's shell (pwsh, bash, cmd…): PowerShell adds its cmdlets. */
   shell?: string;
+  /** Programs on PATH (docker, npm…), for the first word. */
+  pathCommands?: () => Promise<string[]>;
 }
 
 export interface Candidate {
@@ -147,7 +149,8 @@ export async function completeShell(line: string, cursor: number, env: CompleteE
     const ps = env.shell === "pwsh" || env.shell === "powershell";
     // PowerShell names are case-insensitive: "get-ch" finds Get-ChildItem.
     const psHits = ps ? PS_COMMANDS.filter(c => c.toLowerCase().startsWith(word.toLowerCase())).map(text => ({ text })) : [];
-    return done([...psHits, ...only([...used, ...COMMON_COMMANDS]).filter(c => !psHits.some(p => p.text === c.text))]);
+    const onPath = env.pathCommands ? await env.pathCommands().catch(() => [] as string[]) : [];
+    return done([...psHits, ...only([...used, ...COMMON_COMMANDS, ...onPath]).filter(c => !psHits.some(p => p.text === c.text))]);
   }
 
   const cmd = fold(args[0].replace(/^.*[\\/]/, "").replace(/\.(exe|cmd|bat)$/i, ""));

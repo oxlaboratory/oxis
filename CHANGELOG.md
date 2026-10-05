@@ -52,8 +52,8 @@ All notable changes to OXIS. The format follows
   PowerShell, cmd or zsh: files and folders where the shell is (only
   folders after `cd`, Git Bash `/c/…` paths too), git subcommands and
   aliases, branches, remotes and changed files (`git add`), package.json
-  scripts after `npm run`, `pnpm`, `yarn` or `bun run`, commands used
-  before, and in PowerShell its everyday cmdlets (`get-chi` →
+  scripts after `npm run`, `pnpm`, `yarn` or `bun run`, programs on
+  PATH (`wing` → `winget`), commands used before, and in PowerShell its everyday cmdlets (`get-chi` →
   `Get-ChildItem`). When several match, it fills in what they share and lists them.
   Tab used to go to the shell without the typed text, so it did nothing.
 - Tab in a REPL (node, python, irb…) hands what's typed to it with the

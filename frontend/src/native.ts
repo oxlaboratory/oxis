@@ -44,6 +44,7 @@ declare global {
           OpenURL?: (url: string) => Promise<void>;
           WriteClipboard?: (text: string) => Promise<void>;
           FlashWindow?: () => Promise<boolean>;
+          PathCommands?: () => Promise<string[]>;
           TaskbarProgress?: (state: number, pct: number) => Promise<boolean>;
           Shells?: () => Promise<{ name: string; label: string; path: string; default?: boolean }[]>;
           ReadClipboard?: () => Promise<string>;
@@ -363,6 +364,12 @@ export async function flashWindow(): Promise<boolean> {
 export async function taskbarProgress(state: number, pct: number): Promise<boolean> {
   const fn = window.go?.wailsapp?.App?.TaskbarProgress;
   return fn ? fn(state, pct) : false;
+}
+
+/** Programs on PATH, by the name you'd type (no .exe). */
+export async function pathCommands(): Promise<string[]> {
+  const fn = window.go?.wailsapp?.App?.PathCommands;
+  return fn ? fn() : [];
 }
 
 /** The shells a tab can start here, by name; the default first. */
