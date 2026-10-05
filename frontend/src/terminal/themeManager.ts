@@ -368,6 +368,7 @@ class ThemeManager {
     const fs = Number(v("fontSize"));
     r.setProperty("--font", String(v("font")));
     r.setProperty("--fs", `${fs}px`);
+    r.setProperty("--ui-scale", String(fs / 13));
     r.setProperty("--lh", `${Math.round(fs * Number(v("lineHeight")))}px`);
     r.setProperty("--ls", `${v("letterSpacing")}px`);
     r.setProperty("--fw", String(v("fontWeight")));

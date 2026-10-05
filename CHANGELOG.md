@@ -6,6 +6,9 @@ All notable changes to OXIS. The format follows
 ## [Unreleased]
 
 ### Added
+- Popups (the theme editor, palette, quick open, search, symbol picker,
+  confirm box) grow and shrink with the font size like the Settings
+  window, over the same dimmed backdrop, and always fit the window.
 - Home's day sky redrawn: a bigger sun lit from the top left with a
   corona, long rays and a warm haze; puffier clouds with lit rims, shaded
   bellies and seams between puffs; and now and then a bird flying by.
@@ -594,6 +597,9 @@ All notable changes to OXIS. The format follows
 - The npm launcher downloads from the GitHub `latest-build` release.
 
 ### Fixed
+- The theme editor's live preview no longer drops the font size or
+  cursor you set in Settings; a theme option your setting overrides says
+  so, with a "use the theme's" link. The two windows don't stack.
 - An `oxis.run` step marker could show as text when it arrived after
   its call had been cancelled.
 - monitoring 2.0.1: `'tail` no longer prints a line after it stops.

@@ -1584,3 +1584,24 @@ input, textarea { font-family: var(--font); }
 
 /* An inline image a program showed (OSC 1337: imgcat…). */
 .term-line .term-img { display: block; max-width: 100%; max-height: 70vh; margin: 2px 0; border-radius: 2px; image-rendering: auto; }
+
+/* ── Popups: sized by the window and the font size ──
+   The theme editor, palette, quick open, search, symbol picker and the
+   confirm box grow and shrink with the font size (Ctrl+= / Ctrl+-), as
+   the Settings window does, over the same dimmed backdrop, and never
+   run past the space above the prompt. */
+.theme-editor, .cmdp, .confirm-box { zoom: var(--ui-scale, 1); }
+.overlay { background: rgba(0,0,0,.5); padding: 2.5vh 16px; }
+.theme-editor {
+  /* (Under zoom, px lengths scale and percentages don't: min() of the
+     two caps the zoomed size at the space there is.) */
+  width: min(720px, 100%);
+  height: min(820px, 100%);
+}
+.cmdp { max-height: calc(100% - 12px); width: min(640px, 100%); }
+.confirm-box { width: min(460px, 100%); }
+.te-override { display: block; margin-top: 3px; font-size: 10px; color: var(--warn); }
+.te-override-btn {
+  background: none; border: none; padding: 0; cursor: pointer; font: inherit;
+  color: var(--purple3); text-decoration: underline; text-underline-offset: 2px;
+}

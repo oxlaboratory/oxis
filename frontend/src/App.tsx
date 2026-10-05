@@ -302,6 +302,7 @@ const SETTINGS: SettingDef[] = [
       const lineHeight = theme ? Number(optionValue(theme, themeOption("lineHeight")!)) : 1.54;
       document.documentElement.style.setProperty("--fs", `${n}px`);
       document.documentElement.style.setProperty("--lh", `${Math.round(n * lineHeight)}px`);
+      document.documentElement.style.setProperty("--ui-scale", String(n / 13));
     },
   },
   {
@@ -501,6 +502,11 @@ function applyAllSettings(): void {
   }
 }
 events.on("theme_changed", () => applyAllSettings());
+/** The themed settings the user has set (font size, cursor…), put back
+ *  over a theme being previewed. */
+function applyUserThemedSettings(): void {
+  for (const def of SETTINGS) if (def.themed && isSettingSet(def.key)) def.apply(getSetting(def.key));
+}
 // Sound effects read their settings from here; a sound file of the
 // user's that can't play is said once, in the status bar.
 configureSounds(getSetting);
@@ -5223,11 +5229,20 @@ function ThemeOptionRow({ opt, theme, value, onChange }: {
         </div>
       );
   }
+  // Font size, cursor style and blink are settings too: one set in the
+  // Settings window wins over every theme, so say so, and offer the way back.
+  const userWins = settingDef(opt.key)?.themed && isSettingSet(opt.key);
   return (
     <div className="te-row">
       <div className="te-label-group">
         <span className="te-label">{opt.label}</span>
         {opt.hint && <span className="te-hint">{opt.hint}</span>}
+        {userWins && (
+          <span className="te-override">
+            your setting ({String(getSetting(opt.key))}) is used instead of the theme's —{" "}
+            <button className="te-override-btn" onClick={() => { resetSetting(opt.key); onChange(value as never); }}>use the theme's</button>
+          </span>
+        )}
       </div>
       <div className="te-control">{control}</div>
       {set
@@ -5250,7 +5265,9 @@ function ThemeEditor({ name: initName, onClose }: { name: string; onClose: () =>
   const [ok,   setOk]   = useState(false);
 
   // Live preview on any change
-  useEffect(() => { themeManager.applyRaw(vals); }, [vals]);
+  // (Font size, cursor style and blink you've set in Settings stay yours
+  // while previewing, as they will once it's saved.)
+  useEffect(() => { themeManager.applyRaw(vals); applyUserThemedSettings(); }, [vals]);
 
   // Restore theme on cancel
   const savedTheme = useRef(themeManager.getCurrent());
@@ -9223,7 +9240,10 @@ export default function App() {
     const u1 = events.on("open_theme_editor", p => { if (p?.name) setThemeEditorName(String(p.name)); });
     const u2 = events.on("theme_changed",     p => { if (p?.name) setCurTheme(String(p.name)); });
     const u3 = events.on("open_settings",     () => setSettingsOpen(true));
-    return () => { u1(); u2(); u3(); };
+    // The theme editor and the Settings window don't stack: the theme
+    // editor takes over.
+    const u4 = events.on("open_theme_editor", () => setSettingsOpen(false));
+    return () => { u1(); u2(); u3(); u4(); };
   }, []);
 
 
