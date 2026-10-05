@@ -71,6 +71,7 @@ declare global {
           HTTPStreamStart?: (id: string, opts: NativeHTTPRequest) => Promise<void>;
           WindowSetSize?: (width: number, height: number) => Promise<NativeWindowSize>;
           ReadImage?: (path: string) => Promise<string>;
+          ReadAudio?: (path: string) => Promise<string>;
         };
       };
     };
@@ -176,6 +177,13 @@ export function isImagePath(path: string): boolean {
 /** An image file as a data: URL, for the editor's image viewer. */
 export async function readImage(path: string): Promise<string> {
   const fn = window.go?.wailsapp?.App?.ReadImage;
+  if (!fn) throw new NativeUnavailableError();
+  return fn(path);
+}
+
+/** A sound file as a data: URL, for sound effects of your own. */
+export async function readAudio(path: string): Promise<string> {
+  const fn = window.go?.wailsapp?.App?.ReadAudio;
   if (!fn) throw new NativeUnavailableError();
   return fn(path);
 }

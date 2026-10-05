@@ -28,6 +28,7 @@ import {
   processStart, processWrite, processCloseInput, watchStart, httpStreamStart,
 } from "../native";
 import { openStream, closeStream, newStreamId, LineSplitter, SSEParser } from "./streams";
+import { SOUND_EVENTS, PRESETS, playSound } from "../sound/sounds";
 import { editorBridge, offsetToLineCol, lineColToOffset, lineRange } from "../terminal/editorBridge";
 import { requirePermission, ensurePermission, isGranted, type PermissionNamespace } from "./permissions";
 import { scriptRunTracker, type RunResult } from "../terminal/scriptRunTracker";
@@ -224,6 +225,13 @@ export function buildLuaAPI(ctx: APIContext): OxisBindings {
     // oxis.echo(text [, kind]): kind colours the line like OXIS's own
     // messages — "ok", "err", "warn", "dim" or "accent".
     echo: (text, kind) => ctx.print(`  ${text}`, ECHO_KINDS.has(kind ?? "") ? kind as LineKind : "info"),
+    // oxis.sound([name]): one of OXIS's sound effects — an event
+    // ("notify" by default, "done", "error"…) or a sound by name. Never
+    // a file: those are the user's to choose.
+    sound: (name) => {
+      const n = String(name ?? "notify").toLowerCase();
+      if (SOUND_EVENTS.some(e => e.event === n) || n in PRESETS) playSound(n);
+    },
     line: (text, kind) => {
       const k = (v: LuaJSValue | undefined) => ECHO_KINDS.has(String(v ?? "")) ? v as LineKind : undefined;
       const first = k(kind) ?? "info";

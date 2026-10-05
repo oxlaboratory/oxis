@@ -6,6 +6,19 @@ All notable changes to OXIS. The format follows
 ## [Unreleased]
 
 ### Added
+- Sound effects: a soft sound when a command fails or a long one
+  finishes, a program rings the bell, a tab opens, something's copied or
+  a plugin installs. `'sound` lists, plays and changes them — twelve
+  synthesised sounds or your own files (`'sound set error nope.wav`,
+  `'sound pack <folder>`); `'sound volume`, `'sound off`. Plugins get
+  `oxis.sound()`.
+- Demo videos for every Market plugin, on its card at oxis.space and in
+  `'market info`. Publishing takes an optional demo: `demo:` in the
+  manifest or `'plugin publish <name> --demo=<link>` (YouTube, Vimeo,
+  Loom or a video file).
+- Real download counts for every plugin, on its card and in
+  `'market info`: `'market install` and the site's download button each
+  count once a day per address (setting `countInstalls`).
 - Quick select (**Ctrl+Shift+Space**): the URLs, paths, file:line,
   git hashes, IPs and numbers on screen get letters; type one to copy
   it, Shift+letter to put it in the prompt. No mouse needed.
@@ -558,6 +571,9 @@ All notable changes to OXIS. The format follows
 - The npm launcher downloads from the GitHub `latest-build` release.
 
 ### Fixed
+- An `oxis.run` step marker could show as text when it arrived after
+  its call had been cancelled.
+- monitoring 2.0.1: `'tail` no longer prints a line after it stops.
 - Ctrl+Shift+P didn't open the command palette while the prompt had
   the keyboard (it did from everywhere else).
 - Each tab keeps its own shell's kind (PowerShell, bash, cmd…), so with

@@ -467,6 +467,32 @@ shows an arrow-key menu (`npm create vite`, `gh`, inquirer, clack,
 prompts: anything that hides the cursor to draw one), they and Space
 go to the menu.
 
+### Sound effects
+
+OXIS plays a short sound when a command fails, when one that ran three
+seconds or more finishes, when a program rings the terminal bell, when
+a plugin wants your attention, a plugin is installed, a tab opens or
+something is copied. They're synthesised as they play, quiet by default
+(`soundVolume` 40), and each one can be changed, to another sound or
+your own file:
+
+```
+'sound                       what plays when, and the sounds there are
+'sound play                  hear every sound in turn
+'sound play error            hear one event's sound (or a sound: 'sound play coin)
+'sound set done coin         change an event's sound
+'sound set error C:\sfx\nope.wav   your own sound (wav, mp3, ogg, flac, m4a)
+'sound pack C:\sfx           a folder of them: error.wav, done.mp3, bell.ogg…
+'sound reset [event]         back to the default
+'sound volume 25  ·  'sound off  ·  'sound on
+```
+
+The sounds: chime, bonk, bell, ping, sparkle, pop, tick, click, blip,
+coin, soft, success, or none. Starting OXIS and typing in the prompt can
+have sounds too (`'sound set start chime`, `'sound set key click`); they
+have none by default. Plugins can play them with `oxis.sound()`; the
+monitoring plugin's alerts do.
+
 ### Menus, spinners and progress bars
 
 The line view plays the shell's output on a model of the terminal's
@@ -916,8 +942,12 @@ min_oxis_version: 1.2.1
 os: windows, unix
 permissions: fs, net
 dependencies: git_advanced>=1.0.0, lsp_diag^1.2.0
+demo: https://youtu.be/abc123
 ]]
 ```
+
+`demo` is optional: a video of the plugin running (a YouTube, Vimeo or
+Loom link, or an `.mp4`/`.webm` file), shown on its Market card.
 
 Before loading, OXIS checks the OXIS version, OS, and dependencies
 (missing ones, incompatible versions with `>=`, `^` or exact ranges,
@@ -973,10 +1003,21 @@ version, and restores it automatically if the new one fails to load.
 | **timer** | `'timer 25m [what for]` (a countdown with a bar, ticking in place), `'pomodoro [25m] [5m]` (rounds of work and breaks); Ctrl+C stops |
 | **ai-devops** | Premium: an AI assistant for the terminal and editor |
 
+Every plugin above has a demo video on its card at
+[oxis.space](https://oxis.space/#plugins), recorded in OXIS
+(the docker one with sample containers), and the card shows how many
+times it's been installed or downloaded. `'market info <name>` shows both
+too. The count is real: `'market install` and the website's download
+button each add one, once a day per address and plugin, with nothing
+else sent (setting `countInstalls` turns it off in OXIS).
+
 **Publishing.** `'plugin publish <name>` validates the plugin (a
 complete manifest is required) and opens a GitHub issue on this
 repository, labelled `plugin-submission`: its details (version, author,
-category, permissions, platforms, size) in a table and its source. A
+category, permissions, platforms, size, demo video) in a table and its
+source. A demo video is optional: `demo:` in the manifest, or
+`'plugin publish <name> --demo=<link>`, puts a "watch demo" button on
+its card (it goes in the `index.json` entry as `"demo"`). A
 maintainer reviews it and adds `cloudflare/plugins/<name>.lua` and its
 `cloudflare/index.json` entry; from then on `'market` and the website
 (which read `index.json` from `main`) list it, with no redeploy. Run it
@@ -1009,6 +1050,7 @@ Everything is on the global `oxis` table.
 | `oxis.run(cmd)` | Run a command in the shell. Multi-line scripts run as one script file (`.ps1` on Windows, bash elsewhere), so a `Read-Host`/`read` prompt gets your answer rather than the next line; `&&` works on Windows PowerShell 5.1 too. |
 | `oxis.quote(text)` | `text` quoted as one argument for the platform's shell, safe to splice into `oxis.run()` (e.g. `oxis.run("git blame -- " .. oxis.quote(rest))`) |
 | `oxis.echo(text [, kind])` | Print a line in the terminal; `kind` colours it like OXIS's own messages: `"ok"`, `"err"`, `"warn"`, `"dim"`, `"accent"` |
+| `oxis.sound([name])` | Play one of OXIS's sound effects: an event (`"notify"`, the default, `"done"`, `"error"`…, as the user has set it) or a sound by name (`"chime"`, `"ping"`…). Nothing plays when the user has sounds off |
 | `oxis.cwd()` | The shell's current directory |
 | `oxis.platform` | `"windows"` or `"unix"` |
 | `oxis.theme(name)` | Switch theme |
@@ -1392,7 +1434,10 @@ printed in the terminal and listed by `'diagnostics`.
 | `editorVim` | `true` | The editor's Normal, Insert and Visual modes; off, it just types |
 | `luaEngine` | `auto` | What runs Lua plugins: `native` (Lua 5.4 in OXIS; C modules work), `fengari` (Lua 5.3 in the page), or `auto` (native when the build has it) |
 | `editorMinimap` | `true` | The minimap beside the editor's text |
-| `countInstalls` | `true` | After `'update install` builds a new version from source, add one to the public download count (nothing else is sent) |
+| `countInstalls` | `true` | Add one to the public download counts at oxis.space when `'update install` builds a new version from source or `'market install` installs a plugin (nothing else is sent) |
+| `sounds` | `true` | Sound effects (see [Sound effects](#sound-effects)) |
+| `soundVolume` | `40` | How loud they are, 0 to 100 |
+| `soundError`, `soundDone`, `soundBell`, `soundNotify`, `soundInstall`, `soundTab`, `soundCopy`, `soundStart`, `soundKey` | see `'sound` | Each event's sound: a sound's name, `none`, or the path of your own sound file |
 | `startIn` | `home` | What OXIS opens on: `home` or `terminal` |
 | `copyOnSelect` | `false` | Copy output text as soon as it's selected with the mouse |
 | `newShellHere` | `true` | Open a new tab or split pane in the focused pane's folder, not the default one |

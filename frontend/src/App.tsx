@@ -38,6 +38,7 @@ import { getRecentErrors, clearRecentErrors, installGlobalErrorCapture } from ".
 import { cwdTracker, CwdTracker, buildCwdProbe, looksLikeDirectoryChange, isProbeLine, cwdFromMark } from "./terminal/cwdTracker";
 import { startHint, tabHint, paneHint, tipHint } from "./terminal/hints";
 import { quickSelect } from "./terminal/quickSelect";
+import { SOUND_EVENTS, PRESETS, PRESET_NAMES, configureSounds, onSoundFileError, playSound, playValue, soundFor, soundForCommand, isSoundFile } from "./sound/sounds";
 import { promptCapture, foregroundJobs } from "./terminal/promptCapture";
 import { scriptRunTracker, stripStepEcho } from "./terminal/scriptRunTracker";
 import { workflowRunner } from "./plugins/workflowRunner";
@@ -259,7 +260,8 @@ function writePersistedOption(key: string, value: LuaJSValue): void {
 }
 
 // Clipboard: see terminal/clipboard.ts (native first, then web APIs).
-const copyToClipboard = copyText;
+// Copying plays the copy sound.
+const copyToClipboard = (text: string) => copyText(text).then(ok => { if (ok) playSound("copy"); return ok; });
 
 /** OSC 52: a program put text on the clipboard (base64, as tmux and
  *  Neovim send it). The status bar says so, so it's never a surprise. */
@@ -332,8 +334,8 @@ const SETTINGS: SettingDef[] = [
     apply: () => { /* read when the editor renders */ },
   },
   {
-    key: "countInstalls", label: "Count Update Installs", default: true,
-    description: "When 'update install builds a new version, add one to the public download count at oxis.space (nothing else is sent: no ID, no data)",
+    key: "countInstalls", label: "Count Installs", default: true,
+    description: "Add one to the public download counts at oxis.space when 'update install builds a new version or 'market install installs a plugin (nothing else is sent: no ID, no data)",
     apply: () => { /* read by 'update install */ },
   },
   {
@@ -376,6 +378,21 @@ const SETTINGS: SettingDef[] = [
     description: "When a command that ran this many seconds or more finishes while OXIS is in the background, flash its taskbar button (Windows). 0 turns it off",
     apply: () => { /* read when a command finishes */ },
   },
+  {
+    key: "sounds", label: "Sound Effects", default: true,
+    description: "Play sounds when a command fails or a long one finishes, a program rings the bell, a tab opens, something's copied or a plugin is installed. 'sound lists them, plays them and changes them — to other sounds or your own files",
+    apply: () => { /* read when a sound would play */ },
+  },
+  {
+    key: "soundVolume", label: "Sound Volume", default: 40,
+    description: "How loud sound effects are, 0 to 100",
+    apply: () => { /* read when a sound plays */ },
+  },
+  ...SOUND_EVENTS.map((e): SettingDef => ({
+    key: e.setting, label: `Sound: ${e.event}`, default: e.default,
+    description: `The sound when ${e.what}: one of ${PRESET_NAMES.join(", ")}, or the path of your own sound file (wav, mp3, ogg…). 'sound play ${e.event} to hear it`,
+    apply: () => { /* read when it plays */ },
+  })),
   {
     key: "summonKey", label: "Summon Key", default: "Win+`",
     description: "A key that works from any program: it brings OXIS to the front, ready to type, or tucks it away when it's already there (Windows). Like Win+`, Ctrl+Alt+T or Alt+Space; empty turns it off",
@@ -478,6 +495,10 @@ function applyAllSettings(): void {
   }
 }
 events.on("theme_changed", () => applyAllSettings());
+// Sound effects read their settings from here; a sound file of the
+// user's that can't play is said once, in the status bar.
+configureSounds(getSetting);
+onSoundFileError(msg => events.emit("status_flash", { text: `${msg} — 'sound set to change it` }));
 
 const USER_CONFIG_TEMPLATE = `-- ~/.oxis/config.lua — runs every time OXIS starts ('config reload re-runs it).
 -- Full oxis.* API: see the Lua API section of the README.
@@ -622,19 +643,21 @@ const COMMAND_DETAILS: Record<string, CommandDetail> = {
       { syntax: "'plugin permissions <name> revoke <ns>",                description: "revoke one" },
       { syntax: "'plugin rollback <name>",                               description: "restore the backup taken by the last 'market update — works any time after an update, not just right after a failed one" },
       { syntax: "'plugin export <name> [path]",                         description: "export a plugin's .lua source to a file — for sharing it, or backing it up outside OXIS" },
-      { syntax: "'plugin publish <name>",                               description: "validates it's ready, then opens a real GitHub pull request adding it to the Market — FREE, not live until a human reviews and merges it" },
-      { syntax: "'plugin publish <name> --price=4.99 --interval=month", description: "same, as a PAID listing — creates a real Stripe Connect Express account (via the deployed /connect-onboarding endpoint), opens the onboarding link, then opens the merge request the same way" },
+      { syntax: "'plugin publish <name>",                               description: "validates it's ready, then opens a GitHub issue with its details and source for a maintainer to add it to the Market — FREE, not live until it's reviewed" },
+      { syntax: "'plugin publish <name> --demo=<link>",                 description: "with a demo video (optional): a YouTube, Vimeo or Loom link or an .mp4/.webm file, shown on its Market card — or put demo: <link> in the manifest" },
+      { syntax: "'plugin publish <name> --price=4.99 --interval=month", description: "same, as a PAID listing — creates a real Stripe Connect Express account (via the deployed /connect-onboarding endpoint), opens the onboarding link, then opens the issue the same way" },
       { syntax: "'plugin publish <name> --email=you@example.com",       description: "email for the Stripe Connect account — defaults to whatever 'market license already has on file" },
-      { syntax: "'plugin unpublish <name>",                             description: "opens a GitHub pull request removing the plugin's Market listing — same human-reviewed model, nothing is actually removed until a human merges it" },
+      { syntax: "'plugin unpublish <name>",                             description: "opens a GitHub issue asking for the plugin's Market listing to be removed — same human-reviewed model, nothing is removed until a maintainer does it" },
     ],
     examples: [
       "'plugin new mytools --template=devops   — start a new devops-flavored plugin",
       "'plugin validate mytools                — check it before relying on it",
       "'plugin permissions mytools grant fs     — let it read/write files",
       "'plugin publish mytools                  — prepare a free Market listing",
+      "'plugin publish mytools --demo=https://youtu.be/abc123   — with a demo video",
       "'plugin publish mytools --price=4.99 --interval=month --email=you@example.com",
     ],
-    notes: "Publishing automates the tedious part, not the review — it validates the plugin first, and for paid plugins genuinely creates a Stripe Connect account, then opens a real GitHub pull request (branch + commit + PR, via the Market's /submit-plugin endpoint) adding the plugin's .lua file and index.json entry. Nothing is live until a human reviews and merges that PR on GitHub — this just gets it opened without the developer doing the fork/clone/branch/push/PR steps by hand. Running 'plugin publish again on an already-listed plugin opens an UPDATE pull request (replacing its index.json entry) rather than a new one, detected by checking the Market for an existing entry — no separate command needed for that.",
+    notes: "Publishing automates the tedious part, not the review — it validates the plugin first, and for paid plugins genuinely creates a Stripe Connect account, then opens a GitHub issue (via the Market's /submit-plugin endpoint, or GitHub's new-issue page filled in) with the plugin's details and source. Nothing is live until a maintainer reviews it and adds the .lua file and its index.json entry. A demo video is optional: demo: <link> in the manifest or --demo=<link> puts a \"watch demo\" button on its Market card. Running 'plugin publish again on an already-listed plugin sends an UPDATE, detected by checking the Market for an existing entry — no separate command needed for that.",
   },
   market: {
     summary: "Browse and install plugins from the free OXIS Market.",
@@ -1075,6 +1098,90 @@ function registerBuiltinCommands(): void {
 
   registry.register({ name:"save-output", category:"shell", description:"Save this tab's output to a text file in created-documents/ ('save-output [name])",
     handler: (args) => { events.emit("save_output", { name: args.join(" ") }); } });
+
+  // 'sound: the sound effects — list, play, change (presets or your own
+  // files), a folder of them at once, on/off and volume.
+  registry.register({ name:"sound", category:"shell", description:"Sound effects: 'sound lists them · 'sound play <event|sound> · 'sound set <event> <sound|file> · 'sound pack <folder> · 'sound on|off · 'sound volume <0-100>",
+    handler: async (args) => {
+      const sub = (args[0] ?? "list").toLowerCase();
+      const eventOf = (name: string) => SOUND_EVENTS.find(e => e.event === name.toLowerCase());
+      const print = (lines: [string, LineKind?][]) => _ctxRef.current?.printLines(lines);
+      if (sub === "list" || sub === "ls") {
+        const on = getSetting("sounds") !== false;
+        print([
+          [`  sound effects ${on ? "on" : "off"} · volume ${getSetting("soundVolume")}`, "accent"],
+          ...SOUND_EVENTS.map((e): [string, LineKind?] => {
+            const v = soundFor(e.event);
+            return [`  ${e.event.padEnd(9)} ${(v || "none").padEnd(14)} when ${e.what}`, v === "none" ? "dim" : undefined];
+          }),
+          [`  sounds: ${PRESET_NAMES.join(", ")} — or any sound file`, "dim"],
+          [`  'sound play <event|sound> · 'sound set <event> <sound|file> · 'sound pack <folder> · 'sound reset · 'sound off`, "dim"],
+        ]);
+        return;
+      }
+      if (sub === "on" || sub === "off") { setSetting("sounds", sub); ok(`sound effects ${sub}`); if (sub === "on") playSound("notify"); return; }
+      if (sub === "volume") {
+        const n = Number(args[1]);
+        if (!Number.isFinite(n) || n < 0 || n > 100) { err("usage: 'sound volume <0-100>"); return; }
+        setSetting("soundVolume", String(Math.round(n)));
+        ok(`volume ${Math.round(n)}`);
+        void playValue(soundFor("notify")).catch(() => {});
+        return;
+      }
+      if (sub === "play" || sub === "test") {
+        const what = args.slice(1).join(" ").trim();
+        if (!what) {
+          // Each preset in turn, so they can be compared.
+          print([["  the sounds, in turn:", "accent"]]);
+          const names = Object.keys(PRESETS);
+          names.forEach((n, i) => setTimeout(() => { print([[`  ♪ ${n.padEnd(9)} ${PRESETS[n].about}`]]); void playValue(n).catch(() => {}); }, i * 900));
+          return;
+        }
+        const ev = eventOf(what);
+        const value = ev ? soundFor(ev.event) : what;
+        try {
+          await playValue(value);
+          dim(ev ? `♪ ${ev.event}: ${value}` : `♪ ${value}`);
+        } catch (e) { err(e instanceof Error ? e.message : String(e)); }
+        return;
+      }
+      if (sub === "set") {
+        const ev = eventOf(args[1] ?? "");
+        const value = args.slice(2).join(" ").trim().replace(/^"(.*)"$/, "$1");
+        if (!ev || !value) { err(`usage: 'sound set <event> <sound|file> — events: ${SOUND_EVENTS.map(e => e.event).join(", ")}`); return; }
+        if (!isSoundFile(value) && !PRESET_NAMES.includes(value.toLowerCase())) { err(`no such sound: ${value} — one of ${PRESET_NAMES.join(", ")}, or a sound file's path`); return; }
+        // Try it first, so a file that can't play is said now.
+        try { await playValue(value); } catch (e) { err(`can't play ${value}: ${e instanceof Error ? e.message : e}`); return; }
+        setSetting(ev.setting, isSoundFile(value) ? value : value.toLowerCase());
+        ok(`${ev.event} → ${value}`);
+        return;
+      }
+      if (sub === "reset") {
+        const ev = args[1] ? eventOf(args[1]) : undefined;
+        if (args[1] && !ev) { err(`no such event: ${args[1]}`); return; }
+        for (const e of ev ? [ev] : SOUND_EVENTS) resetSetting(e.setting);
+        ok(ev ? `${ev.event} → ${ev.default}` : "every sound back to its default");
+        return;
+      }
+      if (sub === "pack") {
+        // A folder of sounds named after the events: error.wav, done.mp3…
+        const dir = args.slice(1).join(" ").trim().replace(/^"(.*)"$/, "$1");
+        if (!dir) { err("usage: 'sound pack <folder> — files named after the events (error.wav, done.mp3, bell.ogg…)"); return; }
+        let entries: { name: string; isDir?: boolean }[];
+        try { entries = await listDir(dir) as { name: string; isDir?: boolean }[]; } catch (e) { err(`can't read ${dir}: ${e instanceof Error ? e.message : e}`); return; }
+        const set: string[] = [];
+        for (const e of SOUND_EVENTS) {
+          const f = entries.find(x => !x.isDir && new RegExp(`^${e.event}\\.(wav|mp3|ogg|oga|opus|flac|m4a|aac|webm)$`, "i").test(x.name));
+          if (!f) continue;
+          setSetting(e.setting, `${dir.replace(/[\\/]+$/, "")}/${f.name}`);
+          set.push(e.event);
+        }
+        if (!set.length) { err(`no sounds in ${dir} named after an event (${SOUND_EVENTS.map(e => e.event).join(", ")}) — e.g. error.wav`); return; }
+        ok(`sounds from ${dir}: ${set.join(", ")}`);
+        return;
+      }
+      err(`'sound ${sub}? — 'sound lists the sound effects and what you can do`);
+    } });
 
   // 'shell: the shells this machine has; 'shell <name>: a tab with one.
   registry.register({ name:"shell", category:"shell", description:"List the shells you can use, or open a tab with one: 'shell gitbash",
@@ -1537,8 +1644,11 @@ function registerBuiltinCommands(): void {
         }).catch(e => err(`export failed: ${e instanceof Error ? e.message : e}`));
         return; }
       if(sub==="publish"){
-        if(!name){err(`usage: 'plugin publish <name> [--price=4.99 --interval=month] [--email=you@example.com] [update]`);return;}
-        void checkPublishable(name).then(check => {
+        if(!name){err(`usage: 'plugin publish <name> [--demo=<video link>] [--price=4.99 --interval=month] [--email=you@example.com]`);return;}
+        // --demo=<link> (optional): a video of it running, for its Market
+        // card; otherwise the manifest's demo:, if it has one.
+        const demoArg = args.find(a=>a.toLowerCase().startsWith("--demo="));
+        void checkPublishable(name, demoArg ? demoArg.slice(7) : undefined).then(check => {
         if(!check.ok || !check.metadata){
           err(`${name} isn't ready to publish (${check.issues.length} issue(s)):`);
           check.issues.forEach(issue => dim(`  · ${issue}`));
@@ -1555,6 +1665,7 @@ function registerBuiltinCommands(): void {
           if(!price){
             // Free plugin: a GitHub issue for a maintainer to review.
             info(`opening an issue for "${name}" on GitHub…`);
+            if(!check.metadata!.demo) dim(`no demo video — optional; add demo: <link> to the manifest, or --demo=<link>, to show one on its Market card`);
             return prepareFreePublish(check.metadata!, existing).then(result => {
               printResultLines(result.message, result.ok);
               if(result.issueUrl || result.draftUrl){
@@ -1743,6 +1854,11 @@ function registerBuiltinCommands(): void {
           if (entry.os?.length) field("works on", entry.os.join(", "));
           if (entry.minOxisVersion) field("needs", `OXIS ${entry.minOxisVersion} or newer`);
           if (entry.size) field("size", entry.size < 1024 ? `${entry.size} bytes` : `${(entry.size / 1024).toFixed(1)} KB`);
+          if (!entry.premium) {
+            const n = (await market.fetchDownloadCounts())[entry.name];
+            if (typeof n === "number") field("downloads", n.toLocaleString("en-US"));
+          }
+          if (entry.demo) field("demo video", entry.demo, "accent");
           if (entry.premium && !entry.comingSoon) {
             const count = await market.fetchSubscriberCount(entry.name);
             // null (network hiccup, KV not bound yet on the Market
@@ -1780,7 +1896,10 @@ function registerBuiltinCommands(): void {
               // load() has already run; report the plugin's real state
               // (a failed load already printed why).
               const p = pluginManager.get(entry.name);
+              // The Market's public count for it (setting countInstalls).
+              if (getSetting("countInstalls") !== false) market.countDownload(entry.name);
               if (p?.enabled) {
+                playSound("install");
                 ok(`installed & enabled ${entry.name} — 'plugin disable ${entry.name} to turn off`);
                 if (!persisted) {
                   dim(`  (works this session, but couldn't save to disk${persistError ? `: ${persistError}` : ""})`);
@@ -6359,6 +6478,7 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
   // A shell-integration mark: the directory, or a command finishing.
   const onMark = useCallback((mark: string) => {
     if (mark.startsWith("52;")) { programCopy(mark.slice(3)); return; }
+    if (mark === "bell") { playSound("bell"); return; }
     // OSC 9;4;state;percent — 0 done, 1 percent, 2 error, 3 busy, 4 paused.
     if (mark.startsWith("9;4")) {
       const [, , st = "0", pct = "0"] = mark.split(";");
@@ -6384,6 +6504,7 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
     const echo = all.find(l => l.id >= cmd.afterId && l.text.trimEnd().endsWith(cmd.text));
     if (echo) setLineStatus(echo.id, status, cmd.text);
     events.emit("shell_command_done", { command: cmd.text, code: status.code, ms: Math.round(status.ms) });
+    soundForCommand(status.code, status.ms);
   }, [setLineStatus]);
 
   // Ctrl+Shift+Space: label what's on screen; a label copies it, or
@@ -7056,6 +7177,7 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
     }
     if (ctrl && e.shiftKey && k.toLowerCase() === "f") { e.preventDefault(); openOutputSearch(); return; }
     if (ctrl && e.shiftKey && e.code === "Space") { e.preventDefault(); void startQuickSelect(); return; }
+    if (!ctrl && !alt && k.length === 1) playSound("key");
     if (ctrl) return;
 
     // ── ALT BINDINGS (word movement / case) ───────────────
@@ -8950,6 +9072,7 @@ export default function App() {
     setTabs(t => [...t, oneTab(id, shell ?? "")]);
     setActiveTab(id);
     setView("shell");
+    playSound("tab");
   }, []);
   // "Open in OXIS": a folder handed over by another launch is a new tab
   // there; with a restored session, the folder OXIS was started with is
@@ -8957,6 +9080,7 @@ export default function App() {
   useEffect(() => {
     const rt = (window as { runtime?: { EventsOn?: (name: string, cb: (...args: unknown[]) => void) => (() => void) | void } }).runtime;
     const off = rt?.EventsOn?.("open_folder", (folder) => { if (folder) newTab(undefined, String(folder)); });
+    playSound("start");
     // Brought to the front by the summon key: ready to type.
     const offSummon = rt?.EventsOn?.("summoned", () => setTimeout(() => events.emit("focus_prompt"), 50));
     void startFolder().then(f => {

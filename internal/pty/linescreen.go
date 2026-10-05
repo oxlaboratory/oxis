@@ -263,6 +263,8 @@ func (m *lineScreen) control(c byte) {
 		}
 	case '\t':
 		m.tab(1)
+	case 0x07: // BEL on its own (not ending an OSC): the page plays a sound
+		m.send(kindMark, "bell")
 	}
 }
 

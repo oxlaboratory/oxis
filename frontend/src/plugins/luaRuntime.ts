@@ -44,6 +44,9 @@ export interface OxisBindings {
   task(name: string, cmd: string, desc: string | undefined): void;
   /** kind: "ok", "err", "warn", "dim" or "accent" (default: plain). */
   echo(text: string, kind?: string): void;
+  /** Plays one of OXIS's sound effects: an event ("notify", "done",
+   *  "error"…) or a sound by name ("chime", "ping"…). */
+  sound(name: string | undefined): void;
   // Returns a promise; Lua never sees it, but the binding catches it.
   run(cmd: string): Promise<{ ok: boolean }>;
   /** Quotes text as one argument for the platform's shell. */
@@ -363,6 +366,7 @@ function buildOxisTable(L: LuaState, b: OxisBindings, closedRef: StateRef): void
   });
 
   setfn("echo", (L) => { b.echo(lua.lua_tojsstring(L, 1), argString(L, 2)); return 0; });
+  setfn("sound", (L) => { b.sound(argString(L, 1)); return 0; });
   setfn("line", (L) => { pushHandle(L, b.line(argString(L, 1) ?? "", argString(L, 2))); return 1; });
   // oxis.run() has no Lua callback, so log failures (a denied
   // permission, for example) here.
