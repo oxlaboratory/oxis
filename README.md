@@ -456,6 +456,7 @@ ready to type, and tucks it away again (setting `summonKey`).
 | Ctrl+Shift+\\ / Alt+Shift+= / Alt+Shift+- | Split: a new shell beside / beside / below |
 | Alt+arrows / Alt+Shift+arrows | Move between panes / resize the pane |
 | Ctrl+↑ / Ctrl+↓ | Jump to the previous / next command in the output |
+| Ctrl+Shift+Space | Quick select: every URL, path, file:line, git hash, IP and long number on screen gets a letter; type it to copy that text, or Shift+the letter to put it in the prompt. Esc cancels |
 | Ctrl+Shift+P | Command palette |
 | Ctrl+Shift+M | Open the Market website |
 

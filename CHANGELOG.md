@@ -6,6 +6,9 @@ All notable changes to OXIS. The format follows
 ## [Unreleased]
 
 ### Added
+- Quick select (**Ctrl+Shift+Space**): the URLs, paths, file:line,
+  git hashes, IPs and numbers on screen get letters; type one to copy
+  it, Shift+letter to put it in the prompt. No mouse needed.
 - A summon key: **`` Win+` ``** brings OXIS to the front from any
   program, ready to type, and pressed again tucks it away (Windows;
   setting `summonKey`, e.g. `Ctrl+Alt+T`, or empty for none).

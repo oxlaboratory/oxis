@@ -260,6 +260,27 @@ html, body, #root {
 .term-status--err { color: var(--err); opacity: .95; }
 .term-line--command:hover .term-status { opacity: 1; }
 .term-line--flash { animation: term-flash .7s ease-out; }
+
+/* Quick select (Ctrl+Shift+Space): what can be picked, and its label. */
+.qs-layer { position: fixed; inset: 0; z-index: 9000; pointer-events: none; }
+.qs-hl {
+  position: absolute; border-radius: 3px;
+  background: color-mix(in srgb, var(--purple) 22%, transparent);
+  outline: 1px solid color-mix(in srgb, var(--purple) 45%, transparent);
+}
+.qs-label {
+  position: absolute; transform: translate(-30%, -55%);
+  padding: 0 4px; border-radius: 4px; line-height: 1.35;
+  font: 700 11px var(--font); text-transform: none;
+  color: var(--bg); background: var(--yellow, #f5c542);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, .45);
+}
+.qs-label--out { opacity: .15; }
+.qs-hint {
+  position: absolute; left: 50%; bottom: 46px; transform: translateX(-50%);
+  padding: 4px 12px; border-radius: 6px; font: 12px var(--font);
+  color: var(--text); background: var(--bg2); border: 1px solid var(--border2);
+}
 @keyframes term-flash {
   from { background: color-mix(in srgb, var(--purple) 26%, transparent); }
   to   { background: transparent; }

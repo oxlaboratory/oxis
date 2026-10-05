@@ -37,6 +37,7 @@ import { workspaceManager }                 from "./terminal/workspaceManager";
 import { getRecentErrors, clearRecentErrors, installGlobalErrorCapture } from "./terminal/diagnostics";
 import { cwdTracker, CwdTracker, buildCwdProbe, looksLikeDirectoryChange, isProbeLine, cwdFromMark } from "./terminal/cwdTracker";
 import { startHint, tabHint, paneHint, tipHint } from "./terminal/hints";
+import { quickSelect } from "./terminal/quickSelect";
 import { promptCapture, foregroundJobs } from "./terminal/promptCapture";
 import { scriptRunTracker, stripStepEcho } from "./terminal/scriptRunTracker";
 import { workflowRunner } from "./plugins/workflowRunner";
@@ -6385,6 +6386,23 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
     events.emit("shell_command_done", { command: cmd.text, code: status.code, ms: Math.round(status.ms) });
   }, [setLineStatus]);
 
+  // Ctrl+Shift+Space: label what's on screen; a label copies it, or
+  // (typed upper-case) puts it in the prompt at the cursor.
+  const startQuickSelect = useCallback(async () => {
+    const out = outRef.current;
+    if (!out || document.querySelector(".qs-layer")) return;
+    const pick = await quickSelect(out);
+    if (pick === undefined) events.emit("status_flash", { text: "nothing on screen to pick — URLs, paths, hashes, IPs and numbers are" });
+    if (pick?.paste) {
+      const { value, cursor } = inputRef.current;
+      syncInput(value.slice(0, cursor) + pick.text + value.slice(cursor), cursor + pick.text.length);
+    } else if (pick) {
+      void copyToClipboard(pick.text);
+      events.emit("status_flash", { text: `copied ${pick.text.length > 60 ? pick.text.slice(0, 57) + "…" : pick.text}` });
+    }
+    focusPrompt();
+  }, [syncInput, focusPrompt]);
+
   // Ctrl+Up / Ctrl+Down: scroll to the previous / next command run.
   const jumpToCommand = useCallback((dir: -1 | 1) => {
     const out = outRef.current;
@@ -7037,6 +7055,7 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
       return;
     }
     if (ctrl && e.shiftKey && k.toLowerCase() === "f") { e.preventDefault(); openOutputSearch(); return; }
+    if (ctrl && e.shiftKey && e.code === "Space") { e.preventDefault(); void startQuickSelect(); return; }
     if (ctrl) return;
 
     // ── ALT BINDINGS (word movement / case) ───────────────
@@ -7099,7 +7118,7 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
   }, [
     searching, exitSearch, enterSearch, submit, interrupt, outputSelectionText,
     syncInput, sendToShell, addLine, clear, updateCaret,
-    onNewTab, onCloseTab, openOutputSearch, completeShellLine, clearInput,
+    onNewTab, onCloseTab, openOutputSearch, startQuickSelect, completeShellLine, clearInput,
   ]);
 
   // ── Paste ─────────────────────────────────────────────────

@@ -57,6 +57,7 @@ const TIPS = [
   "  tip: 'shell gitbash (or wsl, cmd…) opens a tab with another shell — or right-click +",
   "  tip: click src/app.ts:12 in an error to open the editor at that line",
   "  tip: right-click a tab to rename, duplicate or close it · drag tabs to reorder",
+  "  tip: Ctrl+Shift+Space labels the URLs, paths and hashes on screen — type a label to copy it",
   // Windows-only features, told only there.
   ...(typeof navigator !== "undefined" && /Windows/.test(navigator.userAgent) ? [
     "  tip: Win+` brings OXIS to the front from any program, and away again ('config set summonKey)",
