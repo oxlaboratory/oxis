@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { paneHint, startHint, tabHint } from "./hints";
+import { paneHint, startHint, tabHint, tipHint } from "./hints";
 import { memoryStorage } from "./storage.test-util";
 
 beforeEach(() => { vi.stubGlobal("localStorage", memoryStorage()); });
@@ -32,5 +32,12 @@ describe("hints", () => {
   it("still works without storage", () => {
     vi.stubGlobal("localStorage", undefined);
     expect(startHint()).not.toBeNull();
+  });
+
+  it("shows each tip once, then none", () => {
+    const tips = new Set<string>();
+    for (let tip = tipHint(); tip; tip = tipHint()) tips.add(tip);
+    expect(tips.size).toBeGreaterThanOrEqual(4);
+    expect(tipHint()).toBeNull();
   });
 });

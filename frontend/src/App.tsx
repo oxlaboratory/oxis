@@ -36,7 +36,7 @@ import { workspaceState }                   from "./terminal/workspaceState";
 import { workspaceManager }                 from "./terminal/workspaceManager";
 import { getRecentErrors, clearRecentErrors, installGlobalErrorCapture } from "./terminal/diagnostics";
 import { cwdTracker, CwdTracker, buildCwdProbe, looksLikeDirectoryChange, isProbeLine, cwdFromMark } from "./terminal/cwdTracker";
-import { startHint, tabHint, paneHint } from "./terminal/hints";
+import { startHint, tabHint, paneHint, tipHint } from "./terminal/hints";
 import { promptCapture, foregroundJobs } from "./terminal/promptCapture";
 import { scriptRunTracker, stripStepEcho } from "./terminal/scriptRunTracker";
 import { workflowRunner } from "./plugins/workflowRunner";
@@ -5523,7 +5523,7 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
   // ── output state ─────────────────────────────────────────
   const [lines,      setLines]      = useState<Line[]>(() => {
     if (!restore?.lines.length) {
-      const tip = hint ?? (first ? startHint() : null);
+      const tip = hint ?? (first ? startHint() ?? tipHint() : null);
       return tip ? [...initialLines(), mkLine(tip, "dim")] : initialLines();
     }
     // The last session's output, then a line saying where it ends.

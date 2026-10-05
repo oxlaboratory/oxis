@@ -4,10 +4,10 @@
 const KEY = "oxis-hints-v1";
 const SHOW = 3;
 
-type Seen = { start: number; tab: number; pane: number; used: boolean };
+type Seen = { start: number; tab: number; pane: number; used: boolean; tip: number };
 
 function read(): Seen {
-  const none = { start: 0, tab: 0, pane: 0, used: false };
+  const none = { start: 0, tab: 0, pane: 0, used: false, tip: 0 };
   try { return { ...none, ...JSON.parse(localStorage.getItem(KEY) ?? "{}") }; }
   catch { return none; }
 }
@@ -47,4 +47,23 @@ export function paneHint(split: "row" | "column"): string | null {
 function markUsed() {
   const seen = read();
   if (!seen.used) write({ ...seen, used: true });
+}
+
+// One tip per fresh terminal, each shown once, about things that are
+// easy to miss.
+const TIPS = [
+  "  tip: Tab completes files, git branches, npm scripts and programs · → takes the dim suggestion",
+  "  tip: right-click a command's output to run it again or copy it · ▾ on its line folds it",
+  "  tip: 'shell gitbash (or wsl, cmd…) opens a tab with another shell — or right-click +",
+  "  tip: click src/app.ts:12 in an error to open the editor at that line",
+  "  tip: right-click a tab to rename, duplicate or close it · drag tabs to reorder",
+];
+
+/** The next tip not yet shown, or null once they all have been. */
+export function tipHint(): string | null {
+  const seen = read();
+  if (seen.tip >= TIPS.length) return null;
+  const text = TIPS[seen.tip];
+  write({ ...seen, tip: seen.tip + 1 });
+  return text;
 }
