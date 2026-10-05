@@ -9,6 +9,7 @@ All notable changes to OXIS. The format follows
 - Right-click a tab: Rename Tab… (or double-click its name; the name
   comes back with the session), Duplicate Tab (same folder and shell),
   Close Tab, Close Other Tabs.
+- Drag a tab along the strip to move it.
 - Setting `startIn`: `terminal` opens straight into the shell instead
   of Home.
 - Setting `copyOnSelect`: selecting output copies it, as in Windows

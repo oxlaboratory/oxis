@@ -386,7 +386,7 @@ while you were elsewhere. The selected tab has the prompt, and it's the
 one OXIS commands and plugins act on and whose directory decides the
 workspace. `'tab` lists them; `'tab 2`, `'tab next`, `'tab close`.
 Right-click a tab to rename it (or double-click its name), duplicate
-it (same folder and shell), close it, or close the others.
+it (same folder and shell), close it, or close the others. Drag a tab to move it.
 
 A tab can be split, so a dev server runs beside the shell you're
 working in: **Ctrl+Shift+\\** (or **Alt+Shift+=**) puts a new shell beside

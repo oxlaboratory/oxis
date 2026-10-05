@@ -1414,3 +1414,6 @@ input, textarea { font-family: var(--font); }
   width: 120px; font: inherit; color: var(--text); background: var(--bg);
   border: 1px solid var(--purple3); border-radius: 3px; padding: 0 4px; outline: none;
 }
+
+/* Where a dragged tab will land: before this one. */
+.term-tab--drop { box-shadow: inset 2px 0 0 var(--purple3); }

@@ -8838,6 +8838,19 @@ export default function App() {
     selectTab(id);
     setTimeout(() => newTab(shell), 60);
   }, [selectTab, newTab]);
+  // Dragging a tab along the strip moves it there.
+  const draggedTab = useRef<string | null>(null);
+  const [dropBefore, setDropBefore] = useState<string | null>(null);
+  const moveTab = useCallback((id: string, before: string) => {
+    if (id === before) return;
+    setTabs(cur => {
+      const moving = cur.find(x => x.id === id);
+      if (!moving) return cur;
+      const rest = cur.filter(x => x.id !== id);
+      const at = before === "" ? rest.length : rest.findIndex(x => x.id === before);
+      return at < 0 ? cur : [...rest.slice(0, at), moving, ...rest.slice(at)];
+    });
+  }, []);
   const closeOtherTabs = useCallback((id: string) => {
     setTabs(cur => cur.filter(x => x.id === id));
     selectTab(id);
@@ -9072,9 +9085,14 @@ export default function App() {
             <div className="term-tabs" role="tablist">
               {tabs.map((t, i) => (
                 <div key={t.id} role="tab" aria-selected={t.id === activeTab}
-                  className={`term-tab${t.id === activeTab ? " term-tab--active" : ""}`}
+                  className={`term-tab${t.id === activeTab ? " term-tab--active" : ""}${dropBefore === t.id && draggedTab.current !== t.id ? " term-tab--drop" : ""}`}
                   onMouseDown={e => { if (e.button === 1) { e.preventDefault(); closeTab(t.id); } }}
                   onContextMenu={e => { e.preventDefault(); setTabMenu({ x: e.clientX, y: e.clientY, id: t.id }); }}
+                  draggable={renamingTab !== t.id}
+                  onDragStart={e => { draggedTab.current = t.id; e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", t.id); }}
+                  onDragOver={e => { if (!draggedTab.current) return; e.preventDefault(); e.dataTransfer.dropEffect = "move"; if (dropBefore !== t.id) setDropBefore(t.id); }}
+                  onDrop={e => { e.preventDefault(); const id = draggedTab.current; draggedTab.current = null; setDropBefore(null); if (id) moveTab(id, t.id); }}
+                  onDragEnd={() => { draggedTab.current = null; setDropBefore(null); }}
                   onClick={() => selectTab(t.id)}
                   title={`${tabTitle(t)}${i < 9 ? ` (Ctrl+${i + 1})` : ""} — middle-click to close`}>
                   <span className="term-tab-num">{i + 1}</span>
@@ -9097,7 +9115,9 @@ export default function App() {
                     onClick={e => { e.stopPropagation(); closeTab(t.id); }}>×</span>
                 </div>
               ))}
-              <button className="term-tabs-new" onClick={() => newTab()} onContextMenu={openShellMenu} title="New tab (Ctrl+T) — right-click for another shell">+</button>
+              <button className="term-tabs-new" onClick={() => newTab()} onContextMenu={openShellMenu} title="New tab (Ctrl+T) — right-click for another shell"
+                onDragOver={e => { if (draggedTab.current) { e.preventDefault(); setDropBefore(""); } }}
+                onDrop={e => { e.preventDefault(); const id = draggedTab.current; draggedTab.current = null; setDropBefore(null); if (id) moveTab(id, ""); }}>+</button>
             </div>
           )}
           {tabMenu && (
