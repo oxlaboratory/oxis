@@ -20,6 +20,8 @@ import { isWindows, currentShell } from "./terminal";
 const STALE_MS = 3 * 60 * 1000;
 
 const MARK = "\u2063";
+// Any call's whole marker.
+const ANY_MARKER = new RegExp(`${MARK}OXISSTEP[a-z0-9]+:-?\\d+${MARK}\\r?\\n?`, "g");
 
 export interface RunResult {
   cancelled: boolean;
@@ -106,7 +108,11 @@ class ScriptRunTracker {
   consume(raw: string): string {
     let out = this.carry + raw;
     this.carry = "";
-    if (this.pending.size === 0) return out;
+    if (this.pending.size === 0) {
+      // A marker from a call already given up on (cancelled, timed out)
+      // still isn't output.
+      return out.includes(MARK) ? out.replace(ANY_MARKER, "") : out;
+    }
     for (const [id, resolve] of [...this.pending]) {
       const re = new RegExp(`${MARK}OXISSTEP${id}:(-?\\d+)${MARK}`, "g");
       let code: number | null = null;
@@ -116,6 +122,7 @@ class ScriptRunTracker {
         resolve({ cancelled: false, timedOut: false, exitCode: code });
       }
     }
+    if (out.includes(MARK)) out = out.replace(ANY_MARKER, "");
     const keep = this.partialMarkerLength(out);
     if (keep > 0) {
       this.carry = out.slice(-keep);
