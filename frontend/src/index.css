@@ -1071,7 +1071,7 @@ button.editor-mode:hover { filter: brightness(1.25); }
 /* ── Pixel-art sky (SkyWidget): SVGs of 2px pixels, shaded by each
    run's fill-opacity, coloured by fill. No glows. ─────────────── */
 .sky-sun {
-  position: absolute; top: 5px; right: 0;
+  position: absolute; top: 3px; right: 0;
   fill: var(--sun, #ffd24a);
   z-index: 2;
 }
@@ -1106,6 +1106,30 @@ button.editor-mode:hover { filter: brightness(1.25); }
   fill: var(--cloud, #ffffff);
   will-change: transform;
   backface-visibility: hidden;
+}
+
+/* The haze round the sun: 6 pixels more each way, behind it. */
+.sky-sun-haze {
+  position: absolute; top: -9px; right: -12px; display: block; pointer-events: none; z-index: 1;
+  fill: var(--sun, #ffd166);
+  animation: moon-breathe 8s ease-in-out infinite;
+}
+/* A bird crosses now and then, flapping, under the clouds' level. */
+.sky-bird {
+  position: absolute; left: 0; top: 22px; width: 10px; height: 4px;
+  opacity: 0; pointer-events: none;
+  animation: bird-cross 23s linear infinite 6s;
+}
+.sky-bird-wing { position: absolute; left: 0; top: 0; display: block; fill: var(--cloud-shadow, #8a93a6); }
+.sky-bird-wing--up   { animation: bird-flap .5s steps(1, end) infinite; }
+.sky-bird-wing--flat { animation: bird-flap .5s steps(1, end) infinite -.25s; }
+@keyframes bird-flap { 0% { opacity: 1; } 50% { opacity: 0; } }
+@keyframes bird-cross {
+  0%   { opacity: 0; transform: translate(-10px, 0); }
+  2%   { opacity: .85; }
+  28%  { opacity: .85; transform: translate(200px, -8px); }
+  30%  { opacity: 0; transform: translate(214px, -9px); }
+  100% { opacity: 0; transform: translate(214px, -9px); }
 }
 
 .sky-moon {
@@ -1155,8 +1179,8 @@ button.editor-mode:hover { filter: brightness(1.25); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .sky-sun-tips, .sky-moon, .sky-moon-glow, .sky-star { animation: none; }
-  .sky-shooting-star { display: none; }
+  .sky-sun-tips, .sky-moon, .sky-moon-glow, .sky-star, .sky-sun-haze { animation: none; }
+  .sky-shooting-star, .sky-bird { display: none; }
 }
 
 /* Status bar additions */

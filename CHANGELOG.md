@@ -6,6 +6,9 @@ All notable changes to OXIS. The format follows
 ## [Unreleased]
 
 ### Added
+- Home's day sky redrawn: a bigger sun lit from the top left with a
+  corona, long rays and a warm haze; puffier clouds with lit rims, shaded
+  bellies and seams between puffs; and now and then a bird flying by.
 - Home's night sky redrawn: a shaded moon with seas, lit crater rims
   and a breathing glow; stars in three kinds that twinkle to different
   depths, and a shooting star now and then. Setting `homeSky` keeps just

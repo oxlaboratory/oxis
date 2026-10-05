@@ -7901,23 +7901,36 @@ function Pixels({ shape, className, style, svgRef }: {
   );
 }
 
-// The sun: a disc lit from the top left, and eight rays whose tips
-// take turns (the straight ones, then the diagonal ones) as it shimmers.
-const SUN_SIZE = 17;
+// The sun: a round disc lit from the top left — a hot spot, a bright
+// body, a deeper rim to the lower right — inside a pale corona, with
+// eight rays: long straight ones (three pixels wide at the root) and
+// shorter diagonals, whose tips take turns as it shimmers.
+const SUN_SIZE = 21;
 const SUN = (() => {
-  const c = 8;
+  const c = 10;
   const disc = pixelShape(SUN_SIZE, SUN_SIZE, (x, y) => {
     const dx = x - c, dy = y - c, d = Math.hypot(dx, dy);
-    if (d > 4.3) return 0;
-    return d > 3.3 && dx + dy > 0 ? 0.78 : dx + dy < -2 ? 1 : 0.92;
+    if (d > 5.9) return 0;
+    if (d > 5.0) return 0.45;                                      // the corona
+    if (Math.hypot(dx + 1.8, dy + 1.8) <= 1.3) return 1;           // the hot spot
+    const shade = (dx + dy) / 10;                                  // lit from the top left
+    return Math.round(Math.max(0.72, Math.min(1, 0.93 - shade * (d > 3.6 ? 0.9 : 0.4))) * 20) / 20;
   });
-  const rays = (straight: number[], diagonal: number[]) => pixelShape(SUN_SIZE, SUN_SIZE, (x, y) => {
+  const rays = (straight: number[], diagonal: number[], root = false) => pixelShape(SUN_SIZE, SUN_SIZE, (x, y) => {
     const dx = Math.abs(x - c), dy = Math.abs(y - c);
-    if ((dx === 0 && straight.includes(dy)) || (dy === 0 && straight.includes(dx))) return 0.9;
-    return dx === dy && diagonal.includes(dx) ? 0.9 : 0;
+    if ((dx === 0 && straight.includes(dy)) || (dy === 0 && straight.includes(dx))) return 0.95;
+    // The straight rays are wider where they leave the corona.
+    if (root && ((dx === 1 && dy === 7) || (dy === 1 && dx === 7))) return 0.45;
+    return dx === dy && diagonal.includes(dx) ? 0.85 : 0;
   });
-  return { disc, rays: rays([6, 7], [5]), straightTips: rays([8], []), diagonalTips: rays([], [6]) };
+  return { disc, rays: rays([7, 8], [5], true), straightTips: rays([9, 10], []), diagonalTips: rays([], [6, 7]) };
 })();
+
+// A warm haze round the sun (the sun itself is drawn on top, unchanged).
+const SUN_HAZE = pixelShape(SUN_SIZE + 12, SUN_SIZE + 12, (x, y) => {
+  const d = Math.hypot(x - (SUN_SIZE + 11) / 2, y - (SUN_SIZE + 11) / 2);
+  return d <= 5.5 ? 0 : d <= 7.5 ? 0.08 : d <= 10 ? 0.04 : d <= 12.5 ? 0.018 : 0;
+});
 
 // The moon: a sphere lit from the top left — bright towards the light,
 // darker to the lower right and at its edge — with its dark seas, and
@@ -7969,32 +7982,57 @@ const SHOOTING_STAR = pixelShape(14, 3, (x, y) => (y === 1 ? (x + 1) / 14 : y ==
 // on .sky-clouds). Every cloud in a lane moves at the same speed and
 // they start evenly spaced, so they never run into one another.
 
-/** A cumulus: a big round puff in the middle, smaller ones either side
- *  (and on a wide cloud, one more at an end), all sitting on the same
- *  flat bottom, lit from above. */
+/** A cumulus: a tall round puff off-centre, smaller ones either side
+ *  and a little one or two riding on their shoulders, all on one flat
+ *  bottom. Lit from the top left like the sun and moon: a bright rim
+ *  where the light catches each puff, white bodies, a soft blue-grey
+ *  belly, and a darker seam where puffs overlap. */
 function makeCloud(cols: number, rows: number): PixelShape {
   const R = rows / 2;
+  const mainR = R * rand(0.84, 0.94);
+  const main = { cx: cols * rand(0.4, 0.58), cy: rows - mainR * rand(1, 1.06), r: mainR };
   const puffs = [
-    { cx: cols * rand(0.44, 0.56), r: R * rand(0.93, 1) },
-    { cx: cols * rand(0.22, 0.3), r: R * rand(0.6, 0.74) },
-    { cx: cols * rand(0.7, 0.78), r: R * rand(0.66, 0.8) },
+    main,
+    { cx: cols * rand(0.18, 0.28), cy: 0, r: R * rand(0.55, 0.7) },
+    { cx: cols * rand(0.7, 0.82), cy: 0, r: R * rand(0.6, 0.76) },
   ];
+  if (cols >= 18) puffs.push({ cx: main.cx + main.r * rand(0.45, 0.75), cy: 0, r: R * rand(0.45, 0.6) }); // on a shoulder
   if (cols >= 24) {
     puffs.push(Math.random() < 0.5
-      ? { cx: cols * rand(0.1, 0.14), r: R * rand(0.4, 0.5) }
-      : { cx: cols * rand(0.86, 0.9), r: R * rand(0.4, 0.5) });
+      ? { cx: cols * rand(0.08, 0.13), cy: 0, r: R * rand(0.35, 0.45) }
+      : { cx: cols * rand(0.87, 0.92), cy: 0, r: R * rand(0.35, 0.45) });
   }
+  for (const p of puffs) if (p !== main) p.cy = rows - p.r * rand(0.92, 1.05);
   const left = Math.min(...puffs.map(p => p.cx)), right = Math.max(...puffs.map(p => p.cx));
-  const baseTop = rows - Math.min(...puffs.map(p => p.r));
+  const baseTop = rows - Math.min(...puffs.map(p => p.r)) * 0.9;
+  const inPuff = (px: number, py: number) => puffs.findIndex(p => (px - p.cx) ** 2 + (py - p.cy) ** 2 <= p.r * p.r);
   const filled = (x: number, y: number): boolean => {
     if (x < 0 || y < 0 || x >= cols || y >= rows) return false;
     const px = x + 0.5, py = y + 0.5;
     if (py >= baseTop && px >= left && px <= right) return true; // fills the dips between puffs
-    return puffs.some(p => (px - p.cx) ** 2 + (py - (rows - p.r)) ** 2 <= p.r * p.r);
+    return inPuff(px, py) >= 0;
   };
-  return pixelShape(cols, rows, (x, y) =>
-    !filled(x, y) ? 0 : !filled(x, y - 1) ? 1 : y === rows - 1 ? 0.45 : y >= rows - 3 ? 0.68 : 0.86);
+  return pixelShape(cols, rows, (x, y) => {
+    if (!filled(x, y)) return 0;
+    // The rim: open sky above, or above and to the left — where the light lands.
+    if (!filled(x, y - 1) || (!filled(x - 1, y) && !filled(x - 1, y - 1))) return 1;
+    if (y >= rows - 1) return 0.5;                 // the flat underside
+    if (y >= rows - 3) return 0.66;                // the belly, in shade
+    // A seam where a smaller puff sits in front of a bigger one.
+    const px = x + 0.5, py = y + 0.5, k = inPuff(px, py);
+    if (k > 0) {
+      const p = puffs[k];
+      const edge = Math.hypot(px - p.cx, py - p.cy) > p.r - 1;
+      if (edge && px > p.cx && puffs.some((q, j) => j !== k && q.r > p.r && (px - q.cx) ** 2 + (py - q.cy) ** 2 <= q.r * q.r)) return 0.74;
+    }
+    // Brighter towards the top left, a touch greyer to the lower right.
+    return (x / cols) + (y / rows) > 1.15 ? 0.82 : 0.92;
+  });
 }
+
+// A bird, far off: two wing beats (up, then level).
+const BIRD_UP = pixelShape(5, 2, (x, y) => (y === 0 ? (x === 0 || x === 4 ? 1 : 0) : x >= 1 && x <= 3 ? (x === 2 ? 1 : 0.8) : 0));
+const BIRD_FLAT = pixelShape(5, 2, (x, y) => (y === 1 ? (x === 2 ? 1 : 0.8) : 0));
 
 interface CloudLayout {
   shape: PixelShape; top: number; opacity: number;
@@ -8138,6 +8176,11 @@ function SkyWidget() {
   if (isDay) {
     return (
       <div className="sky-widget sky-widget--day">
+        {!sunArt && <Pixels shape={SUN_HAZE} className="sky-sun-haze" />}
+        <div className="sky-bird" aria-hidden="true">
+          <Pixels shape={BIRD_UP} className="sky-bird-wing sky-bird-wing--up" />
+          <Pixels shape={BIRD_FLAT} className="sky-bird-wing sky-bird-wing--flat" />
+        </div>
         {sunArt ? (
           <Pixels shape={sunArt} className="sky-sun sky-sun--art" />
         ) : (
