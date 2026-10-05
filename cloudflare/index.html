@@ -2482,7 +2482,7 @@ let query = "";
 let subscriberCounts = {};
 // Filled by loadDownloadCounts() — { pluginName: installs + downloads }
 // (functions/plugin-downloads.js). Nothing is shown until it arrives.
-let downloadCounts = {};
+let downloadCounts = null;
 async function loadDownloadCounts(){
   try{
     const res = await fetch('/plugin-downloads', { cache: 'no-store' });
@@ -2494,7 +2494,7 @@ async function loadDownloadCounts(){
 function countDownload(name){
   fetch('/plugin-downloads', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) })
     .then(r => r.ok ? r.json() : null)
-    .then(b => { if(b && b.counted && typeof b.count === 'number'){ downloadCounts[name] = b.count; renderGrid(); } })
+    .then(b => { if(b && b.counted && typeof b.count === 'number'){ downloadCounts = { ...(downloadCounts || {}), [name]: b.count }; renderGrid(); } })
     .catch(()=>{});
 }
 
@@ -2602,7 +2602,7 @@ function cardHTML(p, i){
       </div>
       <div class="card-desc">${desc}</div>
       <div class="card-tags">${p.tags.map(t=>`<span class="tag">#${escapeHtml(t)}</span>`).join('')}</div>
-      <div class="card-meta"><span>by <b>${creator}</b></span>${!p.premium && typeof downloadCounts[p.name] === 'number' ? `<span title="installs and downloads">↓ <b>${downloadCounts[p.name].toLocaleString('en-US')}</b></span>` : ''}${!p.premium && size ? `<span><b>${size}</b></span>` : ''}</div>
+      <div class="card-meta"><span>by <b>${creator}</b></span>${!p.premium && downloadCounts ? `<span title="installs and downloads">↓ <b>${(downloadCounts[p.name] || 0).toLocaleString('en-US')}</b></span>` : ''}${!p.premium && size ? `<span><b>${size}</b></span>` : ''}</div>
       ${demoSection}
       ${footer}
     </div>`;

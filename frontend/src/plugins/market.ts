@@ -136,14 +136,15 @@ export async function fetchSubscriberCount(name: string): Promise<number | null>
   }
 }
 
-/** Installs and downloads per plugin, from the server; {} when it
- *  can't be reached (so nothing is shown rather than false zeros). */
-export async function fetchDownloadCounts(): Promise<Record<string, number>> {
+/** Installs and downloads per plugin, from the server (a plugin not in
+ *  it has none yet); null when it can't be reached, so nothing is shown
+ *  rather than false zeros. */
+export async function fetchDownloadCounts(): Promise<Record<string, number> | null> {
   try {
     const body = await fetchJSON<{ counts?: Record<string, number> }>(`${marketBase()}/plugin-downloads`);
-    return body.counts && typeof body.counts === "object" ? body.counts : {};
+    return body.counts && typeof body.counts === "object" ? body.counts : null;
   } catch {
-    return {};
+    return null;
   }
 }
 

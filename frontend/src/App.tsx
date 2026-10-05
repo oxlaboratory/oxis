@@ -1855,8 +1855,8 @@ function registerBuiltinCommands(): void {
           if (entry.minOxisVersion) field("needs", `OXIS ${entry.minOxisVersion} or newer`);
           if (entry.size) field("size", entry.size < 1024 ? `${entry.size} bytes` : `${(entry.size / 1024).toFixed(1)} KB`);
           if (!entry.premium) {
-            const n = (await market.fetchDownloadCounts())[entry.name];
-            if (typeof n === "number") field("downloads", n.toLocaleString("en-US"));
+            const counts = await market.fetchDownloadCounts();
+            if (counts) field("downloads", (counts[entry.name] ?? 0).toLocaleString("en-US"));
           }
           if (entry.demo) field("demo video", entry.demo, "accent");
           if (entry.premium && !entry.comingSoon) {
