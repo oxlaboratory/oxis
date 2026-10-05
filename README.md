@@ -479,6 +479,8 @@ Windows Terminal do. With it:
 - **Ctrl+↑ / Ctrl+↓** jump to the previous / next command.
 - Right-click a command's output: **Run Again**, **Copy Command**,
   **Copy Output** or **Copy Command and Output**.
+- Hover a command's line and click **▾** to fold its output away
+  ("▸ 120 lines"); click again to see it.
 - A command that ran 10 seconds or more and finishes while OXIS is in
   the background flashes its taskbar button (setting `notifyAfter`).
 - OXIS follows the directory exactly (`cd`, `z`, `Push-Location`,

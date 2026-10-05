@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  stripAnsi, stripAnsiKeepSgr, commandBlockAt, visibleText, processOutput, mergeOutput, mkLine,
+  stripAnsi, stripAnsiKeepSgr, commandBlockAt, foldOutput, visibleText, processOutput, mergeOutput, mkLine,
   wordLeft, wordRight, deleteWordLeft, deleteWordRight, deleteToLineStart, deleteToLineEnd, transposeChars,
 } from "./terminal";
 
@@ -116,5 +116,23 @@ describe("commandBlockAt", () => {
   });
   it("nothing above the first command", () => {
     expect(commandBlockAt(ls, ls[0].id)).toBeNull();
+  });
+});
+
+describe("foldOutput", () => {
+  const ok = { code: 0, ms: 1 };
+  const ls = [
+    { ...mkLine("$ npm test"), status: ok },
+    mkLine("a"), mkLine("b"), mkLine("c"),
+    { ...mkLine("$ ls"), status: ok },
+    mkLine("x"),
+  ];
+  it("hides a folded command's lines up to the next command", () => {
+    const f = foldOutput(ls, new Set([ls[0].id]));
+    expect(f.lines.map(l => l.text)).toEqual(["$ npm test", "$ ls", "x"]);
+    expect(f.hidden.get(ls[0].id)).toBe(3);
+  });
+  it("nothing folded: the same array", () => {
+    expect(foldOutput(ls, new Set()).lines).toBe(ls);
   });
 });

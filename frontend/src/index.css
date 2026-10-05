@@ -1417,3 +1417,12 @@ input, textarea { font-family: var(--font); }
 
 /* Where a dragged tab will land: before this one. */
 .term-tab--drop { box-shadow: inset 2px 0 0 var(--purple3); }
+
+/* Folding a command's output: ▾ on hover, "▸ 120 lines" while folded. */
+.term-fold {
+  margin-left: 10px; padding: 0 5px; border: none; border-radius: 3px; cursor: pointer;
+  background: none; color: var(--dim); font: inherit; font-size: .85em; opacity: 0;
+}
+.term-line--command:hover .term-fold { opacity: .8; }
+.term-line--folded .term-fold { opacity: 1; color: var(--purple3); background: var(--bg3); }
+.term-fold:hover { color: var(--purple3); }

@@ -137,6 +137,26 @@ export function commandBlockAt(lines: Line[], id: number): { command: Line; outp
   return { command, output };
 }
 
+/** The output with folded commands' lines left out: each folded
+ *  command line (one with a status, from shell integration) hides the
+ *  lines after it up to the next command. hidden says how many each
+ *  hides, for its "▸ 120 lines". */
+export function foldOutput(lines: Line[], folded: ReadonlySet<number>): { lines: Line[]; hidden: Map<number, number> } {
+  const hidden = new Map<number, number>();
+  if (folded.size === 0) return { lines, hidden };
+  const out: Line[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i];
+    out.push(l);
+    if (!l.status || !folded.has(l.id)) continue;
+    let j = i + 1;
+    while (j < lines.length && !lines[j].status) j++;
+    if (j > i + 1) hidden.set(l.id, j - i - 1);
+    i = j - 1;
+  }
+  return { lines: out, hidden };
+}
+
 export function initialLines(): Line[] {
   return [mkLine("  type 'help for OXIS commands — anything else runs in your shell", "dim")];
 }

@@ -12,7 +12,7 @@ import { openPty }    from "./pty/ptyClient";
 import type { PtySession } from "./pty/ptyClient";
 
 import {
-  mkLine, initialLines, processOutput, mergeOutput, visibleText, nextLineId, commandBlockAt,
+  mkLine, initialLines, processOutput, mergeOutput, visibleText, nextLineId, commandBlockAt, foldOutput,
   LINE_COLORS,
   wordLeft, wordRight,
   deleteWordLeft, deleteWordRight,
@@ -5401,13 +5401,19 @@ function cssText(text: string): React.CSSProperties {
   return style;
 }
 
-const OutputLine = memo(function OutputLine({ line, match }: { line: Line; match: boolean }) {
+const OutputLine = memo(function OutputLine({ line, match, folded }: { line: Line; match: boolean; folded?: number }) {
   return (
     <div data-line-id={line.id}
-      className={`term-line${match ? " term-line--match" : ""}${line.status ? " term-line--command" : ""}`}
+      className={`term-line${match ? " term-line--match" : ""}${line.status ? " term-line--command" : ""}${folded ? " term-line--folded" : ""}`}
       style={{ color: line.kind ? LINE_COLORS[line.kind] : undefined }}>
       {renderLine(line.text, line.spans)}
       {line.status && <CommandStatus {...line.status} />}
+      {line.status && (
+        <button className="term-fold" onClick={e => { e.stopPropagation(); events.emit("output_fold", { id: line.id }); }}
+          title={folded ? "Show this command's output" : "Fold this command's output"}>
+          {folded ? `▸ ${folded} line${folded === 1 ? "" : "s"}` : "▾"}
+        </button>
+      )}
     </div>
   );
 });
@@ -5460,13 +5466,15 @@ function withoutTail(lines: Line[], gone: Set<number>): Line[] {
   return i === lines.length ? lines : lines.slice(0, i).concat(lines.slice(i).filter(l => !gone.has(l.id)));
 }
 
-const OutputBlock = memo(function OutputBlock({ lines, matches }: { lines: Line[]; matches: Set<number> }) {
+const NO_FOLDS = new Map<number, number>();
+const OutputBlock = memo(function OutputBlock({ lines, matches, hidden }: { lines: Line[]; matches: Set<number>; hidden: Map<number, number> }) {
   return (
     <div className="term-block">
-      {lines.map(line => <OutputLine key={line.id} line={line} match={matches.has(line.id)} />)}
+      {lines.map(line => <OutputLine key={line.id} line={line} match={matches.has(line.id)} folded={hidden.get(line.id)} />)}
     </div>
   );
 }, (a, b) => a.lines === b.lines
+  && (a.hidden === b.hidden || !a.lines.some(l => a.hidden.has(l.id) || b.hidden.has(l.id)))
   && (a.matches === b.matches || !a.lines.some(l => a.matches.has(l.id) || b.matches.has(l.id))));
 
 /** Groups lines into OUTPUT_BLOCK-sized blocks, reusing the previous
@@ -5935,11 +5943,19 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
     return lines.filter(l => test(l.text)).map(l => l.id);
   }, [lines, outputSearchQuery]);
   const outputSearchSet = useMemo(() => new Set(outputSearchMatches), [outputSearchMatches]);
+  // Commands whose output is folded (the ▾ on a command line).
+  const [folded, setFolded] = useState<ReadonlySet<number>>(() => new Set());
+  useEffect(() => events.on("output_fold", p => {
+    const id = Number((p as { id?: number } | undefined)?.id);
+    if (!linesRef.current.some(l => l.id === id)) return; // another tab's
+    setFolded(cur => { const next = new Set(cur); if (next.has(id)) next.delete(id); else next.add(id); return next; });
+  }), []);
+  const folding = useMemo(() => foldOutput(lines, folded), [lines, folded]);
   const outputBlocks = useMemo(() => {
-    const g = groupOutput(lines, blockCache.current);
+    const g = groupOutput(folding.lines, blockCache.current);
     blockCache.current = g.cache;
     return g.blocks;
-  }, [lines]);
+  }, [folding.lines]);
 
   const jumpToOutputMatch = useCallback((idx: number) => {
     if (outputSearchMatches.length === 0) return;
@@ -7384,7 +7400,7 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
                 <button className="editor-peek-close" title="Hide (the terminal still has it)" onClick={() => setPeekFrom(null)}>×</button>
               </div>
               <div className="editor-peek-body" ref={el => { if (el) el.scrollTop = el.scrollHeight; }}>
-                <OutputBlock lines={shown.slice(-200)} matches={outputSearchSet} />
+                <OutputBlock lines={shown.slice(-200)} matches={outputSearchSet} hidden={NO_FOLDS} />
                 {partial && !screenOn && <div className="term-line">{partialSpans && !secretInput ? renderLine(partialSpans.map(sp => sp.t).join(""), partialSpans) : partial}</div>}
               </div>
             </div>
@@ -7418,7 +7434,7 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
         onContextMenu={openOutputMenu}
         tabIndex={-1}
       >
-        {outputBlocks.map(b => <OutputBlock key={b.key} lines={b.lines} matches={outputSearchSet} />)}
+        {outputBlocks.map(b => <OutputBlock key={b.key} lines={b.lines} matches={outputSearchSet} hidden={folding.hidden} />)}
         {partial && !screenOn && <div className="term-line">{partialSpans && !secretInput ? renderLine(partialSpans.map(sp => sp.t).join(""), partialSpans) : partial}</div>}
       </div>
 
