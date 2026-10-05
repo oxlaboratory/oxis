@@ -561,6 +561,16 @@ shell); the status bar says when one does. They can't read it.
 Progress a program reports (OSC 9;4 — winget, PowerShell 7.4+, cargo)
 shows as a bar in the status bar, and on Windows on the taskbar button.
 
+### Images in the output
+
+`'imgcat chart.png [width]` shows an image in the terminal (png, jpg,
+gif, webp, bmp, svg; the width in columns, or `300px`, `50%`). On Linux
+and macOS, programs can show images themselves the iTerm2 way (OSC 1337:
+`imgcat`, matplotlib's inline backends, `chafa`, `timg`, yazi's preview),
+sized as they ask; on Windows the console layer between OXIS and the
+shell drops those, so use `'imgcat` there. A restored session shows
+where an image was, not the image.
+
 ### Full-screen programs
 
 vim, less, htop, lazygit, fzf, Microsoft Edit and anything else that

@@ -66,6 +66,75 @@ type lineScreen struct {
 	zw          string // zero-width characters waiting for a character
 	carry       string // an escape sequence cut off by the end of a write
 	skipping    bool   // inside an overlong OSC/DCS string, until its end
+	// A big OSC string being collected (an inline image, a large OSC 52
+	// copy): its payload so far, and whether the last write ended on the
+	// ESC of its ST.
+	big    []byte
+	inBig  bool
+	bigEsc bool
+}
+
+// OSC strings worth collecting past the usual 4 KB: inline images
+// (OSC 1337 File=) and clipboard writes. Others that long are skipped.
+var bigOSCPrefixes = []string{"\x1b]1337;File=", "\x1b]52;"}
+
+const maxBigOSC = 32 << 20
+
+func isBigOSC(s string) bool {
+	for _, p := range bigOSCPrefixes {
+		if strings.HasPrefix(s, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// feedBig adds s to the big OSC string being collected and returns where
+// in s it ended (after its BEL or ST), or -1 if it goes on. Only the new
+// text is searched, so a string arriving in many writes costs no more
+// than one.
+func (m *lineScreen) feedBig(s string) int {
+	if m.bigEsc {
+		m.bigEsc = false
+		if len(s) > 0 && s[0] == '\\' {
+			m.endBig()
+			return 1
+		}
+		m.big = append(m.big, 0x1b)
+	}
+	for j := 0; j < len(s); j++ {
+		switch s[j] {
+		case 0x07:
+			m.big = append(m.big, s[:j]...)
+			m.endBig()
+			return j + 1
+		case 0x1b:
+			if j+1 == len(s) {
+				m.big = append(m.big, s[:j]...)
+				m.bigEsc = true
+				return -1
+			}
+			m.big = append(m.big, s[:j]...)
+			if s[j+1] == '\\' {
+				m.endBig()
+				return j + 2
+			}
+			m.endBig() // a stray ESC ends it, as in escape()
+			return j
+		}
+	}
+	m.big = append(m.big, s...)
+	if len(m.big) > maxBigOSC { // too big to be anything we show
+		m.big, m.inBig = nil, false
+		m.skipping = true
+	}
+	return -1
+}
+
+func (m *lineScreen) endBig() {
+	payload := string(m.big)
+	m.big, m.inBig, m.bigEsc = nil, false, false
+	m.osc(payload)
 }
 
 type savedCursor struct {
@@ -159,6 +228,11 @@ func (m *lineScreen) write(s string) {
 		s, m.carry = m.carry+s, ""
 	}
 	i := 0
+	if m.inBig {
+		if i = m.feedBig(s); i < 0 {
+			return
+		}
+	}
 	if m.skipping {
 		if i = m.skipString(s); i < 0 {
 			return
@@ -176,6 +250,14 @@ func (m *lineScreen) write(s string) {
 			}
 			if len(s)-i <= 4096 {
 				m.carry = s[i:]
+				return
+			}
+			if isBigOSC(s[i:]) { // collected, however many writes it takes
+				m.inBig, m.big = true, append([]byte(nil), s[i+2:i+2]...)
+				if j := m.feedBig(s[i+2:]); j >= 0 {
+					i += 2 + j
+					continue
+				}
 				return
 			}
 			if isStringStart(s[i:]) { // an overlong OSC/DCS: skip to its end
@@ -362,6 +444,17 @@ func (m *lineScreen) osc(payload string) {
 			uri = ""
 		}
 		m.pen.link = uri
+		return
+	}
+	// OSC 1337 ; File=args : base64 — iTerm2's inline images (imgcat,
+	// matplotlib, chafa, timg, yazi…). Only inline ones: a file sent to
+	// be downloaded is dropped.
+	if strings.HasPrefix(payload, "1337;File=") {
+		args, data, ok := strings.Cut(payload[len("1337;File="):], ":")
+		if ok && data != "" && len(data) <= maxBigOSC && inlineImage(args) {
+			m.flush()
+			m.send(kindMark, "1337;"+args+":"+data)
+		}
 		return
 	}
 	// OSC 52 ; targets ; base64: a program copying to the clipboard
@@ -1491,4 +1584,15 @@ func rgb(f []string) uint32 {
 		v = v<<8 | uint32(max(0, min(n, 255)))
 	}
 	return v
+}
+
+// inlineImage says whether OSC 1337 File= arguments ask for the image to
+// be shown (inline=1), not saved.
+func inlineImage(args string) bool {
+	for _, kv := range strings.Split(args, ";") {
+		if k, v, _ := strings.Cut(kv, "="); k == "inline" {
+			return v == "1"
+		}
+	}
+	return false
 }

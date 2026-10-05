@@ -19,7 +19,7 @@ import {
   deleteToLineStart, deleteToLineEnd,
   transposeChars,
   setYankBuf, getYankBuf,
-  isWindows, setCurrentShell, currentShell, speaksPowerShell,
+  isWindows, setCurrentShell, currentShell, speaksPowerShell, inlineImageLine, imageLength,
 } from "./terminal/terminal";
 import type { Line, LineKind } from "./terminal/terminal";
 
@@ -1099,6 +1099,23 @@ function registerBuiltinCommands(): void {
 
   registry.register({ name:"save-output", category:"shell", description:"Save this tab's output to a text file in created-documents/ ('save-output [name])",
     handler: (args) => { events.emit("save_output", { name: args.join(" ") }); } });
+
+  // 'imgcat <file> [width]: an image in the output. Programs on Linux and
+  // macOS can show one themselves (OSC 1337, internal/pty); Windows'
+  // console layer drops that, so this does it directly.
+  registry.register({ name:"imgcat", category:"shell", description:"Show an image in the terminal: 'imgcat chart.png [width in columns]",
+    handler: async (args) => {
+      const width = args.length > 1 && /^\d+(px|%)?$/.test(args[args.length - 1]) ? args.pop() : undefined;
+      const file = args.join(" ").trim().replace(/^"(.*)"$/, "$1");
+      if (!file) { err("usage: 'imgcat <image> [width] — png, jpg, gif, webp, svg…"); return; }
+      if (!isImagePath(file)) { err(`${file} isn't an image OXIS can show (png, jpg, gif, webp, bmp, svg)`); return; }
+      const cwd = cwdTracker.get();
+      const full = /^([A-Za-z]:)?[\\/]/.test(file) || !cwd ? file : `${cwd.replace(/[\\/]+$/, "")}/${file}`;
+      try {
+        const src = await readImage(full);
+        events.emit("show_image", { src, name: file.replace(/^.*[\\/]/, ""), width });
+      } catch (e) { err(`can't show ${file}: ${e instanceof Error ? e.message : e}`); }
+    } });
 
   // 'broadcast [on|off]: what's typed in one pane of the tab runs in all of them.
   registry.register({ name:"broadcast", category:"shell", description:"Type into every pane of this tab at once: shell commands, Enter and Ctrl+C go to all of them ('broadcast on|off)",
@@ -5563,7 +5580,10 @@ const OutputLine = memo(function OutputLine({ line, match, folded }: { line: Lin
     <div data-line-id={line.id}
       className={`term-line${match ? " term-line--match" : ""}${line.status ? " term-line--command" : ""}${folded ? " term-line--folded" : ""}`}
       style={{ color: line.kind ? LINE_COLORS[line.kind] : undefined }}>
-      {renderLine(line.text, line.spans)}
+      {line.image
+        ? <img className="term-img" src={line.image.src} alt={line.text} draggable={false}
+            style={{ width: line.image.width, height: line.image.height, objectFit: line.image.stretch ? "fill" : "contain" }} />
+        : renderLine(line.text, line.spans)}
       {line.status && <CommandStatus {...line.status} />}
       {line.status && (
         <button className="term-fold" onClick={e => { e.stopPropagation(); events.emit("output_fold", { id: line.id }); }}
@@ -6213,6 +6233,16 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
     void saveOutput((p as { name?: string } | undefined)?.name);
   }), [saveOutput]);
 
+  // 'imgcat: the image goes in the selected tab's output.
+  useEffect(() => events.on("show_image", p => {
+    if (!selectedRef.current) return;
+    const { src, name, width } = p as { src: string; name: string; width?: string };
+    const line = mkLine(`[image ${name}]`);
+    line.image = { src, width: imageLength(width, "width") };
+    queueLines([line]);
+    scrollToBottom(true);
+  }), [queueLines, scrollToBottom]);
+
   // 'record: the shell's output goes to an asciinema cast as it arrives
   // (internal/pty/record.go), until 'record stop or the tab closes.
   const recordingPath = useRef<string | null>(null);
@@ -6550,6 +6580,12 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
   const onMark = useCallback((mark: string) => {
     if (mark.startsWith("52;")) { programCopy(mark.slice(3)); return; }
     if (mark === "bell") { playSound("bell"); return; }
+    // OSC 1337 File=…;inline=1: a program showed an image (imgcat…).
+    if (mark.startsWith("1337;")) {
+      const img = inlineImageLine(mark);
+      if (img) { queueLines([img]); scrollToBottom(); }
+      return;
+    }
     // OSC 9;4;state;percent — 0 done, 1 percent, 2 error, 3 busy, 4 paused.
     if (mark.startsWith("9;4")) {
       const [, , st = "0", pct = "0"] = mark.split(";");
@@ -6576,7 +6612,7 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
     if (echo) setLineStatus(echo.id, status, cmd.text);
     events.emit("shell_command_done", { command: cmd.text, code: status.code, ms: Math.round(status.ms) });
     soundForCommand(status.code, status.ms);
-  }, [setLineStatus]);
+  }, [setLineStatus, queueLines, scrollToBottom]);
 
   // Ctrl+Shift+Space: label what's on screen; a label copies it, or
   // (typed upper-case) puts it in the prompt at the cursor.

@@ -92,6 +92,18 @@ export interface Line {
   status?: { code: number; ms: number };
   /** On that line: the command itself, as typed (without the prompt). */
   command?: string;
+  /** An inline image a program showed (OSC 1337, imgcat): the line's
+   *  text is a stand-in for search, copy and a restored session. */
+  image?: InlineImage;
+}
+
+export interface InlineImage {
+  src: string;
+  /** CSS lengths, from the program's width= and height=. */
+  width?: string;
+  height?: string;
+  /** preserveAspectRatio=0 stretches it to both. */
+  stretch?: boolean;
 }
 
 let _lid = 0;
@@ -266,4 +278,60 @@ export function isWindows(): boolean {
  *  is, it's what Windows starts by default. */
 export function speaksPowerShell(): boolean {
   return shellKind ? shellKind === "powershell" || shellKind === "pwsh" : isWindows();
+}
+/** An image's type from its first bytes (programs rarely say). */
+export function sniffImageType(b: Uint8Array): string | null {
+  const at = (i: number, ...xs: number[]) => xs.every((x, k) => b[i + k] === x);
+  if (at(0, 0x89, 0x50, 0x4e, 0x47)) return "image/png";
+  if (at(0, 0xff, 0xd8, 0xff)) return "image/jpeg";
+  if (at(0, 0x47, 0x49, 0x46, 0x38)) return "image/gif";
+  if (at(0, 0x52, 0x49, 0x46, 0x46) && at(8, 0x57, 0x45, 0x42, 0x50)) return "image/webp";
+  if (at(0, 0x42, 0x4d)) return "image/bmp";
+  if (at(4, 0x66, 0x74, 0x79, 0x70) && (at(8, 0x61, 0x76, 0x69, 0x66) || at(8, 0x61, 0x76, 0x69, 0x73))) return "image/avif";
+  const head = new TextDecoder().decode(b.subarray(0, 256)).trimStart();
+  if (head.startsWith("<svg") || (head.startsWith("<?xml") && head.includes("<svg"))) return "image/svg+xml";
+  return null;
+}
+
+/** iTerm2's width=/height= as CSS: N cells, Npx, N% or auto. */
+export function imageLength(v: string | undefined, axis: "width" | "height"): string | undefined {
+  if (!v || v === "auto") return undefined;
+  const m = /^(\d+(?:\.\d+)?)(px|%)?$/.exec(v);
+  if (!m) return undefined;
+  const n = Number(m[1]);
+  if (m[2] === "px") return `${n}px`;
+  if (m[2] === "%") return `${n}%`;
+  return axis === "width" ? `${n}ch` : `calc(${n} * var(--lh))`;
+}
+
+/** An OSC 1337 File= mark ("1337;<args>:<base64>") as an image line, or
+ *  null when it isn't an image OXIS can show. */
+export function inlineImageLine(mark: string): Line | null {
+  const body = mark.slice("1337;".length);
+  const colon = body.indexOf(":");
+  if (colon < 0) return null;
+  const args = new Map(body.slice(0, colon).split(";").map(kv => {
+    const i = kv.indexOf("=");
+    return [i < 0 ? kv : kv.slice(0, i), i < 0 ? "" : kv.slice(i + 1)] as [string, string];
+  }));
+  let bytes: Uint8Array<ArrayBuffer>;
+  try {
+    const bin = atob(body.slice(colon + 1).replace(/\s+/g, ""));
+    bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  } catch { return null; }
+  const type = sniffImageType(bytes);
+  if (!type) return null;
+  let name = "";
+  try { name = args.get("name") ? new TextDecoder().decode(Uint8Array.from(atob(args.get("name")!), c => c.charCodeAt(0))) : ""; } catch { /* unnamed */ }
+  name = name.replace(/^.*[\\/]/, "");
+  const src = URL.createObjectURL(new Blob([bytes], { type }));
+  const line = mkLine(`[image${name ? ` ${name}` : ""}]`);
+  line.image = {
+    src,
+    width: imageLength(args.get("width"), "width"),
+    height: imageLength(args.get("height"), "height"),
+    stretch: args.get("preserveAspectRatio") === "0",
+  };
+  return line;
 }

@@ -6,6 +6,10 @@ All notable changes to OXIS. The format follows
 ## [Unreleased]
 
 ### Added
+- Images in the output: `'imgcat <file> [width]`, and on Linux and macOS
+  programs' own inline images (iTerm2's OSC 1337: imgcat, matplotlib,
+  chafa, timg…). Long OSC strings (a big OSC 52 copy too) now arrive
+  whole however many reads they take.
 - `'broadcast` (or ⇶ on a split tab's panes): what you type in one
   pane — commands, Enter, Ctrl+C — runs in every pane of the tab.
 - `'record [name]` / `'record stop`: a tab's session saved as an
