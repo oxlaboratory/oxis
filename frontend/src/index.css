@@ -1109,13 +1109,19 @@ button.editor-mode:hover { filter: brightness(1.25); }
 }
 
 .sky-moon {
-  position: absolute; top: 8px; right: 6px; display: block;
+  position: absolute; top: 4px; right: 8px; display: block;
   fill: var(--moon, #ffffff);
-  animation: moon-breathe 6s ease-in-out infinite;
   z-index: 2;
 }
+/* The glow round the moon (the same centre, 5 pixels more each way). */
+.sky-moon-glow {
+  position: absolute; top: -6px; right: -2px; display: block;
+  fill: var(--moon, #ffffff);
+  animation: moon-breathe 7s ease-in-out infinite;
+  z-index: 1;
+}
 @keyframes moon-breathe {
-  0%, 100% { opacity: .85; } 50% { opacity: 1; }
+  0%, 100% { opacity: .55; } 50% { opacity: 1; }
 }
 
 .sky-star {
@@ -1124,12 +1130,33 @@ button.editor-mode:hover { filter: brightness(1.25); }
   animation-name: star-twinkle; animation-timing-function: ease-in-out; animation-iteration-count: infinite;
 }
 @keyframes star-twinkle {
-  0%, 100% { opacity: .2;  }
-  50%      { opacity: .95; }
+  0%, 100% { opacity: var(--star-low, .2); }
+  50%      { opacity: 1; }
+}
+/* A sparkle's arms flare as it brightens. */
+.sky-star--sparkle { animation-name: star-flare; transform-origin: center; }
+@keyframes star-flare {
+  0%, 100% { opacity: var(--star-low, .4); transform: scale(.8); }
+  50%      { opacity: 1; transform: scale(1); }
+}
+
+/* Now and then a shooting star crosses, high and quick. */
+.sky-shooting-star {
+  position: absolute; top: 6px; left: 0; display: block;
+  fill: var(--star, var(--purple3));
+  opacity: 0;
+  animation: shooting-star 13s linear infinite 4s;
+}
+@keyframes shooting-star {
+  0%   { opacity: 0; transform: translate(10px, 0) rotate(13deg); }
+  1%   { opacity: 1; }
+  6%   { opacity: 0; transform: translate(150px, 34px) rotate(13deg); }
+  100% { opacity: 0; transform: translate(150px, 34px) rotate(13deg); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .sky-sun-tips, .sky-moon, .sky-star { animation: none; }
+  .sky-sun-tips, .sky-moon, .sky-moon-glow, .sky-star { animation: none; }
+  .sky-shooting-star { display: none; }
 }
 
 /* Status bar additions */

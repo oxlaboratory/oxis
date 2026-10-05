@@ -340,6 +340,11 @@ const SETTINGS: SettingDef[] = [
     apply: () => { /* read by 'update install */ },
   },
   {
+    key: "homeSky", label: "Home Sky", default: "auto", choices: ["auto", "day", "night", "off"],
+    description: "The pixel sky on Home: day (the sun and clouds), night (the moon and stars), off, or auto — the sun from 6 am to 6 pm and the moon at night, unless the theme picks one",
+    apply: () => events.emit("sky_changed"),
+  },
+  {
     key: "startIn", label: "Start In", default: "home", choices: ["home", "terminal"],
     description: "What OXIS opens on: Home (the workspace, its tasks and the sky) or straight into the terminal",
     apply: () => { /* read at startup */ },
@@ -7914,18 +7919,49 @@ const SUN = (() => {
   return { disc, rays: rays([6, 7], [5]), straightTips: rays([8], []), diagonalTips: rays([], [6]) };
 })();
 
-// The moon: round, a few craters, its right edge in shadow.
-const MOON = pixelShape(13, 13, (x, y) => {
-  const dx = x - 6, dy = y - 6, d = Math.hypot(dx, dy);
-  if (d > 5.6) return 0;
-  const craters: Array<[number, number, number]> = [[-2, -2, 1.3], [2, 1, 1.5], [-1, 3, 0.9]];
-  if (craters.some(([cx, cy, r]) => Math.hypot(dx - cx, dy - cy) <= r)) return 0.6;
-  return dx > 2.6 && d > 4 ? 0.7 : dx + dy < -3 ? 1 : 0.9;
+// The moon: a sphere lit from the top left — bright towards the light,
+// darker to the lower right and at its edge — with its dark seas, and
+// craters whose far rims catch the light. A faint glow breathes round it.
+const MOON_SIZE = 19;
+const MOON = (() => {
+  const c = 9, R = 7.4;
+  const seas: Array<[number, number, number]> = [[-2.2, -1.6, 2.1], [-0.6, -2.6, 1.5], [1.6, 0.6, 1.9], [0.4, 2.6, 1.3]];
+  const craters: Array<[number, number, number]> = [[-3.4, 2.2, 1.0], [3.1, -2.6, 0.9], [2.4, 3.4, 0.8]];
+  return pixelShape(MOON_SIZE, MOON_SIZE, (x, y) => {
+    const dx = x - c, dy = y - c, d = Math.hypot(dx, dy);
+    if (d > R) return 0;
+    // Lambert-ish light from the top left, darker at the limb.
+    const light = Math.max(0, Math.min(1, 0.72 + (-dx - dy) / (R * 2.6)));
+    let a = light * (d > R - 1 ? 0.82 : 1);
+    if (seas.some(([sx, sy, r]) => Math.hypot(dx - sx, dy - sy) <= r)) a *= 0.74;
+    for (const [cx, cy, r] of craters) {
+      const cd = Math.hypot(dx - cx, dy - cy);
+      if (cd <= r) a *= 0.62;                                                  // the floor, in shade
+      else if (cd <= r + 0.9 && dx - cx + dy - cy > 0.4) a = Math.min(1, a + 0.18); // the lit far rim
+    }
+    return Math.round(Math.max(0.35, a) * 20) / 20;
+  });
+})();
+const MOON_GLOW = pixelShape(MOON_SIZE + 10, MOON_SIZE + 10, (x, y) => {
+  const d = Math.hypot(x - (MOON_SIZE + 9) / 2, y - (MOON_SIZE + 9) / 2);
+  return d <= 7.6 ? 0 : d <= 9.2 ? 0.16 : d <= 10.8 ? 0.08 : d <= 12.6 ? 0.035 : 0;
 });
 
-// Stars: a small sparkle (a bright middle, dimmer arms) or a single dot.
-const STAR_SPARKLE = pixelShape(3, 3, (x, y) => (x === 1 && y === 1 ? 1 : x === 1 || y === 1 ? 0.45 : 0));
-const STAR_DOT = pixelShape(1, 1, () => 1);
+// Stars, in three kinds: a faint speck, a bright dot, and now and then a
+// sparkle with long arms. Each twinkles at its own pace and depth.
+type StarKind = "speck" | "dot" | "sparkle";
+const STAR_SHAPES: Record<StarKind, PixelShape> = {
+  speck: pixelShape(1, 1, () => 0.7),
+  dot: pixelShape(2, 2, (x, y) => (x + y === 0 ? 1 : 0.55)),
+  sparkle: pixelShape(5, 5, (x, y) => {
+    const dx = Math.abs(x - 2), dy = Math.abs(y - 2);
+    if (dx === 0 && dy === 0) return 1;
+    if (dx === 0 || dy === 0) return dx + dy === 1 ? 0.7 : 0.3;
+    return dx === 1 && dy === 1 ? 0.22 : 0;
+  }),
+};
+// A shooting star's streak: bright at its head (the right), fading back.
+const SHOOTING_STAR = pixelShape(14, 3, (x, y) => (y === 1 ? (x + 1) / 14 : y === 0 && x >= 11 ? 0.35 : 0));
 
 // Clouds: a new shape each time. They drift left to right in two lanes:
 // far clouds high up, small, faint and slow; near ones lower, bigger and
@@ -8027,19 +8063,25 @@ function skyOptions() {
   };
 }
 
-interface StarLayout { sparkle: boolean; top: number; left: number; delay: number; duration: number }
+interface StarLayout { kind: StarKind; top: number; left: number; delay: number; duration: number; low: number }
 
 /** Stars spread across the sky left of the moon, in bands, alternating
- *  high and low. */
+ *  high and low: mostly specks and dots, one sparkle in four or so. */
 function layoutStars(count: number, widthPx: number): StarLayout[] {
-  const band = widthPx / count;
-  return Array.from({ length: count }, (_, i) => ({
-    sparkle: Math.random() < 0.45,
-    left: Math.round(i * band + rand(band * 0.1, band * 0.8)),
-    top: Math.round(i % 2 === 0 ? rand(2, 18) : rand(26, 46)),
-    delay: rand(0, 3),
-    duration: rand(2.2, 3.6),
-  }));
+  const band = widthPx / Math.max(1, count);
+  return Array.from({ length: count }, (_, i) => {
+    const r = Math.random();
+    const kind: StarKind = r < 0.25 ? "sparkle" : r < 0.6 ? "dot" : "speck";
+    return {
+      kind,
+      left: Math.round(i * band + rand(band * 0.1, band * 0.8)),
+      top: Math.round(i % 2 === 0 ? rand(2, 18) : rand(24, 46)),
+      delay: rand(0, 4),
+      duration: kind === "sparkle" ? rand(2.6, 4.2) : rand(1.6, 3.4),
+      // How far it fades between twinkles: specks nearly vanish.
+      low: kind === "speck" ? rand(0.05, 0.2) : kind === "dot" ? rand(0.25, 0.45) : rand(0.4, 0.6),
+    };
+  });
 }
 
 const SKY_WIDGET_WIDTH = 280; // .sky-widget's width
@@ -8054,7 +8096,12 @@ function SkyWidget() {
   const [opts, setOpts] = useState(skyOptions);
   useEffect(() => events.on("theme_changed", () => setOpts(skyOptions())), []);
   const hour = now.getHours();
-  const isDay = opts.mode === "sun" ? true : opts.mode === "moon" ? false : hour >= 6 && hour < 18;
+  // Setting homeSky: just the day sky, just the night sky, neither, or
+  // (auto) the theme's choice — by the clock unless it says otherwise.
+  const [pick, setPick] = useState(() => String(getSetting("homeSky")));
+  useEffect(() => events.on("sky_changed", () => setPick(String(getSetting("homeSky")))), []);
+  const mode = pick === "day" ? "sun" : pick === "night" ? "moon" : opts.mode;
+  const isDay = mode === "sun" ? true : mode === "moon" ? false : hour >= 6 && hour < 18;
   const sunArt = useMemo(() => parseArt(opts.sunArt), [opts.sunArt]);
   const moonArt = useMemo(() => parseArt(opts.moonArt), [opts.moonArt]);
 
@@ -8062,7 +8109,7 @@ function SkyWidget() {
   // clock tick. The clouds' sky ends at the sun (at the right edge).
   const room = SKY_WIDGET_WIDTH - SUN_SIZE * SKY_PIXEL - SUN_CLEARANCE;
   const clouds = useMemo(() => layoutClouds(room, opts.clouds, opts.speed), [room, opts.clouds, opts.speed]);
-  const stars = useMemo(() => layoutStars(opts.stars, SKY_WIDGET_WIDTH - 44), [opts.stars]);
+  const stars = useMemo(() => layoutStars(opts.stars, SKY_WIDGET_WIDTH - 60), [opts.stars]);
 
   // The clouds move by Web Animations with plain pixel values (CSS
   // keyframes built from variables can't always run off the main
@@ -8084,6 +8131,7 @@ function SkyWidget() {
     return () => running.forEach(a => a?.cancel());
   }, [clouds, isDay]);
 
+  if (pick === "off") return <div className="sky-widget sky-widget--off" />;
   if (opts.image) {
     return <div className="sky-widget"><img className="sky-image" src={opts.image} alt="" draggable={false} /></div>;
   }
@@ -8111,13 +8159,16 @@ function SkyWidget() {
   }
   return (
     <div className="sky-widget sky-widget--night">
+      {!moonArt && <Pixels shape={MOON_GLOW} className="sky-moon-glow" />}
       <Pixels shape={moonArt ?? MOON} className="sky-moon" />
       {stars.map((s, i) => (
-        <Pixels key={i} shape={s.sparkle ? STAR_SPARKLE : STAR_DOT} className="sky-star" style={{
+        <Pixels key={i} shape={STAR_SHAPES[s.kind]} className={`sky-star sky-star--${s.kind}`} style={{
           top: `${s.top}px`, left: `${s.left}px`,
           animationDuration: `${s.duration}s`, animationDelay: `${s.delay}s`,
+          ["--star-low" as string]: s.low,
         }} />
       ))}
+      {opts.stars > 0 && <Pixels shape={SHOOTING_STAR} className="sky-shooting-star" />}
     </div>
   );
 }

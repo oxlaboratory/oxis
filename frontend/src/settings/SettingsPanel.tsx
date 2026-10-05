@@ -32,7 +32,7 @@ export interface SettingsApi {
 
 const GROUPS: [string, (key: string) => boolean][] = [
   ["Terminal", k => ["shell", "startIn", "newShellHere", "restoreSession", "promptColors", "copyOnSelect", "notifyAfter", "summonKey"].includes(k)],
-  ["Appearance", k => ["fontSize", "cursorStyle", "cursorBlink"].includes(k)],
+  ["Appearance", k => ["fontSize", "cursorStyle", "cursorBlink", "homeSky"].includes(k)],
   ["Editor", k => k.startsWith("editor")],
   ["Sounds", k => k === "sounds" || k.startsWith("sound")],
   ["Plugins and updates", k => ["luaEngine", "countInstalls", "updateCheckOnStartup"].includes(k)],

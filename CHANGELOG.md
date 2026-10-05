@@ -6,6 +6,10 @@ All notable changes to OXIS. The format follows
 ## [Unreleased]
 
 ### Added
+- Home's night sky redrawn: a shaded moon with seas, lit crater rims
+  and a breathing glow; stars in three kinds that twinkle to different
+  depths, and a shooting star now and then. Setting `homeSky` keeps just
+  the day sky (sun and clouds), just the night sky, or neither.
 - Images in the output: `'imgcat <file> [width]`, and on Linux and macOS
   programs' own inline images (iTerm2's OSC 1337: imgcat, matplotlib,
   chafa, timg…). Long OSC strings (a big OSC 52 copy too) now arrive

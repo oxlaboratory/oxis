@@ -1473,6 +1473,7 @@ played from there, and the shell list shows the shells you have.
 | `sounds` | `true` | Sound effects (see [Sound effects](#sound-effects)) |
 | `soundVolume` | `40` | How loud they are, 0 to 100 |
 | `soundError`, `soundDone`, `soundBell`, `soundNotify`, `soundInstall`, `soundTab`, `soundCopy`, `soundStart`, `soundKey` | see `'sound` | Each event's sound: a sound's name, `none`, or the path of your own sound file |
+| `homeSky` | `auto` | The pixel sky on Home: `day` (the sun and clouds only), `night` (the moon and stars only), `off`, or `auto` (the sun from 6 am to 6 pm, the moon at night, unless the theme picks one) |
 | `startIn` | `home` | What OXIS opens on: `home` or `terminal` |
 | `copyOnSelect` | `false` | Copy output text as soon as it's selected with the mouse |
 | `newShellHere` | `true` | Open a new tab or split pane in the focused pane's folder, not the default one |
