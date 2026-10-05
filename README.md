@@ -169,8 +169,8 @@ itself into your editor as it's written. See the [Lua API](#lua-api).
 | Tabs and split panes, each its own shell (buttons at a pane's top right, or right-click) | Search in files (Ctrl+Shift+F) |
 | <img src="assets/screenshots/app-home.png" alt="Home: a pixel-art sun and clouds over the workspace panel and the get-started list"> | <img src="assets/screenshots/app-palette.png" alt="The command palette over the terminal"> |
 | Home, under a pixel-art sky that follows the time of day | The command palette (Ctrl+Shift+P) |
-| <img src="assets/screenshots/app-version.png" alt="'version showing the build number, commit, tag, channel and update status"> | |
-| `'version` — the exact build you're running | |
+| <img src="assets/screenshots/app-version.png" alt="'version showing the build number, commit, tag, channel and update status"> | <img src="assets/screenshots/app-prompt.png" alt="A cmd tab: Tab listing the npm scripts and finishing cd src/, a history suggestion dim in the prompt, and the new-tab shell menu open"> |
+| `'version` — the exact build you're running | Tab completion in any shell (here cmd), history suggestions, and a tab with another shell |
 | <img src="assets/screenshots/app-theme-custom.png" alt="midnight with a gradient background, glow and a custom prompt"> | <img src="assets/screenshots/app-theme-editor.png" alt="The theme editor"> |
 | A theme tweaked with four `'theme set` lines | `'theme edit` — every option with a live preview |
 | <img src="assets/screenshots/app-autotest.png" alt="The autotest plugin re-running a project's tests on save: passing, then failing with the test name and actual versus expected values, then passing again"> | <img src="assets/screenshots/app-image-viewer.png" alt="The editor's image viewer showing a PNG with its size, type, file size and zoom controls"> |
@@ -201,7 +201,11 @@ while the desktop app is running:
 - [x] Shell integration: each command's status and time, jumping between commands
 - [x] Plugin APIs for the editor's open file, file watching and processes
 - [x] Streaming HTTP for plugins, for AI assistants that answer as they write
-- [ ] A tested macOS build (Wails supports it; nobody has tried it yet)
+- [x] Tab completion and history suggestions that work the same in every shell
+- [x] PowerShell, Git Bash, WSL or cmd tab by tab (`'shell`)
+- [x] Clickable `file:line` in compiler output, OSC 8 links, OSC 52 copy, OSC 9;4 progress
+- [x] A macOS build, built and tested in CI (preview)
+- [ ] The macOS build tried on a real Mac
 - [ ] Premium plugins in the Market (AI DevOps first)
 
 Ideas and bug reports are welcome in [issues](https://github.com/oxlaboratory/oxis/issues).
