@@ -44,7 +44,7 @@ All notable changes to OXIS. The format follows
   (PowerShell 7, Windows PowerShell, Git Bash, WSL, cmd; or `$SHELL`,
   zsh, bash, fish), `'shell gitbash` opens a tab with one, and
   `'config set shell <name>` sets what new tabs start. Right-click a
-  "+" for the same list. Before, only the `OXIS_SHELL` environment
+  "+" for the same list, or a pane's split buttons to split with one. Before, only the `OXIS_SHELL` environment
   variable could.
 - macOS: an app menu (⌘Q, ⌘H), a Window menu, and an Edit menu whose
   ⌘C ⌘V ⌘X ⌘A ⌘Z ⌘⇧Z work in the prompt and the editor (undo is the

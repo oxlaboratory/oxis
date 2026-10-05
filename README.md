@@ -370,7 +370,8 @@ scrolls above it and never goes underneath it.
 `'shell` lists the shells on this machine — on Windows PowerShell 7,
 Windows PowerShell, Git Bash, WSL and Command Prompt; elsewhere your
 `$SHELL`, zsh, bash, fish — and `'shell gitbash` (or `wsl`, `cmd`,
-`zsh`…) opens a tab with one; so does right-clicking a "+". `'config set shell gitbash` makes it what
+`zsh`…) opens a tab with one; so does right-clicking a "+", and
+right-clicking a pane's split buttons splits with one. `'config set shell gitbash` makes it what
 every new tab and pane starts (`auto`, the default, is PowerShell on
 Windows and your `$SHELL` elsewhere). Git Bash gets shell integration
 too. A shell picked in OXIS comes before the `OXIS_SHELL` environment

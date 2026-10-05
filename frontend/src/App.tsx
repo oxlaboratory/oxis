@@ -8883,12 +8883,12 @@ export default function App() {
     setView("shell");
   }, []);
   // Right-click on a "+": a new tab with another shell.
-  const [shellMenu, setShellMenu] = useState<{ x: number; y: number; shells: NativeShell[] } | null>(null);
-  const openShellMenu = useCallback((e: React.MouseEvent) => {
+  const [shellMenu, setShellMenu] = useState<{ x: number; y: number; shells: NativeShell[]; split?: "row" | "column"; pane?: string } | null>(null);
+  const openShellMenu = useCallback((e: React.MouseEvent, split?: "row" | "column", pane?: string) => {
     e.preventDefault();
     const x = e.clientX, y = e.clientY;
     void listShells().then(shells => {
-      if (shells.length) setShellMenu({ x, y: Math.max(0, Math.min(y, window.innerHeight - 40 - shells.length * 30)), shells });
+      if (shells.length) setShellMenu({ x, y: Math.max(0, Math.min(y, window.innerHeight - 40 - shells.length * 30)), shells, split, pane });
     });
   }, []);
   useEffect(() => {
@@ -8963,13 +8963,14 @@ export default function App() {
   /** Splits the focused pane (or `from`): a new shell beside it ("row")
    *  or below it ("column"). A tab splits one way; more panes go the
    *  same way. */
-  const splitPane = useCallback((dir: "row" | "column", from?: string) => {
+  const splitPane = useCallback((dir: "row" | "column", from?: string, shell?: string) => {
     const tab = activeTabNow();
     if (!tab) return;
     const id = `t${nextTabNumber.current++}`;
     const at = tab.panes.indexOf(from && tab.panes.includes(from) ? from : tab.focus);
     hintFor.current.set(id, paneHint(tab.panes.length === 1 ? dir : tab.split));
     startHere(id);
+    if (shell) shellFor.current.set(id, shell);
     const half = tab.sizes[at] / 2;
     updateTab(tab.id, t => ({
       ...t,
@@ -9234,8 +9235,13 @@ export default function App() {
               style={shellMenu.x > window.innerWidth / 2 ? { right: window.innerWidth - shellMenu.x, top: shellMenu.y } : { left: shellMenu.x, top: shellMenu.y }}
               onMouseDown={e => { e.stopPropagation(); e.preventDefault(); }}>
               {shellMenu.shells.map(sh => (
-                <button key={sh.name} className="term-ctx-item" onClick={() => { setShellMenu(null); newTab(sh.name); }}>
-                  <span>New tab: {sh.label}</span><span className="term-ctx-key">'shell {sh.name}</span>
+                <button key={sh.name} className="term-ctx-item" onClick={() => {
+                  const m = shellMenu;
+                  setShellMenu(null);
+                  if (m.split) splitPane(m.split, m.pane, sh.name); else newTab(sh.name);
+                }}>
+                  <span>{shellMenu.split === "row" ? "Split beside" : shellMenu.split === "column" ? "Split below" : "New tab"}: {sh.label}</span>
+                  {!shellMenu.split && <span className="term-ctx-key">'shell {sh.name}</span>}
                 </button>
               ))}
             </div>
@@ -9253,10 +9259,10 @@ export default function App() {
                     onMouseDownCapture={() => focusPane(t.id, pane)}>
                     <div className="term-pane-bar" onMouseDown={e => e.preventDefault()}>
                       <button onClick={() => newTab()} onContextMenu={openShellMenu} title="New tab (Ctrl+T) — right-click for another shell">+</button>
-                      <button onClick={() => splitPane("row", pane)} title="Split beside: a new shell next to this one (Ctrl+Shift+\ or Alt+Shift+=)">
+                      <button onClick={() => splitPane("row", pane)} onContextMenu={e => openShellMenu(e, "row", pane)} title="Split beside: a new shell next to this one (Ctrl+Shift+\ or Alt+Shift+=) — right-click for another shell">
                         <svg viewBox="0 0 12 12" aria-hidden="true"><rect x="1" y="1.5" width="10" height="9" /><path d="M6 1.5v9" /></svg>
                       </button>
-                      <button onClick={() => splitPane("column", pane)} title="Split below: a new shell under this one (Alt+Shift+-)">
+                      <button onClick={() => splitPane("column", pane)} onContextMenu={e => openShellMenu(e, "column", pane)} title="Split below: a new shell under this one (Alt+Shift+-) — right-click for another shell">
                         <svg viewBox="0 0 12 12" aria-hidden="true"><rect x="1" y="1.5" width="10" height="9" /><path d="M1 6h10" /></svg>
                       </button>
                       {t.panes.length > 1 && (
