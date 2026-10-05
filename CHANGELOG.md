@@ -6,6 +6,8 @@ All notable changes to OXIS. The format follows
 ## [Unreleased]
 
 ### Added
+- Setting `startIn`: `terminal` opens straight into the shell instead
+  of Home.
 - Setting `copyOnSelect`: selecting output copies it, as in Windows
   Terminal and PuTTY (off by default).
 - Progress from programs (OSC 9;4: winget, PowerShell 7.4+, cargo…)

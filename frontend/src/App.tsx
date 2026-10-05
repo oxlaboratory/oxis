@@ -336,6 +336,11 @@ const SETTINGS: SettingDef[] = [
     apply: () => { /* read by 'update install */ },
   },
   {
+    key: "startIn", label: "Start In", default: "home", choices: ["home", "terminal"],
+    description: "What OXIS opens on: Home (the workspace, its tasks and the sky) or straight into the terminal",
+    apply: () => { /* read at startup */ },
+  },
+  {
     key: "copyOnSelect", label: "Copy on Select", default: false,
     description: "Copy text in the output as soon as it's selected with the mouse, as in Windows Terminal and PuTTY",
     apply: () => { /* read when a selection is made */ },
@@ -8650,7 +8655,8 @@ function CommandPalette({ onRun, onClose }: { onRun: (cmd: string) => void; onCl
 }
 
 export default function App() {
-  const [view,      setView]      = useState<"home" | "shell">("home");
+  // Setting startIn: the terminal straight away, or Home first.
+  const [view,      setView]      = useState<"home" | "shell">(() => (getSetting("startIn") === "terminal" ? "shell" : "home"));
   const [ready,     setReady]     = useState(false);
   const [curTheme,  setCurTheme]  = useState(() => themeManager.getCurrent());
   const [themeEditorName,  setThemeEditorName]  = useState<string | null>(null);
