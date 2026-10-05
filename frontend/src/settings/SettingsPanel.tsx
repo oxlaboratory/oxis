@@ -140,7 +140,7 @@ export function SettingsPanel({ api, onClose }: { api: SettingsApi; onClose: () 
   const note = (key: string) => (msg: string, ok: boolean) => { setNotes(n => ({ ...n, [key]: ok ? "" : msg })); bump(x => x + 1); };
 
   return (
-    <div className="cmdp-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
+    <div className="cmdp-backdrop set-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="set-panel" role="dialog" aria-label="Settings">
         <div className="set-head">
           <span className="set-title">Settings</span>
