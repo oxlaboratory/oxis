@@ -6,6 +6,9 @@ All notable changes to OXIS. The format follows
 ## [Unreleased]
 
 ### Added
+- Tab completes SSH hosts after `ssh`, `scp`, `sftp`, `mosh` and `rsync`
+  (from `~/.ssh/config`, `known_hosts` and earlier commands, keeping a
+  `user@`; scp's ends in `:`), and Makefile targets after `make`.
 - A Settings window (**Ctrl+,** or `'settings`): every setting, grouped
   and searchable, with switches, lists, sliders and resets; sounds play
   from it and the shell list shows the shells installed. `'config` still

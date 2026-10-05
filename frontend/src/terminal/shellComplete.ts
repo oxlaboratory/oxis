@@ -223,6 +223,29 @@ export async function completeShell(line: string, cursor: number, env: CompleteE
   }
 
   if (SUBCOMMANDS[cmd] && args.length === 1) return done(only(SUBCOMMANDS[cmd]));
+
+  // ssh and friends: the hosts in ~/.ssh/config and known_hosts, and ones
+  // used before; a user@ typed first stays. scp's host ends in ":", for
+  // the path after it.
+  if (SSH_COMMANDS.has(cmd) && !word.includes(":") && !/^[.~\\/]/.test(word)) {
+    const at = word.lastIndexOf("@");
+    const user = at >= 0 ? word.slice(0, at + 1) : "";
+    const part = word.slice(at + 1);
+    const hosts = (await sshHosts(env)).filter(h => h.toLowerCase().startsWith(part.toLowerCase()));
+    const copies = cmd === "scp" || cmd === "rsync";
+    const hostHits = [...new Set(hosts)].sort().map(h => ({ text: user + h + (copies ? ":" : ""), isDir: copies }));
+    if (hostHits.length || !copies) return done(hostHits);
+  }
+
+  // make: the Makefile's targets.
+  if (cmd === "make" && args.length === 1) {
+    let text = "";
+    for (const name of ["Makefile", "makefile", "GNUmakefile"]) {
+      try { text = await env.readFile(join(env.cwd, name, env.windows)); break; } catch { /* not this one */ }
+    }
+    const targets = [...text.matchAll(/^([A-Za-z0-9][\w./-]*)\s*:(?!=)/gm)].map(m => m[1]).filter(t => !t.startsWith("."));
+    if (targets.length) return done(only(targets));
+  }
   if (["npm", "pnpm", "yarn", "bun"].includes(cmd)) {
     const runs = args[1] === "run" || args[1] === "run-script";
     const direct = (cmd === "pnpm" || cmd === "yarn") && args.length === 1;
@@ -235,6 +258,45 @@ export async function completeShell(line: string, cursor: number, env: CompleteE
   }
 
   return done(await paths(word, env, DIR_COMMANDS.has(cmd)));
+}
+
+const SSH_COMMANDS = new Set(["ssh", "scp", "sftp", "mosh", "rsync"]);
+
+/** Hosts to offer after ssh: ~/.ssh/config's Host names (not patterns),
+ *  known_hosts' names (not hashed ones), and hosts in earlier ssh/scp
+ *  commands. */
+export async function sshHosts(env: CompleteEnv): Promise<string[]> {
+  const hosts: string[] = [];
+  if (env.home) {
+    const dir = join(env.home, ".ssh", env.windows);
+    try {
+      for (const m of (await env.readFile(join(dir, "config", env.windows))).matchAll(/^\s*Host\s+(.+)$/gim)) {
+        hosts.push(...m[1].split(/\s+/).filter(h => h && !/[*?!]/.test(h)));
+      }
+    } catch { /* no config */ }
+    try {
+      for (const line of (await env.readFile(join(dir, "known_hosts", env.windows))).split("\n")) {
+        const first = line.trim().split(/\s+/)[0] ?? "";
+        if (!first || first.startsWith("|") || first.startsWith("#") || first.startsWith("@")) continue;
+        for (const h of first.split(",")) hosts.push(h.replace(/^\[([^\]]+)\]:\d+$/, "$1"));
+      }
+    } catch { /* none known */ }
+  }
+  for (const h of env.history) {
+    const w = wordsAt(h, h.length).words;
+    if (!SSH_COMMANDS.has((w[0] ?? "").toLowerCase())) continue;
+    for (let i = 1; i < w.length; i++) {
+      const a = w[i];
+      // Options, and the values of those that take one (-p 22, -i key).
+      if (a.startsWith("-")) { if (/^-[iplFoJLRDWPS]$/.test(a)) i++; continue; }
+      const host = a.replace(/^[^@]*@/, "").replace(/:.*$/, "");
+      if (host && /^[\w.-]+$/.test(host) && !/^\d+$/.test(host)) hosts.push(host);
+    }
+  }
+  // IP addresses from known_hosts are noise next to names; keep them only
+  // when there's nothing else.
+  const names = hosts.filter(h => !/^[\d.:]+$/.test(h));
+  return [...new Set(names.length ? names : hosts)];
 }
 
 function join(dir: string, name: string, windows = false): string {

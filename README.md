@@ -433,7 +433,7 @@ ready to type, and tucks it away again (setting `summonKey`).
 |---|---|
 | ↑ / ↓, Ctrl+P / Ctrl+N | Previous / next command. If you typed something first, only commands starting with it are shown. |
 | Ctrl+R | Reverse search through history (Ctrl+R again for older matches, Enter to run, Esc to cancel) |
-| Tab | Complete the word at the cursor: an `'command`, a file or folder where the shell is (only folders after `cd`), a git subcommand, branch, remote or changed file, a package.json script after `npm run`/`pnpm`/`yarn`, or a command used before. Several matches are listed. While a program runs (node, python…), what's typed goes to it with the Tab, so its own completion fills in its line |
+| Tab | Complete the word at the cursor: an `'command`, a file or folder where the shell is (only folders after `cd`), a git subcommand, branch, remote or changed file, a package.json script after `npm run`/`pnpm`/`yarn`, a host after `ssh`/`scp`/`sftp` (from `~/.ssh/config`, `known_hosts` and earlier commands; `user@` stays), a Makefile target after `make`, or a command used before. Several matches are listed. While a program runs (node, python…), what's typed goes to it with the Tab, so its own completion fills in its line |
 | → / End (at the end of the line) | Take the suggestion from history: as you type, the rest of the newest command that starts with it shows dim after the cursor (Ctrl+F and Ctrl+E take it too) |
 | Ctrl+A / Ctrl+E | Start / end of line |
 | Ctrl+K / Ctrl+U / Ctrl+Y | Cut to end / cut to start / paste the cut text |

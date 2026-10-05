@@ -121,3 +121,28 @@ describe("Tab for shell commands", () => {
     expect(await tab("")).toBeNull();
   });
 });
+
+describe("ssh hosts and make targets", () => {
+  const files: Record<string, string> = {
+    "C:\\Users\\dev\\.ssh\\config": "Host prod-web prod-db\n  HostName 10.0.0.5\nHost *.internal\nHost staging\n",
+    "C:\\Users\\dev\\.ssh\\known_hosts": "github.com ssh-ed25519 AAAA\n[build.example.com]:2222 ssh-rsa AAAA\n|1|hashed= ssh-rsa AAAA\n10.0.0.9 ssh-rsa AAAA\n",
+    "C:\\proj\\Makefile": "build:\n\tgo build\ntest: build\n\tgo test\n.PHONY: build test\nVERSION := 1\n",
+  };
+  const sshEnv = env({
+    home: "C:\\Users\\dev",
+    readFile: async (p) => { if (p in files) return files[p]; throw new Error("missing"); },
+    history: ["ssh -p 2222 -i id_key deploy@bastion", "git status"],
+  });
+  it("offers hosts from config, known_hosts and history, not patterns, hashes or bare IPs", async () => {
+    expect((await tab("ssh ", sshEnv))?.all).toEqual(["bastion", "build.example.com", "github.com", "prod-db", "prod-web", "staging"]);
+  });
+  it("keeps the user@", async () => {
+    expect((await tab("ssh root@prod-w", sshEnv))?.line).toBe("ssh root@prod-web ");
+  });
+  it("scp's host ends in : for the path after it", async () => {
+    expect((await tab("scp app.zip stag", sshEnv))?.line).toBe("scp app.zip staging:");
+  });
+  it("make lists the Makefile's targets", async () => {
+    expect((await tab("make ", sshEnv))?.all).toEqual(["build", "test"]);
+  });
+});
