@@ -5206,8 +5206,10 @@ interface TermTab {
   focus: string;
   titles: Record<string, string>;
   activity: boolean;
+  /** Given with Rename Tab; shown instead of the folder. */
+  name?: string;
 }
-const tabTitle = (t: TermTab) => t.titles[t.focus] || t.titles[t.panes[0]] || "shell";
+const tabTitle = (t: TermTab) => t.name || t.titles[t.focus] || t.titles[t.panes[0]] || "shell";
 const oneTab = (id: string, title = ""): TermTab =>
   ({ id, panes: [id], split: "row", sizes: [1], focus: id, titles: title ? { [id]: title } : {}, activity: false });
 
@@ -8723,7 +8725,7 @@ export default function App() {
       const panes = all.map(p => { const id = `t${++k}`; restoreFor.set(id, p); return id; });
       const titles: Record<string, string> = {};
       panes.forEach((id, i) => { if (all[i].title) titles[id] = all[i].title; });
-      return { id: panes[0], panes, split: saved.split ?? "row", sizes: panes.map(() => 1), focus: panes[Math.min(saved.focus ?? 0, panes.length - 1)], titles, activity: false } as TermTab;
+      return { id: panes[0], panes, split: saved.split ?? "row", sizes: panes.map(() => 1), focus: panes[Math.min(saved.focus ?? 0, panes.length - 1)], titles, activity: false, ...(saved.name ? { name: saved.name } : {}) } as TermTab;
     });
     return { tabs, active: tabs[Math.min(s.active, tabs.length - 1)].id, restoreFor, next: k + 1 };
   }, []);
@@ -8755,7 +8757,7 @@ export default function App() {
       const drafts: Record<string, string> = {};
       for (const [path, d] of editorDrafts) if (d.text !== undefined) drafts[path] = d.text;
       const all = tabsRef.current;
-      saveSession(all.map(t => ({ panes: t.panes, split: t.split, focus: t.focus })),
+      saveSession(all.map(t => ({ panes: t.panes, split: t.split, focus: t.focus, name: t.name })),
         Math.max(0, all.findIndex(t => t.id === activeTabRef.current)), drafts);
     };
     const timer = setInterval(save, 5000);
@@ -8814,6 +8816,12 @@ export default function App() {
   // Right-click on a tab: Duplicate (same folder and shell), Close,
   // Close Other Tabs.
   const [tabMenu, setTabMenu] = useState<{ x: number; y: number; id: string } | null>(null);
+  // The tab whose name is being typed (Rename Tab).
+  const [renamingTab, setRenamingTab] = useState<string | null>(null);
+  const renameTab = useCallback((id: string, name: string) => {
+    setTabs(cur => cur.map(x => (x.id === id ? { ...x, name: name.trim() || undefined } : x)));
+    setRenamingTab(null);
+  }, []);
   useEffect(() => {
     if (!tabMenu) return;
     const close = () => setTabMenu(null);
@@ -9070,7 +9078,20 @@ export default function App() {
                   onClick={() => selectTab(t.id)}
                   title={`${tabTitle(t)}${i < 9 ? ` (Ctrl+${i + 1})` : ""} — middle-click to close`}>
                   <span className="term-tab-num">{i + 1}</span>
-                  <span className="term-tab-name">{tabTitle(t)}{t.panes.length > 1 ? <span className="term-tab-panes"> ◫{t.panes.length}</span> : null}</span>
+                  {renamingTab === t.id ? (
+                    <input className="term-tab-rename" autoFocus defaultValue={t.name ?? tabTitle(t)} spellCheck={false}
+                      aria-label="Tab name (empty: the folder's)"
+                      onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()}
+                      onFocus={e => e.currentTarget.select()}
+                      onKeyDown={e => {
+                        if (e.key === "Enter") { e.preventDefault(); renameTab(t.id, e.currentTarget.value); }
+                        else if (e.key === "Escape") { e.preventDefault(); setRenamingTab(null); }
+                        e.stopPropagation();
+                      }}
+                      onBlur={e => renameTab(t.id, e.currentTarget.value)} />
+                  ) : (
+                    <span className="term-tab-name" onDoubleClick={e => { e.stopPropagation(); setRenamingTab(t.id); }}>{tabTitle(t)}{t.panes.length > 1 ? <span className="term-tab-panes"> ◫{t.panes.length}</span> : null}</span>
+                  )}
                   {t.activity && t.id !== activeTab && <span className="term-tab-dot" title="new output">●</span>}
                   <span className="term-tab-close" title="Close this tab and its shell (Ctrl+Shift+W)"
                     onClick={e => { e.stopPropagation(); closeTab(t.id); }}>×</span>
@@ -9082,6 +9103,7 @@ export default function App() {
           {tabMenu && (
             <div className="term-ctx-menu" style={{ left: Math.min(tabMenu.x, window.innerWidth - 200), top: tabMenu.y }}
               onMouseDown={e => { e.stopPropagation(); e.preventDefault(); }}>
+              <button className="term-ctx-item" onClick={() => { setTabMenu(null); setRenamingTab(tabMenu.id); }}>Rename Tab…</button>
               <button className="term-ctx-item" onClick={() => { setTabMenu(null); duplicateTab(tabMenu.id); }}>Duplicate Tab</button>
               <button className="term-ctx-item" onClick={() => { setTabMenu(null); closeTab(tabMenu.id); }}>
                 <span>Close Tab</span><span className="term-ctx-key">Ctrl+Shift+W</span>

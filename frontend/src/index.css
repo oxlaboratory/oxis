@@ -1408,3 +1408,9 @@ input, textarea { font-family: var(--font); }
 .sl-progress--busy .sl-progress-bar > span { animation: sl-busy 1.2s ease-in-out infinite; width: 40% !important; }
 .sl-progress--err { color: var(--err); }
 @keyframes sl-busy { 0% { transform: translateX(-100%); } 100% { transform: translateX(250%); } }
+
+/* Typing a tab's name (Rename Tab, or double-click the name). */
+.term-tab-rename {
+  width: 120px; font: inherit; color: var(--text); background: var(--bg);
+  border: 1px solid var(--purple3); border-radius: 3px; padding: 0 4px; outline: none;
+}

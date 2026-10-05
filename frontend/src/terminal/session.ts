@@ -21,6 +21,8 @@ export interface SavedTab {
   /** A split tab: its other panes, which way it's split, and which pane
    *  (0 is this one) had focus. */
   more?: SavedTab[];
+  /** A name given to the tab (Rename Tab), shown instead of its folder. */
+  name?: string;
   split?: "row" | "column";
   focus?: number;
 }
@@ -55,12 +57,12 @@ export function takeLines(lines: Line[]): SavedLine[] {
 }
 
 /** Saves the tabs (each a list of panes) and drafts. */
-export function saveSession(layout: Array<{ panes: string[]; split: "row" | "column"; focus: string }>, active: number, drafts: Record<string, string>): void {
+export function saveSession(layout: Array<{ panes: string[]; split: "row" | "column"; focus: string; name?: string }>, active: number, drafts: Record<string, string>): void {
   const tabs = layout.flatMap((l): SavedTab[] => {
     const snaps = l.panes.map(id => snapshots.get(id)?.()).filter((p): p is SavedTab => !!p);
     if (!snaps.length) return [];
     const [first, ...more] = snaps;
-    return [{ ...first, split: l.split, focus: Math.max(0, l.panes.indexOf(l.focus)), ...(more.length ? { more } : {}) }];
+    return [{ ...first, split: l.split, focus: Math.max(0, l.panes.indexOf(l.focus)), ...(more.length ? { more } : {}), ...(l.name ? { name: l.name } : {}) }];
   });
   const session: Session = { v: 1, savedAt: Date.now(), active, tabs, drafts };
   let json = JSON.stringify(session);
