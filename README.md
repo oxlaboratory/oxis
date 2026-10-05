@@ -30,7 +30,7 @@
 
 <br><br>
 
-<img src="assets/demo.gif" width="100%" alt="A real OXIS session: Home under a pixel-art sun and drifting clouds; git log and status in the real shell; the editor catching a missing bracket as it's typed, suggesting a function name, Vim's Visual mode and the file tree's right-click menu; a split with the project's tests passing; installing games from the Market, a die that tumbles and asks to roll again, a pokie machine's spinning reels; live CPU and memory stopped with Ctrl+C; and a switch to the ember theme">
+<img src="assets/demo.gif" width="100%" alt="A real OXIS session: Home under a pixel-art sun and drifting clouds; git log and status in the real shell, then quick select labelling the hashes and paths on screen and copying one; the editor catching a missing bracket as it's typed, suggesting a function name, Vim's Visual mode and the file tree's right-click menu; a split with the project's tests passing and one command broadcast to both panes; an image shown in the output with 'imgcat; installing games from the Market, a die that tumbles and asks to roll again, a pokie machine's spinning reels; live CPU and memory stopped with Ctrl+C; the Settings window searched for sound; and a switch to the ember theme">
 
 <sub>▲ Recorded from the app itself: every frame is OXIS running those commands in a real project.</sub>
 
