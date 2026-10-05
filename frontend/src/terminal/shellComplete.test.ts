@@ -98,6 +98,13 @@ describe("Tab for shell commands", () => {
     expect(await tab("get-chi", env({ shell: "bash" }))).toBeNull();
   });
 
+  it("git's long options and stash subcommands", async () => {
+    expect((await tab("git log --on"))?.line).toBe("git log --oneline ");
+    expect((await tab("git push --force-w"))?.line).toBe("git push --force-with-lease ");
+    expect((await tab("git stash p"))?.all).toEqual(["pop", "push"]);
+    expect(await tab("git commit -m")).toBeNull();
+  });
+
   it("subcommands of common tools", async () => {
     expect((await tab("docker ru"))?.line).toBe("docker run ");
     expect((await tab("kubectl desc"))?.line).toBe("kubectl describe ");

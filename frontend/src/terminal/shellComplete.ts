@@ -117,6 +117,28 @@ const COMMON_COMMANDS = [
   "bun", "cargo", "cat", "cd", "code", "curl", "docker", "echo", "git", "go", "grep", "kubectl", "ls", "make",
   "mkdir", "node", "npm", "npx", "pip", "pnpm", "python", "rm", "yarn",
 ];
+// git's most used long options, by subcommand.
+const GIT_FLAGS: Record<string, string[]> = {
+  commit: ["--all", "--amend", "--message", "--no-edit", "--patch", "--signoff"],
+  push: ["--all", "--delete", "--dry-run", "--force-with-lease", "--set-upstream", "--tags"],
+  pull: ["--ff-only", "--no-rebase", "--rebase", "--tags"],
+  fetch: ["--all", "--prune", "--tags"],
+  log: ["--all", "--author", "--decorate", "--follow", "--graph", "--name-only", "--oneline", "--patch", "--since", "--stat"],
+  diff: ["--cached", "--name-only", "--name-status", "--staged", "--stat", "--word-diff"],
+  status: ["--branch", "--ignored", "--short"],
+  branch: ["--all", "--delete", "--list", "--move", "--remotes", "--show-current"],
+  checkout: ["--detach", "--force", "--theirs", "--ours"],
+  switch: ["--create", "--detach", "--force-create"],
+  rebase: ["--abort", "--continue", "--interactive", "--onto", "--skip"],
+  merge: ["--abort", "--continue", "--ff-only", "--no-ff", "--squash"],
+  stash: ["--include-untracked", "--keep-index", "--message"],
+  reset: ["--hard", "--keep", "--mixed", "--soft"],
+  clone: ["--branch", "--depth", "--recurse-submodules", "--single-branch"],
+  add: ["--all", "--patch", "--update"],
+  restore: ["--source", "--staged", "--worktree"],
+};
+const GIT_STASH = ["apply", "clear", "drop", "list", "pop", "push", "show"];
+
 // Subcommands of tools developers type all day.
 const SUBCOMMANDS: Record<string, string[]> = {
   docker: ["build", "compose", "cp", "exec", "image", "images", "inspect", "kill", "login", "logs", "network", "ps", "pull", "push", "restart", "rm", "rmi", "run", "start", "stats", "stop", "system", "tag", "volume"],
@@ -167,6 +189,7 @@ export async function completeShell(line: string, cursor: number, env: CompleteE
   }
 
   const cmd = fold(args[0].replace(/^.*[\\/]/, "").replace(/\.(exe|cmd|bat)$/i, ""));
+  if (word.startsWith("--") && cmd === "git" && args[1] && GIT_FLAGS[args[1]]) return done(only(GIT_FLAGS[args[1]]));
   if (word.startsWith("-")) return null;
 
   if (cmd === "git") {
@@ -175,6 +198,7 @@ export async function completeShell(line: string, cursor: number, env: CompleteE
       const aliases = (await env.git(["config", "--get-regexp", "^alias\\."])).split("\n").map(l => l.split(" ")[0].replace(/^alias\./, "")).filter(Boolean);
       return done(only([...GIT_SUBCOMMANDS, ...aliases]));
     }
+    if (sub === "stash" && args.length === 2) return done(only(GIT_STASH));
     if ((sub === "push" || sub === "pull" || sub === "fetch") && args.length === 2) {
       return done(only((await env.git(["remote"])).split("\n").filter(Boolean)));
     }

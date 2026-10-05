@@ -51,7 +51,8 @@ All notable changes to OXIS. The format follows
 - Tab completes shell commands in the prompt, the same in bash,
   PowerShell, cmd or zsh: files and folders where the shell is (only
   folders after `cd`, Git Bash `/c/…` paths too), subcommands of
-  docker, kubectl, cargo, go, npm, gh, pip, winget and dotnet, git subcommands and
+  docker, kubectl, cargo, go, npm, gh, pip, winget and dotnet, git's
+  long options (`git log --on` → `--oneline`), git subcommands and
   aliases, branches, remotes and changed files (`git add`), package.json
   scripts after `npm run`, `pnpm`, `yarn` or `bun run`, programs on
   PATH (`wing` → `winget`), commands used before, and in PowerShell its everyday cmdlets (`get-chi` →
