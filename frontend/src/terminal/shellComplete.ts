@@ -19,6 +19,8 @@ export interface CompleteEnv {
   history: string[];
   /** The home folder, for ~/…. */
   home?: string;
+  /** The tab's shell (pwsh, bash, cmd…): PowerShell adds its cmdlets. */
+  shell?: string;
 }
 
 export interface Candidate {
@@ -113,6 +115,16 @@ const COMMON_COMMANDS = [
   "bun", "cargo", "cat", "cd", "code", "curl", "docker", "echo", "git", "go", "grep", "kubectl", "ls", "make",
   "mkdir", "node", "npm", "npx", "pip", "pnpm", "python", "rm", "yarn",
 ];
+// PowerShell's everyday cmdlets, for the first word in a PowerShell tab.
+const PS_COMMANDS = [
+  "Clear-Host", "Compress-Archive", "ConvertFrom-Json", "ConvertTo-Json", "Copy-Item", "Expand-Archive", "ForEach-Object",
+  "Get-ChildItem", "Get-Command", "Get-Content", "Get-Date", "Get-FileHash", "Get-Help", "Get-History", "Get-Item",
+  "Get-Location", "Get-Member", "Get-Process", "Get-Service", "Import-Module", "Invoke-Expression", "Invoke-RestMethod",
+  "Invoke-WebRequest", "Measure-Object", "Move-Item", "New-Item", "Out-File", "Out-String", "Pop-Location", "Push-Location",
+  "Remove-Item", "Rename-Item", "Resolve-Path", "Select-Object", "Select-String", "Set-Content", "Set-Location",
+  "Sort-Object", "Start-Process", "Stop-Process", "Tee-Object", "Test-Connection", "Test-Path", "Where-Object",
+  "Write-Error", "Write-Host", "Write-Output",
+];
 const DIR_COMMANDS = new Set(["cd", "pushd", "chdir", "set-location", "sl", "rmdir", "rd"]);
 
 /** Candidates for the word at the cursor, or null when Tab has nothing
@@ -132,7 +144,10 @@ export async function completeShell(line: string, cursor: number, env: CompleteE
     if (!word) return null;
     if (/[\\/]/.test(word) || word.startsWith(".")) return done(await paths(word, env, false));
     const used = env.history.map(h => wordsAt(h, h.length).words[0] ?? "").filter(w => w && !w.startsWith("'") && !/[\\/]/.test(w));
-    return done(only([...used, ...COMMON_COMMANDS]));
+    const ps = env.shell === "pwsh" || env.shell === "powershell";
+    // PowerShell names are case-insensitive: "get-ch" finds Get-ChildItem.
+    const psHits = ps ? PS_COMMANDS.filter(c => c.toLowerCase().startsWith(word.toLowerCase())).map(text => ({ text })) : [];
+    return done([...psHits, ...only([...used, ...COMMON_COMMANDS]).filter(c => !psHits.some(p => p.text === c.text))]);
   }
 
   const cmd = fold(args[0].replace(/^.*[\\/]/, "").replace(/\.(exe|cmd|bat)$/i, ""));

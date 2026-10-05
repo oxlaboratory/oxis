@@ -92,6 +92,12 @@ describe("Tab for shell commands", () => {
     expect((await tab("npm run "))?.all).toEqual(["build", "dev", "test"]);
   });
 
+  it("PowerShell's cmdlets in a PowerShell tab, any case", async () => {
+    expect((await tab("get-chi", env({ shell: "pwsh" })))?.line).toBe("Get-ChildItem ");
+    expect((await tab("Set-L", env({ shell: "powershell" })))?.line).toBe("Set-Location ");
+    expect(await tab("get-chi", env({ shell: "bash" }))).toBeNull();
+  });
+
   it("commands used before", async () => {
     expect((await tab("pyt"))?.line).toBe("python ");
     expect(await tab("")).toBeNull();

@@ -6412,6 +6412,7 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
       git: (args) => runCommand(cwd, "git", args).then(r => (r.exitCode === 0 ? r.stdout : ""), () => ""),
       history: history.all(),
       home: await homeFolder(),
+      shell: currentShell(),
     });
     // Typed on meanwhile: the answer is for a line that's gone.
     if (!c || inputRef.current.value !== val) return;
