@@ -458,6 +458,7 @@ ready to type, and tucks it away again (setting `summonKey`).
 | Ctrl+↑ / Ctrl+↓ | Jump to the previous / next command in the output |
 | Ctrl+Shift+Space | Quick select: every URL, path, file:line, git hash, IP and long number on screen gets a letter; type it to copy that text, or Shift+the letter to put it in the prompt. Esc cancels |
 | Ctrl+Shift+P | Command palette |
+| Ctrl+, | Settings |
 | Ctrl+Shift+M | Open the Market website |
 
 With an empty prompt, arrow keys, Home/End, Delete, Tab, Esc and F1–F12
@@ -1418,6 +1419,12 @@ printed in the terminal and listed by `'diagnostics`.
 ---
 
 ## Settings, backup and diagnostics
+
+**Ctrl+,** (or `'settings`) opens the Settings window: every setting
+below, grouped and searchable, each with a switch, a list, a slider or
+a box to type in, and ↺ to put back one you've changed. Sounds can be
+played from there, and the shell list shows the shells you have.
+`'config` changes the same settings from the prompt:
 
 ```
 'config list / get <key> / set <key> <value> / reset <key>

@@ -38,6 +38,7 @@ import { getRecentErrors, clearRecentErrors, installGlobalErrorCapture } from ".
 import { cwdTracker, CwdTracker, buildCwdProbe, looksLikeDirectoryChange, isProbeLine, cwdFromMark } from "./terminal/cwdTracker";
 import { startHint, tabHint, paneHint, tipHint } from "./terminal/hints";
 import { quickSelect } from "./terminal/quickSelect";
+import { SettingsPanel, type SettingsApi } from "./settings/SettingsPanel";
 import { SOUND_EVENTS, PRESETS, PRESET_NAMES, configureSounds, onSoundFileError, playSound, playValue, soundFor, soundForCommand, isSoundFile } from "./sound/sounds";
 import { promptCapture, foregroundJobs } from "./terminal/promptCapture";
 import { scriptRunTracker, stripStepEcho } from "./terminal/scriptRunTracker";
@@ -390,7 +391,7 @@ const SETTINGS: SettingDef[] = [
   },
   ...SOUND_EVENTS.map((e): SettingDef => ({
     key: e.setting, label: `Sound: ${e.event}`, default: e.default,
-    description: `The sound when ${e.what}: one of ${PRESET_NAMES.join(", ")}, or the path of your own sound file (wav, mp3, ogg…). 'sound play ${e.event} to hear it`,
+    description: `The sound when ${e.what}: ${PRESET_NAMES.join(", ")}, or your own sound file's path (wav, mp3, ogg…)`,
     apply: () => { /* read when it plays */ },
   })),
   {
@@ -2362,7 +2363,9 @@ function registerBuiltinCommands(): void {
     err(`unknown: 'config ${sub} — try list, get, set, reset, export, or import`);
   };
   registry.register({ name:"config", category:"system", description:"View or change OXIS settings", handler: configHandler });
-  registry.register({ name:"settings", category:"system", description:"Alias for 'config", handler: configHandler });
+  // 'settings on its own opens the Settings window; with more, it's 'config.
+  registry.register({ name:"settings", category:"system", description:"Open the Settings window (Ctrl+,) — or, with more, the same as 'config",
+    handler: (args, rest, raw) => { if (!args.length) events.emit("open_settings"); else return configHandler(args, rest, raw); } });
 
   // ── history management ────────────────────────────────
   registry.register({ name:"histclear", category:"shell", description:"Clear command history",
@@ -8949,6 +8952,7 @@ export default function App() {
   const [curTheme,  setCurTheme]  = useState(() => themeManager.getCurrent());
   const [themeEditorName,  setThemeEditorName]  = useState<string | null>(null);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [activeProject, setActiveProject] = useState(() => workspaceState.get().projectName);
   const [updateMsg,     setUpdateMsg]     = useState("");
   const pendingCmd = useRef<string>("");
@@ -8982,7 +8986,8 @@ export default function App() {
   useEffect(() => {
     const u1 = events.on("open_theme_editor", p => { if (p?.name) setThemeEditorName(String(p.name)); });
     const u2 = events.on("theme_changed",     p => { if (p?.name) setCurTheme(String(p.name)); });
-    return () => { u1(); u2(); };
+    const u3 = events.on("open_settings",     () => setSettingsOpen(true));
+    return () => { u1(); u2(); u3(); };
   }, []);
 
 
@@ -9286,6 +9291,14 @@ export default function App() {
     else pendingCmd.current = cmd;
   }, [ready, openShell]);
 
+  // What the Settings window reads and changes: the same settings 'config does.
+  const settingsApi = useMemo<SettingsApi>(() => ({
+    defs: SETTINGS, get: getSetting, set: setSetting, reset: resetSetting, isSet: isSettingSet,
+    // Shell: the shells this machine has.
+    choicesFor: async key => key === "shell" ? ["auto", ...(await listShells()).map(sh => sh.name)] : null,
+    editConfigFile: isNativeApp() ? () => { setSettingsOpen(false); runCommand("'config edit"); } : undefined,
+  }), [runCommand]);
+
   // Command Palette — Ctrl+Shift+P (Cmd+Shift+P on Mac), from
   // anywhere. Skipped while the Theme Editor overlay is already open,
   // so overlays don't stack confusingly on top of each other.
@@ -9295,6 +9308,12 @@ export default function App() {
         if (themeEditorName) return;
         e.preventDefault();
         setCommandPaletteOpen(o => !o);
+      }
+      // Ctrl+, (⌘, on a Mac): Settings, as in VS Code and Windows Terminal.
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key === ",") {
+        if (themeEditorName) return;
+        e.preventDefault();
+        setSettingsOpen(o => !o);
       }
     };
     // Capture phase: the prompt stops its keys from bubbling.
@@ -9373,6 +9392,9 @@ export default function App() {
           <div className="overlay">
             <ThemeEditor name={themeEditorName} onClose={() => setThemeEditorName(null)} />
           </div>
+        )}
+        {settingsOpen && (
+          <SettingsPanel api={settingsApi} onClose={() => { setSettingsOpen(false); setTimeout(() => events.emit("focus_prompt"), 30); }} />
         )}
         {commandPaletteOpen && (
           <CommandPalette

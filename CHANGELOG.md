@@ -6,6 +6,10 @@ All notable changes to OXIS. The format follows
 ## [Unreleased]
 
 ### Added
+- A Settings window (**Ctrl+,** or `'settings`): every setting, grouped
+  and searchable, with switches, lists, sliders and resets; sounds play
+  from it and the shell list shows the shells installed. `'config` still
+  works the same.
 - Sound effects: a soft sound when a command fails or a long one
   finishes, a program rings the bell, a tab opens, something's copied or
   a plugin installs. `'sound` lists, plays and changes them — twelve
