@@ -409,6 +409,13 @@ or right-click its output for the same in a menu. A fresh terminal
 says the keys on the line under its welcome, and a new tab or pane says
 how to get around, for the first few times.
 
+**Broadcast.** `'broadcast` (or ⇶ at the top of a pane, in a split tab)
+sends what you type in one pane to every pane of the tab: shell commands,
+Enter and Ctrl+C — the same command on several servers, or in several
+checkouts, at once. The panes are outlined while it's on; `'broadcast`
+again (or `'broadcast off`) stops it. OXIS commands and answers to a
+plugin's questions stay in the pane you typed them in.
+
 ### Picking up where you left off
 
 When OXIS starts again — after closing it, a restart or a crash — your

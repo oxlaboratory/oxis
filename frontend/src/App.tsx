@@ -1100,6 +1100,10 @@ function registerBuiltinCommands(): void {
   registry.register({ name:"save-output", category:"shell", description:"Save this tab's output to a text file in created-documents/ ('save-output [name])",
     handler: (args) => { events.emit("save_output", { name: args.join(" ") }); } });
 
+  // 'broadcast [on|off]: what's typed in one pane of the tab runs in all of them.
+  registry.register({ name:"broadcast", category:"shell", description:"Type into every pane of this tab at once: shell commands, Enter and Ctrl+C go to all of them ('broadcast on|off)",
+    handler: (args) => { const a = (args[0] ?? "").toLowerCase(); events.emit("broadcast_toggle", { on: a === "on" ? true : a === "off" ? false : undefined }); } });
+
   // 'record [name] / 'record stop: this tab's session as an asciinema cast.
   registry.register({ name:"record", category:"shell", description:"Record this tab to a .cast file that asciinema plays ('record [name] · 'record stop)",
     handler: (args) => { events.emit("record", { args }); } });
@@ -5387,6 +5391,9 @@ interface TermProps {
   shell?:      string;
   /** The only pane in its tab (the right-click menu's Close says tab). */
   alone:       boolean;
+  /** 'broadcast: the tab's other panes, which get the shell commands typed
+   *  here too; empty when it's off. */
+  peers?:      string[];
   /** Element the global prompt is portalled into — the fixed bar above
    *  the status line, shared by every screen. */
   promptHost:  HTMLElement | null;
@@ -5652,7 +5659,14 @@ function groupOutput(lines: Line[], cache: Map<number, Line[]>): { blocks: Array
  *  for 'https://github.com':", "Enter PIN:". */
 const SECRET_PROMPT_RE = /(password|passphrase|\bpin\b)[^\n]*:\s*$/i;
 
-function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore, hint, startDir, shell, alone, promptHost, onReady, onShowShell, onCloseTab }: TermProps) {
+function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore, hint, startDir, shell, alone, peers, promptHost, onReady, onShowShell, onCloseTab }: TermProps) {
+  const peersRef = useRef<string[]>([]);
+  peersRef.current = peers ?? [];
+  // A line that came from another pane's broadcast isn't sent on again.
+  const fromBroadcast = useRef(false);
+  const broadcast = (kind: "line" | "interrupt", line = "") => {
+    if (!fromBroadcast.current && peersRef.current.length) events.emit("broadcast_input", { to: peersRef.current, kind, line });
+  };
   const onNewTab = onShowShell;
   const selectedRef = useRef(selected);
   selectedRef.current = selected;
@@ -6377,6 +6391,7 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
       return;
     }
     sendToShell("\x03");
+    broadcast("interrupt");
     scriptRunTracker.cancel();
     void cancelActiveCommit();
   }, [sendToShell, clearInput, addLine]);
@@ -6665,9 +6680,9 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
     // The rest of a line a program already holds (see Tab): as typed.
     if (programHasText.current) {
       programHasText.current = false;
-      if (runningCommand.current) { sendToShell(raw + "\r"); scrollToBottom(true); return; }
+      if (runningCommand.current) { sendToShell(raw + "\r"); broadcast("line", raw); scrollToBottom(true); return; }
     }
-    if (!cmd) { sendToShell("\r"); return; }
+    if (!cmd) { sendToShell("\r"); broadcast("line", ""); return; }
     if (!keepOutOfHistory(raw)) history.push(cmd);
     if (editorShowingRef.current) setPeekFrom(nextLineId());
 
@@ -6689,6 +6704,7 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
         runningCommand.current = { text: cmd, afterId: nextLineId(), startedAt: performance.now() };
       }
       sendToShell(cmd + "\r");
+      broadcast("line", cmd);
       // Re-probe the cwd after a likely directory change so the
       // workspace there is detected; wait for the cd to finish first.
       if (looksLikeDirectoryChange(cmd)) setTimeout(probeCwd, 400);
@@ -6697,6 +6713,18 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
   }, [sendToShell, addLine, dispatchOxisCmd, scrollToBottom, probeCwd, clear]);
   const runLineRef = useRef(runLine);
   runLineRef.current = runLine;
+  const interruptRef = useRef<() => void>(() => {});
+  interruptRef.current = interrupt;
+  // 'broadcast: what was typed in another pane of this tab.
+  useEffect(() => events.on("broadcast_input", p => {
+    const b = p as { to: string[]; kind: "line" | "interrupt"; line: string };
+    if (!b.to.includes(id)) return;
+    fromBroadcast.current = true;
+    try {
+      if (b.kind === "interrupt") interruptRef.current();
+      else runLineRef.current(b.line);
+    } finally { fromBroadcast.current = false; }
+  }), [id]);
 
   /** Tab on a shell command: completes the word at the cursor, or lists
    *  the choices when there's nothing more in common to add. */
@@ -9095,6 +9123,8 @@ export default function App() {
     return { tabs, active: tabs[Math.min(s.active, tabs.length - 1)].id, restoreFor, next: k + 1 };
   }, []);
   const [tabs, setTabs] = useState<TermTab[]>(initial.tabs);
+  // 'broadcast: the tabs whose panes all get what's typed in one.
+  const [broadcastTabs, setBroadcastTabs] = useState<Set<string>>(new Set());
   const [activeTab, setActiveTab] = useState(initial.active);
   const tabsRef = useRef(tabs);
   tabsRef.current = tabs;
@@ -9348,6 +9378,25 @@ export default function App() {
         [`  ${x.id === activeTabRef.current ? "●" : "○"}  ${k + 1}  ${tabTitle(x)}${x.panes.length > 1 ? `  (${x.panes.length} panes)` : ""}`, x.id === activeTabRef.current ? "accent" : "dim"]));
     }
   }), [newTab, closeTab, stepTab, selectTab]);
+  const toggleBroadcast = useCallback((tabId: string, on?: boolean) => {
+    const tab = tabs.find(x => x.id === tabId);
+    if (!tab) return;
+    const now = on ?? !broadcastTabs.has(tabId);
+    const say = (text: string, kind: LineKind) => _ctxRef.current?.print(text, kind);
+    if (now && tab.panes.length < 2) { say("  broadcast types into every pane of a tab — split it first (Ctrl+Shift+\\), then 'broadcast", "info"); return; }
+    setBroadcastTabs(cur => { const next = new Set(cur); if (now) next.add(tabId); else next.delete(tabId); return next; });
+    if (now) say(`  ⇶  broadcast on — what you type runs in all ${tab.panes.length} panes of this tab ('broadcast off)`, "ok");
+    else say("  broadcast off", "dim");
+  }, [tabs, broadcastTabs]);
+  useEffect(() => events.on("broadcast_toggle", p => toggleBroadcast(activeTabRef.current, (p as { on?: boolean } | undefined)?.on)), [toggleBroadcast]);
+  // A tab back to one pane can't broadcast.
+  useEffect(() => {
+    setBroadcastTabs(cur => {
+      const keep = [...cur].filter(t => (tabs.find(x => x.id === t)?.panes.length ?? 0) > 1);
+      return keep.length === cur.size ? cur : new Set(keep);
+    });
+  }, [tabs]);
+
   useEffect(() => events.on("pane_request", p => {
     const action = String((p as { action?: string } | undefined)?.action ?? "right");
     if (action === "right") splitPane("row");
@@ -9556,7 +9605,7 @@ export default function App() {
             </div>
           )}
           {tabs.map(t => (
-            <div key={t.id} className="term-tab-pane" style={{ display: t.id === activeTab ? "flex" : "none", flexDirection: t.split }}>
+            <div key={t.id} className={`term-tab-pane${broadcastTabs.has(t.id) ? " term-tab-pane--broadcast" : ""}`} style={{ display: t.id === activeTab ? "flex" : "none", flexDirection: t.split }}>
               {t.panes.map((pane, i) => (
                 <Fragment key={pane}>
                   {i > 0 && (
@@ -9575,6 +9624,10 @@ export default function App() {
                         <svg viewBox="0 0 12 12" aria-hidden="true"><rect x="1" y="1.5" width="10" height="9" /><path d="M1 6h10" /></svg>
                       </button>
                       {t.panes.length > 1 && (
+                        <button className={broadcastTabs.has(t.id) ? "term-pane-bar--on" : undefined} onClick={() => toggleBroadcast(t.id)}
+                          title={broadcastTabs.has(t.id) ? "Broadcasting: what you type runs in every pane — click to stop" : "Broadcast: type into every pane of this tab at once ('broadcast)"}>⇶</button>
+                      )}
+                      {t.panes.length > 1 && (
                         <button onClick={() => closePane(pane)} title="Close this pane and its shell (Ctrl+Shift+W)">×</button>
                       )}
                     </div>
@@ -9588,6 +9641,7 @@ export default function App() {
                       startDir={dirFor.current.get(pane)}
                       shell={shellFor.current.get(pane)}
                       alone={t.panes.length === 1}
+                      peers={broadcastTabs.has(t.id) ? t.panes.filter(x => x !== pane) : undefined}
                       onTitle={title => setTabs(cur => cur.some(x => x.id === t.id && x.titles[pane] !== title)
                         ? cur.map(x => x.id === t.id ? { ...x, titles: { ...x.titles, [pane]: title } } : x) : cur)}
                       onActivity={() => setTabs(cur => cur.some(x => x.id === t.id && !x.activity && x.id !== activeTabRef.current)

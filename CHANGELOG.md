@@ -6,6 +6,8 @@ All notable changes to OXIS. The format follows
 ## [Unreleased]
 
 ### Added
+- `'broadcast` (or ⇶ on a split tab's panes): what you type in one
+  pane — commands, Enter, Ctrl+C — runs in every pane of the tab.
 - `'record [name]` / `'record stop`: a tab's session saved as an
   asciinema cast (`created-documents/recordings/`), with ● REC and the
   time in the status bar. `asciinema play` and asciinema.org play it.

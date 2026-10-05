@@ -1526,3 +1526,7 @@ input, textarea { font-family: var(--font); }
 .sl-rec { color: var(--err); font-weight: 700; }
 .sl-rec-dot { animation: sl-rec-blink 1.2s steps(2, start) infinite; }
 @keyframes sl-rec-blink { to { visibility: hidden; } }
+
+/* 'broadcast: every pane of the tab gets what's typed. */
+.term-tab-pane--broadcast .term-pane { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--yellow, #f5a623) 70%, transparent); }
+.term-pane-bar .term-pane-bar--on { color: var(--yellow, #f5a623); opacity: 1; }
