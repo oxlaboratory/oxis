@@ -6,7 +6,8 @@ All notable changes to OXIS. The format follows
 ## [Unreleased]
 
 ### Added
-- Four more Market plugins: **scripts** (run a project's package.json
+- Five more Market plugins: **git-tools** (recent branches to switch
+  to, a cleanup of merged branches, undo the last commit), **scripts** (run a project's package.json
   scripts and Makefile targets from a numbered list), **docker** (a live
   container list, streamed logs, prune after asking), **json**
   (pretty-print, validate and query JSON files) and **timer** (a
