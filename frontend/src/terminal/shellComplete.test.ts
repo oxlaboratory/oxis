@@ -98,6 +98,13 @@ describe("Tab for shell commands", () => {
     expect(await tab("get-chi", env({ shell: "bash" }))).toBeNull();
   });
 
+  it("subcommands of common tools", async () => {
+    expect((await tab("docker ru"))?.line).toBe("docker run ");
+    expect((await tab("kubectl desc"))?.line).toBe("kubectl describe ");
+    expect((await tab("npm i"))?.all).toEqual(["init", "install"]);
+    expect((await tab("npm run b"))?.line).toBe("npm run build ");
+  });
+
   it("programs on PATH", async () => {
     expect((await tab("dock", env({ pathCommands: async () => ["docker", "docker-compose", "node"] })))?.all).toEqual(["docker", "docker-compose"]);
   });

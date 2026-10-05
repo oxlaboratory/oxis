@@ -117,6 +117,19 @@ const COMMON_COMMANDS = [
   "bun", "cargo", "cat", "cd", "code", "curl", "docker", "echo", "git", "go", "grep", "kubectl", "ls", "make",
   "mkdir", "node", "npm", "npx", "pip", "pnpm", "python", "rm", "yarn",
 ];
+// Subcommands of tools developers type all day.
+const SUBCOMMANDS: Record<string, string[]> = {
+  docker: ["build", "compose", "cp", "exec", "image", "images", "inspect", "kill", "login", "logs", "network", "ps", "pull", "push", "restart", "rm", "rmi", "run", "start", "stats", "stop", "system", "tag", "volume"],
+  kubectl: ["apply", "config", "create", "delete", "describe", "edit", "exec", "explain", "expose", "get", "label", "logs", "patch", "port-forward", "rollout", "run", "scale", "top"],
+  cargo: ["add", "bench", "build", "check", "clean", "clippy", "doc", "fmt", "init", "install", "new", "publish", "remove", "run", "test", "update"],
+  go: ["build", "clean", "doc", "env", "fmt", "generate", "get", "install", "list", "mod", "run", "test", "tool", "version", "vet", "work"],
+  npm: ["audit", "ci", "init", "install", "link", "ls", "outdated", "pack", "publish", "run", "start", "test", "uninstall", "update", "version"],
+  gh: ["auth", "browse", "issue", "pr", "release", "repo", "run", "workflow"],
+  pip: ["download", "freeze", "install", "list", "show", "uninstall"],
+  winget: ["install", "list", "search", "show", "uninstall", "upgrade"],
+  dotnet: ["add", "build", "clean", "new", "publish", "restore", "run", "test", "watch"],
+};
+
 // PowerShell's everyday cmdlets, for the first word in a PowerShell tab.
 const PS_COMMANDS = [
   "Clear-Host", "Compress-Archive", "ConvertFrom-Json", "ConvertTo-Json", "Copy-Item", "Expand-Archive", "ForEach-Object",
@@ -185,6 +198,7 @@ export async function completeShell(line: string, cursor: number, env: CompleteE
     return done(await paths(word, env, false));
   }
 
+  if (SUBCOMMANDS[cmd] && args.length === 1) return done(only(SUBCOMMANDS[cmd]));
   if (["npm", "pnpm", "yarn", "bun"].includes(cmd)) {
     const runs = args[1] === "run" || args[1] === "run-script";
     const direct = (cmd === "pnpm" || cmd === "yarn") && args.length === 1;

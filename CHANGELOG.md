@@ -50,7 +50,8 @@ All notable changes to OXIS. The format follows
   A path in several colours is one link; a missing file says so.
 - Tab completes shell commands in the prompt, the same in bash,
   PowerShell, cmd or zsh: files and folders where the shell is (only
-  folders after `cd`, Git Bash `/c/…` paths too), git subcommands and
+  folders after `cd`, Git Bash `/c/…` paths too), subcommands of
+  docker, kubectl, cargo, go, npm, gh, pip, winget and dotnet, git subcommands and
   aliases, branches, remotes and changed files (`git add`), package.json
   scripts after `npm run`, `pnpm`, `yarn` or `bun run`, programs on
   PATH (`wing` → `winget`), commands used before, and in PowerShell its everyday cmdlets (`get-chi` →
