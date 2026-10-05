@@ -579,7 +579,7 @@ The command palette (Ctrl+Shift+P) searches the same list.
 | Area | Commands |
 |---|---|
 | Files | `'ls` `'cd` `'pwd` `'cat` `'new`/`'touch` `'mkdir` `'rm` `'cp` `'mv` `'write` `'append` `'hash` `'size` `'edit` `'open` |
-| Shell | `'shell` `'clear` `'run` `'env` `'ps` `'kill` `'ip` `'disk` `'sysinfo` `'which` `'find` `'grep` `'history` `'histclear` `'ports` `'user` `'path` `'alias` |
+| Shell | `'shell` `'save-output` `'clear` `'run` `'env` `'ps` `'kill` `'ip` `'disk` `'sysinfo` `'which` `'find` `'grep` `'history` `'histclear` `'ports` `'user` `'path` `'alias` |
 | App | `'home` `'hide workspace` `'show workspace` `'oxis resize` `'theme` `'config` `'version` `'diagnostics` `'backup` `'restore` `'update` |
 | Plugins | `'plugin …` `'market …` |
 | Workspaces | `'workspace …` `'project …` `'task` `'workflow …` |

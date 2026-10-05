@@ -6,6 +6,9 @@ All notable changes to OXIS. The format follows
 ## [Unreleased]
 
 ### Added
+- Save a tab's output to a text file: **Save Output to File…** in the
+  output's right-click menu, or `'save-output [name]` (into
+  `created-documents/`, with a link to it).
 - The command palette (Ctrl+Shift+P) also finds shell commands you've
   run before; choosing one runs it again.
 - Five more Market plugins: **git-tools** (recent branches to switch

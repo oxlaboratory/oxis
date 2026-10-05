@@ -81,7 +81,7 @@ import { exportSettings, importSettings, exportWorkspace, importWorkspace, expor
 import { checkPublishable, findExistingListing, prepareFreePublish, submitPaidPlugin, startConnectOnboarding, requestPluginDeletion } from "./plugins/publish";
 import { commitAll, setupRemote, unlinkRemote, getRemotes, parseGitRemote, cancelActiveCommit, type GitProvider } from "./plugins/git";
 import { loadUserConfig } from "./terminal/userConfig";
-import { userConfigDir, runCommand, flashWindow, listShells, taskbarProgress, pathCommands, type NativeShell } from "./native";
+import { userConfigDir, runCommand, flashWindow, listShells, taskbarProgress, pathCommands, appDir, type NativeShell } from "./native";
 import { completeShell, applyCompletion } from "./terminal/shellComplete";
 import { findLinks, resolveLinkPath, type OutputLink } from "./terminal/outputLinks";
 import { installMacShortcuts } from "./terminal/macKeys";
@@ -1051,6 +1051,9 @@ function registerBuiltinCommands(): void {
 
   registry.register({ name:"cls",     category:"shell", description:"Clear terminal output",
     handler:()=>_ctxRef.current?.clear(true) });
+
+  registry.register({ name:"save-output", category:"shell", description:"Save this tab's output to a text file in created-documents/ ('save-output [name])",
+    handler: (args) => { events.emit("save_output", { name: args.join(" ") }); } });
 
   // 'shell: the shells this machine has; 'shell <name>: a tab with one.
   registry.register({ name:"shell", category:"shell", description:"List the shells you can use, or open a tab with one: 'shell gitbash",
@@ -6025,6 +6028,30 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
     setOutputMenu({ x, y, hasSel: outputSelectionText().length > 0, block });
   }, [outputSelectionText]);
 
+  // Save Output to File: the tab's output as text, in the documents
+  // folder, named by the time; the line printed links to it.
+  const saveOutput = useCallback(async (name?: string) => {
+    setOutputMenu(null);
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-");
+    const file = name?.trim() || `output-${stamp}.txt`;
+    const dir = workspaceManager.documentsDir();
+    const rel = /^([A-Za-z]:)?[\\/]/.test(file) ? file : `${dir}/${file}`;
+    const text = linesRef.current.map(l => l.text).join("\n") + "\n";
+    try {
+      await writeFile(rel, text);
+      const base = /^([A-Za-z]:)?[\\/]/.test(rel) ? "" : (await appDir().catch(() => "")).replace(/[\\/]+$/, "");
+      const shown = base ? `${base}/${rel}`.replace(/\\/g, "/") : rel;
+      addLine(`  ✓  saved ${linesRef.current.length} lines to ${shown}`, "ok");
+    } catch (e) {
+      addLine(`  ✗  couldn't save the output: ${e instanceof Error ? e.message : e}`, "err");
+    }
+    scrollToBottom(true);
+  }, [addLine, scrollToBottom]);
+  useEffect(() => events.on("save_output", p => {
+    if (!selectedRef.current) return; // the selected tab's output
+    void saveOutput((p as { name?: string } | undefined)?.name);
+  }), [saveOutput]);
+
   const copyBlock = useCallback((withCommand: boolean) => {
     const b = outputMenu?.block;
     setOutputMenu(null);
@@ -7493,6 +7520,7 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
             <button className="term-ctx-item" onClick={() => copyBlock(true)}>Copy Command and Output</button>
           </>)}
           <button className="term-ctx-item" onClick={selectAllOutput}>Select All</button>
+          <button className="term-ctx-item" onClick={() => void saveOutput()}>Save Output to File…</button>
           <button className="term-ctx-item" onClick={clearOutputSelectionAction} disabled={!outputMenu.hasSel}>Clear Selection</button>
           <div className="term-ctx-sep" />
           <button className="term-ctx-item" onClick={() => { setOutputMenu(null); events.emit("tab_request", { action: "new" }); }}>
