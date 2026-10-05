@@ -1087,17 +1087,11 @@ button.editor-mode:hover { filter: brightness(1.25); }
   50%  { opacity: .15; }
 }
 
-/* The clouds' strip of sky, up to the sun: they fade in at the left
-   and thin out before they reach it, in steps like the pixels (a smooth
-   fade left grey smudges). Per-cloud lane, speed and start are inline
-   (SkyWidget). */
+/* The clouds' strip of sky, up to the sun. Each cloud fades in and out
+   whole as it crosses (SkyWidget's animation); lane, speed and start
+   are inline. */
 .sky-clouds {
   position: absolute; left: 0; top: 0; bottom: 0; overflow: hidden;
-  --sky-fade: linear-gradient(90deg,
-    transparent 0 5%, rgb(0 0 0 / .3) 5% 10%, rgb(0 0 0 / .65) 10% 15%, #000 15% 72%,
-    rgb(0 0 0 / .65) 72% 80%, rgb(0 0 0 / .3) 80% 88%, transparent 88%);
-  -webkit-mask-image: var(--sky-fade);
-          mask-image: var(--sky-fade);
 }
 /* Moved by SkyWidget (Web Animations); the inline transform is where
    each one starts. */

@@ -7982,51 +7982,52 @@ const SHOOTING_STAR = pixelShape(14, 3, (x, y) => (y === 1 ? (x + 1) / 14 : y ==
 // on .sky-clouds). Every cloud in a lane moves at the same speed and
 // they start evenly spaced, so they never run into one another.
 
-/** A cumulus: a tall round puff off-centre, smaller ones either side
- *  and a little one or two riding on their shoulders, all on one flat
- *  bottom. Lit from the top left like the sun and moon: a bright rim
- *  where the light catches each puff, white bodies, a soft blue-grey
- *  belly, and a darker seam where puffs overlap. */
+/** A cumulus, drawn the way pixel artists do: a big round puff in the
+ *  middle and smaller ones in front of it at the sides (and on a wide
+ *  cloud a little one at an end), all sitting on one flat base. Each puff
+ *  is shaded as a ball lit from the top left — the sun's side — so where
+ *  a front puff overlaps the big one its darker lower-right meets the
+ *  big one's lit face, and the bumps read as separate puffs. A bright rim
+ *  along the top, a shaded underside; four or five shades in all. */
 function makeCloud(cols: number, rows: number): PixelShape {
   const R = rows / 2;
-  const mainR = R * rand(0.84, 0.94);
-  const main = { cx: cols * rand(0.4, 0.58), cy: rows - mainR * rand(1, 1.06), r: mainR };
   const puffs = [
-    main,
-    { cx: cols * rand(0.18, 0.28), cy: 0, r: R * rand(0.55, 0.7) },
-    { cx: cols * rand(0.7, 0.82), cy: 0, r: R * rand(0.6, 0.76) },
+    { cx: cols * rand(0.44, 0.56), r: R * rand(0.9, 0.98), cy: 0 },
+    { cx: cols * rand(0.2, 0.28), r: R * rand(0.56, 0.66), cy: 0 },
+    { cx: cols * rand(0.72, 0.8), r: R * rand(0.62, 0.72), cy: 0 },
   ];
-  if (cols >= 18) puffs.push({ cx: main.cx + main.r * rand(0.45, 0.75), cy: 0, r: R * rand(0.45, 0.6) }); // on a shoulder
-  if (cols >= 24) {
+  if (cols >= 20) {
     puffs.push(Math.random() < 0.5
-      ? { cx: cols * rand(0.08, 0.13), cy: 0, r: R * rand(0.35, 0.45) }
-      : { cx: cols * rand(0.87, 0.92), cy: 0, r: R * rand(0.35, 0.45) });
+      ? { cx: cols * rand(0.08, 0.12), r: R * rand(0.36, 0.44), cy: 0 }
+      : { cx: cols * rand(0.88, 0.92), r: R * rand(0.36, 0.44), cy: 0 });
   }
-  for (const p of puffs) if (p !== main) p.cy = rows - p.r * rand(0.92, 1.05);
+  for (const p of puffs) p.cy = rows - p.r * rand(0.98, 1.06);
   const left = Math.min(...puffs.map(p => p.cx)), right = Math.max(...puffs.map(p => p.cx));
-  const baseTop = rows - Math.min(...puffs.map(p => p.r)) * 0.9;
-  const inPuff = (px: number, py: number) => puffs.findIndex(p => (px - p.cx) ** 2 + (py - p.cy) ** 2 <= p.r * p.r);
+  const baseTop = rows - R * 0.6;
+  const hit = (px: number, py: number) => puffs.filter(p => (px - p.cx) ** 2 + (py - p.cy) ** 2 <= p.r * p.r);
   const filled = (x: number, y: number): boolean => {
     if (x < 0 || y < 0 || x >= cols || y >= rows) return false;
     const px = x + 0.5, py = y + 0.5;
-    if (py >= baseTop && px >= left && px <= right) return true; // fills the dips between puffs
-    return inPuff(px, py) >= 0;
+    return (py >= baseTop && px >= left && px <= right) || hit(px, py).length > 0;
   };
+  const LEVELS = [1, 0.92, 0.84, 0.75, 0.65];
+  const level = (v: number) => LEVELS.reduce((a, b) => (Math.abs(b - v) < Math.abs(a - v) ? b : a));
   return pixelShape(cols, rows, (x, y) => {
     if (!filled(x, y)) return 0;
-    // The rim: open sky above, or above and to the left — where the light lands.
-    if (!filled(x, y - 1) || (!filled(x - 1, y) && !filled(x - 1, y - 1))) return 1;
-    if (y >= rows - 1) return 0.5;                 // the flat underside
-    if (y >= rows - 3) return 0.66;                // the belly, in shade
-    // A seam where a smaller puff sits in front of a bigger one.
-    const px = x + 0.5, py = y + 0.5, k = inPuff(px, py);
-    if (k > 0) {
-      const p = puffs[k];
-      const edge = Math.hypot(px - p.cx, py - p.cy) > p.r - 1;
-      if (edge && px > p.cx && puffs.some((q, j) => j !== k && q.r > p.r && (px - q.cx) ** 2 + (py - q.cy) ** 2 <= q.r * q.r)) return 0.74;
+    if (!filled(x, y - 1)) return 1;                          // the lit rim
+    if (y === rows - 1) return 0.65;                          // the underside
+    const px = x + 0.5, py = y + 0.5;
+    // The front puff here: the smallest one the pixel is in.
+    const front = hit(px, py).sort((a, b) => a.r - b.r)[0];
+    let v: number;
+    if (front) {
+      const nx = (px - front.cx) / front.r, ny = (py - front.cy) / front.r;
+      v = 0.82 + 0.2 * Math.max(-1, Math.min(1, -0.6 * nx - 0.8 * ny));
+    } else {
+      v = 0.8;                                                // the base between puffs
     }
-    // Brighter towards the top left, a touch greyer to the lower right.
-    return (x / cols) + (y / rows) > 1.15 ? 0.82 : 0.92;
+    if (y >= rows - 3) v -= 0.08;                             // the belly
+    return level(v);
   });
 }
 
@@ -8044,8 +8045,8 @@ interface CloudLayout {
 
 const SUN_CLEARANCE = 10;
 const CLOUD_LANES = [
-  { cols: [14, 20], rows: 7,  top: 3,  opacity: 0.5,  seconds: 150 },
-  { cols: [24, 30], rows: 12, top: 30, opacity: 0.95, seconds: 95 },
+  { cols: [15, 21], rows: 8,  top: 3,  opacity: 0.55, seconds: 150 },
+  { cols: [26, 32], rows: 13, top: 30, opacity: 0.95, seconds: 95 },
 ];
 
 /** `total` clouds crossing `room` px of sky (up to the sun): three in
@@ -8161,8 +8162,11 @@ function SkyWidget() {
     const running = clouds.map((c, i) => {
       const el = cloudEls.current[i];
       if (!el || still || typeof el.animate !== "function") return null;
+      // Each cloud fades in as it sets off and out before the sun, all of
+      // it at once (a mask over the strip cut passing clouds into bands).
+      const at = (o: number) => `translate3d(${c.from + (c.to - c.from) * o}px, 0, 0)`;
       return el.animate(
-        [{ transform: `translate3d(${c.from}px, 0, 0)` }, { transform: `translate3d(${c.to}px, 0, 0)` }],
+        [0, 0.12, 0.7, 0.9, 1].map(o => ({ offset: o, transform: at(o), opacity: o === 0 || o >= 0.9 ? 0 : c.opacity })),
         { duration: c.duration * 1000, delay: c.delay * 1000, iterations: Infinity, easing: "linear" },
       );
     });
