@@ -8246,6 +8246,7 @@ const HOME_SHORTCUTS: Array<[string, string, KeyboardEventInit]> = [
   ["Ctrl+Shift+\\", "split beside", { key: "|", code: "Backslash", ctrlKey: true, shiftKey: true }],
   ["Ctrl+Shift+P", "command palette", { key: "P", ctrlKey: true, shiftKey: true }],
   ["Ctrl+Shift+M", "the Market", { key: "M", ctrlKey: true, shiftKey: true }],
+  ["Ctrl+,", "settings", { key: ",", ctrlKey: true }],
 ];
 /** Does what pressing the keys does (the same handlers get the event). */
 function pressShortcut(init: KeyboardEventInit) {
