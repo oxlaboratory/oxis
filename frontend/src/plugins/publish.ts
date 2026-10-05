@@ -15,6 +15,7 @@ import { getLicensedEmail } from "./pluginLicense";
 import { marketBase, marketFetch, findEntry, type MarketEntry } from "./market";
 import { submissionIssue, removalIssue, newIssueUrl, MAX_ISSUE_URL, type IssueDraft, type SubmissionDetails } from "./submissionIssue";
 import { copyText } from "../terminal/clipboard";
+import { demoUrlProblem } from "./manifest";
 
 export interface PublishMetadata {
   name: string;
@@ -29,6 +30,8 @@ export interface PublishMetadata {
   dependencies: Record<string, string>;
   premium: boolean;
   priceDisplay?: string;
+  /** A video of it running, for the Market card (optional). */
+  demo?: string;
 }
 
 export interface PublishCheckResult {
@@ -41,7 +44,7 @@ const REQUIRED_OS = ["windows", "unix"];
 
 /** Publish checks: validate() plus the manifest fields a Market
  *  listing needs (optional for plugins you only run yourself). */
-export async function checkPublishable(name: string): Promise<PublishCheckResult> {
+export async function checkPublishable(name: string, demoOverride?: string): Promise<PublishCheckResult> {
   const p = pluginManager.get(name);
   if (!p) return { ok: false, issues: [`not installed: ${name}`] };
   if (p.builtin) return { ok: false, issues: [`${name} is built-in — nothing to publish`] };
@@ -62,6 +65,10 @@ export async function checkPublishable(name: string): Promise<PublishCheckResult
   if (!m?.minOxisVersion) issues.push("manifest missing min_oxis_version");
   if (!m?.os || m.os.length === 0) issues.push(`manifest missing os — declare which platform(s) this actually works on (${REQUIRED_OS.join(", ")})`);
   if (!p.lua || !p.lua.trim()) issues.push("no source available to submit (plugin has no Lua source loaded)");
+  // A demo video is optional; one that's given must be a usable link.
+  const demo = (demoOverride ?? m?.demo ?? "").trim();
+  const demoProblem = demo ? demoUrlProblem(demo) : "";
+  if (demoProblem) issues.push(demoProblem);
 
   const metadata: PublishMetadata = {
     name: p.name,
@@ -75,6 +82,7 @@ export async function checkPublishable(name: string): Promise<PublishCheckResult
     permissions: m?.permissions || [],
     dependencies: m?.dependencies || {},
     premium: false,
+    ...(demo ? { demo } : {}),
   };
 
   return { ok: issues.length === 0, issues, metadata };
@@ -142,7 +150,7 @@ function detailsOf(metadata: PublishMetadata, existing?: MarketEntry, priceDispl
   return {
     name: metadata.name, version: metadata.version, desc: metadata.desc, category: metadata.category,
     author: metadata.author, permissions: metadata.permissions, os: metadata.os,
-    minOxisVersion: metadata.minOxisVersion, priceDisplay,
+    minOxisVersion: metadata.minOxisVersion, priceDisplay, demo: metadata.demo,
     updateOf: existing ? existing.version || "?" : undefined,
   };
 }
@@ -155,6 +163,7 @@ export async function prepareFreePublish(metadata: PublishMetadata, existing?: M
     name: metadata.name, desc: metadata.desc, category: metadata.category,
     version: metadata.version, author: metadata.author, source,
     permissions: metadata.permissions, os: metadata.os, minOxisVersion: metadata.minOxisVersion,
+    ...(metadata.demo ? { demo: metadata.demo } : {}),
     ...(existing ? { updateOf: metadata.name, listedVersion: existing.version } : {}),
   }, note => submissionIssue(details, source, note), source);
   if (!result.ok) return result;
@@ -208,6 +217,7 @@ export async function submitPaidPlugin(metadata: PublishMetadata, price: string,
     name: metadata.name, desc: metadata.desc, category: metadata.category,
     version: metadata.version, author: metadata.author, source,
     premium: true, priceDisplay, stripeConnectAccountId: accountId,
+    ...(metadata.demo ? { demo: metadata.demo } : {}),
     ...(existing ? { updateOf: metadata.name, listedVersion: existing.version } : {}),
   }, note => submissionIssue(details, source, note), source);
   if (!result.ok) return result;

@@ -20,6 +20,8 @@ export interface SubmissionDetails {
   os?: string[];
   minOxisVersion?: string;
   priceDisplay?: string;
+  /** A video of it running (optional). */
+  demo?: string;
   /** The listed version when this is an update. */
   updateOf?: string;
 }
@@ -47,6 +49,7 @@ export function submissionIssue(d: SubmissionDetails, source: string, sourceNote
     ["Size", `${new TextEncoder().encode(source).length.toLocaleString("en-US")} bytes`],
   ];
   if (d.priceDisplay) rows.push(["Price", d.priceDisplay]);
+  rows.push(["Demo video", d.demo ? `<${d.demo}>` : "none (optional)"]);
   const f = fence(source);
   const body = [
     `${d.updateOf ? "An update for" : "A new plugin for"} the OXIS Market, sent with \`'plugin publish ${d.name}\`.`,
@@ -62,7 +65,8 @@ export function submissionIssue(d: SubmissionDetails, source: string, sourceNote
     "</details>",
     "",
     "---",
-    "**For the maintainer:** check what the code does and that it asks only for the permissions it needs, then add `cloudflare/plugins/" + d.name + ".lua` and its `cloudflare/index.json` entry.",
+    "**For the maintainer:** check what the code does and that it asks only for the permissions it needs, then add `cloudflare/plugins/" + d.name + ".lua` and its `cloudflare/index.json` entry"
+      + (d.demo ? " (with `\"demo\"` set to the video, once it's been watched)" : "") + ".",
   ].join("\n");
   return { title: `Plugin ${d.updateOf ? "update" : "submission"}: ${d.name} ${d.version}`, body, labels: [SUBMISSION_LABEL] };
 }

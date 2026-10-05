@@ -3,9 +3,10 @@
     "name": "monitoring",
     "desc": "Live CPU and memory with sparklines, the processes eating your RAM (and what's growing), disks filling up, logs followed as they're written with errors in red, health checks that report when a service goes down, and background alerts. Ctrl+C stops anything live.",
     "category": "monitoring",
-    "version": "2.0.0",
+    "version": "2.0.1",
     "author": "Oxide Labs",
-    "file": "plugins/monitoring.lua"
+    "file": "plugins/monitoring.lua",
+    "demo": "https://oxis.space/assets/demos/monitoring.webm"
   },
   {
     "name": "games",
@@ -13,7 +14,8 @@
     "category": "games",
     "version": "2.1.0",
     "author": "Oxide Labs",
-    "file": "plugins/games.lua"
+    "file": "plugins/games.lua",
+    "demo": "https://oxis.space/assets/demos/games.webm"
   },
   {
     "name": "autotest",
@@ -31,7 +33,8 @@
       "windows",
       "unix"
     ],
-    "minOxisVersion": "1.2.1"
+    "minOxisVersion": "1.2.1",
+    "demo": "https://oxis.space/assets/demos/autotest.webm"
   },
   {
     "name": "scripts",
@@ -49,7 +52,8 @@
       "windows",
       "unix"
     ],
-    "minOxisVersion": "1.2.1"
+    "minOxisVersion": "1.2.1",
+    "demo": "https://oxis.space/assets/demos/scripts.webm"
   },
   {
     "name": "timer",
@@ -64,7 +68,8 @@
       "windows",
       "unix"
     ],
-    "minOxisVersion": "1.2.1"
+    "minOxisVersion": "1.2.1",
+    "demo": "https://oxis.space/assets/demos/timer.webm"
   },
   {
     "name": "docker",
@@ -81,7 +86,8 @@
       "windows",
       "unix"
     ],
-    "minOxisVersion": "1.2.1"
+    "minOxisVersion": "1.2.1",
+    "demo": "https://oxis.space/assets/demos/docker.webm"
   },
   {
     "name": "json",
@@ -98,7 +104,8 @@
       "windows",
       "unix"
     ],
-    "minOxisVersion": "1.2.1"
+    "minOxisVersion": "1.2.1",
+    "demo": "https://oxis.space/assets/demos/json.webm"
   },
   {
     "name": "git-tools",
@@ -115,7 +122,8 @@
       "windows",
       "unix"
     ],
-    "minOxisVersion": "1.2.1"
+    "minOxisVersion": "1.2.1",
+    "demo": "https://oxis.space/assets/demos/git-tools.webm"
   },
   {
     "name": "ai-devops",

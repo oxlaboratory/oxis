@@ -73,6 +73,7 @@ export interface MarketEntry {
   size?: number;           // bytes of source
   comingSoon?: boolean;    // shown in the market listing, not installable yet
   oxisOwned?: boolean;     // vs. third-party — see README § Third-Party Developer Marketplace
+  demo?: string;           // a video of it running (optional)
 }
 
 let cachedIndex: MarketEntry[] | null = null;
@@ -133,6 +134,28 @@ export async function fetchSubscriberCount(name: string): Promise<number | null>
   } catch {
     return null;
   }
+}
+
+/** Installs and downloads per plugin, from the server; {} when it
+ *  can't be reached (so nothing is shown rather than false zeros). */
+export async function fetchDownloadCounts(): Promise<Record<string, number>> {
+  try {
+    const body = await fetchJSON<{ counts?: Record<string, number> }>(`${marketBase()}/plugin-downloads`);
+    return body.counts && typeof body.counts === "object" ? body.counts : {};
+  } catch {
+    return {};
+  }
+}
+
+/** Adds one to a plugin's public download count (nothing else is sent:
+ *  no ID, no data). Fire and forget. */
+export function countDownload(name: string): void {
+  void marketFetch(`${marketBase()}/plugin-downloads`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+    signal: AbortSignal.timeout(8000),
+  }).catch(() => { /* offline: not counted */ });
 }
 
 export function searchIndex(entries: MarketEntry[], query: string): MarketEntry[] {

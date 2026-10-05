@@ -1,5 +1,5 @@
 --[[@manifest
-version: 2.0.0
+version: 2.0.1
 description: Watch your machine and your services without leaving OXIS — live CPU and memory with sparklines, the processes eating your RAM and what's growing, logs as they're written (errors in red), health checks that tell you the moment a service goes down, and alerts in the background. Ctrl+C stops anything live.
 author: Oxide Labs
 category: monitoring
@@ -208,13 +208,14 @@ oxis.command("tail", function(args)
     size = #content
     oxis.echo(("📜 %s — following%s (Ctrl+C stops)"):format(path, filter and (" lines with “" .. filter .. "”") or ""), "accent")
     emit(table.concat(lines, "", math.max(1, #lines - 19)))
-    local busy = false
+    local busy, stopped = false, false
     local function check()
-      if busy then return end
+      if busy or stopped then return end
       busy = true
       oxis.fs.read(path, function(e, now)
         busy = false
-        if e then return end
+        -- A read still on its way when Ctrl+C stopped it: not shown.
+        if e or stopped then return end
         if #now < size then oxis.echo("── file was truncated or replaced", "dim") size, carry = 0, "" end
         if #now > size then emit(now:sub(size + 1)) size = #now end
       end)
@@ -224,6 +225,7 @@ oxis.command("tail", function(args)
     local okWatch, watcher = pcall(oxis.fs.watch, path, check)
     if not okWatch then watcher = nil end
     oxis.every(2, check, { foreground = true, stop = function()
+      stopped = true
       if watcher and watcher.stop then watcher:stop() end
       oxis.echo(("📜 Stopped following %s (%d lines shown)."):format(path, shown), "dim")
     end })
@@ -259,6 +261,8 @@ oxis.command("healthcheck", function(args)
       if not every or s.last ~= state then
         local change = (every and s.last) and (state == "up" and "  ▲ back up" or "  ▼ went down") or ""
         oxis.echo(("%s %s %s  %s%s"):format(clock(), ok and "●" or "○", u, detail, change), ok and "ok" or "err")
+        -- Heard as well as seen (OXIS with sound effects).
+        if every and s.last and oxis.sound then oxis.sound(ok and "done" or "error") end
       end
       s.last = state
     end)
@@ -299,6 +303,7 @@ oxis.command("alert", function(args)
       if v >= limit and not over then
         over = true
         oxis.echo(("🔔 %s is at %.0f%% (alert at %d%%)"):format(what == "cpu" and "CPU" or "Memory", v, limit), "warn")
+        if oxis.sound then oxis.sound("notify") end
       elseif v < limit - 5 and over then
         over = false
         oxis.echo(("🔕 %s is back to %.0f%%"):format(what == "cpu" and "CPU" or "Memory", v), "dim")

@@ -12,6 +12,7 @@
  *   os: windows, unix
  *   permissions: fs, net
  *   dependencies: git_advanced>=1.0.0, lsp_diag^1.2.0
+ *   demo: https://youtu.be/…   (optional: a video of it running, for the Market)
  *   ]]
  *
  * Parsed as text before any of the plugin's Lua runs, so permissions and
@@ -44,6 +45,9 @@ export interface PluginManifest {
   permissions?: PermissionNamespace[];
   /** name -> version range, e.g. { git_advanced: ">=1.0.0", lsp_diag: "^1.2.0" } */
   dependencies?: Record<string, string>;
+  /** A video of the plugin running (YouTube, Vimeo, Loom or a video
+   *  file), shown on its Market card. Optional. */
+  demo?: string;
 }
 
 const MANIFEST_RE = /--\[\[@manifest\s*([\s\S]*?)\]\]/;
@@ -73,6 +77,7 @@ export function parseManifest(source: string): PluginManifest | null {
       case "author": manifest.author = value; break;
       case "category": manifest.category = value; break;
       case "min_oxis_version": manifest.minOxisVersion = value; break;
+      case "demo": manifest.demo = value; break;
       case "os":
         manifest.os = value.split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
         break;
@@ -153,4 +158,16 @@ export function satisfiesRange(version: string, range: string): boolean {
   // Bare version — exact match.
   const pr = parseVersion(range);
   return pr ? compareVersions(version, range) === 0 : false;
+}
+/** Why a demo link can't go on a Market card, or "" when it can: an
+ *  https address of reasonable length. */
+export function demoUrlProblem(url: string): string {
+  if (url.length > 500) return "the demo link is too long (500 characters at most)";
+  try {
+    const u = new URL(url);
+    if (u.protocol !== "https:") return "the demo link must start with https://";
+  } catch {
+    return `the demo link isn't a web address: ${url}`;
+  }
+  return "";
 }

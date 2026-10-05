@@ -532,6 +532,10 @@
   .demo-toggle:hover{ border-color:color-mix(in srgb, var(--accent) 40%, transparent); color:var(--text); }
   .demo-video{ border:1px solid var(--line); background:#000; line-height:0; border-radius:10px; overflow:hidden; }
   .demo-video video, .demo-video iframe{ display:block; width:100%; aspect-ratio:16/9; height:auto; border:none; }
+  .demo-video--file video{ aspect-ratio:auto; }
+  .demo-note{ color:var(--dim); font-size:11px; font-family:var(--mono); text-align:center; margin-top:-4px; }
+  .demo-link{ display:block; text-align:center; border:1px dashed var(--line-2); color:var(--muted); font-family:var(--mono); font-size:11.5px; padding:8px 10px; border-radius:9px; text-decoration:none; }
+  .demo-link:hover{ color:var(--text); }
   .demo-soon{ border:1px dashed var(--line-2); color:var(--dim); font-family:var(--mono); font-size:11.5px; text-align:center; padding:8px 10px; border-radius:9px; }
   .empty{ grid-column:1/-1; text-align:center; color:var(--dim); padding:50px 10px; font-family:var(--mono); font-size:13px; display:none; }
   .market-foot{ padding:18px 22px; border-top:1px solid var(--line); display:flex; flex-wrap:wrap; gap:10px 24px; align-items:center; color:var(--muted); font-size:14px; }
@@ -2294,9 +2298,16 @@ const Demo = (() => {
                               the 75/25 split
 
    Optional, any plugin:
-     demoVideo   – YouTube link or direct video URL; the card gets a
-                   "watch demo" button only when it's set
+     demoVideo   – YouTube, Vimeo or Loom link, or a video file (.mp4,
+                   .webm); the card gets a "watch demo" button only when
+                   it's set. index.json's "demo" sets it too — that's
+                   where a published plugin's demo goes ('plugin publish
+                   --demo=<link>, or demo: in its manifest). A video in
+                   assets/demos/ shows its .jpg beside it as the poster.
      demoPlanned – true to say a demo is on the way (no button)
+
+   Download counts come from /plugin-downloads: 'market install and the
+   ↓ button each add one (once a day per address and plugin).
    ================================================================ */
 
 const CATEGORIES = [
@@ -2309,11 +2320,11 @@ const PLUGINS = [
 
   // ---- free plugins (index.json carries the rest; these add tags) ----
   { name: "games",      ver: "2.1.0", cat: "GAMES",      creator: "Oxide Labs", desc: "Casino night: an animated 5-reel pokie machine with wilds and free spins, blackjack with doubles and splits, dice you call before they land, spinning coin tosses, guess-the-number and hangman. Answer in the prompt; Ctrl+C walks away.", tags: ["pokies","blackjack"], size: "33kb" },
-  { name: "monitoring", ver: "2.0.0", cat: "MONITORING", creator: "Oxide Labs", desc: "A live system dashboard, top processes, memory with a sparkline, log tailing, health checks on a timer and alerts. Ctrl+C stops the live ones.", tags: ["dashboard","healthcheck"], size: "" },
+  { name: "monitoring", ver: "2.0.1", cat: "MONITORING", creator: "Oxide Labs", desc: "A live system dashboard, top processes, memory with a sparkline, log tailing, health checks on a timer and alerts. Ctrl+C stops the live ones.", tags: ["dashboard","healthcheck"], size: "" },
   { name: "autotest",   ver: "1.0.1", cat: "AUTOMATION", creator: "Oxide Labs", desc: "Re-runs the project's tests on every save and shows what failed, actual versus expected.", tags: ["tests","watch"], size: "" },
   { name: "scripts",    ver: "1.0.0", cat: "AUTOMATION", creator: "Oxide Labs", desc: "Lists what a project can run — package.json scripts and Makefile targets — numbered, and runs the one you pick.", tags: ["npm","make"], size: "" },
   { name: "git-tools",  ver: "1.0.0", cat: "DEVOPS",     creator: "Oxide Labs", desc: "Branches by when you last worked on them — pick one to switch to — a cleanup of branches already merged, and an undo for the last commit. Asks before changing anything.", tags: ["git","branches"], size: "" },
-  { name: "docker",     ver: "1.0.0", cat: "DEVOPS",     creator: "Oxide Labs", desc: "Your containers at a glance — a live list that updates in place, logs that stream, and a prune that asks first.", tags: ["containers","logs"], size: "" },
+  { name: "docker",     ver: "1.0.0", cat: "DEVOPS",     creator: "Oxide Labs", desc: "Your containers at a glance — a live list that updates in place, logs that stream, and a prune that asks first.", tags: ["containers","logs"], size: "", demoNote: "recorded with sample containers" },
   { name: "json",       ver: "1.0.0", cat: "UTILITY",    creator: "Oxide Labs", desc: "Pretty-prints a JSON file in colour, says whether it's valid, and pulls out one value with a path like scripts.build or items[0].name.", tags: ["json","query"], size: "" },
   { name: "timer",      ver: "1.0.0", cat: "UTILITY",    creator: "Oxide Labs", desc: "A countdown that ticks in place ('timer 25m tea), and pomodoro rounds of work and breaks. Ctrl+C stops.", tags: ["pomodoro","countdown"], size: "" },
 
@@ -2400,6 +2411,7 @@ function cardFromIndex(e){
     name: String(e.name), ver: String(e.version || '0.0.0'), cat: String(e.category || 'utility').toUpperCase(),
     creator: String(e.author || 'unknown'), desc: String(e.desc || ''), tags: tags.length ? tags : [String(e.category || 'plugin').toLowerCase()],
     size: typeof e.size === 'number' ? fmtSize(e.size) : '', file: String(e.file || `plugins/${e.name}.lua`),
+    ...(typeof e.demo === 'string' && /^https:\/\//.test(e.demo) ? { demoVideo: e.demo } : {}),
     ...(e.premium ? { premium: true, priceDisplay: e.priceDisplay, stripePriceId: null, comingSoon: true } : {}),
   };
 }
@@ -2425,6 +2437,7 @@ async function loadMarketIndex(){
       if(e.version) known.ver = String(e.version);
       if(e.desc) known.desc = String(e.desc);
       if(typeof e.size === 'number') known.size = fmtSize(e.size);
+      if(typeof e.demo === 'string' && /^https:\/\//.test(e.demo)) known.demoVideo = e.demo;
       continue;
     }
     const card = cardFromIndex(e);
@@ -2439,13 +2452,23 @@ const acquired = new Set(); // downloaded (free) plugins
 const demoOpen = new Set(); // plugin names with their demo video expanded
 
 function demoVideoHTML(p){
-  const yt = p.demoVideo.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([\w-]+)/);
-  if(yt){
-    return `<div class="demo-video"><iframe src="https://www.youtube.com/embed/${escapeHtml(yt[1])}" allowfullscreen loading="lazy"></iframe></div>`;
+  const url = p.demoVideo;
+  const embed = src => `<div class="demo-video"><iframe src="${src}" allowfullscreen loading="lazy" allow="autoplay; fullscreen; picture-in-picture"></iframe></div>`;
+  const yt = url.match(/(?:youtube\.com\/(?:watch\?v=|shorts\/|embed\/)|youtu\.be\/)([\w-]+)/);
+  if(yt) return embed(`https://www.youtube.com/embed/${escapeHtml(yt[1])}`);
+  const vimeo = url.match(/vimeo\.com\/(?:video\/)?(\d+)/);
+  if(vimeo) return embed(`https://player.vimeo.com/video/${vimeo[1]}`);
+  const loom = url.match(/loom\.com\/(?:share|embed)\/([\w-]+)/);
+  if(loom) return embed(`https://www.loom.com/embed/${escapeHtml(loom[1])}`);
+  if(/\.(mp4|webm|mov|m4v)(\?.*)?$/i.test(url)){
+    // Our own recordings have a poster frame beside them.
+    const poster = /\/assets\/demos\/[\w-]+\.webm$/.test(url) ? ` poster="${escapeHtml(url.replace(/\.webm$/, '.jpg'))}"` : '';
+    // Not regex-constrained like the ids above, so escaped to stay
+    // inside the attribute.
+    return `<div class="demo-video demo-video--file"><video src="${escapeHtml(url)}"${poster} controls autoplay muted playsinline preload="metadata"></video></div>`;
   }
-  // Not regex-constrained like the YouTube id, so it must be escaped to
-  // stay inside the src="..." attribute.
-  return `<div class="demo-video"><video src="${escapeHtml(p.demoVideo)}" controls preload="metadata"></video></div>`;
+  // Anything else (a page with the video on it): a link out.
+  return `<a class="demo-link" href="${escapeHtml(url)}" target="_blank" rel="noopener">open the demo video ↗</a>`;
 }
 
 const grid = document.getElementById('grid');
@@ -2457,6 +2480,23 @@ let query = "";
 // Filled by loadSubscriberCounts() — { pluginName: count }, derived
 // server-side from license/webhook data (functions/subscriber-counts.js).
 let subscriberCounts = {};
+// Filled by loadDownloadCounts() — { pluginName: installs + downloads }
+// (functions/plugin-downloads.js). Nothing is shown until it arrives.
+let downloadCounts = {};
+async function loadDownloadCounts(){
+  try{
+    const res = await fetch('/plugin-downloads', { cache: 'no-store' });
+    if(!res.ok) return;
+    const body = await res.json();
+    if(body && body.counts && typeof body.counts === 'object'){ downloadCounts = body.counts; renderGrid(); }
+  }catch{}
+}
+function countDownload(name){
+  fetch('/plugin-downloads', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) })
+    .then(r => r.ok ? r.json() : null)
+    .then(b => { if(b && b.counted && typeof b.count === 'number'){ downloadCounts[name] = b.count; renderGrid(); } })
+    .catch(()=>{});
+}
 
 function renderRegionSelect(){
   regionSelect.innerHTML = COUNTRIES.map(c =>
@@ -2551,7 +2591,7 @@ function cardHTML(p, i){
   const demoSection = !p.demoVideo
     ? (p.demoPlanned ? `<div class="demo-soon">▶ demo video coming soon</div>` : '')
     : demoOpen.has(p.name)
-      ? `<button class="demo-toggle" data-action="toggle-demo" data-name="${name}">▲ hide demo</button>${demoVideoHTML(p)}`
+      ? `<button class="demo-toggle" data-action="toggle-demo" data-name="${name}">▲ hide demo</button>${demoVideoHTML(p)}${p.demoNote ? `<div class="demo-note">${escapeHtml(p.demoNote)}</div>` : ''}`
       : `<button class="demo-toggle" data-action="toggle-demo" data-name="${name}">▶ watch demo</button>`;
 
   return `
@@ -2562,7 +2602,7 @@ function cardHTML(p, i){
       </div>
       <div class="card-desc">${desc}</div>
       <div class="card-tags">${p.tags.map(t=>`<span class="tag">#${escapeHtml(t)}</span>`).join('')}</div>
-      <div class="card-meta"><span>by <b>${creator}</b></span>${!p.premium && size ? `<span><b>${size}</b></span>` : ''}</div>
+      <div class="card-meta"><span>by <b>${creator}</b></span>${!p.premium && typeof downloadCounts[p.name] === 'number' ? `<span title="installs and downloads">↓ <b>${downloadCounts[p.name].toLocaleString('en-US')}</b></span>` : ''}${!p.premium && size ? `<span><b>${size}</b></span>` : ''}</div>
       ${demoSection}
       ${footer}
     </div>`;
@@ -2594,6 +2634,7 @@ grid.addEventListener('click', async (e)=>{
       return;
     }
     acquired.add(name);
+    countDownload(name);
     renderGrid();
     toast(`downloaded <b>${escapeHtml(name)}.lua</b> — or in OXIS: <b>'market install ${escapeHtml(name)}</b>`);
 
@@ -2667,6 +2708,7 @@ renderFilters();
 renderRegionSelect();
 renderGrid();
 loadSubscriberCounts();
+loadDownloadCounts();
 loadMarketIndex();
 pickDownload();
 loadLive().catch(() => {});
