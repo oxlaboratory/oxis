@@ -434,7 +434,7 @@ are copy and paste.
 | Ctrl+Shift+C | Copy the selection (never interrupts) |
 | Ctrl+D / Ctrl+Z / Ctrl+\\ | Send EOF / suspend / quit to the shell |
 | Ctrl+L | Clear the terminal |
-| Ctrl+Shift+F | Find in terminal output (Enter / Shift+Enter to step, Esc to close) |
+| Ctrl+Shift+F | Find in terminal output (Enter / Shift+Enter to step, Esc to close); an upper-case letter matches case, `/…/` is a regular expression |
 | PageUp / PageDown | Scroll the output |
 | Ctrl+= / Ctrl+- / Ctrl+0 | Zoom in / out / reset (saved as the `fontSize` setting) |
 | Ctrl+T | Show the terminal from Home; in the terminal, open a new tab |

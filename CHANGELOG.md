@@ -6,6 +6,9 @@ All notable changes to OXIS. The format follows
 ## [Unreleased]
 
 ### Added
+- Searching the output (Ctrl+Shift+F): an upper-case letter makes it
+  match case, and `/…/` searches with a regular expression (`/…/i`
+  ignores case).
 - Right-click a tab: Rename Tab… (or double-click its name; the name
   comes back with the session), Duplicate Tab (same folder and shell),
   Close Tab, Close Other Tabs.

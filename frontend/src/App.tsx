@@ -5916,10 +5916,23 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
   // through COMMAND HISTORY above; this searches the actual on-screen
   // scrollback (`lines`) instead — "did I already see X printed
   // somewhere above".
+  // Smart case (an upper-case letter makes it match case), and /…/ for
+  // a regular expression (/…/i ignores case).
   const outputSearchMatches = useMemo(() => {
-    const q = outputSearchQuery.trim().toLowerCase();
-    if (!q) return [] as number[]; // line ids
-    return lines.filter(l => l.text.toLowerCase().includes(q)).map(l => l.id);
+    const raw = outputSearchQuery.trim();
+    if (!raw) return [] as number[]; // line ids
+    let test: (text: string) => boolean;
+    const rx = /^\/(.+)\/([a-z]*)$/.exec(raw);
+    if (rx) {
+      let re: RegExp;
+      try { re = new RegExp(rx[1], rx[2].includes("i") ? "i" : ""); } catch { return [] as number[]; }
+      test = text => re.test(text);
+    } else if (raw !== raw.toLowerCase()) {
+      test = text => text.includes(raw);
+    } else {
+      test = text => text.toLowerCase().includes(raw);
+    }
+    return lines.filter(l => test(l.text)).map(l => l.id);
   }, [lines, outputSearchQuery]);
   const outputSearchSet = useMemo(() => new Set(outputSearchMatches), [outputSearchMatches]);
   const outputBlocks = useMemo(() => {
@@ -7164,7 +7177,7 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
               ? `${((outputSearchIndex % outputSearchMatches.length) + outputSearchMatches.length) % outputSearchMatches.length + 1}/${outputSearchMatches.length}`
               : "0/0") : ""}
           </span>
-          <span className="term-search-hint">Enter next · Shift+Enter prev · Esc close</span>
+          <span className="term-search-hint">Enter next · Shift+Enter prev · /regex/ · Esc close</span>
         </div>
       )}
 
