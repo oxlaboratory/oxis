@@ -6,6 +6,10 @@ All notable changes to OXIS. The format follows
 ## [Unreleased]
 
 ### Added
+- **Open in OXIS**: the Windows installer adds it to Explorer's
+  right-click menu (folders, and the space inside one), and
+  `oxis <folder>` works from anywhere. The folder opens as a tab in the
+  OXIS already running (brought to the front), or starts one there.
 - Save a tab's output to a text file: **Save Output to File…** in the
   output's right-click menu, or `'save-output [name]` (into
   `created-documents/`, with a link to it).

@@ -45,6 +45,7 @@ declare global {
           WriteClipboard?: (text: string) => Promise<void>;
           FlashWindow?: () => Promise<boolean>;
           PathCommands?: () => Promise<string[]>;
+          StartFolder?: () => Promise<string>;
           TaskbarProgress?: (state: number, pct: number) => Promise<boolean>;
           Shells?: () => Promise<{ name: string; label: string; path: string; default?: boolean }[]>;
           ReadClipboard?: () => Promise<string>;
@@ -364,6 +365,18 @@ export async function flashWindow(): Promise<boolean> {
 export async function taskbarProgress(state: number, pct: number): Promise<boolean> {
   const fn = window.go?.wailsapp?.App?.TaskbarProgress;
   return fn ? fn(state, pct) : false;
+}
+
+/** The folder OXIS was started with ("Open in OXIS"), asked once. */
+let startFolderAsked: Promise<string> | null = null;
+export function startFolder(): Promise<string> {
+  startFolderAsked ??= (async () => {
+    const fn = window.go?.wailsapp?.App?.StartFolder;
+    if (!fn) return "";
+    // Don't hold the first shell up if the answer doesn't come.
+    return Promise.race([fn().catch(() => ""), new Promise<string>(r => setTimeout(() => r(""), 1500))]);
+  })();
+  return startFolderAsked;
 }
 
 /** Programs on PATH, by the name you'd type (no .exe). */

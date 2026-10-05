@@ -365,6 +365,13 @@ scrolls above it and never goes underneath it.
 - The terminal shows `OXIS` in its top-right corner. There's no startup
   splash; the app opens straight onto Home.
 
+### Opening a folder in OXIS
+
+The Windows installer adds **Open in OXIS** to Explorer's right-click
+menu, on a folder and on the empty space inside one. `oxis C:\devpi`
+does the same from anywhere. The folder opens as a terminal tab — in the
+OXIS that's already running, which comes to the front, or in a new one.
+
 ### Choosing the shell
 
 `'shell` lists the shells on this machine — on Windows PowerShell 7,

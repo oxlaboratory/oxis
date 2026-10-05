@@ -202,6 +202,7 @@ function buildMSI(wixBinDir) {
     <Feature Id="MainApp" Title="OXIS" Level="1" Absent="disallow">
       <ComponentRef Id="OxisFolderPermissions" />
       <ComponentRef Id="OxisExeComponent" />
+      <ComponentRef Id="OxisExplorerMenu" />
       <ComponentRef Id="OxisPathComponent" />
       <ComponentRef Id="OxisShortcuts" />
       <ComponentRef Id="OxisDesktopShortcut" />
@@ -225,6 +226,17 @@ function buildMSI(wixBinDir) {
           <Component Id="OxisExeComponent" Guid="*" Win64="yes">
             <File Id="OxisExe" Source="${EXE}" KeyPath="yes" />
           </Component>${logoComponent}
+          <!-- "Open in OXIS" when right-clicking a folder, or the empty
+               space inside one, in Explorer: oxis.exe "<folder>" opens a
+               tab there (in the OXIS already running, if there is one). -->
+          <Component Id="OxisExplorerMenu" Guid="*" Win64="yes">
+            <RegistryValue Root="HKLM" Key="Software\\Classes\\Directory\\shell\\OXIS" Type="string" Value="Open in OXIS" KeyPath="yes" />
+            <RegistryValue Root="HKLM" Key="Software\\Classes\\Directory\\shell\\OXIS" Name="Icon" Type="string" Value="[INSTALLFOLDER]oxis.exe" />
+            <RegistryValue Root="HKLM" Key="Software\\Classes\\Directory\\shell\\OXIS\\command" Type="string" Value="&quot;[INSTALLFOLDER]oxis.exe&quot; &quot;%V&quot;" />
+            <RegistryValue Root="HKLM" Key="Software\\Classes\\Directory\\Background\\shell\\OXIS" Type="string" Value="Open in OXIS" />
+            <RegistryValue Root="HKLM" Key="Software\\Classes\\Directory\\Background\\shell\\OXIS" Name="Icon" Type="string" Value="[INSTALLFOLDER]oxis.exe" />
+            <RegistryValue Root="HKLM" Key="Software\\Classes\\Directory\\Background\\shell\\OXIS\\command" Type="string" Value="&quot;[INSTALLFOLDER]oxis.exe&quot; &quot;%V&quot;" />
+          </Component>
           <Component Id="OxisPathComponent" Guid="*" Win64="yes">
             <Environment Id="OxisPathEnv" Name="PATH" Value="[INSTALLFOLDER]"
                          Permanent="no" Part="last" Action="set" System="yes" />
@@ -364,6 +376,13 @@ Section "OXIS" SecMain
   WriteRegStr HKLM "Software\\\\Microsoft\\\\Windows\\\\CurrentVersion\\\\Uninstall\\\\OXIS" "UninstallString" "$INSTDIR\\\\Uninstall.exe"
   WriteRegStr HKLM "Software\\\\Microsoft\\\\Windows\\\\CurrentVersion\\\\Uninstall\\\\OXIS" "DisplayVersion" "\${VERSION}"
   WriteRegStr HKLM "Software\\\\OXIS" "Install_Dir" "$INSTDIR"
+  ; "Open in OXIS" on folders, and on the empty space inside one
+  WriteRegStr HKLM "Software\\\\Classes\\\\Directory\\\\shell\\\\OXIS" "" "Open in OXIS"
+  WriteRegStr HKLM "Software\\\\Classes\\\\Directory\\\\shell\\\\OXIS" "Icon" "$INSTDIR\\\\oxis.exe"
+  WriteRegStr HKLM "Software\\\\Classes\\\\Directory\\\\shell\\\\OXIS\\\\command" "" '"$INSTDIR\\\\oxis.exe" "%V"'
+  WriteRegStr HKLM "Software\\\\Classes\\\\Directory\\\\Background\\\\shell\\\\OXIS" "" "Open in OXIS"
+  WriteRegStr HKLM "Software\\\\Classes\\\\Directory\\\\Background\\\\shell\\\\OXIS" "Icon" "$INSTDIR\\\\oxis.exe"
+  WriteRegStr HKLM "Software\\\\Classes\\\\Directory\\\\Background\\\\shell\\\\OXIS\\\\command" "" '"$INSTDIR\\\\oxis.exe" "%V"'
   WriteUninstaller "$INSTDIR\\\\Uninstall.exe"
   ; Add to PATH
   ReadRegStr $0 HKLM "SYSTEM\\\\CurrentControlSet\\\\Control\\\\Session Manager\\\\Environment" "Path"
@@ -383,6 +402,8 @@ Section "Uninstall"
   Delete "$DESKTOP\\\\OXIS.lnk"
   DeleteRegKey HKLM "Software\\\\Microsoft\\\\Windows\\\\CurrentVersion\\\\Uninstall\\\\OXIS"
   DeleteRegKey HKLM "Software\\\\OXIS"
+  DeleteRegKey HKLM "Software\\\\Classes\\\\Directory\\\\shell\\\\OXIS"
+  DeleteRegKey HKLM "Software\\\\Classes\\\\Directory\\\\Background\\\\shell\\\\OXIS"
 SectionEnd
 `.trim();
 

@@ -53,7 +53,7 @@ export interface PtyOptions {
   cols:     number;
   rows:     number;
   /** The folder to start the shell in (a restored tab's). */
-  dir?:     string;
+  dir?: string | Promise<string | undefined>;
   onOutput: OutputCallback;
   onReady:  ReadyCallback;
   onExit:   ExitCallback;
@@ -107,11 +107,13 @@ export function openPty(opts: PtyOptions): PtySession {
     }
     if (dead) return;
 
+    const dir = await opts.dir; // the start folder can take a moment to ask for
+    if (dead) return;
     const socket = new WebSocket(url);
     ws = socket;
 
     socket.addEventListener("open", () => {
-      socket.send(JSON.stringify({ type: "init", ...size, ...(opts.dir ? { dir: opts.dir } : {}), ...(opts.shell ? { shell: opts.shell } : {}) }));
+      socket.send(JSON.stringify({ type: "init", ...size, ...(dir ? { dir } : {}), ...(opts.shell ? { shell: opts.shell } : {}) }));
     });
 
     socket.addEventListener("message", (ev) => {

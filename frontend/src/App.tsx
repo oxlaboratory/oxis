@@ -81,7 +81,7 @@ import { exportSettings, importSettings, exportWorkspace, importWorkspace, expor
 import { checkPublishable, findExistingListing, prepareFreePublish, submitPaidPlugin, startConnectOnboarding, requestPluginDeletion } from "./plugins/publish";
 import { commitAll, setupRemote, unlinkRemote, getRemotes, parseGitRemote, cancelActiveCommit, type GitProvider } from "./plugins/git";
 import { loadUserConfig } from "./terminal/userConfig";
-import { userConfigDir, runCommand, flashWindow, listShells, taskbarProgress, pathCommands, appDir, type NativeShell } from "./native";
+import { userConfigDir, runCommand, flashWindow, listShells, taskbarProgress, pathCommands, appDir, startFolder, type NativeShell } from "./native";
 import { completeShell, applyCompletion } from "./terminal/shellComplete";
 import { findLinks, resolveLinkPath, type OutputLink } from "./terminal/outputLinks";
 import { installMacShortcuts } from "./terminal/macKeys";
@@ -6546,7 +6546,8 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
     ptySize.current = measurePtySize() ?? { cols: 120, rows: 30 };
     session.current = openPty({
       ...ptySize.current,
-      dir: restore?.cwd || startDir || undefined,
+      // A fresh start's first tab opens where OXIS was opened ("Open in OXIS").
+      dir: restore?.cwd || startDir || (first ? startFolder().then(f => f || undefined) : undefined),
       shell: shell || restore?.shell || (String(getSetting("shell") ?? "auto") === "auto" ? undefined : String(getSetting("shell"))),
       onOutput,
       onRewind,
@@ -8901,15 +8902,31 @@ export default function App() {
     setTabs(t => t.some(x => x.id === id && x.activity) ? t.map(x => x.id === id ? { ...x, activity: false } : x) : t);
     setView("shell");
   }, []);
-  const newTab = useCallback((shell?: string) => {
+  const newTab = useCallback((shell?: string, dir?: string) => {
     const id = `t${nextTabNumber.current++}`;
     hintFor.current.set(id, tabHint());
     startHere(id);
+    if (dir) dirFor.current.set(id, dir);
     if (shell) shellFor.current.set(id, shell);
     setTabs(t => [...t, oneTab(id, shell ?? "")]);
     setActiveTab(id);
     setView("shell");
   }, []);
+  // "Open in OXIS": a folder handed over by another launch is a new tab
+  // there; with a restored session, the folder OXIS was started with is
+  // too (a fresh start's first tab already opens in it).
+  useEffect(() => {
+    const rt = (window as { runtime?: { EventsOn?: (name: string, cb: (...args: unknown[]) => void) => (() => void) | void } }).runtime;
+    const off = rt?.EventsOn?.("open_folder", (folder) => { if (folder) newTab(undefined, String(folder)); });
+    void startFolder().then(f => {
+      if (!f) return;
+      if (initial.restoreFor.size > 0) newTab(undefined, f);
+      else setView("shell"); // the first tab is already there
+    });
+    return () => { if (typeof off === "function") off(); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Right-click on a "+": a new tab with another shell.
   const [shellMenu, setShellMenu] = useState<{ x: number; y: number; shells: NativeShell[]; split?: "row" | "column"; pane?: string } | null>(null);
   const openShellMenu = useCallback((e: React.MouseEvent, split?: "row" | "column", pane?: string) => {

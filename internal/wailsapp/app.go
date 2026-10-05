@@ -27,8 +27,9 @@ import (
 // App is bound to the frontend as window.go.wailsapp.App.* (the JS
 // namespace follows this package's name, not cmd/oxi's "main").
 type App struct {
-	ctx     context.Context
-	ptyPort int
+	ctx       context.Context
+	ptyPort   int
+	unpublish func() // instance.go: stop being reachable for "Open in OXIS"
 }
 
 func NewApp() *App { return &App{} }
@@ -40,11 +41,15 @@ func (a *App) CheckForUpdate() update.Info { return update.Check(runtime.GOOS) }
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 	cleanupSelfUpdateBackup()
+	a.unpublish = publishInstance(a.ptyPort, func(folder string) { a.openFolder(ctx, folder) })
 }
 
 // shutdown stops what plugins started (processes, watchers, streamed
 // requests) so none of it outlives the window.
 func (a *App) shutdown(_ context.Context) {
+	if a.unpublish != nil {
+		a.unpublish()
+	}
 	stopAllProcesses()
 	streams.reset()
 }
@@ -646,6 +651,15 @@ func (a *App) KillProcess(pid int) error {
 // also serves the same frontend at http://127.0.0.1:1420 for browsers.
 func Run() error {
 	app := NewApp()
+
+	// Started with a folder ("Open in OXIS"): the OXIS already running
+	// opens it, if there is one; else this one does.
+	if folder := folderArg(os.Args[1:]); folder != "" {
+		if handOff(folder) {
+			return nil
+		}
+		startFolder = folder
+	}
 
 	ptyPort, err := server.Listen(1420)
 	if err != nil {

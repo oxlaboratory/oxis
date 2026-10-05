@@ -123,6 +123,7 @@ func Listen(preferredPort int) (port int, err error) {
 		}
 		go luanative.HandleSession(conn)
 	})
+	mux.HandleFunc("/open", handleOpen) // open.go: "Open in OXIS" handing a folder over
 	mux.Handle("/", http.FileServer(http.FS(distFS)))
 
 	go func() {
