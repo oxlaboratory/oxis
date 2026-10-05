@@ -6,6 +6,8 @@ All notable changes to OXIS. The format follows
 ## [Unreleased]
 
 ### Added
+- Right-click a tab: Duplicate Tab (same folder and shell), Close Tab,
+  Close Other Tabs.
 - Setting `startIn`: `terminal` opens straight into the shell instead
   of Home.
 - Setting `copyOnSelect`: selecting output copies it, as in Windows

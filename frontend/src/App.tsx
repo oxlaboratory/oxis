@@ -8811,6 +8811,29 @@ export default function App() {
     setTabs(rest);
     if (id === activeTabRef.current) selectTab(rest[Math.min(i, rest.length - 1)].id);
   }, [newTab, selectTab]);
+  // Right-click on a tab: Duplicate (same folder and shell), Close,
+  // Close Other Tabs.
+  const [tabMenu, setTabMenu] = useState<{ x: number; y: number; id: string } | null>(null);
+  useEffect(() => {
+    if (!tabMenu) return;
+    const close = () => setTabMenu(null);
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") close(); };
+    document.addEventListener("mousedown", close);
+    document.addEventListener("keydown", onKey);
+    return () => { document.removeEventListener("mousedown", close); document.removeEventListener("keydown", onKey); };
+  }, [tabMenu]);
+  const duplicateTab = useCallback((id: string) => {
+    const tab = tabsRef.current.find(x => x.id === id);
+    if (!tab) return;
+    const shell = shellFor.current.get(tab.focus) ?? shellFor.current.get(tab.id);
+    // Selected first, so the new tab starts in this one's folder.
+    selectTab(id);
+    setTimeout(() => newTab(shell), 60);
+  }, [selectTab, newTab]);
+  const closeOtherTabs = useCallback((id: string) => {
+    setTabs(cur => cur.filter(x => x.id === id));
+    selectTab(id);
+  }, [selectTab]);
   const stepTab = useCallback((delta: number) => {
     const t = tabsRef.current;
     const i = t.findIndex(x => x.id === activeTabRef.current);
@@ -9043,6 +9066,7 @@ export default function App() {
                 <div key={t.id} role="tab" aria-selected={t.id === activeTab}
                   className={`term-tab${t.id === activeTab ? " term-tab--active" : ""}`}
                   onMouseDown={e => { if (e.button === 1) { e.preventDefault(); closeTab(t.id); } }}
+                  onContextMenu={e => { e.preventDefault(); setTabMenu({ x: e.clientX, y: e.clientY, id: t.id }); }}
                   onClick={() => selectTab(t.id)}
                   title={`${tabTitle(t)}${i < 9 ? ` (Ctrl+${i + 1})` : ""} — middle-click to close`}>
                   <span className="term-tab-num">{i + 1}</span>
@@ -9053,6 +9077,16 @@ export default function App() {
                 </div>
               ))}
               <button className="term-tabs-new" onClick={() => newTab()} onContextMenu={openShellMenu} title="New tab (Ctrl+T) — right-click for another shell">+</button>
+            </div>
+          )}
+          {tabMenu && (
+            <div className="term-ctx-menu" style={{ left: Math.min(tabMenu.x, window.innerWidth - 200), top: tabMenu.y }}
+              onMouseDown={e => { e.stopPropagation(); e.preventDefault(); }}>
+              <button className="term-ctx-item" onClick={() => { setTabMenu(null); duplicateTab(tabMenu.id); }}>Duplicate Tab</button>
+              <button className="term-ctx-item" onClick={() => { setTabMenu(null); closeTab(tabMenu.id); }}>
+                <span>Close Tab</span><span className="term-ctx-key">Ctrl+Shift+W</span>
+              </button>
+              <button className="term-ctx-item" onClick={() => { setTabMenu(null); closeOtherTabs(tabMenu.id); }}>Close Other Tabs</button>
             </div>
           )}
           {shellMenu && (
