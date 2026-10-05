@@ -954,6 +954,10 @@ version, and restores it automatically if the new one fails to load.
 | **games** | `'pokies` (5 animated reels that stop one by one, 9 paylines, wilds, scatters, free spins, wins that count up, `'pokies auto <n>`), `'blackjack` (double down, split), `'roll <n> [bet]` (the die tumbles, then lands; "yes 5" to go again), `'coinflip` (the coin spins in the air), `'guess`, `'hangman`, `'8ball`, and one chip bank across them (`'chips`). You answer in the prompt; Ctrl+C leaves any table |
 | **monitoring** | `'mon` (live CPU and memory with a sparkline), `'top` and `'watch-mem` (who's using memory and what's growing), `'tail <log>` (followed, errors in red), `'healthcheck <url>… [every n]` (status, latency, up/down), `'alert cpu|mem <percent>` |
 | **autotest** | `'autotest`: re-runs the project's tests on every save (npm, Go, Cargo or pytest found by itself) and says in one line whether they pass |
+| **scripts** | `'scripts`: the project's package.json scripts (with what each runs) and Makefile targets, numbered — type a number or name to run one; `'scripts <name>` runs it straight away |
+| **docker** | `'containers` (running containers, kept current until Ctrl+C; `'containers all` for stopped ones too), `'dlogs <name>` (logs that stream), `'dprune` (asks, then prunes) |
+| **json** | `'json <file> [path]` (indented, coloured, or one value: `scripts.build`, `items[0].name`), `'json-check <file>` |
+| **timer** | `'timer 25m [what for]` (a countdown with a bar, ticking in place), `'pomodoro [25m] [5m]` (rounds of work and breaks); Ctrl+C stops |
 | **ai-devops** | Premium: an AI assistant for the terminal and editor |
 
 **Publishing.** `'plugin publish <name>` validates the plugin (a

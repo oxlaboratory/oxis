@@ -6,6 +6,11 @@ All notable changes to OXIS. The format follows
 ## [Unreleased]
 
 ### Added
+- Four more Market plugins: **scripts** (run a project's package.json
+  scripts and Makefile targets from a numbered list), **docker** (a live
+  container list, streamed logs, prune after asking), **json**
+  (pretty-print, validate and query JSON files) and **timer** (a
+  countdown that ticks in place, and pomodoro).
 - Scrolled up into a command's output, its command line stays pinned at
   the top (click it to jump there).
 - Fold a command's output: hover its line and click ▾; it shows

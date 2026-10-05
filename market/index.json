@@ -34,6 +34,73 @@
     "minOxisVersion": "1.2.1"
   },
   {
+    "name": "scripts",
+    "desc": "Lists what a project can run — package.json scripts and Makefile targets — numbered, and runs the one you pick.",
+    "category": "devops",
+    "version": "1.0.0",
+    "author": "Oxide Labs",
+    "file": "plugins/scripts.lua",
+    "size": 3316,
+    "permissions": [
+      "fs",
+      "shell"
+    ],
+    "os": [
+      "windows",
+      "unix"
+    ],
+    "minOxisVersion": "1.2.1"
+  },
+  {
+    "name": "timer",
+    "desc": "A countdown that ticks in place ('timer 25m tea), and pomodoro rounds of work and breaks. Ctrl+C stops.",
+    "category": "productivity",
+    "version": "1.0.0",
+    "author": "Oxide Labs",
+    "file": "plugins/timer.lua",
+    "size": 3125,
+    "permissions": [],
+    "os": [
+      "windows",
+      "unix"
+    ],
+    "minOxisVersion": "1.2.1"
+  },
+  {
+    "name": "docker",
+    "desc": "Your containers at a glance — a live list that updates in place, logs that stream, and a prune that asks first.",
+    "category": "devops",
+    "version": "1.0.0",
+    "author": "Oxide Labs",
+    "file": "plugins/docker.lua",
+    "size": 3666,
+    "permissions": [
+      "shell"
+    ],
+    "os": [
+      "windows",
+      "unix"
+    ],
+    "minOxisVersion": "1.2.1"
+  },
+  {
+    "name": "json",
+    "desc": "Pretty-prints a JSON file in colour, says whether it's valid, and pulls out one value with a path like scripts.build or items[0].name.",
+    "category": "dev",
+    "version": "1.0.0",
+    "author": "Oxide Labs",
+    "file": "plugins/json.lua",
+    "size": 3906,
+    "permissions": [
+      "fs"
+    ],
+    "os": [
+      "windows",
+      "unix"
+    ],
+    "minOxisVersion": "1.2.1"
+  },
+  {
     "name": "ai-devops",
     "desc": "Explain, fix, generate, review and debug code, turn requests into shell commands, and scaffold Lua plugins. Works with any OpenAI-compatible API, or a local model with no key.",
     "category": "ai",
