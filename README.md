@@ -477,8 +477,8 @@ Windows Terminal do. With it:
   `✗` and the exit code, plus how long it took if that was a second or
   more. Hover it for the details.
 - **Ctrl+↑ / Ctrl+↓** jump to the previous / next command.
-- Right-click a command's output: **Copy Output** or **Copy Command and
-  Output** copies just that command's part.
+- Right-click a command's output: **Run Again**, **Copy Command**,
+  **Copy Output** or **Copy Command and Output**.
 - A command that ran 10 seconds or more and finishes while OXIS is in
   the background flashes its taskbar button (setting `notifyAfter`).
 - OXIS follows the directory exactly (`cd`, `z`, `Push-Location`,

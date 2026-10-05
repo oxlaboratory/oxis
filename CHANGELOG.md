@@ -47,8 +47,9 @@ All notable changes to OXIS. The format follows
 - A long command (10 s or more, setting `notifyAfter`) that finishes
   while OXIS is in the background flashes its taskbar button on Windows
   until you come back.
-- Right-click a command's output for **Copy Output** or **Copy Command
-  and Output**: that command's lines, up to the next one.
+- Right-click a command's output for **Run Again**, **Copy Command**
+  (as typed, without the prompt), **Copy Output** or **Copy Command and
+  Output**.
 - Suggestions from history as you type, as in fish: the rest of the
   newest command starting with what's typed shows dim after the cursor,
   and →, End, Ctrl+F or Ctrl+E at the end of the line takes it.

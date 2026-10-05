@@ -90,6 +90,8 @@ export interface Line {
   /** On the line where a command was run: how it ended (from the
    *  shell's integration mark) and how long it took. */
   status?: { code: number; ms: number };
+  /** On that line: the command itself, as typed (without the prompt). */
+  command?: string;
 }
 
 let _lid = 0;

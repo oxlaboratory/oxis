@@ -5519,7 +5519,7 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
       return tip ? [...initialLines(), mkLine(tip, "dim")] : initialLines();
     }
     // The last session's output, then a line saying where it ends.
-    const back = restore.lines.map(l => ({ ...mkLine(l.text, l.kind), spans: l.spans, status: l.status }));
+    const back = restore.lines.map(l => ({ ...mkLine(l.text, l.kind), spans: l.spans, status: l.status, command: l.command }));
     return [...back, mkLine(""), mkLine(`  ── restored from your last session${restore.cwd ? ` · ${restore.cwd}` : ""} ──`, "dim"), mkLine("")];
   });
   const [ready,      setReady]      = useState(false);
@@ -5551,7 +5551,7 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
   const [searchResult, setSearchResult] = useState<SearchResult | null>(null);
 
   // ── right-click menu on the output (null = closed) ──────────
-  const [outputMenu, setOutputMenu] = useState<{ x: number; y: number; hasSel: boolean; block?: { command: string; output: string } } | null>(null);
+  const [outputMenu, setOutputMenu] = useState<{ x: number; y: number; hasSel: boolean; block?: { command: string; output: string; typed?: string } } | null>(null);
 
   // ── find in output (Ctrl+Shift+F) — searches the scrollback, unlike
   // Ctrl+R, which searches command history. ─────────────────────────
@@ -5984,7 +5984,7 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
     // The command under the mouse, for Copy Output.
     const id = Number((e.target as Element).closest?.("[data-line-id]")?.getAttribute("data-line-id"));
     const found = Number.isFinite(id) ? commandBlockAt(linesRef.current, id) : null;
-    const block = found ? { command: found.command.text.trimEnd(), output: found.output.map(l => l.text).join("\n") } : undefined;
+    const block = found ? { command: found.command.text.trimEnd(), output: found.output.map(l => l.text).join("\n"), typed: found.command.command } : undefined;
     setOutputMenu({ x, y, hasSel: outputSelectionText().length > 0, block });
   }, [outputSelectionText]);
 
@@ -6256,16 +6256,16 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
   }, [scheduleFlush]);
 
   /** Sets the status shown after a line (see CommandStatus). */
-  const setLineStatus = useCallback((id: number, status: { code: number; ms: number }) => {
+  const setLineStatus = useCallback((id: number, status: { code: number; ms: number }, command?: string) => {
     const q = outQueue.current;
     const qi = q.findIndex(l => l.id === id);
-    if (qi >= 0) { q[qi] = { ...q[qi], status }; scheduleFlush(); return; }
+    if (qi >= 0) { q[qi] = { ...q[qi], status, command }; scheduleFlush(); return; }
     setLines(prev => {
       let i = prev.length - 1;
       while (i >= 0 && prev[i].id !== id) i--;
       if (i < 0) return prev;
       const next = prev.slice();
-      next[i] = { ...prev[i], status };
+      next[i] = { ...prev[i], status, command };
       linesRef.current = next;
       return next;
     });
@@ -6297,7 +6297,7 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
     // run that ends with it (the shell's echo of it).
     const all = linesRef.current.concat(outQueue.current);
     const echo = all.find(l => l.id >= cmd.afterId && l.text.trimEnd().endsWith(cmd.text));
-    if (echo) setLineStatus(echo.id, status);
+    if (echo) setLineStatus(echo.id, status, cmd.text);
     events.emit("shell_command_done", { command: cmd.text, code: status.code, ms: Math.round(status.ms) });
   }, [setLineStatus]);
 
@@ -7436,6 +7436,12 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
           <button className="term-ctx-item" onClick={() => void pasteIntoPrompt()}>
             <span>Paste</span><span className="term-ctx-key">Ctrl+V</span>
           </button>
+          {outputMenu.block?.typed && (<>
+            <button className="term-ctx-item" onClick={() => { const cmd = outputMenu.block!.typed!; setOutputMenu(null); runLine(cmd); }}>
+              <span>Run Again</span><span className="term-ctx-key">{outputMenu.block.typed.length > 24 ? outputMenu.block.typed.slice(0, 23) + "…" : outputMenu.block.typed}</span>
+            </button>
+            <button className="term-ctx-item" onClick={() => { const cmd = outputMenu.block!.typed!; setOutputMenu(null); void copyToClipboard(cmd); events.emit("status_flash", { text: "copied the command" }); }}>Copy Command</button>
+          </>)}
           {outputMenu.block && (<>
             <button className="term-ctx-item" onClick={() => copyBlock(false)}>Copy Output</button>
             <button className="term-ctx-item" onClick={() => copyBlock(true)}>Copy Command and Output</button>

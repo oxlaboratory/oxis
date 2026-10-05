@@ -9,7 +9,7 @@
 
 import type { Line } from "./terminal";
 
-export interface SavedLine { text: string; kind?: Line["kind"]; spans?: Line["spans"]; status?: Line["status"] }
+export interface SavedLine { text: string; kind?: Line["kind"]; spans?: Line["spans"]; status?: Line["status"]; command?: string }
 export interface SavedTab {
   title: string;
   cwd: string;
@@ -52,6 +52,7 @@ export function takeLines(lines: Line[]): SavedLine[] {
     if (l.kind) out.kind = l.kind;
     if (l.spans) out.spans = l.spans;
     if (l.status) out.status = l.status;
+    if (l.command) out.command = l.command;
     return out;
   });
 }
