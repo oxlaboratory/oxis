@@ -6,6 +6,8 @@ All notable changes to OXIS. The format follows
 ## [Unreleased]
 
 ### Added
+- The command palette (Ctrl+Shift+P) also finds shell commands you've
+  run before; choosing one runs it again.
 - Five more Market plugins: **git-tools** (recent branches to switch
   to, a cleanup of merged branches, undo the last commit), **scripts** (run a project's package.json
   scripts and Makefile targets from a numbered list), **docker** (a live
@@ -543,6 +545,8 @@ All notable changes to OXIS. The format follows
 - The npm launcher downloads from the GitHub `latest-build` release.
 
 ### Fixed
+- Ctrl+Shift+P didn't open the command palette while the prompt had
+  the keyboard (it did from everywhere else).
 - Each tab keeps its own shell's kind (PowerShell, bash, cmd…), so with
   different shells in different tabs, commands and the directory probe
   are written for the right one. cmd now reports its folder too, WSL's

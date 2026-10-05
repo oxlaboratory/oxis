@@ -8647,6 +8647,23 @@ function CommandPalette({ onRun, onClose }: { onRun: (cmd: string) => void; onCl
       .sort((a, b) => b.score - a.score || a.c.name.localeCompare(b.c.name));
     return scored.slice(0, 50).map(r => r.c);
   }, [query]);
+  // Shell commands run before that match, newest first: the palette as
+  // a launcher too. They run as they were typed.
+  const recent = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (q.length < 2) return [] as string[];
+    const seen = new Set<string>();
+    const out: string[] = [];
+    const all = history.all();
+    for (let i = all.length - 1; i >= 0 && out.length < 15; i--) {
+      const line = all[i].trim();
+      if (!line || line.startsWith("'") || seen.has(line) || !line.toLowerCase().includes(q)) continue;
+      seen.add(line);
+      out.push(line);
+    }
+    return out;
+  }, [query]);
+  const total = results.length + recent.length;
 
   useEffect(() => { setSelected(0); }, [query]);
 
@@ -8675,15 +8692,16 @@ function CommandPalette({ onRun, onClose }: { onRun: (cmd: string) => void; onCl
 
   const onKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === "Escape") { e.preventDefault(); onClose(); return; }
-    if (e.key === "ArrowDown") { e.preventDefault(); setSelected(i => Math.min(i + 1, results.length - 1)); return; }
+    if (e.key === "ArrowDown") { e.preventDefault(); setSelected(i => Math.min(i + 1, total - 1)); return; }
     if (e.key === "ArrowUp")   { e.preventDefault(); setSelected(i => Math.max(i - 1, 0)); return; }
     if (e.key === "Enter") {
       e.preventDefault();
       const entry = results[selected];
       if (entry) run(entry.name);
+      else if (recent[selected - results.length]) onRun(recent[selected - results.length]);
       return;
     }
-  }, [results, selected, run, onClose]);
+  }, [results, recent, total, selected, run, onRun, onClose]);
 
   return (
     <div className="cmdp-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
@@ -8693,7 +8711,7 @@ function CommandPalette({ onRun, onClose }: { onRun: (cmd: string) => void; onCl
           <input
             ref={inputRef}
             className="cmdp-input"
-            placeholder="Search commands…"
+            placeholder="Search commands, and commands you've run…"
             value={query}
             onChange={e => setQuery(e.target.value)}
             onKeyDown={onKeyDown}
@@ -8701,7 +8719,7 @@ function CommandPalette({ onRun, onClose }: { onRun: (cmd: string) => void; onCl
           <span className="cmdp-hint">↑↓ navigate · ↵ run · esc close</span>
         </div>
         <div className="cmdp-list">
-          {results.length === 0 && <div className="cmdp-empty">no matching commands</div>}
+          {total === 0 && <div className="cmdp-empty">no matching commands</div>}
           {results.map((c, i) => (
             <div
               key={c.name}
@@ -8715,6 +8733,19 @@ function CommandPalette({ onRun, onClose }: { onRun: (cmd: string) => void; onCl
               <span className="cmdp-item-cat">{c.category}</span>
             </div>
           ))}
+          {recent.map((line, k) => {
+            const i = results.length + k;
+            return (
+              <div key={`h:${line}`} ref={i === selected ? selectedItemRef : undefined}
+                className={`cmdp-item${i === selected ? " cmdp-item--selected" : ""}`}
+                onMouseEnter={() => setSelected(i)}
+                onMouseDown={e => { e.preventDefault(); onRun(line); }}>
+                <span className="cmdp-item-name">{line}</span>
+                <span className="cmdp-item-desc">run it again</span>
+                <span className="cmdp-item-cat">history</span>
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>
@@ -9052,8 +9083,9 @@ export default function App() {
         setCommandPaletteOpen(o => !o);
       }
     };
-    window.addEventListener("keydown", onWindowKeyDown);
-    return () => window.removeEventListener("keydown", onWindowKeyDown);
+    // Capture phase: the prompt stops its keys from bubbling.
+    window.addEventListener("keydown", onWindowKeyDown, true);
+    return () => window.removeEventListener("keydown", onWindowKeyDown, true);
   }, [themeEditorName]);
 
   useEffect(() => {
