@@ -368,7 +368,7 @@ scrolls above it and never goes underneath it.
 ### Opening a folder in OXIS
 
 The Windows installer adds **Open in OXIS** to Explorer's right-click
-menu, on a folder and on the empty space inside one. `oxis C:\devpi`
+menu, on a folder and on the empty space inside one. `oxis C:\dev\api`
 does the same from anywhere. The folder opens as a terminal tab — in the
 OXIS that's already running, which comes to the front, or in a new one.
 
