@@ -6,6 +6,9 @@ All notable changes to OXIS. The format follows
 ## [Unreleased]
 
 ### Added
+- A summon key: **`` Win+` ``** brings OXIS to the front from any
+  program, ready to type, and pressed again tucks it away (Windows;
+  setting `summonKey`, e.g. `Ctrl+Alt+T`, or empty for none).
 - **Open in OXIS**: the Windows installer adds it to Explorer's
   right-click menu (folders, and the space inside one), and
   `oxis <folder>` works from anywhere. The folder opens as a tab in the

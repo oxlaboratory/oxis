@@ -44,6 +44,7 @@ declare global {
           OpenURL?: (url: string) => Promise<void>;
           WriteClipboard?: (text: string) => Promise<void>;
           FlashWindow?: () => Promise<boolean>;
+          SetSummonKey?: (spec: string) => Promise<string>;
           PathCommands?: () => Promise<string[]>;
           StartFolder?: () => Promise<string>;
           TaskbarProgress?: (state: number, pct: number) => Promise<boolean>;
@@ -358,6 +359,13 @@ export async function writeClipboard(text: string): Promise<void> {
 export async function flashWindow(): Promise<boolean> {
   const fn = window.go?.wailsapp?.App?.FlashWindow;
   return fn ? fn() : false;
+}
+
+/** Holds a key from anywhere that brings OXIS to the front ("" lets
+ *  it go). Answers "" or why the key couldn't be had. */
+export async function setSummonKey(spec: string): Promise<string> {
+  const fn = window.go?.wailsapp?.App?.SetSummonKey;
+  return fn ? fn(spec) : "";
 }
 
 /** A program's progress (OSC 9;4) on the taskbar button (Windows):

@@ -426,6 +426,9 @@ new tab, ⌘= zoom, ⌘S save in the editor, ⌘K clear, ⌘F search the
 output), while Ctrl stays the shell's (Ctrl+C interrupts) and ⌘C ⌘V
 are copy and paste.
 
+On Windows, **`` Win+` ``** brings OXIS to the front from any program,
+ready to type, and tucks it away again (setting `summonKey`).
+
 | Key | Action |
 |---|---|
 | ↑ / ↓, Ctrl+P / Ctrl+N | Previous / next command. If you typed something first, only commands starting with it are shown. |
@@ -1393,6 +1396,7 @@ printed in the terminal and listed by `'diagnostics`.
 | `copyOnSelect` | `false` | Copy output text as soon as it's selected with the mouse |
 | `newShellHere` | `true` | Open a new tab or split pane in the focused pane's folder, not the default one |
 | `shell` | `auto` | The shell new tabs and panes start: `auto`, or a name `'shell` lists (`gitbash`, `wsl`, `cmd`, `pwsh`, `zsh`…) |
+| `summonKey` | `` Win+` `` | A key that works from any program: OXIS comes to the front ready to type, or is tucked away when it's already there (Windows). Like `Ctrl+Alt+T` or `Alt+Space`; empty turns it off. If another program holds it (Windows Terminal holds that key while it runs), pick another |
 | `notifyAfter` | `10` | When a command that ran this many seconds or more finishes while OXIS is in the background, flash its taskbar button (Windows); `0` turns it off |
 | `restoreSession` | `true` | Bring back tabs, their directories and output, open files and unsaved text at startup |
 | `editorSuggest` | `true` | Suggest words and keywords while typing in the editor |

@@ -81,7 +81,7 @@ import { exportSettings, importSettings, exportWorkspace, importWorkspace, expor
 import { checkPublishable, findExistingListing, prepareFreePublish, submitPaidPlugin, startConnectOnboarding, requestPluginDeletion } from "./plugins/publish";
 import { commitAll, setupRemote, unlinkRemote, getRemotes, parseGitRemote, cancelActiveCommit, type GitProvider } from "./plugins/git";
 import { loadUserConfig } from "./terminal/userConfig";
-import { userConfigDir, runCommand, flashWindow, listShells, taskbarProgress, pathCommands, appDir, startFolder, type NativeShell } from "./native";
+import { userConfigDir, runCommand, flashWindow, listShells, taskbarProgress, pathCommands, appDir, startFolder, setSummonKey, type NativeShell } from "./native";
 import { completeShell, applyCompletion } from "./terminal/shellComplete";
 import { findLinks, resolveLinkPath, type OutputLink } from "./terminal/outputLinks";
 import { installMacShortcuts } from "./terminal/macKeys";
@@ -376,11 +376,31 @@ const SETTINGS: SettingDef[] = [
     apply: () => { /* read when a command finishes */ },
   },
   {
+    key: "summonKey", label: "Summon Key", default: "Win+`",
+    description: "A key that works from any program: it brings OXIS to the front, ready to type, or tucks it away when it's already there (Windows). Like Win+`, Ctrl+Alt+T or Alt+Space; empty turns it off",
+    apply: v => applySummonKey(String(v)),
+  },
+  {
     key: "updateCheckOnStartup", label: "Check for Updates", default: true,
     description: "Check for a newer OXIS build on startup",
     apply: () => { /* read by latestUpdateCheck() */ },
   },
 ];
+
+/** The summon key: held by OXIS for as long as it runs. Only when it
+ *  changes (settings are applied again on every theme change); a key
+ *  another program holds is said once, in the status bar. */
+let summonApplied: string | undefined;
+function applySummonKey(spec: string): void {
+  spec = spec.trim();
+  if (spec === summonApplied) return;
+  summonApplied = spec;
+  void setSummonKey(spec).then(err => {
+    // The default being taken (Windows Terminal holds Win+`) isn't news
+    // on every start; a key the user chose is.
+    if (err && isSettingSet("summonKey")) events.emit("status_flash", { text: `summon key: ${err} — 'config set summonKey <keys>` });
+  });
+}
 
 function settingDef(key: string): SettingDef | undefined {
   return SETTINGS.find(s => s.key.toLowerCase() === key.toLowerCase());
@@ -8918,12 +8938,17 @@ export default function App() {
   useEffect(() => {
     const rt = (window as { runtime?: { EventsOn?: (name: string, cb: (...args: unknown[]) => void) => (() => void) | void } }).runtime;
     const off = rt?.EventsOn?.("open_folder", (folder) => { if (folder) newTab(undefined, String(folder)); });
+    // Brought to the front by the summon key: ready to type.
+    const offSummon = rt?.EventsOn?.("summoned", () => setTimeout(() => events.emit("focus_prompt"), 50));
     void startFolder().then(f => {
       if (!f) return;
       if (initial.restoreFor.size > 0) newTab(undefined, f);
       else setView("shell"); // the first tab is already there
     });
-    return () => { if (typeof off === "function") off(); };
+    return () => {
+      if (typeof off === "function") off();
+      if (typeof offSummon === "function") offSummon();
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
