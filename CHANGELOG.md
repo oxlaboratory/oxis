@@ -424,9 +424,10 @@ All notable changes to OXIS. The format follows
   of every built-in theme.
 
 ### Changed
-- A new icon: the hexagon is wider, filling its square (it looked thin
-  in the taskbar), in deeper two-tone greens with darker facets; the
-  same everywhere the logo is drawn.
+- A new logo and icon: a round O folded like a ribbon — a deep green
+  half and a bright one, crossing over at the top and under at the
+  bottom — filling its square, so it stands as tall as the icons beside
+  it in the taskbar. The same everywhere the logo is drawn.
 - A plugin asking for a permission asks in the prompt ("🔐 X wants to
   make network requests. Allow? (yes / no)") instead of a system dialog
   that froze the whole window. Animations, other panes and other

@@ -40,7 +40,7 @@
 
 <br><br>
 
-<img src="assets/demo.gif" width="100%" alt="A real OXIS session: Home under a pixel-art sun and drifting clouds; git log and status in the real shell, then quick select labelling the hashes and paths on screen and copying one; the editor catching a missing bracket as it's typed, suggesting a function name, Vim's Visual mode and the file tree's right-click menu; a split with the project's tests passing and one command broadcast to both panes; an image shown in the output with 'imgcat; installing games from the Market, a die that tumbles and asks to roll again, a pokie machine's spinning reels; live CPU and memory stopped with Ctrl+C; the Settings window searched for sound; and a switch to the ember theme">
+<img src="assets/demo.gif" width="100%" alt="A real OXIS session: Home under a pixel-art sun and drifting clouds; git log and status in the real shell, then quick select labelling the hashes and paths on screen and copying one; the editor catching a missing bracket as it's typed, suggesting a function name, Vim's Visual mode and the file tree's right-click menu; a split with the project's tests passing and one command broadcast to both panes; an image shown in the output with 'imgcat; triggers highlighting an ERROR line and the server's "listening on"; installing games from the Market, a die that tumbles and asks to roll again, a pokie machine's spinning reels; live CPU and memory stopped with Ctrl+C; the Settings window searched for sound; and a switch to the ember theme">
 
 <sub>▲ Recorded from the app itself: every frame is OXIS running those commands in a real project.</sub>
 
@@ -65,9 +65,13 @@ and changed.
   of one, with tabs, split panes, full colour, and programs like vim,
   htop and lazygit. Tab completes files, git branches and npm scripts
   in any shell, history suggests the rest of a command as you type, and
-  `src/app.ts:12:5` in a compiler error opens the editor right there. A
-  line that starts with `'` is an OXIS command (`'help` lists them);
-  everything else goes to your shell.
+  `src/app.ts:12:5` in a compiler error opens the editor right there.
+  Ctrl+Shift+Space copies any URL, path or hash on screen with two keys,
+  `'trigger` lights up the log lines that matter, `'broadcast` types into
+  every pane at once, `'record` saves a session as an asciinema cast and
+  `'imgcat` shows an image in the output. A line that starts with `'` is
+  an OXIS command (`'help` lists them); everything else goes to your
+  shell.
 - **An editor for code and documents.** `'edit` opens any file: errors
   underlined as you type, suggestions, search across the project
   (Ctrl+Shift+F), a live preview for HTML and Markdown, and Vim modes or
@@ -81,9 +85,10 @@ and changed.
   document. More are in the [Market](https://oxis.space/#market).
 - **Workspaces.** Every project keeps its own folder, tasks, plugins,
   git repository and history; `'workspace switch api` moves between them.
-- **Change anything.** Themes with 78 settings each and a live editor,
-  the prompt, the keys, the layout, the Home screen and its pixel-art
-  sky — and whatever a plugin adds.
+- **Change anything.** A Settings window (Ctrl+,), themes with 78
+  settings each and a live editor, sound effects you can swap for your
+  own, the prompt, the keys, the layout, the Home screen and its
+  pixel-art sky — and whatever a plugin adds.
 
 **Who it's for:** people who work in a terminal and want a project's
 commands, files and automation in one place they can shape to fit.
