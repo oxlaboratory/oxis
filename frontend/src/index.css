@@ -9,18 +9,18 @@
   --bg3:     #292e42;
   --bg4:     #31364a;
   --border:  #2a2f45;
-  --border2: #3dff64;
+  --border2: #3fdc73;
   --text:    #c0caf5;
   --muted:   #7a809b;
   --dim:     #565f89;
   --comment: #414868;
-  --purple:  #3dff64;
-  --purple2: #29d84e;
-  --purple3: #7dff9a;
+  --purple:  #3fdc73;
+  --purple2: #2bb35e;
+  --purple3: #7dfdab;
   --grey:    #9aa5ce;
   --grey2:   #565f89;
-  --accent:  #3dff64;
-  --green:   #3dff64;
+  --accent:  #3fdc73;
+  --green:   #3fdc73;
   --err:     #f7768e;
   --warn:    #ff9e64;
   --font: 'JetBrains Mono', 'Cascadia Code', Consolas, monospace;
@@ -985,6 +985,8 @@ button.editor-mode:hover { filter: brightness(1.25); }
     4px 4px 0 0 color-mix(in srgb, #000 30%, transparent);
 }
 .oxis-box--lit { --frame: color-mix(in srgb, var(--purple3) 55%, var(--border2)); }
+/* Get started: a shade deeper than the workspace box above it. */
+.oxis-help-box { background: color-mix(in srgb, var(--bg1) 86%, #000 14%); }
 .oxis-box-title {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
   margin: -6px -12px 5px; padding: 3px 12px;

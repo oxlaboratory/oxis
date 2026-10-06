@@ -208,12 +208,13 @@ export function resolveColor(t: Theme, value: ThemeValue): string {
 
 // Builtin theme definitions (JSON-equivalent objects)
 const BUILTINS: Record<string, Theme> = {
+  // The accents are the logo's greens (the O's bright and deep halves).
   default: {
     bg:"#1a1b26",bg1:"#16161e",bg2:"#1f2335",bg3:"#292e42",bg4:"#31364a",
-    border:"#2a2f45",border2:"#3dff64",
+    border:"#2a2f45",border2:"#3fdc73",
     text:"#c0caf5",muted:"#7a809b",dim:"#565f89",comment:"#414868",
-    purple:"#3dff64",purple2:"#29d84e",purple3:"#7dff9a",grey:"#9aa5ce",grey2:"#565f89",
-    success:"#3dff64",
+    purple:"#3fdc73",purple2:"#2bb35e",purple3:"#7dfdab",grey:"#9aa5ce",grey2:"#565f89",
+    success:"#3fdc73",
   },
   midnight: {
     bg:"#080810",bg1:"#0d0d18",bg2:"#121220",bg3:"#1a1a2e",bg4:"#22223a",

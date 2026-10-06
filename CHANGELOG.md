@@ -441,6 +441,9 @@ All notable changes to OXIS. The format follows
   of every built-in theme.
 
 ### Changed
+- The default theme's greens are the logo's: the accent #3fdc73, the
+  status bar #2bb35e and links #7dfdab (the background is as it was).
+  Home's Get started box is a shade darker than the workspace box.
 - A new logo and icon: a round O folded like a ribbon — a deep green
   half and a bright one, crossing over at the top and under at the
   bottom — filling its square, so it stands as tall as the icons beside
