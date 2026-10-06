@@ -86,7 +86,7 @@ import { exportSettings, importSettings, exportWorkspace, importWorkspace, expor
 import { checkPublishable, findExistingListing, prepareFreePublish, submitPaidPlugin, startConnectOnboarding, requestPluginDeletion } from "./plugins/publish";
 import { commitAll, setupRemote, unlinkRemote, getRemotes, parseGitRemote, cancelActiveCommit, type GitProvider } from "./plugins/git";
 import { loadUserConfig } from "./terminal/userConfig";
-import { userConfigDir, runCommand, flashWindow, listShells, taskbarProgress, pathCommands, appDir, startFolder, setSummonKey, type NativeShell } from "./native";
+import { userConfigDir, runCommand, flashWindow, desktopNotify, listShells, taskbarProgress, pathCommands, appDir, startFolder, setSummonKey, type NativeShell } from "./native";
 import { completeShell, applyCompletion } from "./terminal/shellComplete";
 import { findLinks, resolveLinkPath, type OutputLink } from "./terminal/outputLinks";
 import { installMacShortcuts } from "./terminal/macKeys";
@@ -383,8 +383,13 @@ const SETTINGS: SettingDef[] = [
     apply: () => { /* read when a tab or pane opens */ },
   },
   {
+    key: "desktopNotify", label: "Desktop Notifications", default: true,
+    description: "When a long command (see Flash When Done) finishes, or a 'trigger with notify fires, while OXIS is in the background, show a desktop notification saying how it ended",
+    apply: () => { /* read when a command finishes */ },
+  },
+  {
     key: "notifyAfter", label: "Flash When Done", default: 10,
-    description: "When a command that ran this many seconds or more finishes while OXIS is in the background, flash its taskbar button (Windows). 0 turns it off",
+    description: "When a command that ran this many seconds or more finishes while OXIS is in the background, flash its taskbar button (Windows) and show a desktop notification. 0 turns it off",
     apply: () => { /* read when a command finishes */ },
   },
   {
@@ -6610,8 +6615,12 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
       hits.colors.forEach((c, i) => { shown[i].highlight = c; });
       hits.sounds.forEach(s => playSound(s));
       if (hits.notices.length) {
-        events.emit("status_flash", { text: `⚑ ${hits.notices[hits.notices.length - 1]}` });
-        if (!document.hasFocus()) void flashWindow();
+        const line = hits.notices[hits.notices.length - 1];
+        events.emit("status_flash", { text: `⚑ ${line}` });
+        if (!document.hasFocus()) {
+          void flashWindow();
+          if (getSetting("desktopNotify") !== false) void desktopNotify("OXIS trigger", line);
+        }
       }
     }
     queueLines(shown);
@@ -6699,7 +6708,15 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
     const status = { code: Number(done[1] ?? 0), ms: performance.now() - cmd.startedAt };
     // A long build or test run finished while you were elsewhere.
     const after = Number(getSetting("notifyAfter"));
-    if (after > 0 && status.ms >= after * 1000 && !document.hasFocus()) void flashWindow();
+    if (after > 0 && status.ms >= after * 1000 && !document.hasFocus()) {
+      void flashWindow();
+      // …and says so on the desktop, with how it ended and how long it took.
+      if (getSetting("desktopNotify") !== false) {
+        const ok = status.code === 0;
+        const short = cmd.text.length > 60 ? cmd.text.slice(0, 57) + "…" : cmd.text;
+        void desktopNotify(`${ok ? "✓" : "✗"} ${short}`, `${ok ? "Finished" : `Failed (exit ${status.code})`} after ${formatDuration(status.ms)}`);
+      }
+    }
     // The status goes on the command's line: the first line since it was
     // run that ends with it (the shell's echo of it).
     const all = linesRef.current.concat(outQueue.current);

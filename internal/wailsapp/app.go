@@ -108,6 +108,10 @@ func (a *App) TaskbarProgress(state, pct int) bool { return taskbarProgress(stat
 // or OXIS is already in front.
 func (a *App) FlashWindow() bool { return flashWindow() }
 
+// Notify shows a desktop notification (a long command finished while
+// OXIS was in the background, a trigger fired): true if one was shown.
+func (a *App) Notify(title, body string) bool { return showNotification(title, body) }
+
 // pluginsDir returns (creating if needed) the folder user and
 // market-installed Lua plugins live in, under AppDirPath.
 func pluginsDir() (string, error) {

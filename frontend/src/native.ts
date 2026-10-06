@@ -44,6 +44,7 @@ declare global {
           OpenURL?: (url: string) => Promise<void>;
           WriteClipboard?: (text: string) => Promise<void>;
           FlashWindow?: () => Promise<boolean>;
+          Notify?: (title: string, body: string) => Promise<boolean>;
           SetSummonKey?: (spec: string) => Promise<string>;
           PathCommands?: () => Promise<string[]>;
           StartFolder?: () => Promise<string>;
@@ -374,6 +375,13 @@ export async function flashWindow(): Promise<boolean> {
 export async function setSummonKey(spec: string): Promise<string> {
   const fn = window.go?.wailsapp?.App?.SetSummonKey;
   return fn ? fn(spec) : "";
+}
+
+/** A desktop notification (a toast on Windows, notify-send on Linux,
+ *  the notifier on macOS); false when none could be shown. */
+export async function desktopNotify(title: string, body: string): Promise<boolean> {
+  const fn = window.go?.wailsapp?.App?.Notify;
+  return fn ? fn(title, body) : false;
 }
 
 /** A program's progress (OSC 9;4) on the taskbar button (Windows):

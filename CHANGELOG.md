@@ -6,6 +6,11 @@ All notable changes to OXIS. The format follows
 ## [Unreleased]
 
 ### Added
+- Desktop notifications: a long command finishing while OXIS is in the
+  background (setting `notifyAfter`), or a `'trigger … notify`, shows a
+  notification saying how it ended and how long it took — a toast on
+  Windows (through the notification area, no PowerShell), `notify-send`
+  on Linux, the notifier on macOS. Setting `desktopNotify`.
 - Ctrl+Shift+Enter zooms a pane to fill its tab, and back (⤢ on the
   pane too). Ctrl+Shift+T reopens the last closed tab — its folders,
   shells, split, name and recent output (the tab menu has it too).

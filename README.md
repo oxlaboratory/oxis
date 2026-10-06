@@ -1513,7 +1513,8 @@ played from there, and the shell list shows the shells you have.
 | `newShellHere` | `true` | Open a new tab or split pane in the focused pane's folder, not the default one |
 | `shell` | `auto` | The shell new tabs and panes start: `auto`, or a name `'shell` lists (`gitbash`, `wsl`, `cmd`, `pwsh`, `zsh`…) |
 | `summonKey` | `` Win+` `` | A key that works from any program: OXIS comes to the front ready to type, or is tucked away when it's already there (Windows). Like `Ctrl+Alt+T` or `Alt+Space`; empty turns it off. If another program holds it (Windows Terminal holds that key while it runs), pick another |
-| `notifyAfter` | `10` | When a command that ran this many seconds or more finishes while OXIS is in the background, flash its taskbar button (Windows); `0` turns it off |
+| `notifyAfter` | `10` | When a command that ran this many seconds or more finishes while OXIS is in the background, flash its taskbar button (Windows) and show a desktop notification; `0` turns it off |
+| `desktopNotify` | `true` | Those desktop notifications (a toast on Windows, `notify-send` on Linux, the notifier on macOS): how the command ended and how long it took, or the line a `'trigger … notify` matched |
 | `restoreSession` | `true` | Bring back tabs, their directories and output, open files and unsaved text at startup |
 | `editorSuggest` | `true` | Suggest words and keywords while typing in the editor |
 
