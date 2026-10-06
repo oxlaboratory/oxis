@@ -6,6 +6,9 @@ All notable changes to OXIS. The format follows
 ## [Unreleased]
 
 ### Added
+- Triggers: `'trigger add <text or /regex/> [err|warn|ok|accent]
+  [sound=<name>] [notify]` highlights matching output lines, plays a
+  sound, and flashes the taskbar and says it in the status bar.
 - Popups (the theme editor, palette, quick open, search, symbol picker,
   confirm box) grow and shrink with the font size like the Settings
   window, over the same dimmed backdrop, and always fit the window.

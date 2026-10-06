@@ -605,6 +605,23 @@ If the WebView's clipboard is unavailable, OXIS writes to the OS
 clipboard directly (Win32 on Windows; `pbcopy`, `xclip`, `xsel` or
 `wl-copy` elsewhere).
 
+### Triggers
+
+`'trigger add <pattern> [colour] [sound=<name>] [notify]` watches the
+output: a line that matches is highlighted (`err`, `warn`, `ok` or
+`accent`), plays one of the [sounds](#sound-effects), and with `notify`
+flashes the taskbar when OXIS is in the background and shows the line in
+the status bar. The pattern is text, found anywhere in a line and
+ignoring case unless it has capitals, or a `/regular expression/`:
+
+```
+'trigger add ERROR err sound=error
+'trigger add "listening on" ok notify
+'trigger add /took [0-9]{3,}ms/ warn
+'trigger                 the triggers, numbered
+'trigger remove 2  ·  'trigger clear  ·  'trigger test <text>
+```
+
 ### Recording a session
 
 `'record [name]` records the tab, everything the shell and its programs

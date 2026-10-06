@@ -95,6 +95,8 @@ export interface Line {
   /** An inline image a program showed (OSC 1337, imgcat): the line's
    *  text is a stand-in for search, copy and a restored session. */
   image?: InlineImage;
+  /** A trigger matched it ('trigger): the colour it's highlighted in. */
+  highlight?: "err" | "warn" | "ok" | "accent";
 }
 
 export interface InlineImage {

@@ -38,6 +38,7 @@ import { getRecentErrors, clearRecentErrors, installGlobalErrorCapture } from ".
 import { cwdTracker, CwdTracker, buildCwdProbe, looksLikeDirectoryChange, isProbeLine, cwdFromMark } from "./terminal/cwdTracker";
 import { startHint, tabHint, paneHint, tipHint } from "./terminal/hints";
 import { quickSelect } from "./terminal/quickSelect";
+import { runTriggers, parseTrigger, splitTriggerArgs, describeTrigger, triggerRegex, type Trigger } from "./terminal/triggers";
 import { SettingsPanel, type SettingsApi } from "./settings/SettingsPanel";
 import { SOUND_EVENTS, PRESETS, PRESET_NAMES, configureSounds, onSoundFileError, playSound, playValue, soundFor, soundForCommand, isSoundFile } from "./sound/sounds";
 import { promptCapture, foregroundJobs } from "./terminal/promptCapture";
@@ -502,6 +503,19 @@ function applyAllSettings(): void {
   }
 }
 events.on("theme_changed", () => applyAllSettings());
+/** 'trigger's rules, kept with the other options. */
+let triggersCache: Trigger[] | null = null;
+function loadTriggers(): Trigger[] {
+  if (triggersCache) return triggersCache;
+  const raw = readPersistedOption("triggers");
+  triggersCache = Array.isArray(raw) ? (raw as unknown as Trigger[]).filter(t => t && typeof t.pattern === "string") : [];
+  return triggersCache;
+}
+function saveTriggers(list: Trigger[]): void {
+  triggersCache = list;
+  writePersistedOption("triggers", list as unknown as LuaJSValue);
+}
+
 /** The themed settings the user has set (font size, cursor…), put back
  *  over a theme being previewed. */
 function applyUserThemedSettings(): void {
@@ -1126,6 +1140,51 @@ function registerBuiltinCommands(): void {
         const src = await readImage(full);
         events.emit("show_image", { src, name: file.replace(/^.*[\\/]/, ""), width });
       } catch (e) { err(`can't show ${file}: ${e instanceof Error ? e.message : e}`); }
+    } });
+
+  // 'trigger: act on output lines that match a pattern (terminal/triggers.ts).
+  registry.register({ name:"trigger", category:"shell", description:"Watch the output for a pattern and highlight, sound or notify: 'trigger add ERROR err sound=error · 'trigger · 'trigger remove <n>",
+    handler: (args, _rest, raw) => {
+      const sub = (args[0] ?? "list").toLowerCase();
+      const list = loadTriggers();
+      const print = (lines: [string, LineKind?][]) => _ctxRef.current?.printLines(lines);
+      if (sub === "list" || sub === "ls") {
+        if (!list.length) {
+          print([["  no triggers — 'trigger add <text or /regex/> [err|warn|ok|accent] [sound=<name>] [notify]", "dim"],
+            ["  e.g. 'trigger add ERROR err sound=error   ·   'trigger add \"listening on\" ok notify", "dim"]]);
+          return;
+        }
+        print([["  triggers — on lines of output that match:", "accent"],
+          ...list.map((t, i): [string, LineKind?] => [`  ${String(i + 1).padStart(2)}  ${describeTrigger(t)}`, t.color]),
+          ["  'trigger add …  ·  'trigger remove <n>  ·  'trigger clear  ·  'trigger test <text>", "dim"]]);
+        return;
+      }
+      if (sub === "add") {
+        const t = parseTrigger(splitTriggerArgs(raw.replace(/^\s*add\s*/i, ""))); // as typed: quotes kept
+        if (typeof t === "string") { err(t); return; }
+        saveTriggers([...list, t]);
+        ok(`trigger ${list.length + 1}: ${describeTrigger(t)}`);
+        return;
+      }
+      if (sub === "remove" || sub === "rm" || sub === "delete") {
+        const n = Number(args[1]);
+        if (!Number.isInteger(n) || n < 1 || n > list.length) { err(`usage: 'trigger remove <1-${list.length || 1}> — 'trigger lists them`); return; }
+        const [gone] = list.splice(n - 1, 1);
+        saveTriggers(list);
+        ok(`removed: ${describeTrigger(gone)}`);
+        return;
+      }
+      if (sub === "clear") { saveTriggers([]); ok("no triggers now"); return; }
+      if (sub === "test") {
+        const text = raw.replace(/^\s*test\s*/i, "");
+        const hits = runTriggers([text], list);
+        const matched = list.filter(t => triggerRegex(t.pattern)?.test(text));
+        if (!matched.length) { dim(`no trigger matches "${text}"`); return; }
+        matched.forEach(t => info(`matches: ${describeTrigger(t)}`));
+        hits.sounds.forEach(s => playSound(s));
+        return;
+      }
+      err(`'trigger ${sub}? — 'trigger lists them, 'trigger add adds one`);
     } });
 
   // 'broadcast [on|off]: what's typed in one pane of the tab runs in all of them.
@@ -5600,7 +5659,7 @@ function cssText(text: string): React.CSSProperties {
 const OutputLine = memo(function OutputLine({ line, match, folded }: { line: Line; match: boolean; folded?: number }) {
   return (
     <div data-line-id={line.id}
-      className={`term-line${match ? " term-line--match" : ""}${line.status ? " term-line--command" : ""}${folded ? " term-line--folded" : ""}`}
+      className={`term-line${match ? " term-line--match" : ""}${line.status ? " term-line--command" : ""}${folded ? " term-line--folded" : ""}${line.highlight ? ` term-line--hl term-line--hl-${line.highlight}` : ""}`}
       style={{ color: line.kind ? LINE_COLORS[line.kind] : undefined }}>
       {line.image
         ? <img className="term-img" src={line.image.src} alt={line.text} draggable={false}
@@ -6541,6 +6600,17 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
       prevBlank = blank;
     }
     if (ids.length > SHELL_LINES_KEPT) ids.splice(0, ids.length - SHELL_LINES_KEPT);
+    // 'trigger: highlight, sound and notify on lines that match.
+    const triggers = loadTriggers();
+    if (triggers.length && shown.length) {
+      const hits = runTriggers(shown.map(l => l.text), triggers);
+      hits.colors.forEach((c, i) => { shown[i].highlight = c; });
+      hits.sounds.forEach(s => playSound(s));
+      if (hits.notices.length) {
+        events.emit("status_flash", { text: `⚑ ${hits.notices[hits.notices.length - 1]}` });
+        if (!document.hasFocus()) void flashWindow();
+      }
+    }
     queueLines(shown);
   }, [scheduleFlush, queueLines]);
 
