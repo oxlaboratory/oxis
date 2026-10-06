@@ -9204,7 +9204,15 @@ function CommandPalette({ onRun, onClose }: { onRun: (cmd: string) => void; onCl
     }
     return out;
   }, [query]);
-  const total = results.length + recent.length;
+  // Settings whose name or description match: one opens the Settings
+  // window searching for it.
+  const settingHits = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (q.length < 2) return [] as SettingDef[];
+    return SETTINGS.filter(d => `${d.key} ${d.label}`.toLowerCase().includes(q)).slice(0, 6);
+  }, [query]);
+  const total = results.length + recent.length + settingHits.length;
+  const openSetting = useCallback((key: string) => { onClose(); events.emit("open_settings", { query: key }); }, [onClose]);
 
   useEffect(() => { setSelected(0); }, [query]);
 
@@ -9240,9 +9248,10 @@ function CommandPalette({ onRun, onClose }: { onRun: (cmd: string) => void; onCl
       const entry = results[selected];
       if (entry) run(entry.name);
       else if (recent[selected - results.length]) onRun(recent[selected - results.length]);
+      else if (settingHits[selected - results.length - recent.length]) openSetting(settingHits[selected - results.length - recent.length].key);
       return;
     }
-  }, [results, recent, total, selected, run, onRun, onClose]);
+  }, [results, recent, settingHits, total, selected, run, onRun, onClose, openSetting]);
 
   return (
     <div className="cmdp-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
@@ -9287,6 +9296,19 @@ function CommandPalette({ onRun, onClose }: { onRun: (cmd: string) => void; onCl
               </div>
             );
           })}
+          {settingHits.map((d, k) => {
+            const i = results.length + recent.length + k;
+            return (
+              <div key={`s:${d.key}`} ref={i === selected ? selectedItemRef : undefined}
+                className={`cmdp-item${i === selected ? " cmdp-item--selected" : ""}`}
+                onMouseEnter={() => setSelected(i)}
+                onMouseDown={e => { e.preventDefault(); openSetting(d.key); }}>
+                <span className="cmdp-item-name">{d.label}</span>
+                <span className="cmdp-item-desc">{String(getSetting(d.key))} — {d.description}</span>
+                <span className="cmdp-item-cat">setting</span>
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>
@@ -9301,6 +9323,7 @@ export default function App() {
   const [themeEditorName,  setThemeEditorName]  = useState<string | null>(null);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsQuery, setSettingsQuery] = useState("");
   // Ctrl+R: the history picker, and the search it opened with.
   const [historyQuery, setHistoryQuery] = useState<string | null>(null);
   const [activeProject, setActiveProject] = useState(() => workspaceState.get().projectName);
@@ -9336,7 +9359,7 @@ export default function App() {
   useEffect(() => {
     const u1 = events.on("open_theme_editor", p => { if (p?.name) setThemeEditorName(String(p.name)); });
     const u2 = events.on("theme_changed",     p => { if (p?.name) setCurTheme(String(p.name)); });
-    const u3 = events.on("open_settings",     () => setSettingsOpen(true));
+    const u3 = events.on("open_settings",     p => { setSettingsQuery(String((p as { query?: string } | undefined)?.query ?? "")); setSettingsOpen(true); });
     const u5 = events.on("open_history",      p => setHistoryQuery(String((p as { query?: string } | undefined)?.query ?? "")));
     // The theme editor and the Settings window don't stack: the theme
     // editor takes over.
@@ -9730,6 +9753,7 @@ export default function App() {
       if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key === ",") {
         if (themeEditorName) return;
         e.preventDefault();
+        setSettingsQuery("");
         setSettingsOpen(o => !o);
       }
     };
@@ -9821,7 +9845,7 @@ export default function App() {
             onClose={() => { setHistoryQuery(null); setTimeout(() => events.emit("focus_prompt"), 20); }} />
         )}
         {settingsOpen && (
-          <SettingsPanel api={settingsApi} onClose={() => { setSettingsOpen(false); setTimeout(() => events.emit("focus_prompt"), 30); }} />
+          <SettingsPanel api={settingsApi} initialQuery={settingsQuery} onClose={() => { setSettingsOpen(false); setTimeout(() => events.emit("focus_prompt"), 30); }} />
         )}
         {commandPaletteOpen && (
           <CommandPalette

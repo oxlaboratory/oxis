@@ -1,5 +1,5 @@
 --[[@manifest
-version: 2.0.1
+version: 2.1.0
 description: Watch your machine and your services without leaving OXIS — live CPU and memory with sparklines, the processes eating your RAM and what's growing, logs as they're written (errors in red), health checks that tell you the moment a service goes down, and alerts in the background. Ctrl+C stops anything live.
 author: Oxide Labs
 category: monitoring
@@ -263,6 +263,7 @@ oxis.command("healthcheck", function(args)
         oxis.echo(("%s %s %s  %s%s"):format(clock(), ok and "●" or "○", u, detail, change), ok and "ok" or "err")
         -- Heard as well as seen (OXIS with sound effects).
         if every and s.last and oxis.sound then oxis.sound(ok and "done" or "error") end
+        if every and s.last and oxis.notify then oxis.notify(ok and ("▲ " .. u .. " is back up") or ("▼ " .. u .. " went down"), detail) end
       end
       s.last = state
     end)
@@ -304,6 +305,7 @@ oxis.command("alert", function(args)
         over = true
         oxis.echo(("🔔 %s is at %.0f%% (alert at %d%%)"):format(what == "cpu" and "CPU" or "Memory", v, limit), "warn")
         if oxis.sound then oxis.sound("notify") end
+        if oxis.notify then oxis.notify(("%s at %.0f%%"):format(what == "cpu" and "CPU" or "Memory", v), ("over your alert at %d%%"):format(limit)) end
       elseif v < limit - 5 and over then
         over = false
         oxis.echo(("🔕 %s is back to %.0f%%"):format(what == "cpu" and "CPU" or "Memory", v), "dim")

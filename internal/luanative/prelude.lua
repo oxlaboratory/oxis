@@ -52,6 +52,7 @@ function oxis.command(name, f, desc) post("command", str(name), f, str(desc)) en
 function oxis.task(name, cmd, desc) post("task", str(name), str(cmd), str(desc)) end
 function oxis.echo(text, kind) post("echo", tostring(text), str(kind)) end
 function oxis.sound(name) post("sound", str(name)) end
+function oxis.notify(title, body, always) post("notify", tostring(title), str(body), always == true) end
 function oxis.line(text, kind) return call("line", str(text) or "", str(kind)) end
 function oxis.run(cmd) post("run", str(cmd)) end
 function oxis.quote(text) return call("quote", str(text) or "") end

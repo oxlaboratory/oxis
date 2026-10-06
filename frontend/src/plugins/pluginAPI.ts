@@ -29,6 +29,7 @@ import {
 } from "../native";
 import { openStream, closeStream, newStreamId, LineSplitter, SSEParser } from "./streams";
 import { SOUND_EVENTS, PRESETS, playSound } from "../sound/sounds";
+import { desktopNotify } from "../native";
 import { editorBridge, offsetToLineCol, lineColToOffset, lineRange } from "../terminal/editorBridge";
 import { requirePermission, ensurePermission, isGranted, type PermissionNamespace } from "./permissions";
 import { scriptRunTracker, type RunResult } from "../terminal/scriptRunTracker";
@@ -228,6 +229,14 @@ export function buildLuaAPI(ctx: APIContext): OxisBindings {
     // oxis.sound([name]): one of OXIS's sound effects — an event
     // ("notify" by default, "done", "error"…) or a sound by name. Never
     // a file: those are the user's to choose.
+    // oxis.notify(title [, body [, always]]): a desktop notification, by
+    // default only while OXIS is in the background (where it's needed),
+    // and only if the user hasn't turned them off.
+    notify: (title, body, always) => {
+      if (!always && document.hasFocus()) return;
+      try { if (JSON.parse(localStorage.getItem("oxis-plugin-options-v1") || "{}")["setting.desktopNotify"] === false) return; } catch { /* no options yet */ }
+      void desktopNotify(String(title).slice(0, 63), String(body ?? "").slice(0, 255));
+    },
     sound: (name) => {
       const n = String(name ?? "notify").toLowerCase();
       if (SOUND_EVENTS.some(e => e.event === n) || n in PRESETS) playSound(n);

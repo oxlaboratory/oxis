@@ -481,7 +481,7 @@ ready to type, and tucks it away again (setting `summonKey`).
 | Ctrl+Shift+T | Reopen the last closed tab: its folders, shells, split and recent output |
 | Ctrl+↑ / Ctrl+↓ | Jump to the previous / next command in the output |
 | Ctrl+Shift+Space | Quick select: every URL, path, file:line, git hash, IP and long number on screen gets a letter; type it to copy that text, or Shift+the letter to put it in the prompt. Esc cancels |
-| Ctrl+Shift+P | Command palette |
+| Ctrl+Shift+P | Command palette: commands, commands you've run, and settings (choosing one opens Settings at it) |
 | Ctrl+, | Settings |
 | Ctrl+Shift+M | Open the Market website |
 
@@ -1113,6 +1113,7 @@ Everything is on the global `oxis` table.
 | `oxis.run(cmd)` | Run a command in the shell. Multi-line scripts run as one script file (`.ps1` on Windows, bash elsewhere), so a `Read-Host`/`read` prompt gets your answer rather than the next line; `&&` works on Windows PowerShell 5.1 too. |
 | `oxis.quote(text)` | `text` quoted as one argument for the platform's shell, safe to splice into `oxis.run()` (e.g. `oxis.run("git blame -- " .. oxis.quote(rest))`) |
 | `oxis.echo(text [, kind])` | Print a line in the terminal; `kind` colours it like OXIS's own messages: `"ok"`, `"err"`, `"warn"`, `"dim"`, `"accent"` |
+| `oxis.notify(title [, body [, always]])` | A desktop notification, shown while OXIS is in the background (or always, with `always`), unless the user has turned them off. The monitoring plugin uses it when a service goes down or an alert fires |
 | `oxis.sound([name])` | Play one of OXIS's sound effects: an event (`"notify"`, the default, `"done"`, `"error"`…, as the user has set it) or a sound by name (`"chime"`, `"ping"`…). Nothing plays when the user has sounds off |
 | `oxis.cwd()` | The shell's current directory |
 | `oxis.platform` | `"windows"` or `"unix"` |

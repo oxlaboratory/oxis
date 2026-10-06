@@ -6,6 +6,12 @@ All notable changes to OXIS. The format follows
 ## [Unreleased]
 
 ### Added
+- `oxis.notify(title, body)` for plugins: a desktop notification while
+  OXIS is in the background. monitoring 2.1.0 notifies when a
+  healthcheck sees a service go down or come back, and when an alert
+  fires.
+- The command palette finds settings too; choosing one opens the
+  Settings window at it.
 - Desktop notifications: a long command finishing while OXIS is in the
   background (setting `notifyAfter`), or a `'trigger … notify`, shows a
   notification saying how it ended and how long it took — a toast on

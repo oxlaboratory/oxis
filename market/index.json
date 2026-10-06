@@ -3,7 +3,7 @@
     "name": "monitoring",
     "desc": "Live CPU and memory with sparklines, the processes eating your RAM (and what's growing), disks filling up, logs followed as they're written with errors in red, health checks that report when a service goes down, and background alerts. Ctrl+C stops anything live.",
     "category": "monitoring",
-    "version": "2.0.1",
+    "version": "2.1.0",
     "author": "Oxide Labs",
     "file": "plugins/monitoring.lua",
     "demo": "https://oxis.space/assets/demos/monitoring.webm"

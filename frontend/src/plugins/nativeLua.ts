@@ -195,6 +195,7 @@ const CALLS: Record<string, Fn> = {
   task: ({ b }, [name, cmd, desc]) => b.task(S(name) ?? "", S(cmd) ?? "", S(desc)),
   echo: ({ b }, [text, kind]) => b.echo(S(text) ?? "", S(kind)),
   sound: ({ b }, [name]) => b.sound(S(name)),
+  notify: ({ b }, [title, body, always]) => b.notify(S(title) ?? "", S(body), always === true),
   line: (p, [text, kind]) => handle(p, p.b.line(S(text) ?? "", S(kind))),
   run: ({ b }, [cmd]) => { b.run(S(cmd) ?? "").catch((e) => console.warn("[oxis:lua] oxis.run() failed:", message(e))); },
   quote: ({ b }, [text]) => b.quote(S(text) ?? ""),

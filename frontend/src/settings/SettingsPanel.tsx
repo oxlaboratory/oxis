@@ -115,8 +115,8 @@ function SettingControl({ def, api, onChange }: { def: PanelSetting; api: Settin
   );
 }
 
-export function SettingsPanel({ api, onClose }: { api: SettingsApi; onClose: () => void }) {
-  const [query, setQuery] = useState("");
+export function SettingsPanel({ api, onClose, initialQuery = "" }: { api: SettingsApi; onClose: () => void; initialQuery?: string }) {
+  const [query, setQuery] = useState(initialQuery);
   const [, bump] = useState(0);
   const [notes, setNotes] = useState<Record<string, string>>({});
   const searchRef = useRef<HTMLInputElement>(null);
