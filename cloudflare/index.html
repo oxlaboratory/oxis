@@ -1721,7 +1721,7 @@ function applyTheme(name, { demoOnly = false, remember = true } = {}){
    stars and the rolling release's downloads (cached for 10 minutes).
    ================================================================ */
 const REPO = 'oxlaboratory/oxis';
-const LIVE = { version: '1.2.1', build: 0, sha: '', date: '', stars: null, downloads: null, assets: {} };
+const LIVE = { version: '1.2.1', build: 0, sha: '', date: '', stars: null, downloads: null, reDownloads: 0, assets: {} };
 
 // GitHub counts downloads per file and CI replaces the files on every
 // push, so CI keeps the count so far in a comment in the release notes
@@ -1767,6 +1767,7 @@ async function loadLive(){
   // GitHub's own count is the fallback.
   const total = await fetch('/downloads?format=count').then(r => r.ok ? r.json() : null).catch(() => null);
   if(total && typeof total.count === 'number') LIVE.downloads = total.count;
+  if(total && typeof total.reDownloads === 'number') LIVE.reDownloads = total.reDownloads;
   if(rel.value){
     if(LIVE.downloads == null) LIVE.downloads = countDownloads(rel.value);
     for(const a of rel.value.assets || []){
@@ -1797,7 +1798,9 @@ function renderLive(){
   }
   if(LIVE.downloads != null){
     const n = LIVE.downloads;
-    $('#dlCount').innerHTML = `<b>${n.toLocaleString('en-US')}</b> ${n === 1 ? 'download' : 'downloads'} · `;
+    const r = LIVE.reDownloads || 0;
+    $('#dlCount').innerHTML = `<b>${n.toLocaleString('en-US')}</b> new ${n === 1 ? 'download' : 'downloads'}`
+      + (r ? ` · <b>${r.toLocaleString('en-US')}</b> ${r === 1 ? 're-download' : 're-downloads'}` : '') + ' · ';
   }
   for(const a of $$('[data-asset]')){
     const url = LIVE.assets[a.dataset.asset];

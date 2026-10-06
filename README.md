@@ -16,7 +16,8 @@
 
 <br><br>
 
-<a href="https://github.com/oxlaboratory/oxis/releases/tag/latest-build"><img src="https://img.shields.io/endpoint?url=https%3A%2F%2Foxis.space%2Fdownloads&style=for-the-badge&labelColor=0d1117&color=3dff64&logo=icloud&logoColor=3dff64&cacheSeconds=600" alt="Downloads"></a>
+<a href="https://github.com/oxlaboratory/oxis/releases/tag/latest-build"><img src="https://img.shields.io/endpoint?url=https%3A%2F%2Foxis.space%2Fdownloads&style=for-the-badge&labelColor=0d1117&color=3dff64&logo=icloud&logoColor=3dff64&cacheSeconds=600" alt="New downloads"></a>
+<a href="#auto-update"><img src="https://img.shields.io/endpoint?url=https%3A%2F%2Foxis.space%2Fdownloads%3Fkind%3Dre&style=for-the-badge&labelColor=0d1117&color=7dcfff&logo=refresh&logoColor=7dcfff&cacheSeconds=600" alt="Re-downloads (updates installed with 'update install)"></a>
 <a href="https://github.com/oxlaboratory/oxis/actions/workflows/build.yml"><img src="https://img.shields.io/github/actions/workflow/status/oxlaboratory/oxis/build.yml?branch=main&style=for-the-badge&label=build&labelColor=0d1117&color=3dff64&logo=githubactions&logoColor=3dff64" alt="Build"></a>
 <a href="https://github.com/oxlaboratory/oxis/stargazers"><img src="https://img.shields.io/github/stars/oxlaboratory/oxis?style=for-the-badge&labelColor=0d1117&color=e0af68&logo=github&logoColor=e0af68" alt="Stars"></a>
 <a href="https://github.com/oxlaboratory/oxis"><img src="https://api.visitorbadge.io/api/visitors?path=oxlaboratory%2Foxis&label=VIEWS&labelColor=%230d1117&countColor=%237dcfff&style=for-the-badge" alt="Views"></a>
@@ -1486,7 +1487,7 @@ played from there, and the shell list shows the shells you have.
 | `editorVim` | `true` | The editor's Normal, Insert and Visual modes; off, it just types |
 | `luaEngine` | `auto` | What runs Lua plugins: `native` (Lua 5.4 in OXIS; C modules work), `fengari` (Lua 5.3 in the page), or `auto` (native when the build has it) |
 | `editorMinimap` | `true` | The minimap beside the editor's text |
-| `countInstalls` | `true` | Add one to the public download counts at oxis.space when `'update install` builds a new version from source or `'market install` installs a plugin (nothing else is sent) |
+| `countInstalls` | `true` | Add one to the public counts at oxis.space: the re-downloads when `'update install` builds a new version, a plugin's downloads when `'market install` installs it (nothing else is sent) |
 | `sounds` | `true` | Sound effects (see [Sound effects](#sound-effects)) |
 | `soundVolume` | `40` | How loud they are, 0 to 100 |
 | `soundError`, `soundDone`, `soundBell`, `soundNotify`, `soundInstall`, `soundTab`, `soundCopy`, `soundStart`, `soundKey` | see `'sound` | Each event's sound: a sound's name, `none`, or the path of your own sound file |
@@ -1571,6 +1572,12 @@ browser tab `'update` points to the latest release instead.
 3. If the new build fails to start, or exits within two seconds, the
    backup is restored. Otherwise the new process deletes the backup
    once it has started, and the old one exits.
+
+The badges at the top count the two apart: **new-downloads** is how
+many times the build has been downloaded from GitHub, and
+**re-downloads** how many updates `'update install` has built and put
+in place (one a day per address; nothing else is sent, and the setting
+`countInstalls` turns it off).
 
 ---
 
