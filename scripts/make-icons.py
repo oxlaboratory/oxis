@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-scripts/make-icons.py — draws the OXIS logo (assets/logo.svg: a hexagon
-ring with two shaded facets) at every icon size, and writes
+scripts/make-icons.py — draws the OXIS logo (assets/logo.svg: a wide
+hexagon ring with two shaded facets) at every icon size, and writes
 
   cmd/oxi/oxis.ico            the .exe / MSI / shortcut icon
   frontend/public/favicon.ico the window and tab icon
@@ -16,51 +16,75 @@ import os
 from PIL import Image, ImageDraw
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-GREEN = (0x3D, 0xFF, 0x64, 255)
-FACET = (0x2F, 0xC7, 0x4E, 255)   # the green under the logo's 22% black facets
-EDGE = (0x16, 0x6B, 0x2C, 255)    # a thin dark rim, so small icons read on light backgrounds too
+# Deep greens, lit from the top left: the ring's right half a shade
+# brighter than its left (as if the hexagon were folded down the
+# middle), each a gradient from top to bottom; the facets darker still.
+RIGHT = ((0x4A, 0xF0, 0x78), (0x16, 0x9E, 0x45))   # top, bottom
+LEFT = ((0x2C, 0xC8, 0x5A), (0x0C, 0x6E, 0x30))
+FACET = (0x06, 0x3D, 0x1A, 150)   # laid over the ring
+EDGE = (0x07, 0x33, 0x16, 255)    # a thin dark rim, so small icons read on light backgrounds too
 SIZES = [16, 20, 24, 32, 40, 48, 64, 96, 128, 256]
 SS = 16  # supersampling
+
+
+# The logo's shape, in its own units: x from -10 to 84 (centre 37), y
+# from 0 to 100 — a wide hexagon ring (0.94 as wide as it is tall, so
+# it fills an icon's square) with two shaded facets.
+LX0, LW = -10, 94
+OUTER = [(37, 0), (84, 24), (84, 76), (37, 100), (-10, 76), (-10, 24)]
+INNER = [(37, 24), (62, 37), (62, 63), (37, 76), (12, 63), (12, 37)]
+FACETS = [[(12, 12.8), (37, 24), (12, 37)], [(62, 63), (37, 76), (62, 87.2)]]
 
 
 def draw_logo(size):
     """The logo on a transparent size x size square."""
     pad = max(1, round(size / 16))
     h = size - 2 * pad
-    w = round(h * 0.74)
+    w = round(h * LW / 100)
     if (size - w) % 2:          # centre on whole pixels
         w -= 1
-    x0, y0 = (size - w) // 2, pad
-    # The ring's side thickness in whole pixels; at least 3 so the
-    # smallest icons still read as a ring.
-    ring = max(3 if size <= 24 else 2, round(w * 0.25))
-    # The logo's y positions (0..100), scaled to this height.
-    Y = lambda v: y0 + h * v / 100
-    L, R, C = x0, x0 + w, x0 + w / 2
-    iL, iR = x0 + ring, x0 + w - ring
-    outer = [(C, Y(0)), (R, Y(19)), (R, Y(81)), (C, Y(100)), (L, Y(81)), (L, Y(19))]
-    inner = [(C, Y(19)), (iL, Y(28.6)), (iL, Y(71)), (C, Y(80.4)), (iR, Y(71)), (iR, Y(28.6))]
-    facets = [
-        [(iL, Y(9.8)), (C, Y(19)), (iL, Y(28.6))],
-        [(iR, Y(70.9)), (C, Y(80.4)), (iR, Y(90))],
-    ]
-    big = Image.new("RGBA", (size * SS, size * SS), (0, 0, 0, 0))
-    d = ImageDraw.Draw(big)
+    x0, y0 = (size - w) / 2, pad
+    P = lambda pts: [(x0 + (x - LX0) * w / LW, y0 + y * h / 100) for x, y in pts]
+    outer, inner, facets = P(OUTER), P(INNER), [P(f) for f in FACETS]
+    S = size * SS
     s = lambda pts: [(x * SS, y * SS) for x, y in pts]
-    # A thin dark rim on small icons only (taskbar, title bar, Explorer
-    # lists), where bright green alone gets lost on a light background.
+    # The ring as a mask (with a thin dark rim at small sizes, where a
+    # bright shape alone gets lost on a light background).
     rim = 0 if size > 64 else (SS // 2 if size <= 24 else SS)
+    mask = Image.new("L", (S, S), 0)
+    md = ImageDraw.Draw(mask)
+    md.polygon(s(outer), fill=255)
+    md.polygon(s(inner), fill=0)
+    # The two halves' gradients, split at the centre line.
+    def gradient(top, bottom):
+        g = Image.new("RGBA", (1, S))
+        for yy in range(S):
+            t = min(1, max(0, (yy / SS - y0) / h))
+            g.putpixel((0, yy), tuple(round(a + (b - a) * t) for a, b in zip(top, bottom)) + (255,))
+        return g.resize((S, S))
+    # The smallest sizes a little lighter, so they still read on a dark
+    # taskbar.
+    lift = (lambda c: tuple(round(v + (255 - v) * 0.18) for v in c)) if size <= 32 else (lambda c: c)
+    colour = gradient(*map(lift, RIGHT))
+    left = gradient(*map(lift, LEFT))
+    cx = round((x0 + (37 - LX0) * w / LW) * SS)
+    colour.paste(left.crop((0, 0, cx, S)), (0, 0))
+    big = Image.new("RGBA", (S, S), (0, 0, 0, 0))
     if rim:
-        d.polygon(s(outer), fill=EDGE)
-        d.polygon(shrink(s(outer), rim), fill=GREEN)
+        big.paste(Image.new("RGBA", (S, S), EDGE), (0, 0), mask)
+        inner_mask = Image.new("L", (S, S), 0)
+        im = ImageDraw.Draw(inner_mask)
+        im.polygon(shrink(s(outer), rim), fill=255)
+        im.polygon(grow(s(inner), rim), fill=0)
+        big.paste(colour, (0, 0), inner_mask)
     else:
-        d.polygon(s(outer), fill=GREEN)
+        big.paste(colour, (0, 0), mask)
     if size >= 32:
+        shade = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+        sd = ImageDraw.Draw(shade)
         for f in facets:
-            d.polygon(s(f), fill=FACET)
-    if rim:
-        d.polygon(grow(s(inner), rim), fill=EDGE)
-    d.polygon(s(inner), fill=(0, 0, 0, 0))
+            sd.polygon(s(f), fill=FACET)
+        big.alpha_composite(shade)
     return big.resize((size, size), Image.BOX)
 
 
