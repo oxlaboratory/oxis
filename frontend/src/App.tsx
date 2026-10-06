@@ -66,7 +66,7 @@ import { CodeMinimap, MINIMAP_WIDTH } from "./components/CodeMinimap";
 import { QuickOpen } from "./components/QuickOpen";
 import { SearchInFiles } from "./components/SearchInFiles";
 import { SymbolPicker } from "./components/SymbolPicker";
-import { loadSession, saveSession, registerTabSnapshot, takeLines, type SavedTab } from "./terminal/session";
+import { loadSession, saveSession, registerTabSnapshot, takeLines, snapshotPane, type SavedTab } from "./terminal/session";
 import { findSymbols, type CodeSymbol } from "./terminal/symbols";
 import {
   indentUnit, indentLines, outdentLines, toggleComment, moveLines, duplicateLines, deleteLines,
@@ -5461,6 +5461,8 @@ interface TermTab {
   activity: boolean;
   /** Given with Rename Tab; shown instead of the folder. */
   name?: string;
+  /** The pane filling the tab for now (Ctrl+Shift+Enter); the others wait. */
+  zoom?: string;
 }
 const tabTitle = (t: TermTab) => t.name || t.titles[t.focus] || t.titles[t.panes[0]] || "shell";
 const oneTab = (id: string, title = ""): TermTab =>
@@ -7218,6 +7220,10 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
     const ctrl = e.ctrlKey  && !e.altKey;
     const alt  = e.altKey   && !e.ctrlKey;
     const el   = e.currentTarget;
+    // Ctrl+Shift+Enter: zoom this pane (or back); Ctrl+Shift+T: reopen the
+    // last closed tab. Before Enter and T mean anything else.
+    if (ctrl && e.shiftKey && k === "Enter") { e.preventDefault(); events.emit("pane_request", { action: "zoom" }); return; }
+    if (ctrl && e.shiftKey && k.toLowerCase() === "t") { e.preventDefault(); events.emit("tab_request", { action: "reopen" }); return; }
     const val  = el.value;
     const cur  = el.selectionStart ?? val.length;
     const hasPromptSel = el.selectionStart !== el.selectionEnd;
@@ -9451,10 +9457,21 @@ export default function App() {
     return () => { document.removeEventListener("mousedown", close); document.removeEventListener("keydown", onKey); };
   }, [shellMenu]);
   /** Closes a tab and all its shells; closing the only one starts a fresh shell. */
+  // Closed tabs, newest last, for Ctrl+Shift+T: each pane's folder, shell
+  // and recent output, the split and the name.
+  const closedTabs = useRef<Array<{ panes: SavedTab[]; split: "row" | "column"; focus: number; name?: string; sizes: number[] }>>([]);
   const closeTab = useCallback((id: string) => {
     const t = tabsRef.current;
     const i = t.findIndex(x => x.id === id);
     if (i < 0) return;
+    {
+      const tab = t[i];
+      const panes = tab.panes.map(p => snapshotPane(p)).filter((x): x is SavedTab => !!x);
+      if (panes.length) {
+        closedTabs.current.push({ panes, split: tab.split, focus: Math.max(0, tab.panes.indexOf(tab.focus)), name: tab.name, sizes: tab.sizes });
+        if (closedTabs.current.length > 10) closedTabs.current.shift();
+      }
+    }
     if (t.length === 1) { newTab(); setTabs(cur => cur.filter(x => x.id !== id)); return; }
     const rest = t.filter(x => x.id !== id);
     setTabs(rest);
@@ -9485,6 +9502,29 @@ export default function App() {
     selectTab(id);
     setTimeout(() => newTab(shell), 60);
   }, [selectTab, newTab]);
+  // Ctrl+Shift+T: the last closed tab, back in its folders and shells with
+  // its recent output (as a restored session brings tabs back).
+  const reopenTab = useCallback(() => {
+    const last = closedTabs.current.pop();
+    if (!last) { _ctxRef.current?.print("  no closed tab to reopen", "dim"); return; }
+    const ids = last.panes.map(() => `t${nextTabNumber.current++}`);
+    last.panes.forEach((snap, k) => {
+      restoreFor.current.set(ids[k], snap);
+      if (snap.shell) shellFor.current.set(ids[k], snap.shell);
+      if (snap.cwd) dirFor.current.set(ids[k], snap.cwd);
+    });
+    const tab: TermTab = {
+      ...oneTab(ids[0]),
+      panes: ids,
+      split: last.split,
+      sizes: last.sizes.length === ids.length ? last.sizes : ids.map(() => 1),
+      focus: ids[Math.min(last.focus, ids.length - 1)],
+      ...(last.name ? { name: last.name } : {}),
+    };
+    setTabs(cur => [...cur, tab]);
+    setActiveTab(tab.id);
+    setView("shell");
+  }, []);
   // Dragging a tab along the strip moves it there.
   const draggedTab = useRef<string | null>(null);
   const [dropBefore, setDropBefore] = useState<string | null>(null);
@@ -9529,6 +9569,7 @@ export default function App() {
       panes: [...t.panes.slice(0, at + 1), id, ...t.panes.slice(at + 1)],
       sizes: [...t.sizes.slice(0, at), half, half, ...t.sizes.slice(at + 1)],
       focus: id,
+      zoom: undefined,
     }));
     setView("shell");
   }, [updateTab]);
@@ -9595,6 +9636,7 @@ export default function App() {
     const action = String((p as { action?: string } | undefined)?.action ?? "list");
     const t = tabsRef.current;
     if (action === "new") newTab((p as { shell?: string } | undefined)?.shell);
+    else if (action === "reopen") reopenTab();
     else if (action === "close") closeTab(activeTabRef.current);
     else if (action === "next") stepTab(1);
     else if (action === "prev") stepTab(-1);
@@ -9606,7 +9648,7 @@ export default function App() {
       _ctxRef.current?.printLines(t.map((x, k): [string, LineKind?] =>
         [`  ${x.id === activeTabRef.current ? "●" : "○"}  ${k + 1}  ${tabTitle(x)}${x.panes.length > 1 ? `  (${x.panes.length} panes)` : ""}`, x.id === activeTabRef.current ? "accent" : "dim"]));
     }
-  }), [newTab, closeTab, stepTab, selectTab]);
+  }), [newTab, closeTab, stepTab, selectTab, reopenTab]);
   const toggleBroadcast = useCallback((tabId: string, on?: boolean) => {
     const tab = tabs.find(x => x.id === tabId);
     if (!tab) return;
@@ -9631,9 +9673,15 @@ export default function App() {
     if (action === "right") splitPane("row");
     else if (action === "down") splitPane("column");
     else if (action === "close") closePane();
+    else if (action === "zoom") {
+      const tab = activeTabNow();
+      if (!tab) return;
+      if (tab.panes.length < 2) { _ctxRef.current?.print("  zoom fills the tab with one of its panes — split it first (Ctrl+Shift+\\)", "info"); return; }
+      updateTab(tab.id, t => ({ ...t, zoom: t.zoom ? undefined : t.focus }));
+    }
     else if (action === "next") stepPane(1);
     else if (action === "prev") stepPane(-1);
-  }), [splitPane, closePane, stepPane]);
+  }), [splitPane, closePane, stepPane, updateTab]);
 
   // Runs a command line for the user (command palette, Home buttons),
   // queuing it until the shell is connected.
@@ -9820,6 +9868,9 @@ export default function App() {
               onMouseDown={e => { e.stopPropagation(); e.preventDefault(); }}>
               <button className="term-ctx-item" onClick={() => { setTabMenu(null); setRenamingTab(tabMenu.id); }}>Rename Tab…</button>
               <button className="term-ctx-item" onClick={() => { setTabMenu(null); duplicateTab(tabMenu.id); }}>Duplicate Tab</button>
+              {closedTabs.current.length > 0 && (
+                <button className="term-ctx-item" onClick={() => { setTabMenu(null); reopenTab(); }}><span>Reopen Closed Tab</span><span className="term-ctx-key">Ctrl+Shift+T</span></button>
+              )}
               <button className="term-ctx-item" onClick={() => { setTabMenu(null); closeTab(tabMenu.id); }}>
                 <span>Close Tab</span><span className="term-ctx-key">Ctrl+Shift+W</span>
               </button>
@@ -9847,12 +9898,14 @@ export default function App() {
             <div key={t.id} className={`term-tab-pane${broadcastTabs.has(t.id) ? " term-tab-pane--broadcast" : ""}`} style={{ display: t.id === activeTab ? "flex" : "none", flexDirection: t.split }}>
               {t.panes.map((pane, i) => (
                 <Fragment key={pane}>
-                  {i > 0 && (
+                  {i > 0 && !(t.zoom && t.panes.includes(t.zoom)) && (
                     <div className={`term-split-handle term-split-handle--${t.split}`}
                       onMouseDown={e => dragDivider(t.id, i, e)} title="Drag to resize (Alt+Shift+arrows)" />
                   )}
-                  <div className={`term-pane${t.panes.length > 1 && pane === t.focus ? " term-pane--focus" : ""}`}
-                    style={{ flex: `${(100 * (t.sizes[i] ?? 1)) / t.sizes.reduce((a, b) => a + b, 0)} 1 0` }}
+                  <div className={`term-pane${t.panes.length > 1 && pane === t.focus ? " term-pane--focus" : ""}${t.zoom === pane ? " term-pane--zoomed" : ""}`}
+                    style={t.zoom && t.panes.includes(t.zoom)
+                      ? (t.zoom === pane ? { flex: "1 1 0" } : { display: "none" })
+                      : { flex: `${(100 * (t.sizes[i] ?? 1)) / t.sizes.reduce((a, b) => a + b, 0)} 1 0` }}
                     onMouseDownCapture={() => focusPane(t.id, pane)}>
                     <div className="term-pane-bar" onMouseDown={e => e.preventDefault()}>
                       <button onClick={() => newTab()} onContextMenu={openShellMenu} title="New tab (Ctrl+T) — right-click for another shell">+</button>
@@ -9862,6 +9915,11 @@ export default function App() {
                       <button onClick={() => splitPane("column", pane)} onContextMenu={e => openShellMenu(e, "column", pane)} title="Split below: a new shell under this one (Alt+Shift+-) — right-click for another shell">
                         <svg viewBox="0 0 12 12" aria-hidden="true"><rect x="1" y="1.5" width="10" height="9" /><path d="M1 6h10" /></svg>
                       </button>
+                      {t.panes.length > 1 && (
+                        <button className={t.zoom === pane ? "term-pane-bar--on" : undefined}
+                          onClick={() => { focusPane(t.id, pane); updateTab(t.id, x => ({ ...x, zoom: x.zoom ? undefined : pane })); }}
+                          title={t.zoom === pane ? "Back to the split (Ctrl+Shift+Enter)" : "Zoom: this pane fills the tab for now (Ctrl+Shift+Enter)"}>{t.zoom === pane ? "⤡" : "⤢"}</button>
+                      )}
                       {t.panes.length > 1 && (
                         <button className={broadcastTabs.has(t.id) ? "term-pane-bar--on" : undefined} onClick={() => toggleBroadcast(t.id)}
                           title={broadcastTabs.has(t.id) ? "Broadcasting: what you type runs in every pane — click to stop" : "Broadcast: type into every pane of this tab at once ('broadcast)"}>⇶</button>

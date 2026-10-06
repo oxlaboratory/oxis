@@ -6,6 +6,9 @@ All notable changes to OXIS. The format follows
 ## [Unreleased]
 
 ### Added
+- Ctrl+Shift+Enter zooms a pane to fill its tab, and back (⤢ on the
+  pane too). Ctrl+Shift+T reopens the last closed tab — its folders,
+  shells, split, name and recent output (the tab menu has it too).
 - Ctrl+R opens a history search: every command you've run, newest
   first, fuzzy-matched as you type with the matching letters lit. Enter
   edits it, Ctrl+Enter runs it, Shift+Delete forgets it.

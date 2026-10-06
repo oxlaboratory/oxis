@@ -477,6 +477,8 @@ ready to type, and tucks it away again (setting `summonKey`).
 | Ctrl+Shift+W | Close the pane (or the tab) and its shell |
 | Ctrl+Shift+\\ / Alt+Shift+= / Alt+Shift+- | Split: a new shell beside / beside / below |
 | Alt+arrows / Alt+Shift+arrows | Move between panes / resize the pane |
+| Ctrl+Shift+Enter | Zoom: the pane fills the tab until you press it again (or ⤢ on the pane) |
+| Ctrl+Shift+T | Reopen the last closed tab: its folders, shells, split and recent output |
 | Ctrl+↑ / Ctrl+↓ | Jump to the previous / next command in the output |
 | Ctrl+Shift+Space | Quick select: every URL, path, file:line, git hash, IP and long number on screen gets a letter; type it to copy that text, or Shift+the letter to put it in the prompt. Esc cancels |
 | Ctrl+Shift+P | Command palette |

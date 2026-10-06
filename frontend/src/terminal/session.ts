@@ -41,6 +41,11 @@ const MAX_BYTES = 4_000_000; // well inside localStorage's limit
 
 /** Each open tab's snapshot, by tab id, registered by its Terminal. */
 const snapshots = new Map<string, () => SavedTab>();
+/** A pane as it is now (folder, shell, recent output), for reopening a
+ *  closed tab; undefined if it never registered. */
+export function snapshotPane(id: string): SavedTab | undefined {
+  try { return snapshots.get(id)?.(); } catch { return undefined; }
+}
 export function registerTabSnapshot(id: string, take: () => SavedTab): () => void {
   snapshots.set(id, take);
   return () => { if (snapshots.get(id) === take) snapshots.delete(id); };
