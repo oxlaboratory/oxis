@@ -38,6 +38,7 @@ import { getRecentErrors, clearRecentErrors, installGlobalErrorCapture } from ".
 import { cwdTracker, CwdTracker, buildCwdProbe, looksLikeDirectoryChange, isProbeLine, cwdFromMark } from "./terminal/cwdTracker";
 import { startHint, tabHint, paneHint, tipHint } from "./terminal/hints";
 import { quickSelect } from "./terminal/quickSelect";
+import HistoryPicker from "./components/HistoryPicker";
 import { runTriggers, parseTrigger, splitTriggerArgs, describeTrigger, triggerRegex, type Trigger } from "./terminal/triggers";
 import { SettingsPanel, type SettingsApi } from "./settings/SettingsPanel";
 import { SOUND_EVENTS, PRESETS, PRESET_NAMES, configureSounds, onSoundFileError, playSound, playValue, soundFor, soundForCommand, isSoundFile } from "./sound/sounds";
@@ -7380,7 +7381,8 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
           return;
         }
         case "l": e.preventDefault(); clear(); return;
-        case "r": e.preventDefault(); enterSearch(); return;
+        // Ctrl+R: the history picker, searching for what's typed.
+        case "r": e.preventDefault(); events.emit("open_history", { query: val }); return;
         case "p": e.preventDefault(); { const p = history.prev(val); syncInput(p, p.length); return; }
         case "n": e.preventDefault(); { const n = history.next(); syncInput(n, n.length); return; }
       }
@@ -9276,6 +9278,8 @@ export default function App() {
   const [themeEditorName,  setThemeEditorName]  = useState<string | null>(null);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // Ctrl+R: the history picker, and the search it opened with.
+  const [historyQuery, setHistoryQuery] = useState<string | null>(null);
   const [activeProject, setActiveProject] = useState(() => workspaceState.get().projectName);
   const [updateMsg,     setUpdateMsg]     = useState("");
   const pendingCmd = useRef<string>("");
@@ -9310,10 +9314,11 @@ export default function App() {
     const u1 = events.on("open_theme_editor", p => { if (p?.name) setThemeEditorName(String(p.name)); });
     const u2 = events.on("theme_changed",     p => { if (p?.name) setCurTheme(String(p.name)); });
     const u3 = events.on("open_settings",     () => setSettingsOpen(true));
+    const u5 = events.on("open_history",      p => setHistoryQuery(String((p as { query?: string } | undefined)?.query ?? "")));
     // The theme editor and the Settings window don't stack: the theme
     // editor takes over.
     const u4 = events.on("open_theme_editor", () => setSettingsOpen(false));
-    return () => { u1(); u2(); u3(); u4(); };
+    return () => { u1(); u2(); u3(); u4(); u5(); };
   }, []);
 
 
@@ -9739,6 +9744,16 @@ export default function App() {
           <div className="overlay">
             <ThemeEditor name={themeEditorName} onClose={() => setThemeEditorName(null)} />
           </div>
+        )}
+        {historyQuery !== null && (
+          <HistoryPicker entries={history.all()} initialQuery={historyQuery}
+            onPick={(cmd, run) => {
+              setHistoryQuery(null);
+              if (run) runCommand(cmd);
+              else setTimeout(() => events.emit("focus_prompt", { text: cmd }), 20);
+            }}
+            onForget={cmd => history.remove(cmd)}
+            onClose={() => { setHistoryQuery(null); setTimeout(() => events.emit("focus_prompt"), 20); }} />
         )}
         {settingsOpen && (
           <SettingsPanel api={settingsApi} onClose={() => { setSettingsOpen(false); setTimeout(() => events.emit("focus_prompt"), 30); }} />

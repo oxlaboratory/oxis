@@ -6,6 +6,9 @@ All notable changes to OXIS. The format follows
 ## [Unreleased]
 
 ### Added
+- Ctrl+R opens a history search: every command you've run, newest
+  first, fuzzy-matched as you type with the matching letters lit. Enter
+  edits it, Ctrl+Enter runs it, Shift+Delete forgets it.
 - Triggers: `'trigger add <text or /regex/> [err|warn|ok|accent]
   [sound=<name>] [notify]` highlights matching output lines, plays a
   sound, and flashes the taskbar and says it in the status bar.

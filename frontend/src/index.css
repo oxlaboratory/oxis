@@ -1614,3 +1614,8 @@ input, textarea { font-family: var(--font); }
 .term-line--hl-warn   { --hl: var(--warn); }
 .term-line--hl-ok     { --hl: var(--green); }
 .term-line--hl-accent { --hl: var(--purple); }
+
+/* Ctrl+R: the history picker. */
+.hp-item { padding-top: 5px; padding-bottom: 5px; }
+.hp-cmd { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: pre; color: var(--text); font-size: 12px; }
+.hp-hit { background: none; color: var(--purple3); font-weight: 700; }

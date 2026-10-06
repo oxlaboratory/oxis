@@ -454,7 +454,7 @@ ready to type, and tucks it away again (setting `summonKey`).
 | Key | Action |
 |---|---|
 | ↑ / ↓, Ctrl+P / Ctrl+N | Previous / next command. If you typed something first, only commands starting with it are shown. |
-| Ctrl+R | Reverse search through history (Ctrl+R again for older matches, Enter to run, Esc to cancel) |
+| Ctrl+R | Search everything you've run: a list, newest first, narrowed as you type (the letters in order, so `dclf` finds `docker compose logs -f`). Enter puts it in the prompt to edit, Ctrl+Enter runs it, Shift+Delete forgets it, Esc closes |
 | Tab | Complete the word at the cursor: an `'command`, a file or folder where the shell is (only folders after `cd`), a git subcommand, branch, remote or changed file, a package.json script after `npm run`/`pnpm`/`yarn`, a host after `ssh`/`scp`/`sftp` (from `~/.ssh/config`, `known_hosts` and earlier commands; `user@` stays), a Makefile target after `make`, or a command used before. Several matches are listed. While a program runs (node, python…), what's typed goes to it with the Tab, so its own completion fills in its line |
 | → / End (at the end of the line) | Take the suggestion from history: as you type, the rest of the newest command that starts with it shows dim after the cursor (Ctrl+F and Ctrl+E take it too) |
 | Ctrl+A / Ctrl+E | Start / end of line |

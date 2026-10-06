@@ -183,6 +183,14 @@ class HistoryManager {
   // ── read ────────────────────────────────────────────────
   all(): string[] { return [...this.entries]; }
 
+  /** Forgets a command (every time it was run): the history picker's
+   *  Shift+Delete. */
+  remove(cmd: string): void {
+    this.entries = this.entries.filter(e => e !== cmd);
+    this.navIdx = -1;
+    this._save();
+  }
+
   recent(n = 30): string[] {
     return this.entries.slice(-n).reverse();
   }
