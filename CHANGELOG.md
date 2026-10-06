@@ -6,6 +6,13 @@ All notable changes to OXIS. The format follows
 ## [Unreleased]
 
 ### Added
+- Home insights: cards beside Home that follow the workspace — today's
+  activity, tasks (click to run) and recent files on one side; Git
+  (branch, changes, last commit, push/pull, or how to connect it), the
+  workflow and its last run, and what OXIS suggests next (a failed
+  command to rerun, changes to commit, a remote to connect…) on the
+  other. They scale to the window and stack under the centre when it's
+  narrow; setting `homeInsights` hides them.
 - `oxis.notify(title, body)` for plugins: a desktop notification while
   OXIS is in the background. monitoring 2.1.0 notifies when a
   healthcheck sees a service go down or come back, and when an alert

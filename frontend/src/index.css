@@ -1621,3 +1621,48 @@ input, textarea { font-family: var(--font); }
 .hp-item { padding-top: 5px; padding-bottom: 5px; }
 .hp-cmd { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: pre; color: var(--text); font-size: 12px; }
 .hp-hit { background: none; color: var(--purple3); font-weight: 700; }
+
+/* ── Home insights: cards beside the centre column (Insights.tsx) ── */
+.home-row { display: flex; justify-content: center; align-items: flex-start; gap: 24px; width: 100%; }
+.home-row > .oxis-home { flex: 0 1 600px; min-width: 0; }
+.ins-col {
+  flex: 0 0 236px; display: flex; flex-direction: column; gap: 12px;
+  padding-top: 132px; /* level with the workspace box */
+  font-family: var(--font); user-select: none;
+}
+/* Side by side, Home is 1120 px wide and zooms to fit a smaller window;
+   past 80% the cards go under the centre column, two side by side. */
+.home-row--insights { width: 1120px; flex: none; }
+.home-row--stacked { width: 620px; flex-wrap: wrap; justify-content: space-between; row-gap: 12px; column-gap: 12px; }
+.home-row--stacked > .oxis-home { flex: 1 1 100%; }
+.home-row--stacked > .ins-col { flex: 1 1 calc(50% - 6px); order: 1; padding-top: 0; min-width: 0; }
+.ins-card {
+  background: color-mix(in srgb, var(--bg1) 86%, #000 14%);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--border2) 55%, transparent);
+  padding: 0 11px 8px;
+}
+.ins-title {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
+  margin: 0 -11px 6px; padding: 4px 11px;
+  background: color-mix(in srgb, var(--purple3) 11%, transparent);
+  box-shadow: 0 2px 0 0 color-mix(in srgb, var(--border2) 55%, transparent);
+  color: var(--purple3); font-size: 9.5px; font-weight: 800; letter-spacing: .16em;
+}
+.ins-note { color: var(--dim); font-size: 9.5px; font-weight: 400; letter-spacing: .03em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 120px; }
+.ins-body { display: flex; flex-direction: column; gap: 2px; }
+.ins-line { color: var(--text); font-size: 11.5px; line-height: 1.5; overflow: hidden; text-overflow: ellipsis; }
+.ins-strong { color: var(--purple); font-weight: 700; }
+.ins-dim { color: var(--dim); }
+.ins-ok { color: var(--green); }
+.ins-warn { color: var(--warn); }
+.ins-err { color: var(--err); }
+.ins-bullet { color: var(--purple); margin-right: 7px; }
+.ins-action {
+  display: block; width: 100%; text-align: left; background: none; border: none; padding: 1px 0; cursor: pointer;
+  color: var(--purple3); font: 11.5px var(--font); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ins-action:hover { color: var(--text); }
+.ins-arrow { color: var(--purple); margin-right: 7px; }
+.ins-file { color: var(--text); }
+.ins-file::before { content: "▸ "; color: var(--dim); }
+.ins-suggest + .ins-suggest { margin-top: 6px; padding-top: 6px; border-top: 1px dashed color-mix(in srgb, var(--border2) 30%, transparent); }

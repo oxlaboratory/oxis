@@ -11,6 +11,7 @@
  * concurrently; shell steps still run one at a time, in order.
  */
 
+import { events } from "../terminal/events";
 import { registry } from "../terminal/commandRegistry";
 import { isWindows } from "../terminal/terminal";
 import { scriptRunTracker } from "../terminal/scriptRunTracker";
@@ -210,6 +211,8 @@ class WorkflowRunner {
 
     try {
       const ok = await this.runSteps(def.steps, def.env, ctx, results);
+      // Home's workflow card and activity count it.
+      events.emit("workflow_done", { name, ok: ok && !this.cancelled, steps: def.steps.map(stepLabel) });
       ctx.print(
         this.cancelled ? `  ⏹  workflow ${name} cancelled` : ok ? `  ✓  workflow ${name} finished` : `  ✗  workflow ${name} failed`,
         this.cancelled ? "warn" : ok ? "ok" : "err",

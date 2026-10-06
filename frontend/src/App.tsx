@@ -38,6 +38,8 @@ import { getRecentErrors, clearRecentErrors, installGlobalErrorCapture } from ".
 import { cwdTracker, CwdTracker, buildCwdProbe, looksLikeDirectoryChange, isProbeLine, cwdFromMark } from "./terminal/cwdTracker";
 import { startHint, tabHint, paneHint, tipHint } from "./terminal/hints";
 import { quickSelect } from "./terminal/quickSelect";
+import { Insights } from "./home/Insights";
+import { startInsights, setInsightsWorkspace } from "./home/insightsStore";
 import HistoryPicker from "./components/HistoryPicker";
 import { runTriggers, parseTrigger, splitTriggerArgs, describeTrigger, triggerRegex, type Trigger } from "./terminal/triggers";
 import { SettingsPanel, type SettingsApi } from "./settings/SettingsPanel";
@@ -343,6 +345,11 @@ const SETTINGS: SettingDef[] = [
     apply: () => { /* read by 'update install */ },
   },
   {
+    key: "homeInsights", label: "Home Insights", default: true,
+    description: "Cards on both sides of Home: today's activity, tasks and recent files, the project's Git state, its workflow, and what OXIS suggests next. Shown when the window is wide enough",
+    apply: () => events.emit("insights_changed"),
+  },
+  {
     key: "homeSky", label: "Home Sky", default: "auto", choices: ["auto", "day", "night", "off"],
     description: "The pixel sky on Home: day (the sun and clouds), night (the moon and stars), off, or auto — the sun from 6 am to 6 pm and the moon at night, unless the theme picks one",
     apply: () => events.emit("sky_changed"),
@@ -509,6 +516,7 @@ function applyAllSettings(): void {
   }
 }
 events.on("theme_changed", () => applyAllSettings());
+startInsights();
 /** 'trigger's rules, kept with the other options. */
 let triggersCache: Trigger[] | null = null;
 function loadTriggers(): Trigger[] {
@@ -2117,6 +2125,7 @@ function registerBuiltinCommands(): void {
     handler:(args)=>{
       const name=args[0];
       if(!name){info("Usage: 'task <name>"); return;}
+      events.emit("task_run", { name });
       // "commit" is a built-in, not a workspace task (see
       // runCommitTask), so it is always listed first.
       if(name.toLowerCase()==="commit"){
@@ -8343,6 +8352,9 @@ function Home({ currentTheme, onTheme, onOpenThemeEditor, onOpenPluginCreator, o
   const scrollRef = useRef<HTMLDivElement>(null);
   const fitRef = useRef<HTMLDivElement>(null);
   const [fit, setFit] = useState(1);
+  // With the insight cards beside it, Home is 1120 px wide: narrower, it
+  // scales down to fit, and past 80% the cards go under it instead.
+  const [stacked, setStacked] = useState(false);
   useLayoutEffect(() => {
     const box = scrollRef.current, inner = fitRef.current;
     if (!box || !inner) return;
@@ -8351,8 +8363,13 @@ function Home({ currentTheme, onTheme, onOpenThemeEditor, onOpenPluginCreator, o
       const natural = inner.getBoundingClientRect().height / zoom;
       const style = getComputedStyle(box);
       const room = box.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
+      const roomW = box.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
       if (!natural || room <= 0) return;
-      const next = Math.max(0.6, Math.min(1, room / natural));
+      const sides = !!inner.querySelector(".ins-col");
+      const stack = sides && roomW < HOME_WIDE * 0.8;
+      setStacked(s => (s !== stack ? stack : s));
+      const wide = !sides ? Infinity : stack ? HOME_NARROW : HOME_WIDE;
+      const next = Math.max(0.6, Math.min(1, room / natural, roomW / wide));
       setFit(f => (Math.abs(f - next) > 0.01 ? next : f));
     };
     measure();
@@ -8367,6 +8384,16 @@ function Home({ currentTheme, onTheme, onOpenThemeEditor, onOpenPluginCreator, o
   const [ws, setWs] = useState(() => workspaceState.get());
   const [activeWorkspace, setActiveWorkspace] = useState<string | null>(() => workspaceManager.getActiveNamed());
   const [activeWorkspacePath, setActiveWorkspacePath] = useState<string | null>(null);
+  // Home insights: on unless the setting says no; the workspace's
+  // workflows as the cards show them; activity counts towards this workspace.
+  const [insightsOn, setInsightsOn] = useState(() => getSetting("homeInsights") !== false);
+  useEffect(() => events.on("insights_changed", () => setInsightsOn(getSetting("homeInsights") !== false)), []);
+  useEffect(() => { setInsightsWorkspace(activeWorkspace); }, [activeWorkspace]);
+  const [workflowVersion, setWorkflowVersion] = useState(0);
+  useEffect(() => events.on("workspace_loaded", () => setWorkflowVersion(v => v + 1)), []);
+  const workflowCards = useMemo(() => workflowRunner.all().map(w => ({ name: w.name, steps: w.steps.map(st => st.name || st.task || st.command || (st.run ?? "").split("\n")[0].slice(0, 20) || "step") })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [workflowVersion, ws]);
   // 'hide workspace / 'show workspace, persisted in the option store.
   const [workspacePanelHidden, setWorkspacePanelHidden] = useState(() => !!readPersistedOption("ui.hideWorkspacePanel"));
   // oxis.dashboard({ header, shortcuts }) from a plugin or config.lua.
@@ -8491,7 +8518,9 @@ function Home({ currentTheme, onTheme, onOpenThemeEditor, onOpenPluginCreator, o
     );
   } else {
     body = (
-      <>
+      <div className={`home-row${insightsOn ? " home-row--insights" : ""}${insightsOn && stacked ? " home-row--stacked" : ""}`}>
+        {insightsOn && <Insights side="left" workspace={activeWorkspace || "default"} projectPath={activeWorkspacePath || ws.projectPath || null}
+          tasks={workspaceState.taskNames()} workflows={workflowCards} pluginsActive={plugins.filter(p => p.enabled).length} onRun={onRun} />}
         <div className="oxis-home">
           <SkyWidget />
           <div className="oxis-sub-row">
@@ -8542,7 +8571,9 @@ function Home({ currentTheme, onTheme, onOpenThemeEditor, onOpenPluginCreator, o
             )}
           </div>
         </div>
-      </>
+        {insightsOn && <Insights side="right" workspace={activeWorkspace || "default"} projectPath={activeWorkspacePath || ws.projectPath || null}
+          tasks={workspaceState.taskNames()} workflows={workflowCards} pluginsActive={plugins.filter(p => p.enabled).length} onRun={onRun} />}
+      </div>
     );
   }
 
@@ -8560,6 +8591,11 @@ function Home({ currentTheme, onTheme, onOpenThemeEditor, onOpenPluginCreator, o
     </div>
   );
 }
+
+// Home's natural widths with the insight cards: side by side, and
+// stacked under the centre column (see index.css .home-row).
+const HOME_WIDE = 1120;
+const HOME_NARROW = 620;
 
 // Home's Get started: commands (a fill is put in the prompt to finish
 // instead of run) and shortcuts (a click presses the keys).
