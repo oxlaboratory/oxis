@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-50 0 979 260" width="979" height="260" role="img" aria-label="OXIS">
+  <title>OXIS</title>
+  <defs>
+    <linearGradient id="mk" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#7dff96"/><stop offset=".55" stop-color="#3dff64"/><stop offset="1" stop-color="#1fd14b"/></linearGradient>
+    <linearGradient id="wm" x1="0" y1="0" x2="0" y2="1" gradientUnits="objectBoundingBox"><stop offset="0" stop-color="#1b2330"/><stop offset="1" stop-color="#3a4655"/></linearGradient>
+    <filter id="glow" x="-20%" y="-30%" width="140%" height="160%"><feGaussianBlur stdDeviation="16"/></filter>
+  </defs>
+  <g opacity=".35" filter="url(#glow)"><g transform="translate(0 35.0) scale(1.9000)"><path fill="url(#mk)" fill-rule="evenodd" d="M37 0 74 19v62L37 100 0 81V19zm0 19-18.5 9.6v42.4L37 80.4l18.5-9.4V28.6z"/><path fill="#000" opacity=".22" d="M18.5 9.8 37 19l-18.5 9.6zM55.5 70.9 37 80.4 55.5 90z"/></g></g>
+  <g transform="translate(0 35.0) scale(1.9000)"><path fill="url(#mk)" fill-rule="evenodd" d="M37 0 74 19v62L37 100 0 81V19zm0 19-18.5 9.6v42.4L37 80.4l18.5-9.4V28.6z"/><path fill="#000" opacity=".22" d="M18.5 9.8 37 19l-18.5 9.6zM55.5 70.9 37 80.4 55.5 90z"/></g>
+  <g fill="url(#wm)"><path fill-rule="evenodd" d="M250.6 55.0h70a40 40 0 0 1 40 40v70a40 40 0 0 1 -40 40h-70a40 40 0 0 1 -40 -40v-70a40 40 0 0 1 40 -40zM260.6 91.0h50a14 14 0 0 1 14 14v50a14 14 0 0 1 -14 14h-50a14 14 0 0 1 -14 -14v-50a14 14 0 0 1 14 -14z"/><path d="M406.6 55.0h44L556.6 205.0h-44z"/><path d="M512.6 55.0h44L450.6 205.0h-44z"/><path d="M602.6 55.0h96v28.8h-30.0v103.91999999999999h30.0v28.8h-96v-28.8h30.0v-103.91999999999999h-30.0z"/><path d="M866.6 73.0H797.1A34.5 34.5 0 0 0 762.6 107.5V95.5A34.5 34.5 0 0 0 797.1 130.0H832.1A34.5 34.5 0 0 1 866.6 164.5V152.5A34.5 34.5 0 0 1 832.1 187.0H762.6" fill="none" stroke="url(#wm)" stroke-width="36" stroke-linecap="butt" stroke-linejoin="round"/></g>
+</svg>

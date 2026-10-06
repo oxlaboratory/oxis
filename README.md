@@ -1,5 +1,14 @@
 <div align="center">
 
+<a href="https://oxis.space">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/readme/logo-dark.svg">
+  <img src="assets/readme/logo-light.svg" width="78%" alt="OXIS">
+</picture>
+</a>
+
+<br>
+
 <a href="https://oxis.space"><img src="assets/readme/banner.svg" width="100%" alt="OXIS — the workspace you program. Automate projects, edit documents and build workflows, in an app where you can change anything."></a>
 
 ### OXIS is a programmable workspace for automating projects, editing documents and building workflows — with an entirely customizable experience.
