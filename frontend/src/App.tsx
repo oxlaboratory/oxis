@@ -8366,10 +8366,13 @@ function Home({ currentTheme, onTheme, onOpenThemeEditor, onOpenPluginCreator, o
       const roomW = box.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
       if (!natural || room <= 0) return;
       const sides = !!inner.querySelector(".ins-col");
-      const stack = sides && roomW < HOME_WIDE * 0.8;
+      const stack = sides && roomW * 0.88 < HOME_WIDE * 0.78;
       setStacked(s => (s !== stack ? stack : s));
       const wide = !sides ? Infinity : stack ? HOME_NARROW : HOME_WIDE;
-      const next = Math.max(0.6, Math.min(1, room / natural, roomW / wide));
+      // With the cards, keep some air around it rather than filling the
+      // window edge to edge.
+      const air = sides ? 0.88 : 1;
+      const next = Math.max(0.6, Math.min(1, room * (sides ? 0.95 : 1) / natural, roomW * air / wide));
       setFit(f => (Math.abs(f - next) > 0.01 ? next : f));
     };
     measure();
