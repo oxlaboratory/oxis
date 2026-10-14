@@ -19,7 +19,7 @@ declare global {
           WindowMinimise?: () => void;
           WindowClose?: () => void;
           // No drag method: dragging uses the --wails-draggable CSS
-          // property (Titlebar.tsx).
+          // property (AppBar.tsx).
           GetPTYPort?: () => Promise<number>;
           ListPlugins?: () => Promise<string[]>;
           ReadPluginFile?: (name: string) => Promise<string>;

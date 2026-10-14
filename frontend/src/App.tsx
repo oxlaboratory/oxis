@@ -95,7 +95,7 @@ import { installMacShortcuts } from "./terminal/macKeys";
 import { readFile, writeFile, listDir, makeDir, statPath, movePath, trashPath, copyPath, isNativeApp, openUrl, checkForUpdate, performUpdate, quitApp, windowGetSize, windowSetSize, systemInfo, previewUrl, isImagePath, readImage } from "./native";
 import type { NativeUpdateInfo } from "./native";
 import { BUILD, OXIS_VERSION, fullVersion, describe as describeBuild, shortCommit, channelLabel, formatStampDate } from "./buildInfo";
-import Titlebar from "./components/Titlebar";
+import AppBar, { Icon } from "./components/AppBar";
 import TextContextMenu from "./components/TextContextMenu";
 import ConfirmDialog, { confirmDialog } from "./components/ConfirmDialog";
 import { copyText, pasteText } from "./terminal/clipboard";
@@ -8746,32 +8746,30 @@ function StatusBar({ mode, count, idx, ready, theme, project, updateMsg }: {
     return () => clearInterval(t);
   }, [recSince]);
   return (
-    <div className="statusline">
-      <div className="sl-mode">{mode === "home" ? "HOME" : "SHELL"}</div>
-      <div className="sl-sep" />
+    <div className="statusline" role="status">
+      <div className="sl-mode">{mode === "home" ? "Home" : "Shell"}</div>
       <div className="sl-mid">
-        {ready ? "● connected" : "○ connecting"}
-        {project && <><span className="sl-dot"> · </span><span className="sl-project">{project}</span></>}
-        {updateMsg && <span className="sl-update"> · ⬆ {updateMsg}</span>}
+        <span className={`sl-seg sl-conn${ready ? " sl-conn--on" : ""}`}>{ready ? "connected" : "connecting…"}</span>
+        {project && <span className="sl-seg"><span className="sl-project">{project}</span></span>}
         {progress && (
-          <span className={`sl-progress sl-progress--${["", "run", "err", "busy", "paused"][progress.state] ?? "run"}`}
+          <span className={`sl-seg sl-progress sl-progress--${["", "run", "err", "busy", "paused"][progress.state] ?? "run"}`}
             title="A program's progress (OSC 9;4)">
-            {" · "}
             <span className="sl-progress-bar"><span style={{ width: progress.state === 3 ? "100%" : `${progress.pct}%` }} /></span>
-            {progress.state === 3 ? " working…" : ` ${progress.pct}%`}{progress.state === 2 ? " failed" : progress.state === 4 ? " paused" : ""}
+            {progress.state === 3 ? "working…" : `${progress.pct}%`}{progress.state === 2 ? " failed" : progress.state === 4 ? " paused" : ""}
           </span>
         )}
         {Number.isFinite(recSince) && (
-          <span className="sl-rec" title="'record stop to finish">
-            {" · "}<span className="sl-rec-dot">●</span> REC {(() => { const s = Math.floor((Date.now() - recSince) / 1000); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; })()}
+          <span className="sl-seg sl-rec" title="'record stop to finish">
+            <span className="sl-rec-dot">●</span> REC {(() => { const s = Math.floor((Date.now() - recSince) / 1000); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; })()}
           </span>
         )}
-        {flash && <span className="sl-flash"> · {flash}</span>}
+        {flash && <span className="sl-seg sl-flash">{flash}</span>}
       </div>
       <div className="sl-right">
-        <span className="sl-theme">{theme}</span>
-        {count > 0 && <span className="sl-pos">{idx + 1}/{count}</span>}
-        <span className="sl-time">{time}</span>
+        {updateMsg && <span className="sl-seg sl-update" title="'update install">↑ {updateMsg}</span>}
+        <span className="sl-seg" title="'theme <name> to change it"><span className="sl-theme-swatch" />{theme}</span>
+        {count > 0 && <span className="sl-seg sl-pos" title="Tab">{idx + 1}/{count}</span>}
+        <span className="sl-seg sl-time">{time}</span>
       </div>
     </div>
   );
@@ -9861,7 +9859,52 @@ export default function App() {
 
   return (
     <div className={`app${isNativeApp() ? "" : " app--browser"}`}>
-      {isNativeApp() && <Titlebar mode={isHome ? "home" : "shell"} />}
+      <AppBar native={isNativeApp()}
+        onSearch={() => setCommandPaletteOpen(true)}
+        onThemes={() => { goHome(); events.emit("home_view_request", { view: "themes" }); }}
+        onPlugins={() => { goHome(); events.emit("home_view_request", { view: "plugins" }); }}
+        onSettings={() => { setSettingsQuery(""); setSettingsOpen(true); }}>
+        <div role="tab" aria-selected={isHome} className={`term-tab term-tab--home${isHome ? " term-tab--active" : ""}`}
+          onClick={() => { goHome(); events.emit("home_view_request", { view: "home" }); }} title="Home: the workspace, its tasks and Git at a glance">
+          <Icon name="home" /><span className="term-tab-name">Home</span>
+        </div>
+        {tabs.map((t, i) => (
+          <div key={t.id} role="tab" aria-selected={t.id === activeTab && !isHome}
+            className={`term-tab${t.id === activeTab && !isHome ? " term-tab--active" : ""}${dropBefore === t.id && draggedTab.current !== t.id ? " term-tab--drop" : ""}`}
+            onMouseDown={e => { if (e.button === 1) { e.preventDefault(); closeTab(t.id); } }}
+            onContextMenu={e => { e.preventDefault(); setTabMenu({ x: e.clientX, y: e.clientY, id: t.id }); }}
+            draggable={renamingTab !== t.id}
+            onDragStart={e => { draggedTab.current = t.id; e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", t.id); }}
+            onDragOver={e => { if (!draggedTab.current) return; e.preventDefault(); e.dataTransfer.dropEffect = "move"; if (dropBefore !== t.id) setDropBefore(t.id); }}
+            onDrop={e => { e.preventDefault(); const id = draggedTab.current; draggedTab.current = null; setDropBefore(null); if (id) moveTab(id, t.id); }}
+            onDragEnd={() => { draggedTab.current = null; setDropBefore(null); }}
+            onClick={() => selectTab(t.id)}
+            title={`${tabTitle(t)}${i < 9 ? ` (Ctrl+${i + 1})` : ""} — middle-click to close`}>
+            <Icon name="shell" />
+            <span className="term-tab-num">{i + 1}</span>
+            {renamingTab === t.id ? (
+              <input className="term-tab-rename" autoFocus defaultValue={t.name ?? tabTitle(t)} spellCheck={false}
+                aria-label="Tab name (empty: the folder's)"
+                onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()}
+                onFocus={e => e.currentTarget.select()}
+                onKeyDown={e => {
+                  if (e.key === "Enter") { e.preventDefault(); renameTab(t.id, e.currentTarget.value); }
+                  else if (e.key === "Escape") { e.preventDefault(); setRenamingTab(null); }
+                  e.stopPropagation();
+                }}
+                onBlur={e => renameTab(t.id, e.currentTarget.value)} />
+            ) : (
+              <span className="term-tab-name" onDoubleClick={e => { e.stopPropagation(); setRenamingTab(t.id); }}>{tabTitle(t)}{t.panes.length > 1 ? <span className="term-tab-panes" title={`${t.panes.length} panes`}>{t.panes.length}</span> : null}</span>
+            )}
+            {t.activity && (t.id !== activeTab || isHome) && <span className="term-tab-dot" title="new output">●</span>}
+            <span className="term-tab-close" title="Close this tab and its shell (Ctrl+Shift+W)"
+              onClick={e => { e.stopPropagation(); closeTab(t.id); }}>×</span>
+          </div>
+        ))}
+        <button className="term-tabs-new" onClick={() => newTab()} onContextMenu={openShellMenu} title="New tab (Ctrl+T) — right-click for another shell"
+          onDragOver={e => { if (draggedTab.current) { e.preventDefault(); setDropBefore(""); } }}
+          onDrop={e => { e.preventDefault(); const id = draggedTab.current; draggedTab.current = null; setDropBefore(null); if (id) moveTab(id, ""); }} aria-label="New tab"><Icon name="plus" /></button>
+      </AppBar>
 
       <div className="app-body">
         {/* Overlays — always on top */}
@@ -9901,45 +9944,6 @@ export default function App() {
         </div>
 
         <div className="app-pane" style={{ display: !isHome ? "flex" : "none" }}>
-          {tabs.length > 1 && (
-            <div className="term-tabs" role="tablist">
-              {tabs.map((t, i) => (
-                <div key={t.id} role="tab" aria-selected={t.id === activeTab}
-                  className={`term-tab${t.id === activeTab ? " term-tab--active" : ""}${dropBefore === t.id && draggedTab.current !== t.id ? " term-tab--drop" : ""}`}
-                  onMouseDown={e => { if (e.button === 1) { e.preventDefault(); closeTab(t.id); } }}
-                  onContextMenu={e => { e.preventDefault(); setTabMenu({ x: e.clientX, y: e.clientY, id: t.id }); }}
-                  draggable={renamingTab !== t.id}
-                  onDragStart={e => { draggedTab.current = t.id; e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", t.id); }}
-                  onDragOver={e => { if (!draggedTab.current) return; e.preventDefault(); e.dataTransfer.dropEffect = "move"; if (dropBefore !== t.id) setDropBefore(t.id); }}
-                  onDrop={e => { e.preventDefault(); const id = draggedTab.current; draggedTab.current = null; setDropBefore(null); if (id) moveTab(id, t.id); }}
-                  onDragEnd={() => { draggedTab.current = null; setDropBefore(null); }}
-                  onClick={() => selectTab(t.id)}
-                  title={`${tabTitle(t)}${i < 9 ? ` (Ctrl+${i + 1})` : ""} — middle-click to close`}>
-                  <span className="term-tab-num">{i + 1}</span>
-                  {renamingTab === t.id ? (
-                    <input className="term-tab-rename" autoFocus defaultValue={t.name ?? tabTitle(t)} spellCheck={false}
-                      aria-label="Tab name (empty: the folder's)"
-                      onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()}
-                      onFocus={e => e.currentTarget.select()}
-                      onKeyDown={e => {
-                        if (e.key === "Enter") { e.preventDefault(); renameTab(t.id, e.currentTarget.value); }
-                        else if (e.key === "Escape") { e.preventDefault(); setRenamingTab(null); }
-                        e.stopPropagation();
-                      }}
-                      onBlur={e => renameTab(t.id, e.currentTarget.value)} />
-                  ) : (
-                    <span className="term-tab-name" onDoubleClick={e => { e.stopPropagation(); setRenamingTab(t.id); }}>{tabTitle(t)}{t.panes.length > 1 ? <span className="term-tab-panes"> ◫{t.panes.length}</span> : null}</span>
-                  )}
-                  {t.activity && t.id !== activeTab && <span className="term-tab-dot" title="new output">●</span>}
-                  <span className="term-tab-close" title="Close this tab and its shell (Ctrl+Shift+W)"
-                    onClick={e => { e.stopPropagation(); closeTab(t.id); }}>×</span>
-                </div>
-              ))}
-              <button className="term-tabs-new" onClick={() => newTab()} onContextMenu={openShellMenu} title="New tab (Ctrl+T) — right-click for another shell"
-                onDragOver={e => { if (draggedTab.current) { e.preventDefault(); setDropBefore(""); } }}
-                onDrop={e => { e.preventDefault(); const id = draggedTab.current; draggedTab.current = null; setDropBefore(null); if (id) moveTab(id, ""); }}>+</button>
-            </div>
-          )}
           {tabMenu && (
             <div className="term-ctx-menu" style={{ left: Math.min(tabMenu.x, window.innerWidth - 200), top: tabMenu.y }}
               onMouseDown={e => { e.stopPropagation(); e.preventDefault(); }}>
