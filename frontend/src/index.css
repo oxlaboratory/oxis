@@ -981,27 +981,33 @@ button.editor-mode:hover { background: var(--hover); }
    Next up). A page: it scrolls when the window is too small, and the
    side column drops under the main one on a narrow window. */
 .home { flex: 1; display: flex; flex-direction: column; overflow: hidden; position: relative; }
-.home-scroll { flex: 1; overflow-y: auto; display: flex; justify-content: center; padding: 26px 28px 28px; }
+.home-scroll { flex: 1; overflow-y: auto; display: flex; justify-content: center; align-items: flex-start; padding: 22px 28px 20px; }
+/* Home itself never scrolls (it scales down instead — see Home in App.tsx). */
+.home-scroll:has(> .hm) { overflow: hidden; }
+.home-scroll.home-scroll--overflow { overflow-y: auto; }
 
-.hm { width: min(1080px, 100%); display: flex; flex-direction: column; gap: 22px; font-family: var(--ui-font); user-select: none; }
+.hm { width: min(1080px, 100%); display: flex; flex-direction: column; gap: 18px; font-family: var(--ui-font); user-select: none; }
 
 /* Header: the workspace on the left, OXIS on the right. */
-.hm-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 28px; padding-bottom: 20px; border-bottom: 1px solid var(--line); }
+.hm-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 28px; padding-bottom: 16px; border-bottom: 1px solid var(--line); }
 .hm-ident { min-width: 0; flex: 1; }
 .hm-eyebrow { display: flex; align-items: center; gap: 8px; font: 600 var(--t-2xs)/1 var(--ui-font); letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
 .hm-status { width: 7px; height: 7px; border-radius: 50%; background: var(--dim); }
 .hm-eyebrow--ready .hm-status { background: var(--acc); box-shadow: 0 0 0 3px var(--acc-wash); }
 .hm-eyebrow--loading .hm-status { background: var(--warn); }
-.hm-title { margin-top: 8px; font: 600 30px/1.1 var(--ui-font); letter-spacing: -.02em; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.hm-meta { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
-.hm-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.hm-title { margin-top: 6px; font: 600 28px/1.1 var(--ui-font); letter-spacing: -.02em; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hm-meta { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+/* One line: the folder gives way first. */
+.hm-chips { display: flex; gap: 6px; min-width: 0; }
+.hm-chips > * { flex: 0 1 auto; min-width: 0; }
+.hm-chips > .hm-chip--path { flex-shrink: 4; }
 .hm-chip {
   display: inline-flex; align-items: center; gap: 7px; max-width: 100%; height: 26px; padding: 0 10px 0 0;
   font: 400 var(--t-xs)/1 var(--mono); color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   border: 1px solid var(--line-2); border-radius: var(--r-1); background: color-mix(in srgb, var(--bg1) 62%, var(--bg));
 }
 .hm-chip-k { align-self: stretch; display: flex; align-items: center; padding: 0 8px; font: 600 var(--t-2xs)/1 var(--ui-font); letter-spacing: .06em; text-transform: uppercase; color: var(--dim); border-right: 1px solid var(--line); background: var(--hover); }
-.hm-chip--path { max-width: 440px; }
+.hm-chip--path { max-width: 420px; }
 .hm-chip-path { direction: rtl; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .hm-chip--ok { color: var(--green); }
 .hm-chip--todo { color: var(--muted); border-style: dashed; cursor: pointer; }
@@ -1019,9 +1025,9 @@ button.editor-mode:hover { background: var(--hover); }
 .hm-brand-build .link { font: 500 var(--t-2xs)/1 var(--ui-font); }
 
 /* Main column and side column. */
-.hm-grid { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(250px, 1fr); gap: 18px; align-items: start; }
+.hm-grid { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(250px, 1fr); gap: 16px; align-items: start; }
 .hm--solo .hm-grid { grid-template-columns: minmax(0, 1fr); }
-.hm-main, .hm-side { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.hm-main, .hm-side { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 @media (max-width: 880px) {
   .hm-grid { grid-template-columns: minmax(0, 1fr); }
   .hm-brand { display: none; }
@@ -1033,7 +1039,7 @@ button.editor-mode:hover { background: var(--hover); }
 .hm-panel-head h2 { display: flex; align-items: center; gap: 8px; font: 600 var(--t-2xs)/1 var(--ui-font); letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
 .hm-panel-head h2::before { content: ""; width: 6px; height: 6px; border-radius: 1px; background: var(--acc); }
 .hm-panel-note { font: 400 var(--t-xs)/1 var(--ui-font); color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-.hm-panel-body { padding: 10px 14px 12px; display: flex; flex-direction: column; gap: 4px; }
+.hm-panel-body { padding: 8px 14px 10px; display: flex; flex-direction: column; gap: 4px; }
 .hm-line { font: 400 var(--t-sm)/1.5 var(--ui-font); color: var(--text); }
 .hm-line code { font: 500 var(--t-xs) var(--mono); color: var(--acc-hi); }
 .hm-dim { color: var(--dim); }
@@ -1056,7 +1062,7 @@ button.editor-mode:hover { background: var(--hover); }
 .hm-start-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 22px; }
 .hm-start-col { display: flex; flex-direction: column; min-width: 0; }
 .hm-cmd {
-  display: flex; align-items: center; gap: 12px; min-height: 32px; margin: 0 -8px; padding: 4px 8px; border-radius: var(--r-1);
+  display: flex; align-items: center; gap: 12px; min-height: 30px; margin: 0 -8px; padding: 2px 8px; border-radius: var(--r-1);
   text-align: left; white-space: nowrap; transition: background .1s;
 }
 .hm-cmd:hover { background: var(--hover); }
@@ -1103,20 +1109,14 @@ button.editor-mode:hover { background: var(--hover); }
 .hm-facts dt { color: var(--dim); }
 .hm-facts dd { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .hm-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
-.hm-stat { display: flex; flex-direction: column; gap: 4px; padding: 8px 6px; border-radius: var(--r-1); background: var(--hover); text-align: center; }
+.hm-stat { display: flex; flex-direction: column; gap: 4px; padding: 7px 6px; border-radius: var(--r-1); background: var(--hover); text-align: center; }
 .hm-stat b { font: 600 var(--t-lg)/1 var(--mono); color: var(--text); }
 .hm-stat span { font: 400 var(--t-2xs)/1 var(--ui-font); color: var(--dim); }
 .hm-stat--zero b { color: var(--dim); }
-.hm-suggest + .hm-suggest { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--line); }
+.hm-pager { display: inline-flex; align-items: center; gap: 2px; font: 400 var(--t-2xs) var(--mono); color: var(--dim); }
+.hm-pager button { display: grid; place-items: center; width: 22px; height: 20px; border-radius: var(--r-1); color: var(--muted); font-size: 15px; line-height: 1; }
+.hm-pager button:hover { color: var(--text); background: var(--hover); }
 
-/* Short windows: a little tighter. */
-@media (max-height: 700px) {
-  .home-scroll { padding: 18px 24px 20px; }
-  .hm { gap: 16px; }
-  .hm-head { padding-bottom: 14px; }
-  .hm-title { font-size: 26px; }
-  .hm-cmd { min-height: 28px; padding-top: 2px; padding-bottom: 2px; }
-}
 
 /* ── COMPONENTS ──────────────────────────────────────────────
    Buttons, fields, switches and links, used by Home's pages, Settings

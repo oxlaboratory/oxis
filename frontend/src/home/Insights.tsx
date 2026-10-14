@@ -1,13 +1,13 @@
 /**
  * Insights.tsx — what Home can tell you about the workspace: today's
- * activity, its tasks and recent files, the project's Git state, its
- * workflow and what OXIS suggests next. Each is a Panel of its own, laid
- * out by Home; a panel with nothing to say isn't shown. Everything
+ * activity, its tasks and recent files, the project's Git state and its
+ * workflow. Each is a Panel of its own, laid out by Home; a panel with
+ * nothing to say isn't shown. Everything
  * follows the workspace (useInsights). Setting homeInsights hides the
  * activity side of Home.
  */
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { runCommand } from "../native";
 import { events } from "../terminal/events";
 import { ago, insightsFor, onInsights, type WorkspaceInsights } from "./insightsStore";
@@ -53,28 +53,6 @@ export async function readGitState(dir: string): Promise<GitState | null> {
   };
 }
 
-export interface Suggestion { text: string; label: string; run?: string; fill?: string }
-
-/** What OXIS suggests now, most useful first (three at most). */
-export function suggest(o: { git: GitState | null; hasProject: boolean; tasks: string[]; insights: WorkspaceInsights; now?: number }): Suggestion[] {
-  const out: Suggestion[] = [];
-  const { git, insights } = o;
-  const now = o.now ?? Date.now();
-  if (insights.lastFailed && now - insights.lastFailed.at < 60 * 60 * 1000) {
-    const c = insights.lastFailed.command;
-    out.push({ text: `${c.length > 28 ? c.slice(0, 27) + "…" : c} failed (exit ${insights.lastFailed.code}) ${ago(insights.lastFailed.at, now)}.`, label: "run it again", fill: c });
-  }
-  if (git?.repo && git.changed > 0) {
-    out.push({ text: `You changed ${git.changed} file${git.changed === 1 ? "" : "s"} since your last commit.`, label: "'task commit", fill: "'task commit " });
-  }
-  if (git?.repo && (git.ahead ?? 0) > 0) out.push({ text: `${git.ahead} commit${git.ahead === 1 ? "" : "s"} not pushed yet.`, label: "git push", run: "git push" });
-  if (git?.repo && (git.behind ?? 0) > 0) out.push({ text: `${git.behind} new commit${git.behind === 1 ? "" : "s"} to pull.`, label: "git pull", run: "git pull" });
-  if (git?.repo && !git.remote) out.push({ text: "No Git remote is connected to this workspace.", label: "connect GitHub", fill: "'workspace github " });
-  if (git && !git.repo && o.hasProject) out.push({ text: "This project isn't a Git repository yet.", label: "git init", run: "git init" });
-  if (o.tasks.length === 0 && o.hasProject) out.push({ text: "No tasks yet: name the commands you run most.", label: "'help task", run: "'help task" });
-  return out.slice(0, 3);
-}
-
 /** A labelled panel: Home's building block. */
 export function Panel({ title, note, className, children }: { title: string; note?: React.ReactNode; className?: string; children: React.ReactNode }) {
   return (
@@ -118,13 +96,12 @@ export interface InsightsData {
   ins: WorkspaceInsights;
   git: GitState | null;
   now: number;
-  suggestions: Suggestion[];
   /** A path as the project sees it. */
   rel: (p: string) => string;
 }
 
 /** Everything Home's panels show, for this workspace and project. */
-export function useInsights(workspace: string, projectPath: string | null, tasks: string[]): InsightsData {
+export function useInsights(workspace: string, projectPath: string | null): InsightsData {
   const [, bump] = useState(0);
   useEffect(() => onInsights(() => bump(n => n + 1)), []);
   const [now, setNow] = useState(Date.now());
@@ -135,8 +112,7 @@ export function useInsights(workspace: string, projectPath: string | null, tasks
     const root = (projectPath ?? "").replace(/\\/g, "/").replace(/\/+$/, "");
     return root && p.toLowerCase().startsWith(root.toLowerCase() + "/") ? p.slice(root.length + 1) : p.replace(/^.*\//, "");
   };
-  const suggestions = useMemo(() => suggest({ git, hasProject: !!projectPath, tasks, insights: ins, now }), [git, projectPath, tasks, ins, now]);
-  return { ins, git, now, suggestions, rel };
+  return { ins, git, now, rel };
 }
 
 export function GitPanel({ d, onRun }: { d: InsightsData; onRun: (cmd: string) => void }) {
@@ -180,23 +156,23 @@ export function ActivityPanel({ d, workspace }: { d: InsightsData; workspace: st
 }
 
 export function FilesPanel({ d, onRun }: { d: InsightsData; onRun: (cmd: string) => void }) {
-  if (!d.ins.files.length) return null;
+  // One file at a time, stepped through with the arrows: Home never scrolls.
+  const files = d.ins.files.slice(0, 8);
+  const [at, setAt] = useState(0);
+  useEffect(() => { setAt(0); }, [files[0]]);
+  if (!files.length) return null;
+  const k = Math.min(at, files.length - 1);
+  const f = files[k];
+  const step = (n: number) => setAt((k + n + files.length) % files.length);
   return (
-    <Panel title="Recent files">
-      {d.ins.files.slice(0, 5).map(f => <Action key={f} label={d.rel(f)} onClick={() => onRun(`'edit ${f}`)} />)}
-    </Panel>
-  );
-}
-
-export function SuggestPanel({ d, onRun }: { d: InsightsData; onRun: (cmd: string) => void }) {
-  return (
-    <Panel title="Next up">
-      {d.suggestions.length ? d.suggestions.map(s => (
-        <div key={s.text} className="hm-suggest">
-          <p className="hm-line">{s.text}</p>
-          <Action label={s.label} onClick={() => (s.run ? onRun(s.run) : fillPrompt(s.fill ?? ""))} />
-        </div>
-      )) : <p className="hm-line hm-dim">All clear — nothing needs you right now.</p>}
+    <Panel title="Recent files" note={files.length > 1 ? (
+      <span className="hm-pager">
+        <button onMouseDown={e => e.preventDefault()} onClick={() => step(-1)} aria-label="Previous file">‹</button>
+        <span>{k + 1}/{files.length}</span>
+        <button onMouseDown={e => e.preventDefault()} onClick={() => step(1)} aria-label="Next file">›</button>
+      </span>
+    ) : undefined}>
+      <Action label={d.rel(f)} onClick={() => onRun(`'edit ${f}`)} />
     </Panel>
   );
 }

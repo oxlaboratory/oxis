@@ -38,7 +38,7 @@ import { getRecentErrors, clearRecentErrors, installGlobalErrorCapture } from ".
 import { cwdTracker, CwdTracker, buildCwdProbe, looksLikeDirectoryChange, isProbeLine, cwdFromMark } from "./terminal/cwdTracker";
 import { startHint, tabHint, paneHint, tipHint } from "./terminal/hints";
 import { quickSelect } from "./terminal/quickSelect";
-import { useInsights, Panel, GitPanel, ActivityPanel, FilesPanel, SuggestPanel, TasksPanel } from "./home/Insights";
+import { useInsights, Panel, GitPanel, ActivityPanel, FilesPanel, TasksPanel } from "./home/Insights";
 import logoUrl from "./assets/logo.svg";
 import { startInsights, setInsightsWorkspace } from "./home/insightsStore";
 import HistoryPicker from "./components/HistoryPicker";
@@ -347,7 +347,7 @@ const SETTINGS: SettingDef[] = [
   },
   {
     key: "homeInsights", label: "Home Insights", default: true,
-    description: "Home's side column: the project's Git state, today's activity, recent files and what OXIS suggests next (under the main column on a narrow window)",
+    description: "Home's side column: the project's Git state, today's activity and recent files (under the main column on a narrow window)",
     apply: () => events.emit("insights_changed"),
   },
   {
@@ -7995,6 +7995,32 @@ function Home({ currentTheme, onTheme, onOpenThemeEditor, onOpenPluginCreator, o
   onRun: (cmd: string) => void;
 }) {
   const [view, setView] = useState<"home" | "themes" | "plugins">("home");
+  // Home never scrolls: on a window too short for it, it's drawn a little
+  // smaller instead (Themes and Plugins are pages, and do scroll).
+  const scrollRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const box = scrollRef.current;
+    if (!box) return;
+    const measure = () => {
+      const page = box.querySelector<HTMLElement>(".hm");
+      if (!page) return;
+      const zoom = parseFloat(page.style.zoom || "1") || 1;
+      const natural = page.getBoundingClientRect().height / zoom;
+      const style = getComputedStyle(box);
+      const room = box.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
+      if (!natural || room <= 0) return;
+      const next = Math.max(0.7, Math.min(1, room / natural));
+      if (Math.abs(next - zoom) > 0.005) page.style.zoom = String(next);
+      // Only a window too small for even that gets a scrollbar.
+      box.classList.toggle("home-scroll--overflow", room / natural < 0.7);
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(box);
+    const mo = new MutationObserver(() => requestAnimationFrame(measure));
+    mo.observe(box, { childList: true, subtree: true });
+    return () => { ro.disconnect(); mo.disconnect(); };
+  }, []);
   const [plugins, setPlugins] = useState(() => pluginManager.all());
   const [psearch, setPsearch] = useState("");
   const [ws, setWs] = useState(() => workspaceState.get());
@@ -8009,7 +8035,7 @@ function Home({ currentTheme, onTheme, onOpenThemeEditor, onOpenPluginCreator, o
   const taskNames = useMemo(() => workspaceState.taskNames(),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [ws]);
-  const insights = useInsights(activeWorkspace || "default", projectPath, taskNames);
+  const insights = useInsights(activeWorkspace || "default", projectPath);
   const [workflowVersion, setWorkflowVersion] = useState(0);
   useEffect(() => events.on("workspace_loaded", () => setWorkflowVersion(v => v + 1)), []);
   const workflowCards = useMemo(() => workflowRunner.all().map(w => ({ name: w.name, steps: w.steps.map(st => st.name || st.task || st.command || (st.run ?? "").split("\n")[0].slice(0, 20) || "step") })),
@@ -8220,7 +8246,6 @@ function Home({ currentTheme, onTheme, onOpenThemeEditor, onOpenPluginCreator, o
               <GitPanel d={insights} onRun={onRun} />
               <ActivityPanel d={insights} workspace={wsName} />
               <FilesPanel d={insights} onRun={onRun} />
-              <SuggestPanel d={insights} onRun={onRun} />
             </aside>
           )}
         </div>
@@ -8236,7 +8261,7 @@ function Home({ currentTheme, onTheme, onOpenThemeEditor, onOpenPluginCreator, o
         events.emit("focus_prompt");
       }
     }}>
-      <div className="home-scroll">{body}</div>
+      <div className="home-scroll" ref={scrollRef}>{body}</div>
     </div>
   );
 }
@@ -8313,7 +8338,7 @@ function WorkspaceMeta({ ws, plugins, activeWorkspace, activeWorkspacePath }: {
           ? <span className="hm-chip"><span className="hm-chip-k">git</span>checking…</span>
           : gitInfo
             ? <span className="hm-chip hm-chip--ok"><span className="hm-chip-k">{gitInfo.provider === "github" ? "GitHub" : "GitLab"}</span>{gitInfo.repo}</span>
-            : <button className="hm-chip hm-chip--todo" onClick={() => fill("'workspace github ")}><span className="hm-chip-k">git</span>not connected — 'workspace github owner/repo</button>}
+            : <button className="hm-chip hm-chip--todo" onClick={() => fill("'workspace github ")} title="'workspace github owner/repo connects it"><span className="hm-chip-k">git</span>not connected · connect</button>}
         <span className="hm-chip" title={active.map(p => p.name).join(", ")}><span className="hm-chip-k">plugins</span>{active.length} on{active.length ? ` · ${active.slice(0, 3).map(p => p.name).join(", ")}${active.length > 3 ? "…" : ""}` : ""}</span>
       </div>
       {ws.status === "none"

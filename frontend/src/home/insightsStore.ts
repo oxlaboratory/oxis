@@ -1,15 +1,14 @@
 /**
  * insightsStore.ts — what Home's insight cards know about each workspace:
  * today's activity (tasks run, files saved, workflows run, commands run),
- * the files opened lately, the last workflow run and the last command
- * that failed. Kept in localStorage per workspace; counts start again
- * each day. Fed by OXIS's own events (see start()).
+ * the files opened lately and the last workflow run. Kept in
+ * localStorage per workspace; counts start again each day. Fed by OXIS's
+ * own events (see startInsights()).
  */
 
 import { events } from "../terminal/events";
 
 export interface WorkflowRun { name: string; ok: boolean; steps: string[]; at: number }
-export interface FailedCommand { command: string; code: number; at: number }
 
 export interface WorkspaceInsights {
   day: string;
@@ -20,7 +19,6 @@ export interface WorkspaceInsights {
   /** Paths opened or saved in the editor, newest first. */
   files: string[];
   lastWorkflow?: WorkflowRun;
-  lastFailed?: FailedCommand;
 }
 
 const KEY = "oxis-insights-v1";
@@ -79,15 +77,7 @@ export function startInsights(): void {
     const r = p as { name: string; ok: boolean; steps: string[] };
     update(w => { w.workflows++; w.lastWorkflow = { name: r.name, ok: r.ok, steps: r.steps, at: Date.now() }; });
   });
-  events.on("shell_command_done", p => {
-    const r = p as { command: string; code: number };
-    update(w => {
-      w.commands++;
-      // Ctrl+C isn't a failure worth mentioning.
-      if (r.code !== 0 && r.code !== 130 && r.code !== -1073741510) w.lastFailed = { command: r.command, code: r.code, at: Date.now() };
-      else if (w.lastFailed && w.lastFailed.command === r.command) w.lastFailed = undefined; // it works now
-    });
-  });
+  events.on("shell_command_done", () => update(w => { w.commands++; }));
 }
 
 /** "4m ago", "2h ago", "3d ago". */
