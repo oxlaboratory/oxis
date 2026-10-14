@@ -1,5 +1,5 @@
 --[[@manifest
-version: 2.1.0
+version: 2.1.1
 description: Watch your machine and your services without leaving OXIS — live CPU and memory with sparklines, the processes eating your RAM and what's growing, logs as they're written (errors in red), health checks that tell you the moment a service goes down, and alerts in the background. Ctrl+C stops anything live.
 author: Oxide Labs
 category: monitoring
@@ -75,6 +75,26 @@ local function sysinfo(cb)
   end)
 end
 
+-- A live view's loop: one reading at a time (a slow one isn't piled
+-- up behind), and nothing shown once Ctrl+C has stopped it, even a
+-- reading that was already on its way.
+local function live(every, read, onStop)
+  local busy, stopped = false, false
+  local function tick()
+    if busy or stopped then return end
+    busy = true
+    read(function(show)
+      busy = false
+      if not stopped then show() end
+    end)
+  end
+  tick()
+  return oxis.every(every, tick, { foreground = true, stop = function()
+    stopped = true
+    if onStop then onStop() end
+  end })
+end
+
 -- ── 'mon ────────────────────────────────────────────────────
 
 oxis.command("mon", function(args)
@@ -83,8 +103,10 @@ oxis.command("mon", function(args)
   local cpu, peakCpu, peakMem, n, started = {}, 0, 0, 0, os.time()
   local sumCpu = 0
   oxis.echo(("📈 Live every %ds — Ctrl+C stops"):format(every), "accent")
-  local function tick()
-    sysinfo(function(i)
+  local function read(done)
+    oxis.system.info(function(err, i)
+      if err then return done(function() oxis.echo("couldn't read the system: " .. err, "err") end) end
+      done(function()
       local memPct = i.memTotalMB > 0 and i.memUsedMB / i.memTotalMB * 100 or 0
       cpu[#cpu + 1] = i.cpuPercent
       if #cpu > 24 then table.remove(cpu, 1) end
@@ -94,20 +116,23 @@ oxis.command("mon", function(args)
       local line = spark(cpu) .. (" "):rep(24 - #cpu)
       oxis.echo(("%s  CPU %5.1f%% %s  RAM %5.1f%% %s/%s"):format(clock(), i.cpuPercent, line, memPct, gb(i.memUsedMB), gb(i.memTotalMB)),
         level(math.max(i.cpuPercent, memPct)))
+      end)
     end)
   end
-  tick()
-  oxis.every(every, tick, { foreground = true, stop = function()
+  live(every, read, function()
     if n == 0 then return end
     oxis.echo(("📈 %d samples over %s — CPU avg %.1f%%, peak %.1f%% · RAM peak %.1f%%"):format(n, duration(os.time() - started), sumCpu / n, peakCpu, peakMem), "dim")
-  end })
+  end)
 end, "live CPU and memory with a sparkline, a line every few seconds — 'mon [seconds]; Ctrl+C stops")
 
 -- ── 'top / 'watch-mem ───────────────────────────────────────
 
-local function topProcesses(n, cb)
+local function topProcesses(n, cb, onErr)
   oxis.process.list(function(err, list)
-    if err then return oxis.echo("couldn't list processes: " .. err, "err") end
+    if err then
+      if onErr then return onErr(err) end
+      return oxis.echo("couldn't list processes: " .. err, "err")
+    end
     -- Several processes with one name (browser tabs, helpers) add up.
     local byName, order = {}, {}
     for _, p in ipairs(list) do
@@ -157,19 +182,22 @@ oxis.command("watch-mem", function(args)
   local n = math.max(1, math.min(20, tonumber(args[2]) or 5))
   local previous, rounds = nil, 0
   oxis.echo(("👀 Top %d by memory every %ds — Ctrl+C stops"):format(n, every), "accent")
-  local function tick()
+  local function read(done)
     topProcesses(n, function(top)
-      rounds = rounds + 1
-      oxis.echo(("── %s"):format(clock()), "dim")
-      printTop(top, previous)
-      previous = {}
-      for _, p in ipairs(top) do previous[p.name] = p.mem end
+      done(function()
+        rounds = rounds + 1
+        oxis.echo(("── %s"):format(clock()), "dim")
+        printTop(top, previous)
+        previous = {}
+        for _, p in ipairs(top) do previous[p.name] = p.mem end
+      end)
+    end, function(err)
+      done(function() oxis.echo("couldn't list processes: " .. err, "err") end)
     end)
   end
-  tick()
-  oxis.every(every, tick, { foreground = true, stop = function()
-    oxis.echo(("👀 Watched %d rounds."):format(rounds), "dim")
-  end })
+  live(every, read, function()
+    oxis.echo(("👀 Watched %d round%s."):format(rounds, rounds == 1 and "" or "s"), "dim")
+  end)
 end, "the top memory users, live, with what's growing — 'watch-mem [seconds] [n]; Ctrl+C stops")
 
 -- ── 'tail ───────────────────────────────────────────────────
@@ -250,8 +278,10 @@ oxis.command("healthcheck", function(args)
   local stats = {}
   for _, u in ipairs(urls) do stats[u] = { up = 0, down = 0, total = 0, ms = 0, last = nil } end
 
+  local stopped = false
   local function check(u)
     oxis.net.request({ url = u, method = "GET", timeout = 10 }, function(err, res)
+      if stopped then return end
       local s = stats[u]
       s.total = s.total + 1
       local ok = not err and res and res.status < 500
@@ -273,6 +303,7 @@ oxis.command("healthcheck", function(args)
   if needsNewer("every") then return end
   oxis.echo(("🩺 Checking %d service%s every %ds — Ctrl+C stops (only changes are shown)"):format(#urls, #urls > 1 and "s" or "", every), "accent")
   oxis.every(every, function() for _, u in ipairs(urls) do check(u) end end, { foreground = true, stop = function()
+    stopped = true
     for _, u in ipairs(urls) do
       local s = stats[u]
       if s.total > 0 then

@@ -654,7 +654,7 @@ shell echoes, so a password typed at a prompt stays out of it.
 
 ```
 'oxis resize                  show the current size and presets
-'oxis resize large            small 800×520 · default 940×600 · medium 1100×700
+'oxis resize large            small 800×520 · default 1120×720 · medium 1100×700
                               · large 1280×800 · xl 1600×1000
 'oxis resize 1200x760         any size from 640×400 to 3840×2160
 'oxis resize config           open window.json at the width line

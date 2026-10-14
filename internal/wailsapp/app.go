@@ -676,7 +676,7 @@ func Run() error {
 		return err
 	}
 
-	// Saved by 'oxis resize (window.json); defaults to 940x600.
+	// Saved by 'oxis resize (window.json); defaults to 1120x720.
 	winWidth, winHeight := loadWindowSize()
 
 	opts := &options.App{

@@ -14,8 +14,8 @@ import (
 // is set with 'oxis resize and remembered in window.json next to the
 // app's data.
 const (
-	defaultWinWidth  = 940
-	defaultWinHeight = 600
+	defaultWinWidth  = 1120
+	defaultWinHeight = 720
 	minWinWidth      = 640
 	minWinHeight     = 400
 	maxWinWidth      = 3840

@@ -738,7 +738,7 @@ const COMMAND_DETAILS: Record<string, CommandDetail> = {
     summary: "OXIS application settings. The window size is changed live and remembered for the next launch (window.json in the app folder).",
     usage: [
       { syntax: "'oxis resize",               description: "show the current window size and the presets" },
-      { syntax: "'oxis resize <preset>",      description: "small 800×520 · default 940×600 · medium 1100×700 · large 1280×800 · xl 1600×1000" },
+      { syntax: "'oxis resize <preset>",      description: "small 800×520 · default 1120×720 · medium 1100×700 · large 1280×800 · xl 1600×1000" },
       { syntax: "'oxis resize <W>x<H>",       description: "any size from 640×400 to 3840×2160, e.g. 'oxis resize 1200x760" },
       { syntax: "'oxis resize config",        description: "open window.json in the editor at the width line" },
     ],
@@ -1543,7 +1543,7 @@ function registerBuiltinCommands(): void {
   // is read again on the next launch.
   const WINDOW_PRESETS: Record<string, [number, number]> = {
     small:   [800, 520],
-    default: [940, 600],
+    default: [1120, 720],
     medium:  [1100, 700],
     large:   [1280, 800],
     xl:      [1600, 1000],
@@ -8366,13 +8366,10 @@ function Home({ currentTheme, onTheme, onOpenThemeEditor, onOpenPluginCreator, o
       const roomW = box.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
       if (!natural || room <= 0) return;
       const sides = !!inner.querySelector(".ins-col");
-      const stack = sides && roomW * 0.88 < HOME_WIDE * 0.78;
+      const stack = sides && roomW < HOME_WIDE * 0.8;
       setStacked(s => (s !== stack ? stack : s));
       const wide = !sides ? Infinity : stack ? HOME_NARROW : HOME_WIDE;
-      // With the cards, keep some air around it rather than filling the
-      // window edge to edge.
-      const air = sides ? 0.88 : 1;
-      const next = Math.max(0.6, Math.min(1, room * (sides ? 0.95 : 1) / natural, roomW * air / wide));
+      const next = Math.max(0.6, Math.min(1, room / natural, roomW / wide));
       setFit(f => (Math.abs(f - next) > 0.01 ? next : f));
     };
     measure();
