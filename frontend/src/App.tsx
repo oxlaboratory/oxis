@@ -38,7 +38,8 @@ import { getRecentErrors, clearRecentErrors, installGlobalErrorCapture } from ".
 import { cwdTracker, CwdTracker, buildCwdProbe, looksLikeDirectoryChange, isProbeLine, cwdFromMark } from "./terminal/cwdTracker";
 import { startHint, tabHint, paneHint, tipHint } from "./terminal/hints";
 import { quickSelect } from "./terminal/quickSelect";
-import { Insights } from "./home/Insights";
+import { useInsights, Panel, GitPanel, ActivityPanel, FilesPanel, SuggestPanel, TasksPanel } from "./home/Insights";
+import logoUrl from "./assets/logo.svg";
 import { startInsights, setInsightsWorkspace } from "./home/insightsStore";
 import HistoryPicker from "./components/HistoryPicker";
 import { runTriggers, parseTrigger, splitTriggerArgs, describeTrigger, triggerRegex, type Trigger } from "./terminal/triggers";
@@ -346,17 +347,12 @@ const SETTINGS: SettingDef[] = [
   },
   {
     key: "homeInsights", label: "Home Insights", default: true,
-    description: "Cards on both sides of Home: today's activity, tasks and recent files, the project's Git state, its workflow, and what OXIS suggests next. Shown when the window is wide enough",
+    description: "Home's side column: the project's Git state, today's activity, recent files and what OXIS suggests next (under the main column on a narrow window)",
     apply: () => events.emit("insights_changed"),
   },
   {
-    key: "homeSky", label: "Home Sky", default: "auto", choices: ["auto", "day", "night", "off"],
-    description: "The pixel sky on Home: day (the sun and clouds), night (the moon and stars), off, or auto — the sun from 6 am to 6 pm and the moon at night, unless the theme picks one",
-    apply: () => events.emit("sky_changed"),
-  },
-  {
     key: "startIn", label: "Start In", default: "home", choices: ["home", "terminal"],
-    description: "What OXIS opens on: Home (the workspace, its tasks and the sky) or straight into the terminal",
+    description: "What OXIS opens on: Home (the workspace, its tasks and Git at a glance) or straight into the terminal",
     apply: () => { /* read at startup */ },
   },
   {
@@ -7992,409 +7988,12 @@ function ThemeTile({ name, theme, active, isCustom, onClick, onDelete }: {
   );
 }
 
-// ── Sky widget: pixel-art sun and clouds by day, moon and stars by night ──
-// Everything is drawn in the same 2px pixels (SVG rects with crisp
-// edges), shaded with opacity, in the theme's sun, cloud, moon and star
-// colours (fill, set in CSS).
-
-function rand(min: number, max: number): number { return min + Math.random() * (max - min); }
-
-/** A row of same-shade pixels: x, y and width in pixels, and opacity. */
-type PixelRun = { x: number; y: number; w: number; a: number };
-interface PixelShape { cols: number; rows: number; runs: PixelRun[] }
-
-/** A picture `cols` × `rows` pixels whose pixel (x, y) has opacity
- *  shade(x, y), 0 for none. */
-function pixelShape(cols: number, rows: number, shade: (x: number, y: number) => number): PixelShape {
-  const runs: PixelRun[] = [];
-  for (let y = 0; y < rows; y++) {
-    let run: PixelRun | null = null;
-    for (let x = 0; x <= cols; x++) {
-      const a = x < cols ? shade(x, y) : -1;
-      if (run && run.a === a) { run.w++; continue; }
-      if (run && run.a > 0) runs.push(run);
-      run = { x, y, w: 1, a };
-    }
-  }
-  return { cols, rows, runs };
-}
-
-const SKY_PIXEL = 2; // screen px per pixel
-
-function Pixels({ shape, className, style, svgRef }: {
-  shape: PixelShape; className?: string; style?: React.CSSProperties; svgRef?: (el: SVGSVGElement | null) => void;
-}) {
-  return (
-    <svg ref={svgRef} className={className} style={style} width={shape.cols * SKY_PIXEL} height={shape.rows * SKY_PIXEL}
-      viewBox={`0 0 ${shape.cols} ${shape.rows}`} shapeRendering="crispEdges" aria-hidden="true">
-      {shape.runs.map((r, k) => <rect key={k} x={r.x} y={r.y} width={r.w} height={1} fillOpacity={r.a} />)}
-    </svg>
-  );
-}
-
-// The sun: a round disc lit from the top left — a hot spot, a bright
-// body, a deeper rim to the lower right — inside a pale corona, with
-// eight rays: long straight ones (three pixels wide at the root) and
-// shorter diagonals, whose tips take turns as it shimmers.
-const SUN_SIZE = 21;
-const SUN = (() => {
-  const c = 10;
-  const disc = pixelShape(SUN_SIZE, SUN_SIZE, (x, y) => {
-    const dx = x - c, dy = y - c, d = Math.hypot(dx, dy);
-    if (d > 5.9) return 0;
-    if (d > 5.0) return 0.45;                                      // the corona
-    if (Math.hypot(dx + 1.8, dy + 1.8) <= 1.3) return 1;           // the hot spot
-    const shade = (dx + dy) / 10;                                  // lit from the top left
-    return Math.round(Math.max(0.72, Math.min(1, 0.93 - shade * (d > 3.6 ? 0.9 : 0.4))) * 20) / 20;
-  });
-  const rays = (straight: number[], diagonal: number[], root = false) => pixelShape(SUN_SIZE, SUN_SIZE, (x, y) => {
-    const dx = Math.abs(x - c), dy = Math.abs(y - c);
-    if ((dx === 0 && straight.includes(dy)) || (dy === 0 && straight.includes(dx))) return 0.95;
-    // The straight rays are wider where they leave the corona.
-    if (root && ((dx === 1 && dy === 7) || (dy === 1 && dx === 7))) return 0.45;
-    return dx === dy && diagonal.includes(dx) ? 0.85 : 0;
-  });
-  return { disc, rays: rays([7, 8], [5], true), straightTips: rays([9, 10], []), diagonalTips: rays([], [6, 7]) };
-})();
-
-// A warm haze round the sun (the sun itself is drawn on top, unchanged).
-const SUN_HAZE = pixelShape(SUN_SIZE + 12, SUN_SIZE + 12, (x, y) => {
-  const d = Math.hypot(x - (SUN_SIZE + 11) / 2, y - (SUN_SIZE + 11) / 2);
-  return d <= 5.5 ? 0 : d <= 7.5 ? 0.08 : d <= 10 ? 0.04 : d <= 12.5 ? 0.018 : 0;
-});
-
-// The moon: a sphere lit from the top left — bright towards the light,
-// darker to the lower right and at its edge — with its dark seas, and
-// craters whose far rims catch the light. A faint glow breathes round it.
-const MOON_SIZE = 19;
-const MOON = (() => {
-  const c = 9, R = 7.4;
-  const seas: Array<[number, number, number]> = [[-2.2, -1.6, 2.1], [-0.6, -2.6, 1.5], [1.6, 0.6, 1.9], [0.4, 2.6, 1.3]];
-  const craters: Array<[number, number, number]> = [[-3.4, 2.2, 1.0], [3.1, -2.6, 0.9], [2.4, 3.4, 0.8]];
-  return pixelShape(MOON_SIZE, MOON_SIZE, (x, y) => {
-    const dx = x - c, dy = y - c, d = Math.hypot(dx, dy);
-    if (d > R) return 0;
-    // Lambert-ish light from the top left, darker at the limb.
-    const light = Math.max(0, Math.min(1, 0.72 + (-dx - dy) / (R * 2.6)));
-    let a = light * (d > R - 1 ? 0.82 : 1);
-    if (seas.some(([sx, sy, r]) => Math.hypot(dx - sx, dy - sy) <= r)) a *= 0.74;
-    for (const [cx, cy, r] of craters) {
-      const cd = Math.hypot(dx - cx, dy - cy);
-      if (cd <= r) a *= 0.62;                                                  // the floor, in shade
-      else if (cd <= r + 0.9 && dx - cx + dy - cy > 0.4) a = Math.min(1, a + 0.18); // the lit far rim
-    }
-    return Math.round(Math.max(0.35, a) * 20) / 20;
-  });
-})();
-const MOON_GLOW = pixelShape(MOON_SIZE + 10, MOON_SIZE + 10, (x, y) => {
-  const d = Math.hypot(x - (MOON_SIZE + 9) / 2, y - (MOON_SIZE + 9) / 2);
-  return d <= 7.6 ? 0 : d <= 9.2 ? 0.16 : d <= 10.8 ? 0.08 : d <= 12.6 ? 0.035 : 0;
-});
-
-// Stars, in three kinds: a faint speck, a bright dot, and now and then a
-// sparkle with long arms. Each twinkles at its own pace and depth.
-type StarKind = "speck" | "dot" | "sparkle";
-const STAR_SHAPES: Record<StarKind, PixelShape> = {
-  speck: pixelShape(1, 1, () => 0.7),
-  dot: pixelShape(2, 2, (x, y) => (x + y === 0 ? 1 : 0.55)),
-  sparkle: pixelShape(5, 5, (x, y) => {
-    const dx = Math.abs(x - 2), dy = Math.abs(y - 2);
-    if (dx === 0 && dy === 0) return 1;
-    if (dx === 0 || dy === 0) return dx + dy === 1 ? 0.7 : 0.3;
-    return dx === 1 && dy === 1 ? 0.22 : 0;
-  }),
-};
-// A shooting star's streak: bright at its head (the right), fading back.
-const SHOOTING_STAR = pixelShape(14, 3, (x, y) => (y === 1 ? (x + 1) / 14 : y === 0 && x >= 11 ? 0.35 : 0));
-
-// Clouds: a new shape each time. They drift left to right in two lanes:
-// far clouds high up, small, faint and slow; near ones lower, bigger and
-// faster. They fade in at the left and thin out before the sun (a mask
-// on .sky-clouds). Every cloud in a lane moves at the same speed and
-// they start evenly spaced, so they never run into one another.
-
-/** A cumulus, drawn the way pixel artists do: a big round puff in the
- *  middle and smaller ones in front of it at the sides (and on a wide
- *  cloud a little one at an end), all sitting on one flat base. Each puff
- *  is shaded as a ball lit from the top left — the sun's side — so where
- *  a front puff overlaps the big one its darker lower-right meets the
- *  big one's lit face, and the bumps read as separate puffs. A bright rim
- *  along the top, a shaded underside; four or five shades in all. */
-function makeCloud(cols: number, rows: number): PixelShape {
-  const R = rows / 2;
-  const puffs = [
-    { cx: cols * rand(0.44, 0.56), r: R * rand(0.9, 0.98), cy: 0 },
-    { cx: cols * rand(0.2, 0.28), r: R * rand(0.56, 0.66), cy: 0 },
-    { cx: cols * rand(0.72, 0.8), r: R * rand(0.62, 0.72), cy: 0 },
-  ];
-  if (cols >= 20) {
-    puffs.push(Math.random() < 0.5
-      ? { cx: cols * rand(0.08, 0.12), r: R * rand(0.36, 0.44), cy: 0 }
-      : { cx: cols * rand(0.88, 0.92), r: R * rand(0.36, 0.44), cy: 0 });
-  }
-  for (const p of puffs) p.cy = rows - p.r * rand(0.98, 1.06);
-  const left = Math.min(...puffs.map(p => p.cx)), right = Math.max(...puffs.map(p => p.cx));
-  const baseTop = rows - R * 0.6;
-  const hit = (px: number, py: number) => puffs.filter(p => (px - p.cx) ** 2 + (py - p.cy) ** 2 <= p.r * p.r);
-  const filled = (x: number, y: number): boolean => {
-    if (x < 0 || y < 0 || x >= cols || y >= rows) return false;
-    const px = x + 0.5, py = y + 0.5;
-    return (py >= baseTop && px >= left && px <= right) || hit(px, py).length > 0;
-  };
-  const LEVELS = [1, 0.92, 0.84, 0.75, 0.65];
-  const level = (v: number) => LEVELS.reduce((a, b) => (Math.abs(b - v) < Math.abs(a - v) ? b : a));
-  return pixelShape(cols, rows, (x, y) => {
-    if (!filled(x, y)) return 0;
-    if (!filled(x, y - 1)) return 1;                          // the lit rim
-    if (y === rows - 1) return 0.65;                          // the underside
-    const px = x + 0.5, py = y + 0.5;
-    // The front puff here: the smallest one the pixel is in.
-    const front = hit(px, py).sort((a, b) => a.r - b.r)[0];
-    let v: number;
-    if (front) {
-      const nx = (px - front.cx) / front.r, ny = (py - front.cy) / front.r;
-      v = 0.82 + 0.2 * Math.max(-1, Math.min(1, -0.6 * nx - 0.8 * ny));
-    } else {
-      v = 0.8;                                                // the base between puffs
-    }
-    if (y >= rows - 3) v -= 0.08;                             // the belly
-    return level(v);
-  });
-}
-
-// A bird, far off: two wing beats (up, then level).
-const BIRD_UP = pixelShape(5, 2, (x, y) => (y === 0 ? (x === 0 || x === 4 ? 1 : 0) : x >= 1 && x <= 3 ? (x === 2 ? 1 : 0.8) : 0));
-const BIRD_FLAT = pixelShape(5, 2, (x, y) => (y === 1 ? (x === 2 ? 1 : 0.8) : 0));
-
-interface CloudLayout {
-  shape: PixelShape; top: number; opacity: number;
-  /** translateX at the start and end of a crossing, and where it rests
-   *  when motion is reduced. */
-  from: number; to: number; rest: number;
-  duration: number; delay: number;
-}
-
-const SUN_CLEARANCE = 10;
-const CLOUD_LANES = [
-  { cols: [15, 21], rows: 8,  top: 3,  opacity: 0.55, seconds: 150 },
-  { cols: [26, 32], rows: 13, top: 30, opacity: 0.95, seconds: 95 },
-];
-
-/** `total` clouds crossing `room` px of sky (up to the sun): three in
- *  five far away, the rest near; speed multiplies their drift. */
-function layoutClouds(room: number, total = 5, speed = 1): CloudLayout[] {
-  const out: CloudLayout[] = [];
-  const far = Math.ceil(total * 0.6);
-  const counts = [far, total - far];
-  CLOUD_LANES.forEach((laneDef, li) => {
-    const lane = { ...laneDef, count: counts[li], seconds: laneDef.seconds / speed };
-    if (lane.count <= 0) return;
-    const shapes = Array.from({ length: lane.count }, () => makeCloud(Math.round(rand(lane.cols[0], lane.cols[1])), lane.rows));
-    const widest = Math.max(...shapes.map(s => s.cols * SKY_PIXEL));
-    // Each crossing starts just off the left edge and ends at the sun.
-    const travel = room + widest;
-    // Evenly spaced along the crossing, each nudged by no more than
-    // keeps it clear of the next.
-    const slot = 1 / lane.count;
-    const slack = Math.max(0, slot - (widest + 12) / travel);
-    const phase = Math.random();
-    shapes.forEach((shape, k) => {
-      const at = (phase + k * slot + rand(0, slack)) % 1;
-      out.push({
-        shape, opacity: lane.opacity,
-        top: lane.top + Math.round(rand(-2, 2)),
-        from: -widest, to: room, rest: -widest + at * travel,
-        duration: lane.seconds, delay: -at * lane.seconds,
-      });
-    });
-  });
-  return out;
-}
-
-/** Pixel art from a theme ("sunArt", "moonArt"): rows split by /, #
- *  a pixel, 1–9 a dimmer one, . empty. null if there's none. */
-function parseArt(art: string): PixelShape | null {
-  const rows = art.split("/").filter(Boolean);
-  if (!rows.length) return null;
-  const cols = Math.max(...rows.map(r => r.length));
-  return pixelShape(cols, rows.length, (x, y) => {
-    const ch = rows[y][x] ?? ".";
-    return ch === "#" ? 1 : /[1-9]/.test(ch) ? Number(ch) / 10 : 0;
-  });
-}
-
-/** The sky options of the theme in use (themeManager.ts, group "Sky"). */
-function skyOptions() {
-  const t = (themeManager.get(themeManager.getCurrent()) ?? {}) as Theme;
-  const v = (key: string) => optionValue(t, themeOption(key)!);
-  return {
-    mode: String(v("skyMode")), clouds: Number(v("cloudCount")), speed: Number(v("cloudSpeed")),
-    stars: Number(v("starCount")), sunArt: String(v("sunArt")), moonArt: String(v("moonArt")), image: String(v("skyImage")),
-  };
-}
-
-interface StarLayout { kind: StarKind; top: number; left: number; delay: number; duration: number; low: number }
-
-/** Stars spread across the sky left of the moon, in bands, alternating
- *  high and low: mostly specks and dots, one sparkle in four or so. */
-function layoutStars(count: number, widthPx: number): StarLayout[] {
-  const band = widthPx / Math.max(1, count);
-  return Array.from({ length: count }, (_, i) => {
-    const r = Math.random();
-    const kind: StarKind = r < 0.25 ? "sparkle" : r < 0.6 ? "dot" : "speck";
-    return {
-      kind,
-      left: Math.round(i * band + rand(band * 0.1, band * 0.8)),
-      top: Math.round(i % 2 === 0 ? rand(2, 18) : rand(24, 46)),
-      delay: rand(0, 4),
-      duration: kind === "sparkle" ? rand(2.6, 4.2) : rand(1.6, 3.4),
-      // How far it fades between twinkles: specks nearly vanish.
-      low: kind === "speck" ? rand(0.05, 0.2) : kind === "dot" ? rand(0.25, 0.45) : rand(0.4, 0.6),
-    };
-  });
-}
-
-const SKY_WIDGET_WIDTH = 280; // .sky-widget's width
-
-function SkyWidget() {
-  const [now, setNow] = useState(() => new Date());
-  useEffect(() => {
-    const t = setInterval(() => setNow(new Date()), 30000);
-    return () => clearInterval(t);
-  }, []);
-  // The theme decides the mode, the art and how many clouds and stars.
-  const [opts, setOpts] = useState(skyOptions);
-  useEffect(() => events.on("theme_changed", () => setOpts(skyOptions())), []);
-  const hour = now.getHours();
-  // Setting homeSky: just the day sky, just the night sky, neither, or
-  // (auto) the theme's choice — by the clock unless it says otherwise.
-  const [pick, setPick] = useState(() => String(getSetting("homeSky")));
-  useEffect(() => events.on("sky_changed", () => setPick(String(getSetting("homeSky")))), []);
-  const mode = pick === "day" ? "sun" : pick === "night" ? "moon" : opts.mode;
-  const isDay = mode === "sun" ? true : mode === "moon" ? false : hour >= 6 && hour < 18;
-  const sunArt = useMemo(() => parseArt(opts.sunArt), [opts.sunArt]);
-  const moonArt = useMemo(() => parseArt(opts.moonArt), [opts.moonArt]);
-
-  // Laid out once per setting, so clouds and stars don't jump on each
-  // clock tick. The clouds' sky ends at the sun (at the right edge).
-  const room = SKY_WIDGET_WIDTH - SUN_SIZE * SKY_PIXEL - SUN_CLEARANCE;
-  const clouds = useMemo(() => layoutClouds(room, opts.clouds, opts.speed), [room, opts.clouds, opts.speed]);
-  const stars = useMemo(() => layoutStars(opts.stars, SKY_WIDGET_WIDTH - 60), [opts.stars]);
-
-  // The clouds move by Web Animations with plain pixel values (CSS
-  // keyframes built from variables can't always run off the main
-  // thread), as 3D translations, so the compositor glides them a
-  // fraction of a pixel at a time and nothing else the app does can make
-  // them stutter. With reduced motion they stay where they start.
-  const cloudEls = useRef<Array<SVGSVGElement | null>>([]);
-  useEffect(() => {
-    if (!isDay) return;
-    const still = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-    const running = clouds.map((c, i) => {
-      const el = cloudEls.current[i];
-      if (!el || still || typeof el.animate !== "function") return null;
-      // Each cloud fades in as it sets off and out before the sun, all of
-      // it at once (a mask over the strip cut passing clouds into bands).
-      const at = (o: number) => `translate3d(${c.from + (c.to - c.from) * o}px, 0, 0)`;
-      return el.animate(
-        [0, 0.12, 0.7, 0.9, 1].map(o => ({ offset: o, transform: at(o), opacity: o === 0 || o >= 0.9 ? 0 : c.opacity })),
-        { duration: c.duration * 1000, delay: c.delay * 1000, iterations: Infinity, easing: "linear" },
-      );
-    });
-    return () => running.forEach(a => a?.cancel());
-  }, [clouds, isDay]);
-
-  if (pick === "off") return <div className="sky-widget sky-widget--off" />;
-  if (opts.image) {
-    return <div className="sky-widget"><img className="sky-image" src={opts.image} alt="" draggable={false} /></div>;
-  }
-  if (isDay) {
-    return (
-      <div className="sky-widget sky-widget--day">
-        {!sunArt && <Pixels shape={SUN_HAZE} className="sky-sun-haze" />}
-        <div className="sky-bird" aria-hidden="true">
-          <Pixels shape={BIRD_UP} className="sky-bird-wing sky-bird-wing--up" />
-          <Pixels shape={BIRD_FLAT} className="sky-bird-wing sky-bird-wing--flat" />
-        </div>
-        {sunArt ? (
-          <Pixels shape={sunArt} className="sky-sun sky-sun--art" />
-        ) : (
-          <div className="sky-sun" style={{ width: SUN_SIZE * SKY_PIXEL, height: SUN_SIZE * SKY_PIXEL }}>
-            <Pixels shape={SUN.rays} />
-            <Pixels shape={SUN.straightTips} className="sky-sun-tips" />
-            <Pixels shape={SUN.diagonalTips} className="sky-sun-tips sky-sun-tips--late" />
-            <Pixels shape={SUN.disc} />
-          </div>
-        )}
-        <div className="sky-clouds" style={{ width: room }}>
-          {clouds.map((c, i) => (
-            <Pixels key={i} shape={c.shape} className="sky-cloud" svgRef={el => { cloudEls.current[i] = el; }}
-              style={{ top: `${c.top}px`, opacity: c.opacity, transform: `translate3d(${c.rest}px, 0, 0)` }} />
-          ))}
-        </div>
-      </div>
-    );
-  }
-  return (
-    <div className="sky-widget sky-widget--night">
-      {!moonArt && <Pixels shape={MOON_GLOW} className="sky-moon-glow" />}
-      <Pixels shape={moonArt ?? MOON} className="sky-moon" />
-      {stars.map((s, i) => (
-        <Pixels key={i} shape={STAR_SHAPES[s.kind]} className={`sky-star sky-star--${s.kind}`} style={{
-          top: `${s.top}px`, left: `${s.left}px`,
-          animationDuration: `${s.duration}s`, animationDelay: `${s.delay}s`,
-          ["--star-low" as string]: s.low,
-        }} />
-      ))}
-      {opts.stars > 0 && <Pixels shape={SHOOTING_STAR} className="sky-shooting-star" />}
-    </div>
-  );
-}
-
 function Home({ currentTheme, onTheme, onOpenThemeEditor, onOpenPluginCreator, onRun }: {
   currentTheme: string; onTheme: (n: string) => void;
   onOpenThemeEditor: (n: string) => void; onOpenPluginCreator: () => void;
   /** Runs a command line in the terminal (and shows it). */
   onRun: (cmd: string) => void;
 }) {
-  // Home always fits: when the window is too short for it, it's drawn
-  // smaller (down to 60%) rather than cut off or scrolled.
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const fitRef = useRef<HTMLDivElement>(null);
-  const [fit, setFit] = useState(1);
-  // With the insight cards beside it, Home is 1120 px wide: narrower, it
-  // scales down to fit, and past 80% the cards go under it instead.
-  const [stacked, setStacked] = useState(false);
-  useLayoutEffect(() => {
-    const box = scrollRef.current, inner = fitRef.current;
-    if (!box || !inner) return;
-    const measure = () => {
-      const zoom = parseFloat(inner.style.zoom || "1") || 1;
-      const natural = inner.getBoundingClientRect().height / zoom;
-      const style = getComputedStyle(box);
-      const room = box.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
-      const roomW = box.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
-      if (!natural || room <= 0) return;
-      const sides = !!inner.querySelector(".ins-col");
-      if (inner.querySelector(".hpage")) { setStacked(false); setFit(1); return; }
-      // The cards start level with the first box under the title.
-      const row = inner.querySelector<HTMLElement>(".home-row"), first = inner.querySelector(".oxis-home > .oxis-box");
-      if (row && first) {
-        const top = Math.round((first.getBoundingClientRect().top - row.getBoundingClientRect().top) / zoom);
-        if (row.style.getPropertyValue("--ins-top") !== `${top}px`) row.style.setProperty("--ins-top", `${top}px`);
-      }
-      const stack = sides && roomW < HOME_WIDE * 0.8;
-      setStacked(s => (s !== stack ? stack : s));
-      const wide = !sides ? Infinity : stack ? HOME_NARROW : HOME_WIDE;
-      const next = Math.max(0.6, Math.min(1, room / natural, roomW / wide));
-      setFit(f => (Math.abs(f - next) > 0.01 ? next : f));
-    };
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(box);
-    ro.observe(inner);
-    return () => ro.disconnect();
-  }, []);
   const [view, setView] = useState<"home" | "themes" | "plugins">("home");
   const [plugins, setPlugins] = useState(() => pluginManager.all());
   const [psearch, setPsearch] = useState("");
@@ -8406,6 +8005,11 @@ function Home({ currentTheme, onTheme, onOpenThemeEditor, onOpenPluginCreator, o
   const [insightsOn, setInsightsOn] = useState(() => getSetting("homeInsights") !== false);
   useEffect(() => events.on("insights_changed", () => setInsightsOn(getSetting("homeInsights") !== false)), []);
   useEffect(() => { setInsightsWorkspace(activeWorkspace); }, [activeWorkspace]);
+  const projectPath = activeWorkspacePath || ws.projectPath || null;
+  const taskNames = useMemo(() => workspaceState.taskNames(),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [ws]);
+  const insights = useInsights(activeWorkspace || "default", projectPath, taskNames);
   const [workflowVersion, setWorkflowVersion] = useState(0);
   useEffect(() => events.on("workspace_loaded", () => setWorkflowVersion(v => v + 1)), []);
   const workflowCards = useMemo(() => workflowRunner.all().map(w => ({ name: w.name, steps: w.steps.map(st => st.name || st.task || st.command || (st.run ?? "").split("\n")[0].slice(0, 20) || "step") })),
@@ -8550,62 +8154,76 @@ function Home({ currentTheme, onTheme, onOpenThemeEditor, onOpenPluginCreator, o
       </div>
     );
   } else {
+    const wsName = activeWorkspace || "default";
     body = (
-      <div className={`home-row${insightsOn ? " home-row--insights" : ""}${insightsOn && stacked ? " home-row--stacked" : ""}`}>
-        {insightsOn && <Insights side="left" workspace={activeWorkspace || "default"} projectPath={activeWorkspacePath || ws.projectPath || null}
-          tasks={workspaceState.taskNames()} workflows={workflowCards} pluginsActive={plugins.filter(p => p.enabled).length} onRun={onRun} />}
-        <div className="oxis-home">
-          <SkyWidget />
-          <div className="oxis-sub-row">
-    <span><strong className="oxis-letter">O</strong>pen</span>
-    <span><strong className="oxis-letter">X</strong>enial</span>
-    <span><strong className="oxis-letter">I</strong>ntelligent</span>
-    <span><strong className="oxis-letter">S</strong>hell</span>
-  </div>
-          <div className="oxis-ver-row">
-            <span className="oxis-ver-label">OXIS</span><span className="oxis-ver-num">v{OXIS_VERSION}</span>
-            {BUILD.commit && (
-              <span className="oxis-ver-build" title={`${fullVersion()} · ${channelLabel()} — 'version for details`}>
-                {BUILD.buildNumber ? `build ${BUILD.buildNumber} · ` : ""}{shortCommit()}{BUILD.dirty ? "*" : ""}
-              </span>
-            )}
-            <button className="oxis-github-btn" onClick={() => void openUrl("https://github.com/oxlaboratory/oxis")}
-              title="Open the OXIS repository on GitHub">GitHub ↗</button>
+      <div className={`hm${insightsOn ? "" : " hm--solo"}`}>
+        <header className="hm-head">
+          <div className="hm-ident">
+            <div className={`hm-eyebrow hm-eyebrow--${ws.status}`}>
+              <span className="hm-status" aria-hidden="true" />
+              {ws.status === "ready" ? "Workspace" : ws.status === "loading" ? "Loading workspace…" : "Workspace · not set up here"}
+            </div>
+            <h1 className="hm-title">{wsName}</h1>
+            {!workspacePanelHidden && <WorkspaceMeta ws={ws} plugins={plugins} activeWorkspace={activeWorkspace} activeWorkspacePath={activeWorkspacePath} />}
+            {dashboard.header && <p className="hm-dash">{dashboard.header}</p>}
           </div>
-          {dashboard.header && <div className="oxis-dash-header">{dashboard.header}</div>}
-          {!workspacePanelHidden && <WorkspacePanel ws={ws} plugins={plugins} activeWorkspace={activeWorkspace} activeWorkspacePath={activeWorkspacePath} />}
-          <div className="oxis-box oxis-help-box">
-            <div className="oxis-box-title"><span>GET STARTED</span><span className="oxis-box-title-note">click one, or type it below</span></div>
-            <div className="oxis-help-cols">
-              <div className="oxis-help-col">
-                {HOME_COMMANDS.map(([cmd, what, fill]) => (
-                  <button key={cmd} className="oh-item" onMouseDown={e => e.preventDefault()}
-                    onClick={() => (fill ? events.emit("focus_prompt", { text: fill }) : onRun(cmd))}
-                    title={fill ? `${fill}… — type the rest` : `Run ${cmd}`}>
-                    <span className="ohc oh-what">{cmd.split(" <")[0]}{cmd.includes(" <") && <span className="oha"> &lt;{cmd.split(" <")[1]}</span>}</span>
-                    <span className="ohr">{what}</span>
-                  </button>
-                ))}
-              </div>
-              <div className="oxis-help-col">
-                {HOME_SHORTCUTS.map(([combo, what, key]) => (
-                  <button key={combo} className="oh-item" onMouseDown={e => e.preventDefault()}
-                    onClick={() => pressShortcut(key)} title={`${what} (${combo})`}>
-                    <span className="ohk oh-what"><Keys combo={combo} /></span>
-                    <span className="ohr">{what}</span>
-                  </button>
-                ))}
+          <div className="hm-brand">
+            <img src={logoUrl} alt="" width={44} height={44} draggable={false} />
+            <div className="hm-brand-text">
+              <div className="hm-brand-name">OXIS <span className="hm-brand-ver">v{OXIS_VERSION}</span></div>
+              <div className="hm-brand-tag"><b>O</b>pen <b>X</b>enial <b>I</b>ntelligent <b>S</b>hell</div>
+              <div className="hm-brand-build">
+                {BUILD.commit && (
+                  <span title={`${fullVersion()} · ${channelLabel()} — 'version for details`}>
+                    {BUILD.buildNumber ? `build ${BUILD.buildNumber} · ` : ""}{shortCommit()}{BUILD.dirty ? "*" : ""}
+                  </span>
+                )}
+                <button className="link" onClick={() => void openUrl("https://github.com/oxlaboratory/oxis")} title="Open the OXIS repository on GitHub">GitHub ↗</button>
               </div>
             </div>
-            {!!dashboard.shortcuts?.length && (
-              <div className="oxis-help-extras">
-                {dashboard.shortcuts.map(sc => <span key={sc} className="ohc">{sc}</span>)}
-              </div>
-            )}
           </div>
+        </header>
+        <div className="hm-grid">
+          <div className="hm-main">
+            <Panel title="Start" note="click one, or type it in the prompt" className="hm-start">
+              <div className="hm-start-cols">
+                <div className="hm-start-col">
+                  {HOME_COMMANDS.map(([cmd, what, fill]) => (
+                    <button key={cmd} className="hm-cmd" onMouseDown={e => e.preventDefault()}
+                      onClick={() => (fill ? events.emit("focus_prompt", { text: fill }) : onRun(cmd))}
+                      title={fill ? `${fill}… — type the rest` : `Run ${cmd}`}>
+                      <code>{cmd.split(" <")[0]}{cmd.includes(" <") && <i> &lt;{cmd.split(" <")[1]}</i>}</code>
+                      <span>{what}</span>
+                    </button>
+                  ))}
+                </div>
+                <div className="hm-start-col">
+                  {HOME_SHORTCUTS.map(([combo, what, key]) => (
+                    <button key={combo} className="hm-cmd hm-cmd--keys" onMouseDown={e => e.preventDefault()}
+                      onClick={() => pressShortcut(key)} title={`${what} (${combo})`}>
+                      <span className="hm-keys"><Keys combo={combo} /></span>
+                      <span>{what}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {!!dashboard.shortcuts?.length && (
+                <div className="hm-extras">
+                  {dashboard.shortcuts.map(sc => <code key={sc}>{sc}</code>)}
+                </div>
+              )}
+            </Panel>
+            <TasksPanel d={insights} tasks={taskNames} workflows={workflowCards} onRun={onRun} />
+          </div>
+          {insightsOn && (
+            <aside className="hm-side" aria-label="Insights">
+              <GitPanel d={insights} onRun={onRun} />
+              <ActivityPanel d={insights} workspace={wsName} />
+              <FilesPanel d={insights} onRun={onRun} />
+              <SuggestPanel d={insights} onRun={onRun} />
+            </aside>
+          )}
         </div>
-        {insightsOn && <Insights side="right" workspace={activeWorkspace || "default"} projectPath={activeWorkspacePath || ws.projectPath || null}
-          tasks={workspaceState.taskNames()} workflows={workflowCards} pluginsActive={plugins.filter(p => p.enabled).length} onRun={onRun} />}
       </div>
     );
   }
@@ -8618,17 +8236,10 @@ function Home({ currentTheme, onTheme, onOpenThemeEditor, onOpenPluginCreator, o
         events.emit("focus_prompt");
       }
     }}>
-      <div className="home-scroll" ref={scrollRef}>
-        <div ref={fitRef} className="home-fit" style={{ zoom: fit }}>{body}</div>
-      </div>
+      <div className="home-scroll">{body}</div>
     </div>
   );
 }
-
-// Home's natural widths with the insight cards: side by side, and
-// stacked under the centre column (see index.css .home-row).
-const HOME_WIDE = 1120;
-const HOME_NARROW = 620;
 
 // Home's Get started: commands (a fill is put in the prompt to finish
 // instead of run) and shortcuts (a click presses the keys).
@@ -8661,7 +8272,7 @@ function Keys({ combo }: { combo: string }) {
 // donation box (see README § Home Screen & Workspace Panel).
 // Read-only: reflects workspaceState/pluginManager, doesn't accept
 // input itself, so it never competes with Command Mode for focus.
-function WorkspacePanel({ ws, plugins, activeWorkspace, activeWorkspacePath }: {
+function WorkspaceMeta({ ws, plugins, activeWorkspace, activeWorkspacePath }: {
   ws: ReturnType<typeof workspaceState.get>;
   plugins: ReturnType<typeof pluginManager.all>;
   /** The active named workspace, or null for the default context. */
@@ -8671,7 +8282,6 @@ function WorkspacePanel({ ws, plugins, activeWorkspace, activeWorkspacePath }: {
   activeWorkspacePath: string | null;
 }) {
   const active = plugins.filter(p => p.enabled);
-  const tasks = workspaceState.taskNames();
   // Git remote of the linked project, read from `git remote -v` so it
   // also shows remotes OXIS didn't set up.
   const [gitInfo, setGitInfo] = useState<{ provider: GitProvider; repo: string } | null | undefined>(undefined); // undefined = "haven't checked yet", null = "checked, not connected"
@@ -8689,41 +8299,26 @@ function WorkspacePanel({ ws, plugins, activeWorkspace, activeWorkspacePath }: {
     }).catch(() => { if (!cancelled) setGitInfo(null); });
     return () => { cancelled = true; };
   }, [activeWorkspacePath, remoteVersion]);
+  const folder = activeWorkspacePath || ws.projectPath;
+  const fill = (text: string) => events.emit("focus_prompt", { text });
   return (
-    <div className={`oxis-box oxis-workspace-box${ws.status === "ready" ? " oxis-box--lit" : ""}`}>
-      <div className="oxis-box-title">
-        <span>WORKSPACE</span>
-        <span className={`oxis-workspace-status oxis-workspace-status--${ws.status}`}>
-          <span className="px-dot" />{ws.status === "ready" ? "ready" : ws.status === "loading" ? "loading" : "no workspace"}
-        </span>
-      </div>
-      <div className="oxis-box-row"><span className="oxis-wl">workspace</span><span className="oxis-we"> = </span><span className="oxis-wa oxis-wa--name">{activeWorkspace || "default"}</span></div>
-      <div className="oxis-box-row">
-        <span className="oxis-wl">git</span><span className="oxis-we"> = </span>
+    <div className="hm-meta">
+      <div className="hm-chips">
+        {folder
+          ? <span className="hm-chip hm-chip--path" title={folder}><span className="hm-chip-k">folder</span><span className="hm-chip-path"><bdi>{folder}</bdi></span></span>
+          : activeWorkspace
+            ? <button className="hm-chip hm-chip--todo" onClick={() => fill("'workspace link ")}><span className="hm-chip-k">folder</span>link one — 'workspace link &lt;path&gt;</button>
+            : null}
         {gitInfo === undefined
-          ? <span className="oxis-wa--disconnected">checking…</span>
+          ? <span className="hm-chip"><span className="hm-chip-k">git</span>checking…</span>
           : gitInfo
-            ? <span className="oxis-wa oxis-wa--connected">{gitInfo.provider === "github" ? "GitHub" : "GitLab"}: {gitInfo.repo}</span>
-            : <span className="oxis-wa--disconnected">not connected — <code>&apos;workspace github owner/repo</code></span>}
+            ? <span className="hm-chip hm-chip--ok"><span className="hm-chip-k">{gitInfo.provider === "github" ? "GitHub" : "GitLab"}</span>{gitInfo.repo}</span>
+            : <button className="hm-chip hm-chip--todo" onClick={() => fill("'workspace github ")}><span className="hm-chip-k">git</span>not connected — 'workspace github owner/repo</button>}
+        <span className="hm-chip" title={active.map(p => p.name).join(", ")}><span className="hm-chip-k">plugins</span>{active.length} on{active.length ? ` · ${active.slice(0, 3).map(p => p.name).join(", ")}${active.length > 3 ? "…" : ""}` : ""}</span>
       </div>
-      {ws.projectPath && (
-        <div className="oxis-box-row"><span className="oxis-wl">path</span><span className="oxis-we"> = </span><span className="oxis-wa">{ws.projectPath}</span></div>
-      )}
-      {activeWorkspace && (
-        activeWorkspacePath
-          ? <div className="oxis-box-row"><span className="oxis-wl">connected</span><span className="oxis-we"> = </span><span className="oxis-wa oxis-wa--connected" title={activeWorkspacePath}>{activeWorkspacePath}</span></div>
-          : <div className="oxis-box-row"><span className="oxis-wl">connected</span><span className="oxis-we"> = </span><span className="oxis-wa--disconnected">no project folder — <code>&apos;workspace link &lt;path&gt;</code></span></div>
-      )}
-      <div className="oxis-box-row"><span className="oxis-wl">plugins</span><span className="oxis-we"> = </span><span className="oxis-wa">{active.length} active{active.length ? `  (${active.slice(0, 4).map(p => p.name).join(", ")}${active.length > 4 ? "…" : ""})` : ""}</span></div>
-      <div className="oxis-box-row"><span className="oxis-wl">tasks</span><span className="oxis-we"> = </span><span className="oxis-wa">{tasks.length ? tasks.join(", ") : "none defined"}</span></div>
-      {ws.activity.length > 0 && (
-        <div className="oxis-box-row"><span className="oxis-wl">recent</span><span className="oxis-we"> = </span><span className="oxis-wa">{ws.activity[0].text}</span></div>
-      )}
-      {ws.status === "none" && (
-        <div className="oxis-box-row oxis-workspace-footer">
-          <span className="oxis-workspace-hint">no workspace here — try <code>&apos;workspace init</code></span>
-        </div>
-      )}
+      {ws.status === "none"
+        ? <p className="hm-meta-line">No workspace in this folder. <button className="link" onClick={() => fill("'workspace init")}>&apos;workspace init</button> makes one: tasks, workflows and plugins for this project.</p>
+        : ws.activity.length > 0 && <p className="hm-meta-line">Last: {ws.activity[0].text}</p>}
     </div>
   );
 }

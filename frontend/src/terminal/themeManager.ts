@@ -3,7 +3,7 @@
  * files from ~/.oxis/themes, inheritance (`extends`), import/export.
  *
  * A theme is 16 core colours plus any of THEME_OPTIONS: status and
- * interface colours, syntax colours, the sky, text, shape, cursor,
+ * interface colours, syntax colours, text, shape, cursor,
  * prompt, a background image or gradient, and extra CSS. Options a
  * theme leaves out fall back to values derived from its core colours,
  * so a theme only has to say what it changes.
@@ -96,18 +96,6 @@ export const THEME_OPTIONS: ThemeOption[] = [
   { key: "synComment", group: "Syntax", label: "Comments", hint: "// and -- comments", kind: "color", fallback: "var(--comment)", cssVar: "--syn-comment" },
   { key: "synFunction", group: "Syntax", label: "Function calls", hint: "name(…)", kind: "color", fallback: "var(--text)", cssVar: "--syn-function" },
 
-  // Sky on Home
-  { key: "sun", group: "Sky", label: "Sun", hint: "daytime sun on Home", kind: "color", fallback: "#ffd24a", cssVar: "--sun" },
-  { key: "cloud", group: "Sky", label: "Clouds", hint: "daytime clouds", kind: "color", fallback: "#ffffff", cssVar: "--cloud" },
-  { key: "moon", group: "Sky", label: "Moon", hint: "night-time moon", kind: "color", fallback: "#ffffff", cssVar: "--moon" },
-  { key: "star", group: "Sky", label: "Stars", hint: "night-time stars", kind: "color", fallback: "var(--purple3)", cssVar: "--star" },
-  { key: "skyMode", group: "Sky", label: "Sky", hint: "auto: the sun from 6 am to 6 pm, the moon at night", kind: "choice", fallback: "auto", choices: ["auto", "sun", "moon"] },
-  { key: "cloudCount", group: "Sky", label: "Cloud count", hint: "0 for a clear sky", kind: "number", fallback: 5, min: 0, max: 10, step: 1 },
-  { key: "cloudSpeed", group: "Sky", label: "Cloud speed", hint: "times the usual drift", kind: "number", fallback: 1, min: 0.2, max: 4, step: 0.1, unit: "×" },
-  { key: "starCount", group: "Sky", label: "Star count", hint: "0 for no stars", kind: "number", fallback: 7, min: 0, max: 24, step: 1 },
-  { key: "sunArt", group: "Sky", label: "Sun art", hint: "your own pixel art: rows split by /, # a pixel, 1–9 dimmer, . empty — e.g. .##./####/####/.##.", kind: "text", fallback: "" },
-  { key: "moonArt", group: "Sky", label: "Moon art", hint: "pixel art like the sun's; empty for the built-in moon", kind: "text", fallback: "" },
-  { key: "skyImage", group: "Sky", label: "Sky image", hint: "an image in place of the pixel sky (https:// or data:image/)", kind: "text", fallback: "" },
 
   // Text
   { key: "font", group: "Text", label: "Font", hint: "CSS font list, e.g. 'Fira Code', monospace", kind: "text", fallback: DEFAULT_FONT },
@@ -127,10 +115,9 @@ export const THEME_OPTIONS: ThemeOption[] = [
   { key: "cursorStyle", group: "Cursor", label: "Shape", hint: "'config set cursorStyle wins", kind: "choice", fallback: "block", choices: ["block", "bar", "underline"] },
   { key: "cursorBlink", group: "Cursor", label: "Blink", hint: "'config set cursorBlink wins", kind: "toggle", fallback: true },
 
-  // Prompt & Home
-  { key: "promptText", group: "Prompt & Home", label: "Prompt label", hint: "up to 24 characters, e.g. λ or ~ $", kind: "text", fallback: "OXIS ❯" },
-  { key: "showSky", group: "Prompt & Home", label: "Sky on Home", hint: "sun, clouds, moon and stars", kind: "toggle", fallback: true },
-  { key: "showCornerMark", group: "Prompt & Home", label: "Corner mark", hint: "OXIS in the terminal's corner", kind: "toggle", fallback: true },
+  // Prompt
+  { key: "promptText", group: "Prompt", label: "Prompt label", hint: "up to 24 characters, e.g. λ or ~ $", kind: "text", fallback: "OXIS ❯" },
+  { key: "showCornerMark", group: "Prompt", label: "Corner mark", hint: "OXIS in the terminal's corner", kind: "toggle", fallback: true },
 
   // Background
   { key: "backgroundImage", group: "Background", label: "Image", hint: "https:// or data:image/ URL", kind: "text", fallback: "" },
@@ -159,13 +146,7 @@ export function normalizeOption(opt: ThemeOption, raw: unknown): ThemeValue | un
     case "color":
     case "text": {
       const s = String(raw).trim();
-      // Pixel art is only pixels: rows of # . and 1–9 split by /.
-      if (opt.key === "sunArt" || opt.key === "moonArt") {
-        const art = s.replace(/\s+/g, "");
-        return art.length <= 2000 && /^[.#1-9]+(\/[.#1-9]+)*$/.test(art) ? art : undefined;
-      }
       if (!SAFE_CSS_VALUE.test(s)) return undefined;
-      if (opt.key === "skyImage" && !/^(https:\/\/|data:image\/)[^"'\\\s()]+$/i.test(s)) return undefined;
       if (opt.key === "promptText") return s.replace(/[\x00-\x1f]/g, "").slice(0, 24) || undefined;
       if (opt.key === "backgroundImage" && !/^(https:\/\/|data:image\/)[^"'\\\s()]+$/i.test(s)) return undefined;
       if (opt.key === "backgroundGradient" && (!/^(repeating-)?(linear|radial|conic)-gradient\(/i.test(s) || /url\s*\(/i.test(s))) return undefined;
@@ -264,7 +245,6 @@ const BUILTINS: Record<string, Theme> = {
     text:"#2f3437",muted:"#6b6f73",dim:"#8d9094",comment:"#a8a59c",
     purple:"#3b6ea5",purple2:"#2f5b8a",purple3:"#1f7a5a",grey:"#5d6166",grey2:"#b9b4a7",
     success:"#1f7a3a", error:"#b3261e", warning:"#a15c00", link:"#2f5b8a",
-    cloud:"#a9b4c2", moon:"#6b7280", sun:"#d18b00", star:"#3b6ea5",
     selection:"rgba(59,110,165,.22)",
     ansiBlack:"#2f3437",ansiRed:"#b42318",ansiGreen:"#2e7d32",ansiYellow:"#8a5a00",ansiBlue:"#1f5fa8",ansiMagenta:"#8e44ad",ansiCyan:"#0f7285",ansiWhite:"#6b6f73",
     ansiBrightBlack:"#5d6166",ansiBrightRed:"#d92d20",ansiBrightGreen:"#388e3c",ansiBrightYellow:"#a86b00",ansiBrightBlue:"#2f78c4",ansiBrightMagenta:"#9b59b6",ansiBrightCyan:"#138a9e",ansiBrightWhite:"#2f3437",
@@ -387,10 +367,9 @@ class ThemeManager {
     root.setAttribute("data-cursor-style", String(v("cursorStyle")));
     root.setAttribute("data-cursor-blink", v("cursorBlink") ? "on" : "off");
 
-    // Prompt & Home
+    // Prompt
     const label = String(v("promptText")).replace(/\\/g, "\\\\").replace(/"/g, "\\\"");
     r.setProperty("--prompt-label", `"${label}"`);
-    r.setProperty("--sky-display", v("showSky") ? "block" : "none");
     r.setProperty("--corner-mark-display", v("showCornerMark") ? "block" : "none");
 
     // Background: a gradient wins over an image.

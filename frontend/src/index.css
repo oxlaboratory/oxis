@@ -25,10 +25,6 @@
   --fs: 13px;
   --lh: 20px;
   --r: 3px;
-  /* Home text is fixed-size: 'config set fontSize only scales the
-     terminal and editor. */
-  --home-fs: 13px;
-  --home-lh: 1.45;
 
   /* ── Design system ──
      The interface around the terminal (bars, menus, dialogs) is set in
@@ -979,249 +975,148 @@ button.editor-mode:hover { background: var(--hover); }
 .te-btn--save:hover   { background: color-mix(in srgb, var(--purple) 18%, transparent); }
 .te-btn--cancel:hover { color: var(--muted); }
 
-/* ── HOME ────────────────────────────────────────────────── */
-.home {
-  flex: 1; display: flex; flex-direction: column;
-  overflow: hidden; background: transparent;
-  position: relative;
+/* ── HOME ────────────────────────────────────────────────────
+   The workspace's start page: who and where you are (header), what
+   you can do (Start, Tasks) and what's going on (Git, Today, files,
+   Next up). A page: it scrolls when the window is too small, and the
+   side column drops under the main one on a narrow window. */
+.home { flex: 1; display: flex; flex-direction: column; overflow: hidden; position: relative; }
+.home-scroll { flex: 1; overflow-y: auto; display: flex; justify-content: center; padding: 26px 28px 28px; }
+
+.hm { width: min(1080px, 100%); display: flex; flex-direction: column; gap: 22px; font-family: var(--ui-font); user-select: none; }
+
+/* Header: the workspace on the left, OXIS on the right. */
+.hm-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 28px; padding-bottom: 20px; border-bottom: 1px solid var(--line); }
+.hm-ident { min-width: 0; flex: 1; }
+.hm-eyebrow { display: flex; align-items: center; gap: 8px; font: 600 var(--t-2xs)/1 var(--ui-font); letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+.hm-status { width: 7px; height: 7px; border-radius: 50%; background: var(--dim); }
+.hm-eyebrow--ready .hm-status { background: var(--acc); box-shadow: 0 0 0 3px var(--acc-wash); }
+.hm-eyebrow--loading .hm-status { background: var(--warn); }
+.hm-title { margin-top: 8px; font: 600 30px/1.1 var(--ui-font); letter-spacing: -.02em; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hm-meta { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
+.hm-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.hm-chip {
+  display: inline-flex; align-items: center; gap: 7px; max-width: 100%; height: 26px; padding: 0 10px 0 0;
+  font: 400 var(--t-xs)/1 var(--mono); color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  border: 1px solid var(--line-2); border-radius: var(--r-1); background: color-mix(in srgb, var(--bg1) 62%, var(--bg));
+}
+.hm-chip-k { align-self: stretch; display: flex; align-items: center; padding: 0 8px; font: 600 var(--t-2xs)/1 var(--ui-font); letter-spacing: .06em; text-transform: uppercase; color: var(--dim); border-right: 1px solid var(--line); background: var(--hover); }
+.hm-chip--path { max-width: 440px; }
+.hm-chip-path { direction: rtl; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.hm-chip--ok { color: var(--green); }
+.hm-chip--todo { color: var(--muted); border-style: dashed; cursor: pointer; }
+.hm-chip--todo:hover { color: var(--acc-hi); border-color: var(--acc); }
+.hm-meta-line { font: 400 var(--t-sm)/1.5 var(--ui-font); color: var(--muted); }
+.hm-dash { margin-top: 10px; font: 500 var(--t-md)/1.5 var(--ui-font); color: var(--acc-hi); }
+
+.hm-brand { display: flex; align-items: center; gap: 14px; flex-shrink: 0; padding-left: 24px; border-left: 1px solid var(--line); }
+.hm-brand img { display: block; }
+.hm-brand-name { font: 700 var(--t-lg)/1 var(--mono); letter-spacing: .2em; color: var(--text); }
+.hm-brand-ver { margin-left: 6px; font: 500 var(--t-xs)/1 var(--mono); letter-spacing: 0; color: var(--acc-hi); }
+.hm-brand-tag { margin-top: 7px; font: 400 var(--t-xs)/1 var(--ui-font); color: var(--muted); }
+.hm-brand-tag b { color: var(--acc-hi); font-weight: 600; }
+.hm-brand-build { margin-top: 7px; display: flex; gap: 10px; font: 400 var(--t-2xs)/1 var(--mono); color: var(--dim); }
+.hm-brand-build .link { font: 500 var(--t-2xs)/1 var(--ui-font); }
+
+/* Main column and side column. */
+.hm-grid { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(250px, 1fr); gap: 18px; align-items: start; }
+.hm--solo .hm-grid { grid-template-columns: minmax(0, 1fr); }
+.hm-main, .hm-side { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+@media (max-width: 880px) {
+  .hm-grid { grid-template-columns: minmax(0, 1fr); }
+  .hm-brand { display: none; }
 }
 
-.home-scroll {
-  flex: 1; overflow-y: auto;
-  display: flex; align-items: center; justify-content: center;
-  padding: 8px 20px 28px; /* room above the prompt */
-}
+/* Panels. */
+.hm-panel { border: 1px solid var(--line-2); border-radius: var(--r-2); background: color-mix(in srgb, var(--bg1) 62%, var(--bg)); min-width: 0; }
+.hm-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px 9px; border-bottom: 1px solid var(--line); }
+.hm-panel-head h2 { display: flex; align-items: center; gap: 8px; font: 600 var(--t-2xs)/1 var(--ui-font); letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+.hm-panel-head h2::before { content: ""; width: 6px; height: 6px; border-radius: 1px; background: var(--acc); }
+.hm-panel-note { font: 400 var(--t-xs)/1 var(--ui-font); color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.hm-panel-body { padding: 10px 14px 12px; display: flex; flex-direction: column; gap: 4px; }
+.hm-line { font: 400 var(--t-sm)/1.5 var(--ui-font); color: var(--text); }
+.hm-line code { font: 500 var(--t-xs) var(--mono); color: var(--acc-hi); }
+.hm-dim { color: var(--dim); }
+.hm-ok { color: var(--green); }
+.hm-err { color: var(--err); }
 
-.home-fit { width: 100%; display: flex; justify-content: center; }
-.oxis-home {
-  display: flex; flex-direction: column; align-items: center;
-  width: 100%; max-width: 700px; font-family: var(--font);
-  user-select: none;
+/* A row that does something. */
+.hm-action {
+  display: flex; align-items: center; gap: 10px; width: calc(100% + 12px); margin: 0 -6px; padding: 5px 6px; border-radius: var(--r-1);
+  text-align: left; color: var(--text); font: 400 var(--t-sm)/1.3 var(--ui-font); transition: background .1s;
 }
+.hm-action--mono { font-family: var(--mono); color: var(--acc-hi); }
+.hm-action:hover { background: var(--hover); }
+.hm-action-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hm-action-hint { color: var(--dim); font: 400 var(--t-2xs) var(--mono); }
+.hm-action-go { color: var(--dim); opacity: 0; transform: translateX(-3px); transition: opacity .12s, transform .12s; }
+.hm-action:hover .hm-action-go { opacity: 1; transform: none; color: var(--acc-hi); }
 
-/* Tagline and version, under the sky. */
-.oxis-sub-row {
-  display: flex; justify-content: center; align-items: baseline; gap: 22px;
-  width: 100%; margin-top: 4px;
-  font: 500 var(--t-md)/1.2 var(--ui-font); color: var(--muted); letter-spacing: .02em;
+/* Start: commands and shortcuts, each a button. */
+.hm-start-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 22px; }
+.hm-start-col { display: flex; flex-direction: column; min-width: 0; }
+.hm-cmd {
+  display: flex; align-items: center; gap: 12px; min-height: 32px; margin: 0 -8px; padding: 4px 8px; border-radius: var(--r-1);
+  text-align: left; white-space: nowrap; transition: background .1s;
 }
-.oxis-sub-row span { white-space: nowrap; }
-.oxis-letter {
-  display: inline-block; margin-right: 1px;
-  color: var(--acc-hi); font: 700 1.08em/1 var(--mono);
-  border-bottom: 2px solid var(--acc);
-}
-
-.oxis-ver-row {
-  display: flex; align-items: center; gap: 10px; margin: 10px 0 18px;
-  font: 400 var(--t-xs)/1 var(--ui-font); color: var(--dim);
-}
-.oxis-ver-label { font: 600 var(--t-2xs)/1 var(--mono); letter-spacing: .2em; color: var(--dim); }
-.oxis-ver-num { font: 600 var(--t-xs)/1 var(--mono); color: var(--text); padding: 3px 7px; border: 1px solid var(--line-2); border-radius: var(--r-1); }
-.oxis-ver-build { font: 400 var(--t-2xs)/1 var(--mono); color: var(--dim); font-variant-numeric: tabular-nums; cursor: help; }
-.oxis-github-btn {
-  font: 500 var(--t-xs)/1 var(--ui-font); color: var(--muted);
-  padding: 4px 8px; border-radius: var(--r-1); transition: color .12s, background .12s;
-}
-.oxis-github-btn:hover { color: var(--text); background: var(--hover); }
-
-/* ── Panels: Home's boxes and the insight cards ──
-   A hairline frame on a surface a step off the page, a labelled header
-   with an accent tick, and content in the type it is: names and values
-   in mono, prose in the interface face. */
-.oxis-box, .ins-card {
-  width: 100%;
-  background: color-mix(in srgb, var(--bg1) 62%, var(--bg));
-  border: 1px solid var(--line-2); border-radius: var(--r-2);
-  display: flex; flex-direction: column;
-}
-.oxis-box { max-width: 600px; margin: 0 0 12px; padding: 0 16px 12px; }
-.oxis-box--lit { border-color: color-mix(in srgb, var(--acc) 45%, var(--line-2)); }
-.oxis-box-title, .ins-title {
-  display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  margin: 0 -16px 10px; padding: 9px 16px 8px;
-  border-bottom: 1px solid var(--line);
-  font: 600 var(--t-2xs)/1 var(--ui-font); letter-spacing: .14em; text-transform: uppercase; color: var(--muted);
-}
-.oxis-box-title > span:first-child, .ins-title > span:first-child { display: flex; align-items: center; gap: 8px; }
-.oxis-box-title > span:first-child::before, .ins-title > span:first-child::before {
-  content: ""; width: 6px; height: 6px; border-radius: 1px; background: var(--acc);
-}
-.oxis-box-title-note { color: var(--dim); font: 400 var(--t-xs)/1 var(--ui-font); letter-spacing: 0; text-transform: none; }
-.px-dot { display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: 50%; background: currentColor; }
-
-/* Workspace: a two-column readout, labels left, values right. */
-.oxis-box-row { display: grid; grid-template-columns: 92px 1fr; align-items: baseline; gap: 12px; font-size: var(--home-fs); line-height: 1.7; min-width: 0; }
-.oxis-wl { font: 500 var(--t-xs)/1.7 var(--ui-font); color: var(--dim); text-transform: lowercase; }
-.oxis-we { display: none; }
-.oxis-wa { font: 400 var(--t-sm)/1.7 var(--mono); color: var(--text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.oxis-wa--name { color: var(--acc-hi); font-weight: 600; }
-.oxis-wa--connected { font: 400 var(--t-sm)/1.7 var(--mono); color: var(--green); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.oxis-wa--disconnected { font: 400 var(--t-sm)/1.7 var(--ui-font); color: var(--dim); }
-.oxis-wa--disconnected code { font-family: var(--mono); color: var(--acc-hi); white-space: nowrap; }
-.oxis-workspace-status { display: inline-flex; align-items: center; font: 600 var(--t-2xs)/1 var(--ui-font); letter-spacing: .1em; color: var(--dim); }
-.oxis-workspace-status--ready   { color: var(--acc-hi); }
-.oxis-workspace-status--loading { color: var(--muted); }
-.oxis-workspace-footer { display: flex; justify-content: flex-start; margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--line); }
-.oxis-workspace-hint { font: 400 var(--t-xs) var(--ui-font); color: var(--dim); }
-.oxis-workspace-hint code { font-family: var(--mono); color: var(--acc-hi); }
-
-/* Get started: commands on the left, shortcuts on the right; each row
-   is a button (a command runs, a shortcut is pressed). */
-.oxis-help-cols { display: grid; grid-template-columns: 1fr 1fr; column-gap: 20px; }
-.oxis-help-col { display: flex; flex-direction: column; min-width: 0; }
-.oh-item {
-  all: unset; box-sizing: border-box; display: flex; align-items: center; gap: 10px;
-  margin: 0 -8px; padding: 3px 8px; min-height: 28px; cursor: pointer; border-radius: var(--r-1);
-  white-space: nowrap; transition: background .1s;
-}
-.oh-item:hover { background: var(--hover); }
-.oh-item:hover .ohr { color: var(--text); }
-.oh-item:focus-visible { box-shadow: var(--focus-ring); }
-.oh-item:active { background: var(--press); }
-.oh-what { flex: none; min-width: 15ch; }
-.ohk.oh-what { min-width: 128px; }
-@media (max-width: 640px) { .oxis-help-cols { grid-template-columns: 1fr; } }
-.oxis-help-extras { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--line); }
-.ohc { font: 600 var(--t-sm) var(--mono); color: var(--acc-hi); }
-.oha { font: 400 var(--t-sm) var(--mono); color: var(--dim); }
-.ohr { font: 400 var(--t-sm) var(--ui-font); color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
+.hm-cmd:hover { background: var(--hover); }
+.hm-cmd:active { background: var(--press); }
+.hm-cmd code { flex: none; min-width: 15ch; font: 600 var(--t-sm) var(--mono); color: var(--acc-hi); }
+.hm-cmd code i { font-style: normal; font-weight: 400; color: var(--dim); }
+.hm-cmd > span:last-child { font: 400 var(--t-sm) var(--ui-font); color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
+.hm-cmd:hover > span:last-child { color: var(--text); }
+.hm-keys { flex: none; min-width: 132px; display: inline-flex; }
+.hm-extras { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 8px; padding-top: 10px; border-top: 1px dashed var(--line); }
+.hm-extras code { font: 500 var(--t-xs) var(--mono); color: var(--acc-hi); }
+@media (max-width: 640px) { .hm-start-cols { grid-template-columns: 1fr; } }
 .ohk { display: inline-flex; align-items: center; gap: 3px; }
 .kplus { display: none; }
-.kcap { font: 500 var(--t-2xs)/1 var(--mono); color: var(--text); padding: 4px 6px; border-radius: var(--r-1); background: var(--hover); box-shadow: inset 0 -1px 0 var(--line-2), 0 0 0 1px var(--line); }
+.kcap { font: 500 var(--t-2xs)/1 var(--mono); color: var(--text); padding: 5px 7px; border-radius: var(--r-1); background: var(--hover); box-shadow: inset 0 -1px 0 var(--line-2), 0 0 0 1px var(--line); }
+.kcap + .kplus + .kcap, .kcap + .kcap { margin-left: 3px; }
 
-/* Compact Home on short windows. */
+/* Tasks and the workflow. */
+.hm-tasks { display: flex; flex-wrap: wrap; gap: 6px; }
+.hm-task {
+  display: inline-flex; align-items: center; gap: 8px; height: 30px; padding: 0 12px 0 10px;
+  font: 500 var(--t-sm) var(--mono); color: var(--text);
+  border: 1px solid var(--line-2); border-radius: var(--r-2); background: var(--hover); transition: border-color .12s, background .12s, color .12s;
+}
+.hm-task:hover { border-color: var(--acc); color: var(--acc-hi); background: var(--acc-wash); }
+.hm-task-run { font-size: 8px; color: var(--acc); }
+.hm-workflow { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--line); }
+.hm-workflow-head { display: flex; justify-content: space-between; gap: 10px; font: 400 var(--t-xs) var(--ui-font); color: var(--muted); }
+.hm-workflow-name { font: 600 var(--t-xs) var(--mono); color: var(--text); }
+.hm-steps { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 8px; }
+.hm-step { font: 400 var(--t-xs)/1 var(--mono); color: var(--text); padding: 5px 8px; border-radius: var(--r-1); background: var(--hover); }
+.hm-step + .hm-step::before { content: none; }
+.hm-step-run { margin-left: auto; height: 26px; padding: 0 12px; border-radius: var(--r-1); font: 600 var(--t-xs) var(--ui-font); color: var(--on-acc); background: var(--acc); }
+.hm-step-run:hover { background: var(--acc-hi); }
+
+/* Git, Today, Next up. */
+.hm-git { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.hm-branch { font: 600 var(--t-md) var(--mono); color: var(--text); }
+.hm-branch::before { content: "⎇ "; color: var(--acc); }
+.hm-badge { font: 600 var(--t-2xs)/1 var(--ui-font); letter-spacing: .04em; padding: 4px 7px; border-radius: var(--r-1); }
+.hm-badge--warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); }
+.hm-badge--ok { color: var(--green); background: color-mix(in srgb, var(--green) 14%, transparent); }
+.hm-facts { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; margin-top: 6px; font: 400 var(--t-xs)/1.5 var(--ui-font); }
+.hm-facts dt { color: var(--dim); }
+.hm-facts dd { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.hm-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.hm-stat { display: flex; flex-direction: column; gap: 4px; padding: 8px 6px; border-radius: var(--r-1); background: var(--hover); text-align: center; }
+.hm-stat b { font: 600 var(--t-lg)/1 var(--mono); color: var(--text); }
+.hm-stat span { font: 400 var(--t-2xs)/1 var(--ui-font); color: var(--dim); }
+.hm-stat--zero b { color: var(--dim); }
+.hm-suggest + .hm-suggest { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--line); }
+
+/* Short windows: a little tighter. */
 @media (max-height: 700px) {
-  .home-scroll { padding: 4px 20px 16px; }
-  .oxis-ver-row { margin: 6px 0 12px; }
-  .oxis-box { margin-bottom: 8px; padding-bottom: 8px; }
-  .oh-item { min-height: 24px; padding: 1px 8px; }
+  .home-scroll { padding: 18px 24px 20px; }
+  .hm { gap: 16px; }
+  .hm-head { padding-bottom: 14px; }
+  .hm-title { font-size: 26px; }
+  .hm-cmd { min-height: 28px; padding-top: 2px; padding-bottom: 2px; }
 }
-@media (max-height: 560px) {
-  .oxis-sub-row { font-size: var(--t-xs); gap: 14px; }
-}
-
-/* ── Sky widget — above the title on Home, sun/moon by time ──── */
-/* In the flow, in a strip of its own right above the title, so the
-   stars and clouds can never land on the title whatever the window's
-   height (positioned absolutely, they did). */
-.sky-widget {
-  position: relative; flex: none;
-  width: 280px; height: 60px; margin: 0 auto 8px;
-  pointer-events: none;
-  display: var(--sky-display, block);
-  overflow: hidden;
-}
-
-/* ── Pixel-art sky (SkyWidget): SVGs of 2px pixels, shaded by each
-   run's fill-opacity, coloured by fill. No glows. ─────────────── */
-.sky-sun {
-  position: absolute; top: 3px; right: 0;
-  fill: var(--sun, #ffd24a);
-  z-index: 2;
-}
-.sky-sun svg { position: absolute; left: 0; top: 0; display: block; }
-/* A theme's own pixel art (sunArt) or picture (skyImage). */
-.sky-sun--art { display: block; }
-.sky-image { display: block; max-width: 100%; height: 60px; margin: 0 auto; object-fit: contain; image-rendering: pixelated; }
-/* The rays' tips take turns: straight ones, then diagonal ones. */
-.sky-sun-tips { animation: sun-tips 5s steps(1, end) infinite; }
-.sky-sun-tips--late { animation-delay: -2.5s; }
-@keyframes sun-tips {
-  0%   { opacity: 1; }
-  50%  { opacity: .15; }
-}
-
-/* The clouds' strip of sky, up to the sun. Each cloud fades in and out
-   whole as it crosses (SkyWidget's animation); lane, speed and start
-   are inline. */
-.sky-clouds {
-  position: absolute; left: 0; top: 0; bottom: 0; overflow: hidden;
-}
-/* Moved by SkyWidget (Web Animations); the inline transform is where
-   each one starts. */
-.sky-cloud {
-  position: absolute; left: 0; display: block;
-  fill: var(--cloud, #ffffff);
-  will-change: transform;
-  backface-visibility: hidden;
-}
-
-/* The haze round the sun: 6 pixels more each way, behind it. */
-.sky-sun-haze {
-  position: absolute; top: -9px; right: -12px; display: block; pointer-events: none; z-index: 1;
-  fill: var(--sun, #ffd166);
-  animation: moon-breathe 8s ease-in-out infinite;
-}
-/* A bird crosses now and then, flapping, under the clouds' level. */
-.sky-bird {
-  position: absolute; left: 0; top: 22px; width: 10px; height: 4px;
-  opacity: 0; pointer-events: none;
-  animation: bird-cross 23s linear infinite 6s;
-}
-.sky-bird-wing { position: absolute; left: 0; top: 0; display: block; fill: var(--cloud-shadow, #8a93a6); }
-.sky-bird-wing--up   { animation: bird-flap .5s steps(1, end) infinite; }
-.sky-bird-wing--flat { animation: bird-flap .5s steps(1, end) infinite -.25s; }
-@keyframes bird-flap { 0% { opacity: 1; } 50% { opacity: 0; } }
-@keyframes bird-cross {
-  0%   { opacity: 0; transform: translate(-10px, 0); }
-  2%   { opacity: .85; }
-  28%  { opacity: .85; transform: translate(200px, -8px); }
-  30%  { opacity: 0; transform: translate(214px, -9px); }
-  100% { opacity: 0; transform: translate(214px, -9px); }
-}
-
-.sky-moon {
-  position: absolute; top: 4px; right: 8px; display: block;
-  fill: var(--moon, #ffffff);
-  z-index: 2;
-}
-/* The glow round the moon (the same centre, 5 pixels more each way). */
-.sky-moon-glow {
-  position: absolute; top: -6px; right: -2px; display: block;
-  fill: var(--moon, #ffffff);
-  animation: moon-breathe 7s ease-in-out infinite;
-  z-index: 1;
-}
-@keyframes moon-breathe {
-  0%, 100% { opacity: .55; } 50% { opacity: 1; }
-}
-
-.sky-star {
-  position: absolute; display: block;
-  fill: var(--star, var(--purple3));
-  animation-name: star-twinkle; animation-timing-function: ease-in-out; animation-iteration-count: infinite;
-}
-@keyframes star-twinkle {
-  0%, 100% { opacity: var(--star-low, .2); }
-  50%      { opacity: 1; }
-}
-/* A sparkle's arms flare as it brightens. */
-.sky-star--sparkle { animation-name: star-flare; transform-origin: center; }
-@keyframes star-flare {
-  0%, 100% { opacity: var(--star-low, .4); transform: scale(.8); }
-  50%      { opacity: 1; transform: scale(1); }
-}
-
-/* Now and then a shooting star crosses, high and quick. */
-.sky-shooting-star {
-  position: absolute; top: 6px; left: 0; display: block;
-  fill: var(--star, var(--purple3));
-  opacity: 0;
-  animation: shooting-star 13s linear infinite 4s;
-}
-@keyframes shooting-star {
-  0%   { opacity: 0; transform: translate(10px, 0) rotate(13deg); }
-  1%   { opacity: 1; }
-  6%   { opacity: 0; transform: translate(150px, 34px) rotate(13deg); }
-  100% { opacity: 0; transform: translate(150px, 34px) rotate(13deg); }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .sky-sun-tips, .sky-moon, .sky-moon-glow, .sky-star, .sky-sun-haze { animation: none; }
-  .sky-shooting-star, .sky-bird { display: none; }
-}
-
 
 /* ── COMPONENTS ──────────────────────────────────────────────
    Buttons, fields, switches and links, used by Home's pages, Settings
@@ -1366,7 +1261,6 @@ input, textarea { font-family: var(--font); }
 }
 
 /* oxis.dashboard({ header = "..." }) */
-.oxis-dash-header { margin-top: 6px; font-size: var(--home-fs); color: var(--purple3); font-weight: 700; letter-spacing: .06em; }
 
 /* Quick open (Ctrl+P in the editor). */
 .quickopen-item { gap: 12px; }
@@ -1663,38 +1557,3 @@ input, textarea { font-family: var(--font); }
 .hp-cmd { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: pre; color: var(--text); font-size: 12px; }
 .hp-hit { background: none; color: var(--purple3); font-weight: 700; }
 
-/* ── Home insights: cards beside the centre column (Insights.tsx) ── */
-.home-row { display: flex; justify-content: center; align-items: flex-start; gap: 20px; width: 100%; }
-.home-row > .oxis-home { flex: 0 1 600px; min-width: 0; }
-.ins-col {
-  flex: 0 0 240px; display: flex; flex-direction: column; gap: 12px;
-  padding-top: var(--ins-top, 150px); /* level with the workspace box */
-  user-select: none;
-}
-/* Side by side, Home is 1120 px wide and zooms to fit a smaller window;
-   past 80% the cards go under the centre column, two side by side. */
-.home-row--insights { width: 1120px; flex: none; }
-.home-row--stacked { width: 620px; flex-wrap: wrap; justify-content: space-between; row-gap: 12px; column-gap: 12px; }
-.home-row--stacked > .oxis-home { flex: 1 1 100%; }
-.home-row--stacked > .ins-col { flex: 1 1 calc(50% - 6px); order: 1; padding-top: 0; min-width: 0; }
-.ins-card { padding: 0 14px 10px; }
-.ins-title { margin: 0 -14px 8px; padding: 9px 14px 8px; }
-.ins-note { color: var(--dim); font: 400 var(--t-2xs) var(--mono); letter-spacing: 0; text-transform: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 120px; }
-.ins-body { display: flex; flex-direction: column; gap: 3px; }
-.ins-line { color: var(--text); font: 400 var(--t-sm)/1.5 var(--ui-font); overflow: hidden; text-overflow: ellipsis; }
-.ins-strong { color: var(--acc-hi); font: 600 var(--t-sm)/1.5 var(--mono); }
-.ins-dim { color: var(--dim); }
-.ins-ok { color: var(--green); }
-.ins-warn { color: var(--warn); }
-.ins-err { color: var(--err); }
-.ins-bullet { color: var(--acc); margin-right: 8px; }
-.ins-action {
-  display: flex; align-items: center; width: calc(100% + 12px); margin: 0 -6px; padding: 3px 6px; border-radius: var(--r-1); text-align: left; cursor: pointer;
-  color: var(--acc-hi); font: 500 var(--t-sm)/1.4 var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  transition: background .1s;
-}
-.ins-action:hover { color: var(--text); background: var(--hover); }
-.ins-arrow { color: var(--acc); margin-right: 8px; }
-.ins-file { color: var(--text); }
-.ins-file::before { content: "▸ "; color: var(--dim); }
-.ins-suggest + .ins-suggest { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--line); }

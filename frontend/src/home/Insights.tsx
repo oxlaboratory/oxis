@@ -1,13 +1,13 @@
 /**
- * Insights.tsx — Home's insight cards, beside the workspace box: what's
- * been happening in this workspace (left) and what OXIS can tell you
- * about it (right). Every card follows the workspace: Git turns from
- * "connect it" into the branch and its changes, the workflow card shows
- * the last run, and the suggestions are about this project now. A card
- * with nothing to say isn't shown. Setting homeInsights hides them all.
+ * Insights.tsx — what Home can tell you about the workspace: today's
+ * activity, its tasks and recent files, the project's Git state, its
+ * workflow and what OXIS suggests next. Each is a Panel of its own, laid
+ * out by Home; a panel with nothing to say isn't shown. Everything
+ * follows the workspace (useInsights). Setting homeInsights hides the
+ * activity side of Home.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { runCommand } from "../native";
 import { events } from "../terminal/events";
 import { ago, insightsFor, onInsights, type WorkspaceInsights } from "./insightsStore";
@@ -75,26 +75,28 @@ export function suggest(o: { git: GitState | null; hasProject: boolean; tasks: s
   return out.slice(0, 3);
 }
 
-function Card({ title, note, children }: { title: string; note?: string; children: React.ReactNode }) {
+/** A labelled panel: Home's building block. */
+export function Panel({ title, note, className, children }: { title: string; note?: React.ReactNode; className?: string; children: React.ReactNode }) {
   return (
-    <div className="ins-card">
-      <div className="ins-title"><span>{title}</span>{note && <span className="ins-note">{note}</span>}</div>
-      <div className="ins-body">{children}</div>
-    </div>
+    <section className={`hm-panel${className ? ` ${className}` : ""}`}>
+      <header className="hm-panel-head"><h2>{title}</h2>{note !== undefined && <span className="hm-panel-note">{note}</span>}</header>
+      <div className="hm-panel-body">{children}</div>
+    </section>
   );
 }
 
-const fill = (text: string) => events.emit("focus_prompt", { text });
-
-export interface InsightsProps {
-  side: "left" | "right";
-  workspace: string;
-  projectPath: string | null;
-  tasks: string[];
-  workflows: Array<{ name: string; steps: string[] }>;
-  pluginsActive: number;
-  onRun: (cmd: string) => void;
+/** A row that does something: runs a command or fills the prompt. */
+export function Action({ label, hint, onClick, mono = true }: { label: React.ReactNode; hint?: React.ReactNode; onClick: () => void; mono?: boolean }) {
+  return (
+    <button className={`hm-action${mono ? " hm-action--mono" : ""}`} onMouseDown={e => e.preventDefault()} onClick={onClick}>
+      <span className="hm-action-label">{label}</span>
+      {hint !== undefined && <span className="hm-action-hint">{hint}</span>}
+      <span className="hm-action-go" aria-hidden="true">→</span>
+    </button>
+  );
 }
+
+export const fillPrompt = (text: string) => events.emit("focus_prompt", { text });
 
 /** Git state of the project, kept fresh while Home is up. */
 function useGit(dir: string | null): GitState | null {
@@ -112,102 +114,125 @@ function useGit(dir: string | null): GitState | null {
   return state;
 }
 
-export function Insights({ side, workspace, projectPath, tasks, workflows, pluginsActive, onRun }: InsightsProps) {
+export interface InsightsData {
+  ins: WorkspaceInsights;
+  git: GitState | null;
+  now: number;
+  suggestions: Suggestion[];
+  /** A path as the project sees it. */
+  rel: (p: string) => string;
+}
+
+/** Everything Home's panels show, for this workspace and project. */
+export function useInsights(workspace: string, projectPath: string | null, tasks: string[]): InsightsData {
   const [, bump] = useState(0);
   useEffect(() => onInsights(() => bump(n => n + 1)), []);
   const [now, setNow] = useState(Date.now());
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 30_000); return () => clearInterval(t); }, []);
   const ins = insightsFor(workspace);
-  const git = useGit(side === "right" ? projectPath : null);
+  const git = useGit(projectPath);
   const rel = (p: string) => {
     const root = (projectPath ?? "").replace(/\\/g, "/").replace(/\/+$/, "");
     return root && p.toLowerCase().startsWith(root.toLowerCase() + "/") ? p.slice(root.length + 1) : p.replace(/^.*\//, "");
   };
   const suggestions = useMemo(() => suggest({ git, hasProject: !!projectPath, tasks, insights: ins, now }), [git, projectPath, tasks, ins, now]);
+  return { ins, git, now, suggestions, rel };
+}
 
-  if (side === "left") {
-    const activity = [
-      ins.tasks && `${ins.tasks} task${ins.tasks === 1 ? "" : "s"} run`,
-      ins.saves && `${ins.saves} file${ins.saves === 1 ? "" : "s"} saved`,
-      ins.workflows && `${ins.workflows} workflow${ins.workflows === 1 ? "" : "s"} run`,
-      ins.commands && `${ins.commands} command${ins.commands === 1 ? "" : "s"}`,
-    ].filter(Boolean) as string[];
+export function GitPanel({ d, onRun }: { d: InsightsData; onRun: (cmd: string) => void }) {
+  const { git, now } = d;
+  if (!git) return null;
+  if (!git.repo) {
     return (
-      <div className="ins-col ins-col--left">
-        <Card title="RECENT ACTIVITY" note="today">
-          <div className="ins-line ins-strong">workspace “{workspace}”</div>
-          {activity.length
-            ? activity.map(a => <div key={a} className="ins-line"><span className="ins-bullet">•</span>{a}</div>)
-            : <div className="ins-line ins-dim">nothing yet today</div>}
-        </Card>
-        {tasks.length > 0 && (
-          <Card title="TASKS" note={`${tasks.length}${ins.tasks ? ` · ${ins.tasks} run today` : ""}`}>
-            {tasks.slice(0, 5).map(t => (
-              <button key={t} className="ins-action" onMouseDown={e => e.preventDefault()} onClick={() => onRun(`'task ${t}`)} title={`'task ${t}`}>
-                <span className="ins-arrow">→</span>{t}
-              </button>
-            ))}
-          </Card>
-        )}
-        {ins.files.length > 0 && (
-          <Card title="RECENT FILES">
-            {ins.files.slice(0, 5).map(f => (
-              <button key={f} className="ins-action ins-file" onMouseDown={e => e.preventDefault()} onClick={() => onRun(`'edit ${f}`)} title={f}>{rel(f)}</button>
-            ))}
-          </Card>
-        )}
-      </div>
+      <Panel title="Git" note="not set up">
+        <p className="hm-line hm-dim">This project isn&apos;t a Git repository.</p>
+        <Action label="git init" onClick={() => onRun("git init")} />
+      </Panel>
     );
   }
+  return (
+    <Panel title="Git" note={git.remote ? undefined : "no remote"}>
+      <div className="hm-git">
+        <span className="hm-branch">{git.branch}</span>
+        <span className={`hm-badge ${git.changed ? "hm-badge--warn" : "hm-badge--ok"}`}>{git.changed ? `${git.changed} changed` : "clean"}</span>
+      </div>
+      <dl className="hm-facts">
+        {git.lastCommit && <><dt>last commit</dt><dd title={git.lastCommit.subject}>{ago(git.lastCommit.at, now)} · {git.lastCommit.subject}</dd></>}
+        <dt>branches</dt><dd>{git.branches}{git.ahead || git.behind ? ` · ↑${git.ahead ?? 0} ↓${git.behind ?? 0}` : ""}</dd>
+      </dl>
+      {!git.remote && <Action label="connect GitHub" hint="'workspace github" onClick={() => fillPrompt("'workspace github ")} />}
+    </Panel>
+  );
+}
 
+export function ActivityPanel({ d, workspace }: { d: InsightsData; workspace: string }) {
+  const { ins } = d;
+  const stats: Array<[number, string]> = [[ins.commands, "commands"], [ins.tasks, "tasks"], [ins.saves, "saves"], [ins.workflows, "workflows"]];
+  return (
+    <Panel title="Today" note={workspace}>
+      <div className="hm-stats">
+        {stats.map(([n, what]) => (
+          <div key={what} className={`hm-stat${n ? "" : " hm-stat--zero"}`}><b>{n}</b><span>{what}</span></div>
+        ))}
+      </div>
+    </Panel>
+  );
+}
+
+export function FilesPanel({ d, onRun }: { d: InsightsData; onRun: (cmd: string) => void }) {
+  if (!d.ins.files.length) return null;
+  return (
+    <Panel title="Recent files">
+      {d.ins.files.slice(0, 5).map(f => <Action key={f} label={d.rel(f)} onClick={() => onRun(`'edit ${f}`)} />)}
+    </Panel>
+  );
+}
+
+export function SuggestPanel({ d, onRun }: { d: InsightsData; onRun: (cmd: string) => void }) {
+  return (
+    <Panel title="Next up">
+      {d.suggestions.length ? d.suggestions.map(s => (
+        <div key={s.text} className="hm-suggest">
+          <p className="hm-line">{s.text}</p>
+          <Action label={s.label} onClick={() => (s.run ? onRun(s.run) : fillPrompt(s.fill ?? ""))} />
+        </div>
+      )) : <p className="hm-line hm-dim">All clear — nothing needs you right now.</p>}
+    </Panel>
+  );
+}
+
+export function TasksPanel({ d, tasks, workflows, onRun }: {
+  d: InsightsData; tasks: string[]; workflows: Array<{ name: string; steps: string[] }>; onRun: (cmd: string) => void;
+}) {
+  const { ins, now } = d;
   const wf = ins.lastWorkflow && workflows.find(w => w.name === ins.lastWorkflow!.name) || workflows[0];
   const lastRun = wf && ins.lastWorkflow?.name === wf.name ? ins.lastWorkflow : undefined;
   return (
-    <div className="ins-col ins-col--right">
-      {projectPath && git && (
-        <Card title="GIT" note={git.repo && git.remote ? undefined : "not connected"}>
-          {!git.repo ? (
-            <>
-              <div className="ins-line">This project isn't a Git repository.</div>
-              <button className="ins-action" onMouseDown={e => e.preventDefault()} onClick={() => onRun("git init")}><span className="ins-arrow">→</span>git init</button>
-            </>
-          ) : (
-            <>
-              <div className="ins-line ins-strong">⎇ {git.branch} · <span className={git.changed ? "ins-warn" : "ins-ok"}>{git.changed ? `${git.changed} changed` : "clean"}</span></div>
-              {git.lastCommit && <div className="ins-line ins-dim" title={git.lastCommit.subject}>last commit {ago(git.lastCommit.at, now)}</div>}
-              <div className="ins-line ins-dim">{git.branches} branch{git.branches === 1 ? "" : "es"}{git.ahead || git.behind ? ` · ↑${git.ahead ?? 0} ↓${git.behind ?? 0}` : ""}</div>
-              {!git.remote && (
-                <button className="ins-action" onMouseDown={e => e.preventDefault()} onClick={() => fill("'workspace github ")}><span className="ins-arrow">→</span>connect GitHub</button>
-              )}
-            </>
-          )}
-        </Card>
-      )}
-      {wf ? (
-        <Card title="WORKFLOW" note={wf.name}>
-          <div className="ins-line ins-strong">{wf.steps.slice(0, 4).join(" → ")}{wf.steps.length > 4 ? " → …" : ""}</div>
-          <div className="ins-line ins-dim">
-            {lastRun ? <>last run {ago(lastRun.at, now)} · <span className={lastRun.ok ? "ins-ok" : "ins-err"}>{lastRun.ok ? "✓ passed" : "✗ failed"}</span></> : "not run yet"}
-          </div>
-          <button className="ins-action" onMouseDown={e => e.preventDefault()} onClick={() => onRun(`'workflow ${wf.name}`)}><span className="ins-arrow">→</span>run it</button>
-        </Card>
-      ) : (
-        <Card title="WORKSPACE INSIGHT">
-          <div className="ins-line">{pluginsActive} plugin{pluginsActive === 1 ? "" : "s"} active</div>
-          <div className="ins-line">{tasks.length} task{tasks.length === 1 ? "" : "s"} · {workflows.length} workflow{workflows.length === 1 ? "" : "s"}</div>
-          <div className="ins-line ins-dim">{git === null ? "" : git.repo ? (git.remote ? "Git connected" : "Git: no remote") : "Git not set up"}</div>
-        </Card>
-      )}
-      <Card title="OXIS SUGGESTS">
-        {suggestions.length ? suggestions.map(s => (
-          <div key={s.text} className="ins-suggest">
-            <div className="ins-line">{s.text}</div>
-            <button className="ins-action" onMouseDown={e => e.preventDefault()} onClick={() => (s.run ? onRun(s.run) : fill(s.fill ?? ""))}>
-              <span className="ins-arrow">→</span>{s.label}
+    <Panel title="Tasks" note={tasks.length ? `${tasks.length} defined${ins.tasks ? ` · ${ins.tasks} run today` : ""}` : undefined}>
+      {tasks.length ? (
+        <div className="hm-tasks">
+          {tasks.slice(0, 8).map(t => (
+            <button key={t} className="hm-task" onMouseDown={e => e.preventDefault()} onClick={() => onRun(`'task ${t}`)} title={`'task ${t}`}>
+              <span className="hm-task-run" aria-hidden="true">▶</span>{t}
             </button>
+          ))}
+        </div>
+      ) : (
+        <p className="hm-line hm-dim">No tasks yet. Name the commands you run most in <code>.oxis/workspace.lua</code> — <code>&apos;help task</code></p>
+      )}
+      {wf && (
+        <div className="hm-workflow">
+          <div className="hm-workflow-head">
+            <span className="hm-workflow-name">workflow · {wf.name}</span>
+            <span className="hm-dim">{lastRun ? <>last run {ago(lastRun.at, now)} · <span className={lastRun.ok ? "hm-ok" : "hm-err"}>{lastRun.ok ? "passed" : "failed"}</span></> : "not run yet"}</span>
           </div>
-        )) : <div className="ins-line ins-dim">All clear — nothing needs you right now.</div>}
-      </Card>
-    </div>
+          <div className="hm-steps">
+            {wf.steps.slice(0, 6).map((st, k) => <span key={k} className="hm-step">{st}</span>)}
+            {wf.steps.length > 6 && <span className="hm-step hm-dim">+{wf.steps.length - 6}</span>}
+            <button className="hm-step-run" onMouseDown={e => e.preventDefault()} onClick={() => onRun(`'workflow ${wf.name}`)}>Run</button>
+          </div>
+        </div>
+      )}
+    </Panel>
   );
 }
