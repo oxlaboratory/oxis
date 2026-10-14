@@ -1,159 +1,184 @@
 <div align="center">
 
-<a href="https://oxis.space">
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="assets/readme/logo-dark.svg">
   <img src="assets/readme/logo-light.svg" width="78%" alt="OXIS">
 </picture>
-</a>
 
-<br>
+### Your real shell, programmable.
 
-<a href="https://oxis.space"><img src="assets/readme/banner.svg" width="100%" alt="OXIS — the workspace you program. Automate projects, edit documents and build workflows, in an app where you can change anything."></a>
+OXIS is a development workspace built around the shell you already use — PowerShell, bash, zsh or fish.<br>
+It adds tabs and split panes, a built-in editor, per-project workspaces with tasks and workflows, and Lua for everything else.
 
-### OXIS is a programmable workspace for automating projects, editing documents and building workflows — with an entirely customizable experience.
+**[Download](https://github.com/oxlaboratory/oxis/releases/tag/latest-build)** · **[Website](https://oxis.space)** · **[Plugin Market](https://oxis.space/#market)** · **[Documentation](#documentation)** · **[Changelog](CHANGELOG.md)**
 
-<sub>Free and open source · Windows, Linux and macOS (preview) · about 14 MB · no account, no telemetry</sub>
 
-<br>
-
-<a href="https://github.com/oxlaboratory/oxis/releases/tag/latest-build"><img src="assets/readme/btn-download.svg" height="54" alt="Download"></a>
-<a href="https://oxis.space"><img src="assets/readme/btn-website.svg" height="54" alt="Website"></a>
-<a href="https://oxis.space/#market"><img src="assets/readme/btn-market.svg" height="54" alt="Plugin Market"></a>
-<a href="#documentation"><img src="assets/readme/btn-docs.svg" height="54" alt="Docs"></a>
-<a href="CHANGELOG.md"><img src="assets/readme/btn-changelog.svg" height="54" alt="Changelog"></a>
-
-<br><br>
-
-<a href="https://github.com/oxlaboratory/oxis/releases/tag/latest-build"><img src="https://img.shields.io/endpoint?url=https%3A%2F%2Foxis.space%2Fdownloads&style=for-the-badge&labelColor=0d1117&color=3dff64&logo=icloud&logoColor=3dff64&cacheSeconds=600" alt="New downloads"></a>
-<a href="#auto-update"><img src="https://img.shields.io/endpoint?url=https%3A%2F%2Foxis.space%2Fdownloads%3Fkind%3Dre&style=for-the-badge&labelColor=0d1117&color=7dcfff&logo=refresh&logoColor=7dcfff&cacheSeconds=600" alt="Re-downloads (updates installed with 'update install)"></a>
-<a href="https://github.com/oxlaboratory/oxis/actions/workflows/build.yml"><img src="https://img.shields.io/github/actions/workflow/status/oxlaboratory/oxis/build.yml?branch=main&style=for-the-badge&label=build&labelColor=0d1117&color=3dff64&logo=githubactions&logoColor=3dff64" alt="Build"></a>
-<a href="https://github.com/oxlaboratory/oxis/stargazers"><img src="https://img.shields.io/github/stars/oxlaboratory/oxis?style=for-the-badge&labelColor=0d1117&color=e0af68&logo=github&logoColor=e0af68" alt="Stars"></a>
+<a href="https://github.com/oxlaboratory/oxis/releases/tag/latest-build"><img src="https://img.shields.io/endpoint?url=https%3A%2F%2Foxis.space%2Fdownloads&style=for-the-badge&labelColor=12131b&color=2bb35e&logo=icloud&logoColor=4fd47f&cacheSeconds=600" alt="New downloads"></a>
+<a href="#auto-update"><img src="https://img.shields.io/endpoint?url=https%3A%2F%2Foxis.space%2Fdownloads%3Fkind%3Dre&style=for-the-badge&labelColor=12131b&color=2bb35e&logo=refresh&logoColor=4fd47f&cacheSeconds=600" alt="Re-downloads (updates installed with 'update install)"></a>
+<a href="https://github.com/oxlaboratory/oxis/actions/workflows/build.yml"><img src="https://img.shields.io/github/actions/workflow/status/oxlaboratory/oxis/build.yml?branch=main&style=for-the-badge&label=build&labelColor=12131b&color=2bb35e&logo=githubactions&logoColor=4fd47f" alt="Build"></a>
+<a href="https://github.com/oxlaboratory/oxis/stargazers"><img src="https://img.shields.io/github/stars/oxlaboratory/oxis?style=for-the-badge&labelColor=12131b&color=2bb35e&logo=github&logoColor=4fd47f" alt="Stars"></a>
 <a href="https://github.com/oxlaboratory/oxis"><img src="https://api.visitorbadge.io/api/visitors?path=oxlaboratory%2Foxis&label=VIEWS&labelColor=%230d1117&countColor=%237dcfff&style=for-the-badge" alt="Views"></a>
-<a href="LICENSE"><img src="https://img.shields.io/github/license/oxlaboratory/oxis?style=for-the-badge&labelColor=0d1117&color=bb9af7" alt="Apache-2.0"></a>
+<a href="LICENSE"><img src="https://img.shields.io/github/license/oxlaboratory/oxis?style=for-the-badge&labelColor=12131b&color=2bb35e" alt="Apache-2.0"></a>
 
-<img src="https://img.shields.io/badge/Windows-10%20%C2%B7%2011-0d1117?style=flat-square&logo=windows&logoColor=7dcfff" alt="Windows 10 and 11">
-<img src="https://img.shields.io/badge/Linux-x64-0d1117?style=flat-square&logo=linux&logoColor=e0af68" alt="Linux x64">
-<img src="https://img.shields.io/badge/Go-backend-0d1117?style=flat-square&logo=go&logoColor=7dcfff" alt="Go">
-<img src="https://img.shields.io/badge/React-UI-0d1117?style=flat-square&logo=react&logoColor=7dcfff" alt="React">
-<img src="https://img.shields.io/badge/Lua-plugins-0d1117?style=flat-square&logo=lua&logoColor=bb9af7" alt="Lua">
+<img src="https://img.shields.io/badge/Windows-10%20%C2%B7%2011-12131b?style=flat-square&logo=windows&logoColor=4fd47f" alt="Windows 10 and 11">
+<img src="https://img.shields.io/badge/Linux-x64-12131b?style=flat-square&logo=linux&logoColor=4fd47f" alt="Linux x64">
+<img src="https://img.shields.io/badge/Go-backend-12131b?style=flat-square&logo=go&logoColor=4fd47f" alt="Go">
+<img src="https://img.shields.io/badge/React-UI-12131b?style=flat-square&logo=react&logoColor=4fd47f" alt="React">
+<img src="https://img.shields.io/badge/Lua-plugins-12131b?style=flat-square&logo=lua&logoColor=4fd47f" alt="Lua">
 
-<br><br>
+<br>
 
-<img src="assets/demo.gif" width="100%" alt="A real OXIS session: Home under a pixel-art sun and drifting clouds, with its insight cards (activity, tasks, files, Git, workflow, suggestions); git log and status in the real shell, then quick select labelling the hashes and paths on screen and copying one; the editor catching a missing bracket as it's typed, suggesting a function name, Vim's Visual mode and the file tree's right-click menu; a split with the project's tests passing and one command broadcast to both panes; an image shown in the output with 'imgcat; triggers highlighting an ERROR line and the server's listening on line; installing games from the Market, a die that tumbles and asks to roll again, a pokie machine's spinning reels; live CPU and memory stopped with Ctrl+C; the Settings window searched for sound; and a switch to the ember theme">
-
-<sub>▲ Recorded from the app itself: every frame is OXIS running those commands in a real project.</sub>
-
-<br><br>
-
-<img src="assets/readme/stats.svg" width="100%" alt="About 14 MB, one binary · 50+ built-in commands · 10 themes with 78 keys each · no accounts, no telemetry">
+<img src="assets/demo.gif" width="100%" alt="A recorded OXIS session: Home for the acme-web workspace, git log and status in the real shell, the project's tests run as a task, quick select labelling hashes and paths, the editor with its file tree and search in files, a split pane running the tests with one command broadcast to both panes, the command palette, and a switch to the ember theme">
 
 </div>
 
 <br>
 
-<img src="assets/readme/h-why.svg" width="100%" alt="01 · What OXIS is">
+## What OXIS is
 
-## What is OXIS?
+OXIS is not a terminal emulator with a new coat of paint. It starts your
+**actual shell** in a real pseudo-console and leaves it alone — your
+profile, aliases, prompt and programs all behave as they always do. What
+OXIS adds is everything around it that you'd otherwise juggle across
+several apps: tabs and splits, an editor, a per-project home with its
+tasks and Git state, a command palette, and a Lua API that can change
+or extend any of it.
 
-OXIS is one desktop app for the work you do on a project — running
-it, editing it, automating it — and every part of it can be programmed
-and changed.
+A line that starts with `'` is an OXIS command (`'help` lists them).
+Everything else goes straight to your shell.
 
-- **A real terminal.** Your own PowerShell, Git Bash, WSL, cmd, bash,
-  zsh or fish — a different one per tab if you like — not an imitation
-  of one, with tabs, split panes, full colour, and programs like vim,
-  htop and lazygit. Tab completes files, git branches and npm scripts
-  in any shell, history suggests the rest of a command as you type, and
-  `src/app.ts:12:5` in a compiler error opens the editor right there.
-  Ctrl+Shift+Space copies any URL, path or hash on screen with two keys,
-  `'trigger` lights up the log lines that matter, `'broadcast` types into
-  every pane at once, `'record` saves a session as an asciinema cast and
-  `'imgcat` shows an image in the output. A line that starts with `'` is
-  an OXIS command (`'help` lists them); everything else goes to your
-  shell.
-- **An editor for code and documents.** `'edit` opens any file: errors
-  underlined as you type, suggestions, search across the project
-  (Ctrl+Shift+F), a live preview for HTML and Markdown, and Vim modes or
-  VS Code keys.
-- **Automation.** Each project gets tasks (`'task test`), workflows of
-  several steps with retries and exit codes (`'workflow release`), and
-  watchers that act when files change.
-- **Programmable in Lua.** A few lines add a command, a keybinding, a
-  task, a workflow or a whole tool. Plugins run programs and read their
-  output as it prints, watch files, call web APIs and edit the open
-  document. More are in the [Market](https://oxis.space/#market).
-- **Workspaces.** Every project keeps its own folder, tasks, plugins,
-  git repository and history; `'workspace switch api` moves between them.
-- **Change anything.** A Settings window (Ctrl+,), themes with 78
-  settings each and a live editor, sound effects you can swap for your
-  own, the prompt, the keys, the layout, the Home screen and its
-  pixel-art sky — and whatever a plugin adds.
+## Key capabilities
 
-**Who it's for:** people who work in a terminal and want a project's
-commands, files and automation in one place they can shape to fit.
+- **Real shells, per tab.** PowerShell 7, Windows PowerShell, cmd, Git
+  Bash or WSL on Windows; your `$SHELL` (bash, zsh, fish) on Linux.
+  Full colour, REPLs, prompts and full-screen programs like vim, less,
+  htop and lazygit in a real terminal grid.
+- **Tabs, split panes and one prompt.** Every pane is its own shell,
+  opened in the folder you're working in. One prompt with history,
+  reverse search, and Tab completion of files, Git branches, npm scripts,
+  SSH hosts and make targets in any shell. Sessions come back after a
+  restart.
+- **A built-in editor.** `'edit` opens any file beside the prompt: file
+  tree, tabs, mistakes underlined as you type, suggestions, search in
+  files, go to symbol, a Markdown and HTML preview, and Vim modes (or
+  none). `src/app.ts:12:5` in a compiler error opens it right there.
+- **Workspaces.** Each project gets its own folder link, Git remote,
+  tasks, workflows and plugins. Home shows the workspace at a glance:
+  its tasks one click each, the branch and changes, today's activity and
+  recent files.
+- **Tasks and workflows.** `'task test` runs a named command;
+  `'workflow release` runs steps with retries, conditions, environment
+  and parallel runs, failing on real exit codes.
+- **Lua 5.4 throughout.** Commands, keymaps, events, workflows and Home
+  panels are plain Lua, in a plugin, a project's `workspace.lua` or your
+  `config.lua`. Plugins declare their permissions and run in their own VM.
+- **A plugin Market.** `'market install autotest` from the prompt;
+  `'plugin publish` files yours for review.
+- **Made to be changed.** Ten themes with 73 settings and a live theme
+  editor, a Settings window (Ctrl+,), your own keys, prompt label and
+  sound effects.
+- **The details.** Quick select (Ctrl+Shift+Space) copies any URL, path
+  or hash on screen with two keys; `'trigger` highlights the lines that
+  matter; `'broadcast` types into every pane; `'record` saves an
+  asciinema cast; `'imgcat` shows pictures in the output; hyperlinks,
+  clipboard and progress from the tools that send them (OSC 8, 52, 9;4).
+- **Self-updating and private.** `'update install` swaps in the newest
+  build and rolls back if it doesn't start. No account, no telemetry.
 
-<br>
+## What makes it different
 
-<img src="assets/readme/h-get.svg" width="100%" alt="02 · Get it">
+Most terminals stop at the terminal; most editors treat the terminal as
+a panel. OXIS starts from the shell and builds a workspace around it,
+and the three ideas below are designed to work together:
 
-<table>
-<tr>
-<td width="50%" valign="top">
+| | |
+|---|---|
+| **Real shells** | Nothing is emulated or wrapped: your shell runs as itself, so everything you already know keeps working. OXIS reads what it prints (shell integration marks each command's status and time) without changing it. |
+| **Workspaces** | The project, not the window, is the unit. Switching workspace switches the tasks, workflows, plugins and Git remote that go with it, and Home becomes that project's start page. |
+| **Lua** | The same API that OXIS's own plugins use is yours: a few lines add a command, a task, a keybinding, a Home panel or a whole tool that runs programs, watches files and edits the open document. |
 
-#### 🪟 Windows 10 / 11
+A task you define in `workspace.lua` shows up as a button on Home, in the
+command palette and in Tab completion — and a plugin can run it, react to
+its result, or wrap it in a workflow.
 
-The [installer (.msi)](https://github.com/oxlaboratory/oxis/releases/tag/latest-build), or the portable exe:
+## A look around
+
+| | |
+|---|---|
+| <img src="assets/screenshots/app-home.png" alt="Home for the acme-web workspace: its folder, Git and plugins as chips; Start and Tasks on the left; Git, Today and Recent files on the right"> | <img src="assets/screenshots/app-terminal.png" alt="The terminal: git log and git status in Git Bash, then the project's tests run with 'task test, all passing"> |
+| **Home** — the workspace at a glance | **Terminal** — your shell, OXIS commands mixed in, one prompt |
+| <img src="assets/screenshots/app-panes.png" alt="Two split panes: Git history and status on the left, npm test passing on the right"> | <img src="assets/screenshots/app-editor.png" alt="The built-in editor with the file tree open beside cart.js, a breadcrumb path and the Vim mode badge"> |
+| **Split panes** — each its own shell | **Editor** — file tree, tabs, problems, Vim modes |
+| <img src="assets/screenshots/app-search.png" alt="Search in files over the editor: matches for total in four files, grouped by file"> | <img src="assets/screenshots/app-palette.png" alt="The command palette filtered to workspace commands"> |
+| **Search in files** (Ctrl+Shift+F) | **Command palette** (Ctrl+Shift+P) |
+| <img src="assets/screenshots/app-quickselect.png" alt="Quick select: a letter on every commit hash and path on screen"> | <img src="assets/screenshots/app-autotest.png" alt="The autotest plugin re-running the tests on save: a failure with actual and expected values, then passing again"> |
+| **Quick select** (Ctrl+Shift+Space) | **autotest** from the Market — tests on every save |
+| <img src="assets/screenshots/themes-grid.png" alt="The Themes page: the ten built-in themes, each as a small window in its own colours"> | <img src="assets/screenshots/app-plugins.png" alt="The Plugins page: installed plugins with a switch for each, and buttons for the Market and a new plugin"> |
+| **Themes** — pick one, or `'theme edit` | **Plugins** — what's installed, on or off |
+| <img src="assets/screenshots/app-settings.png" alt="The Settings window: terminal settings with switches and lists, and a search box"> | <img src="assets/screenshots/app-vim.png" alt="vim editing cart.js inside OXIS, in the default theme's colours"> |
+| **Settings** (Ctrl+,) — every setting, searchable | **Full-screen programs** — vim, less, htop in a real grid |
+
+<p align="center">
+  <img src="assets/screenshots/themes.png" alt="Home in each of the ten built-in themes: default, midnight, slate, forest, ember, rose, dusk, void, paper and matrix" width="100%">
+</p>
+
+## Supported platforms
+
+| Platform | Status | Notes |
+|---|---|---|
+| Windows 10 and 11, x64 | Supported | Installer (`.msi`) or portable `oxis.exe`; WebView2 ships with Windows |
+| Linux x64 | Supported | `.deb`, a portable tarball or the bare binary; needs GTK 3 and WebKitGTK 4.1 |
+| macOS, Apple silicon | Preview | `OXIS.app` built by CI on every change; not yet tried on a Mac by a person, and unsigned |
+
+The same interface also runs in a browser tab at `http://127.0.0.1:1420`
+while the desktop app is running.
+
+## Install
+
+**Windows** — the [installer (.msi)](https://github.com/oxlaboratory/oxis/releases/tag/latest-build), or the portable exe:
 
 ```powershell
 Invoke-WebRequest https://github.com/oxlaboratory/oxis/releases/download/latest-build/oxis.exe -OutFile oxis.exe; .\oxis.exe
 ```
 
-</td>
-<td width="50%" valign="top">
-
-#### 🐧 Linux x64
-
-A [`.deb` or portable tarball](https://github.com/oxlaboratory/oxis/releases/tag/latest-build), or the bare binary (needs `libgtk-3-0` and `libwebkit2gtk-4.1-0`):
+**Linux** — a [`.deb` or portable tarball](https://github.com/oxlaboratory/oxis/releases/tag/latest-build), or the bare binary (needs `libgtk-3-0` and `libwebkit2gtk-4.1-0`):
 
 ```bash
 curl -Lo oxis https://github.com/oxlaboratory/oxis/releases/download/latest-build/oxis && chmod +x oxis && ./oxis
 ```
 
-</td>
-</tr>
-</table>
+**macOS (preview)** — [`oxis-<version>-macos-arm64.zip`](https://github.com/oxlaboratory/oxis/releases/tag/latest-build) (OXIS.app). Unsigned, so right-click → Open the first time.
 
-**🍎 macOS (Apple silicon), preview** — [`oxis-<version>-macos-arm64.zip`](https://github.com/oxlaboratory/oxis/releases/tag/latest-build) (OXIS.app). Built and tested on macOS in CI, not yet tried on a Mac by a person; unsigned, so right-click → Open the first time.
-
-**🛠️ From source** — Go 1.22+ and Node.js 24+, and a C compiler for native Lua (Linux has one; on Windows MinGW-w64, e.g. MSYS2's `mingw-w64-x86_64-gcc`; without one, plugins run on fengari):
+**From source** — Go 1.22+ and Node.js 24+, plus a C compiler for native Lua (Linux has one; on Windows MinGW-w64, e.g. MSYS2's `mingw-w64-x86_64-gcc`; without one, plugins run on fengari):
 
 ```bash
 git clone https://github.com/oxlaboratory/oxis.git && cd oxis && npm run setup && npm run build
 ```
 
-Then keep it current from inside OXIS with `'update install`. Every release is on the [releases page](https://github.com/oxlaboratory/oxis/releases).
+Every push to `main` is built by CI and published to the rolling
+[`latest-build`](https://github.com/oxlaboratory/oxis/releases/tag/latest-build)
+release; inside OXIS, `'update install` keeps you on it. More in
+[Getting started](#getting-started).
 
-<br>
+## Getting started
 
-<img src="assets/readme/h-tour.svg" width="100%" alt="03 · A minute with OXIS">
+Open OXIS in a project folder (or *Open in OXIS* on a folder in
+Explorer) and try:
 
 ```text
-'help                      every command (Ctrl+Shift+P for the palette)
-'edit src/app.ts           open the built-in editor
-'theme ember               switch theme — 'theme set glow 0.4 tweaks one thing live
-'workspace switch api      jump to another project, with its tasks and git remote
-'task test                 run a project task
-'workflow release          build → test → deploy, with retries and exit codes
-'market install autotest   add a plugin from the Market ('autotest then re-runs tests on save)
+'help                      every command — or Ctrl+Shift+P for the palette
+'workspace init            make this folder a workspace: tasks, workflows, plugins
+'task test                 run a project task (OXIS suggests some for Node, Go, Rust and Python)
+'edit src/app.ts           open the built-in editor (Ctrl+B for the file tree)
+'theme ember               switch theme — 'theme edit changes anything, live
+'market install autotest   add a plugin; 'autotest then re-runs your tests on save
 'version                   exactly which build you're on
 ```
 
-Anything that doesn't start with `'` goes to your shell, as usual.
+Ctrl+T opens a tab, Ctrl+Shift+\ splits the pane, Ctrl+, opens Settings,
+and the **Home** tab at the top left brings you back to the workspace.
 
-<br>
-
-<img src="assets/readme/h-lua.svg" width="100%" alt="04 · Make it yours in Lua">
+## Lua in a minute
 
 ```lua
 --[[@manifest
@@ -167,58 +192,18 @@ end, "open a GitHub PR")
 ```
 
 Save it in `created-plugins/` and `'pr my-branch` works. The same API
-drives tasks, workflows, keymaps, events and the Home screen, runs
-programs and hands you their output as it prints, watches files, edits
-the open file, and streams HTTP — so an AI assistant's answer can type
-itself into your editor as it's written. See the [Lua API](#lua-api).
+drives tasks, workflows, keymaps, events and Home panels, runs programs
+and hands you their output as it prints, watches files, edits the open
+file and streams HTTP. See [Plugins](#plugins) and the [Lua API](#lua-api).
 
-<br>
+## Roadmap
 
-<img src="assets/readme/h-shots.svg" width="100%" alt="05 · Screenshots">
-
-| | |
-|---|---|
-| <img src="assets/screenshots/app-terminal.png" alt="The terminal in colour: git log, git status, git diff and a passing test run"> | <img src="assets/screenshots/app-editor.png" alt="The built-in editor catching a syntax error as you type, with word suggestions open and a minimap"> |
-| Your shell in full colour, with `'` commands and one prompt | The editor catches a mistake as you type and suggests words (`'edit src/cart.ts`) |
-| <img src="assets/screenshots/app-panes.png" alt="Two tabs, the first split into two panes: git log and status on the left, the project's tests passing on the right"> | <img src="assets/screenshots/app-search.png" alt="Search in files over the editor: five matches for subtotal in two files, each highlighted"> |
-| Tabs and split panes, each its own shell (buttons at a pane's top right, or right-click) | Search in files (Ctrl+Shift+F) |
-| <img src="assets/screenshots/app-home.png" alt="Home: a pixel-art sun and clouds over the workspace panel and the get-started list, with insight cards on both sides: recent activity, tasks and recent files; Git, the workflow and suggestions"> | <img src="assets/screenshots/app-palette.png" alt="The command palette over the terminal"> |
-| Home, under a pixel-art sky that follows the time of day | The command palette (Ctrl+Shift+P) |
-| <img src="assets/screenshots/app-version.png" alt="'version showing the build number, commit, tag, channel and update status"> | <img src="assets/screenshots/app-prompt.png" alt="A cmd tab: Tab listing the npm scripts and finishing cd src/, a history suggestion dim in the prompt, and the new-tab shell menu open"> |
-| `'version` — the exact build you're running | Tab completion in any shell (here cmd), history suggestions, and a tab with another shell |
-| <img src="assets/screenshots/app-theme-custom.png" alt="midnight with a gradient background, glow and a custom prompt"> | <img src="assets/screenshots/app-theme-editor.png" alt="The theme editor"> |
-| A theme tweaked with four `'theme set` lines | `'theme edit` — every option with a live preview |
-| <img src="assets/screenshots/app-autotest.png" alt="The autotest plugin re-running a project's tests on save: passing, then failing with the test name and actual versus expected values, then passing again"> | <img src="assets/screenshots/app-image-viewer.png" alt="The editor's image viewer showing a PNG with its size, type, file size and zoom controls"> |
-| `'autotest` from the Market: tests re-run on every save (a plugin built on `oxis.fs.watch` and `oxis.process.spawn`) | Pictures open in an image viewer, not as bytes |
-| <img src="assets/screenshots/app-vim.png" alt="vim editing a TypeScript file inside OXIS, in the default theme's colours"> | <img src="assets/screenshots/app-less.png" alt="less paging through the OXIS README inside OXIS"> |
-| vim inside OXIS, in the theme's colours | `less` paging a file; any full-screen program runs in a real terminal grid |
-
-**Browser mode** — the same UI in a browser tab at `http://127.0.0.1:1420`
-while the desktop app is running:
-
-| | |
-|---|---|
-| <img src="assets/screenshots/browser-home.png" alt="Home in a browser tab, dusk theme"> | <img src="assets/screenshots/browser-terminal.png" alt="The terminal in a browser tab, paper theme"> |
-
-<p align="center">
-  <img src="assets/screenshots/themes.png" alt="The ten built-in themes" width="100%">
-</p>
-
-<br>
-
-<img src="assets/readme/h-roadmap.svg" width="100%" alt="06 · Roadmap">
-
-- [x] Colour output: 16, 256 and 24-bit colour
-- [x] Self-update from source with rollback, and `'version` build info
-- [x] Windows Terminal colour schemes via `'theme import`
-- [x] Full-screen programs (vim, less, htop, lazygit) in a real terminal grid
-- [x] Arrow-key menus, spinners and progress bars that redraw in place
+- [x] Real shells per tab, full-screen programs in a real terminal grid
 - [x] Shell integration: each command's status and time, jumping between commands
-- [x] Plugin APIs for the editor's open file, file watching and processes
-- [x] Streaming HTTP for plugins, for AI assistants that answer as they write
 - [x] Tab completion and history suggestions that work the same in every shell
-- [x] PowerShell, Git Bash, WSL or cmd tab by tab (`'shell`)
-- [x] Clickable `file:line` in compiler output, OSC 8 links, OSC 52 copy, OSC 9;4 progress
+- [x] Plugin APIs for the editor's open file, file watching, processes and streaming HTTP
+- [x] Self-update with rollback, and `'version` build info
+- [x] A redesigned interface: app bar, Home as the workspace's start page, one design system across every theme
 - [x] A macOS build, built and tested in CI (preview)
 - [ ] The macOS build tried on a real Mac
 - [ ] Premium plugins in the Market (AI DevOps first)
@@ -238,9 +223,7 @@ Ideas and bug reports are welcome in [issues](https://github.com/oxlaboratory/ox
 
 <br><br>
 
-**If OXIS is useful to you, a star helps other developers find it.**
-
-<a href="https://github.com/oxlaboratory/oxis/stargazers"><img src="assets/readme/btn-star.svg" height="54" alt="Star OXIS on GitHub"></a>
+**If OXIS is useful to you, a [star](https://github.com/oxlaboratory/oxis/stargazers) helps other developers find it.**
 
 </div>
 
@@ -360,6 +343,26 @@ or add an exclusion for `dist\oxis.exe` while developing.
 ---
 
 ## Using OXIS
+
+### The window
+
+- **The app bar** runs across the top: the **Home** tab, then one tab per
+  terminal (drag to reorder, double-click to rename, middle-click to
+  close, right-click for more), **+** for a new tab (right-click it for
+  another shell), the command search (Ctrl+Shift+P), and buttons for
+  Themes, Plugins and Settings. In the desktop app it's also the title
+  bar: drag its empty space to move the window.
+- **Home** is the active workspace's start page: its name, folder, Git
+  remote and plugins; **Start** (the commands and shortcuts to know) and
+  **Tasks** (one button per task, and the workflow with a Run button);
+  and beside them **Git** (branch, changes, last commit), **Today**
+  (commands, tasks, saves and workflows run) and **Recent files** (one at
+  a time — the arrows step through them). Home never scrolls: on a small
+  window it's drawn a little smaller instead. `'config set homeInsights false` hides
+  the side column; `'hide workspace` hides the workspace line.
+- **The prompt** sits under the content, above **the status bar**, which
+  shows the mode, the connection, the workspace, a program's progress,
+  recording, the theme, the tab and the time.
 
 ### The prompt
 
@@ -1369,7 +1372,7 @@ end)
 ## Themes
 
 <p align="center">
-  <img src="assets/screenshots/themes.png" alt="The ten built-in themes, each shown on the Home screen" width="100%">
+  <img src="assets/screenshots/themes.png" alt="Home in each of the ten built-in themes" width="100%">
 </p>
 
 ```
@@ -1400,8 +1403,8 @@ extends it and switches to it, so you can go back with `'theme <name>`.
 ```
 
 <p align="center">
-  <img src="assets/screenshots/app-theme-custom.png" alt="midnight with a gradient background, a glow, a custom prompt label and a purple status bar" width="49%">
-  <img src="assets/screenshots/app-theme-editor.png" alt="The theme editor, with the Text and Background sections open" width="49%">
+  <img src="assets/screenshots/themes-grid.png" alt="The Themes page: each built-in theme as a small window in its own colours" width="49%">
+  <img src="assets/screenshots/app-theme-editor.png" alt="The theme editor, with the core colours open" width="49%">
 </p>
 
 ### What a theme can set
@@ -1418,11 +1421,10 @@ set.
 | Interface | `selection` `caret` `promptColor` `promptBg` `promptBorder` `statusBg` `statusText` `titlebarBg` `titlebarText` `cornerMark` `scrollbar` `scrollbarHover` |
 | Terminal colours | the 16 colours programs print with: `ansiBlack` `ansiRed` `ansiGreen` `ansiYellow` `ansiBlue` `ansiMagenta` `ansiCyan` `ansiWhite` and `ansiBright…` of each |
 | Syntax (editor) | `synKeyword` `synString` `synNumber` `synComment` `synFunction` |
-| Sky (Home) | colours `sun` `cloud` `moon` `star`; `skyMode` auto/sun/moon (auto follows the clock), `cloudCount` 0–10, `cloudSpeed` 0.2–4, `starCount` 0–24; your own pixel art in `sunArt` and `moonArt` (rows split by `/`: `#` a pixel, `1`–`9` dimmer, `.` empty, e.g. `.##./####/####/.##.`); `skyImage` (an `https://` or `data:image/` URL) in place of the pixel sky |
 | Text | `font` (a CSS font list), `fontSize` 9–28, `lineHeight` 1–2.4, `letterSpacing` −1–4, `fontWeight` 300–700, `ligatures` on/off |
 | Shape & effects | `radius` 0–14, `padding` 4–64 (terminal side padding), `scrollbarWidth` 2–14, `glow` 0–1 |
 | Cursor | `cursorStyle` block/bar/underline, `cursorBlink` on/off |
-| Prompt & Home | `promptText` (up to 24 characters), `showSky` on/off, `showCornerMark` on/off |
+| Prompt | `promptText` (up to 24 characters), `showCornerMark` on/off |
 | Background | `backgroundImage` (an `https://` or `data:image/` URL), `backgroundGradient` (a CSS gradient), `backgroundOpacity` 0–1, `backgroundBlur` 0–30, `backgroundFit` cover/contain/tile |
 | Advanced | `css`: any extra CSS, applied while the theme is active |
 
@@ -1508,8 +1510,7 @@ played from there, and the shell list shows the shells you have.
 | `sounds` | `true` | Sound effects (see [Sound effects](#sound-effects)) |
 | `soundVolume` | `40` | How loud they are, 0 to 100 |
 | `soundError`, `soundDone`, `soundBell`, `soundNotify`, `soundInstall`, `soundTab`, `soundCopy`, `soundStart`, `soundKey` | see `'sound` | Each event's sound: a sound's name, `none`, or the path of your own sound file |
-| `homeInsights` | `true` | Cards beside Home: today's activity, tasks and recent files on the left; the project's Git state, its workflow and what OXIS suggests next on the right. They follow the workspace, scale with the window and move under the centre when it's narrow |
-| `homeSky` | `auto` | The pixel sky on Home: `day` (the sun and clouds only), `night` (the moon and stars only), `off`, or `auto` (the sun from 6 am to 6 pm, the moon at night, unless the theme picks one) |
+| `homeInsights` | `true` | Home's side column: the project's Git state, today's activity and recent files. On a narrow window it goes under the main column |
 | `startIn` | `home` | What OXIS opens on: `home` or `terminal` |
 | `copyOnSelect` | `false` | Copy output text as soon as it's selected with the mouse |
 | `newShellHere` | `true` | Open a new tab or split pane in the focused pane's folder, not the default one |
@@ -1756,9 +1757,3 @@ are welcome on [GitHub](https://github.com/oxlaboratory/oxis).
 ## License
 
 OXIS is licensed under the [Apache License 2.0](LICENSE).
-
-<br>
-
-<a href="https://github.com/oxlaboratory/oxis/stargazers"><img src="assets/readme/footer.svg" width="100%" alt="OXIS — built for developers who live in the terminal. If OXIS saves you time, a star helps other developers find it."></a>
-
-<p align="center"><sub><i>OXIS — terminals were the beginning.</i></sub></p>

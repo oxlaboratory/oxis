@@ -2,10 +2,10 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>OXIS — the programmable workspace for projects, documents and workflows</title>
+<title>OXIS — your real shell, programmable</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="OXIS is a programmable workspace for automating projects, editing documents and building workflows — with an entirely customizable experience. It runs your real shell. Open source for Windows, Linux and macOS.">
-<meta name="theme-color" content="#06070b">
+<meta name="description" content="OXIS is a development workspace built around your real shell — PowerShell, bash, zsh or fish — with tabs and split panes, a built-in editor, per-project workspaces, tasks, workflows and Lua plugins. Open source for Windows and Linux.">
+<meta name="theme-color" content="#12131b">
 <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1">
 <meta name="application-name" content="OXIS">
 <meta name="author" content="Oxide Labs">
@@ -15,15 +15,15 @@
 <meta property="og:site_name" content="OXIS">
 <meta property="og:url" content="https://oxis.space/">
 <meta property="og:locale" content="en_US">
-<meta property="og:title" content="OXIS — the programmable workspace">
-<meta property="og:description" content="Automate projects, edit documents and build workflows in one programmable, entirely customizable workspace. Open source for Windows, Linux and macOS.">
+<meta property="og:title" content="OXIS — your real shell, programmable">
+<meta property="og:description" content="A development workspace around your real shell: tabs and split panes, a built-in editor, per-project workspaces and Lua plugins. Open source for Windows and Linux.">
 <meta property="og:image" content="https://oxis.space/assets/social-preview.png">
 <meta property="og:image:width" content="1280">
 <meta property="og:image:height" content="640">
-<meta property="og:image:alt" content="OXIS — the programmable workspace: the editor beside your shell">
+<meta property="og:image:alt" content="OXIS — your real shell, programmable: the OXIS mark and headline beside Home for a workspace">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="OXIS — the programmable workspace">
-<meta name="twitter:description" content="Automate projects, edit documents and build workflows in one programmable, entirely customizable workspace. Open source for Windows, Linux and macOS.">
+<meta name="twitter:title" content="OXIS — your real shell, programmable">
+<meta name="twitter:description" content="A development workspace around your real shell: tabs and split panes, a built-in editor, per-project workspaces and Lua plugins. Open source for Windows and Linux.">
 <meta name="twitter:image" content="https://oxis.space/assets/social-preview.png">
 <script type="application/ld+json">
 {
@@ -34,10 +34,10 @@
       "@id": "https://oxis.space/#app",
       "name": "OXIS",
       "alternateName": "Open Xenial Intelligent Shell",
-      "description": "OXIS is a programmable workspace for automating projects, editing documents and building workflows — with an entirely customizable experience. It runs your real shell. Open source for Windows, Linux and macOS.",
+      "description": "OXIS is a development workspace built around your real shell — PowerShell, bash, zsh or fish — with tabs and split panes, a built-in editor, per-project workspaces, tasks, workflows and Lua plugins. Open source for Windows and Linux.",
       "url": "https://oxis.space/",
       "applicationCategory": "DeveloperApplication",
-      "applicationSubCategory": "Programmable workspace",
+      "applicationSubCategory": "Development workspace",
       "operatingSystem": "Windows 10, Windows 11, Linux, macOS",
       "softwareVersion": "1.2.1",
       "license": "https://www.apache.org/licenses/LICENSE-2.0",
@@ -49,7 +49,7 @@
         "https://oxis.space/assets/app-home.webp",
         "https://oxis.space/assets/app-editor.webp",
         "https://oxis.space/assets/app-panes.webp",
-        "https://oxis.space/assets/app-prompt.webp"
+        "https://oxis.space/assets/app-palette.webp"
       ],
       "image": "https://oxis.space/assets/social-preview.png",
       "featureList": [
@@ -64,7 +64,7 @@
         "Per-project workspaces with their own git, tasks and workflows",
         "Plugins on real Lua 5.4 (LuaRocks and C modules) with permissions, timers, questions and animation",
         "A plugin Market",
-        "85 theme settings, a live theme editor and a customizable Home sky",
+        "73 theme settings and a live theme editor",
         "Self-updating, no account, no telemetry"
       ],
       "author": { "@id": "https://oxis.space/#org" },
@@ -91,697 +91,370 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cdefs%3E%3ClinearGradient id='fL' gradientUnits='userSpaceOnUse' x1='0' y1='0' x2='20' y2='100'%3E%3Cstop offset='0' stop-color='%232bb35e'/%3E%3Cstop offset='.55' stop-color='%23147a37'/%3E%3Cstop offset='1' stop-color='%23073f1c'/%3E%3C/linearGradient%3E%3ClinearGradient id='fR' gradientUnits='userSpaceOnUse' x1='80' y1='0' x2='100' y2='100'%3E%3Cstop offset='0' stop-color='%237dfdab'/%3E%3Cstop offset='.5' stop-color='%233fdc73'/%3E%3Cstop offset='1' stop-color='%2315964a'/%3E%3C/linearGradient%3E%3ClinearGradient id='fS1' gradientUnits='userSpaceOnUse' x1='52' y1='0' x2='63' y2='0'%3E%3Cstop offset='0' stop-color='%23021a0a' stop-opacity='0'/%3E%3Cstop offset='1' stop-color='%23021a0a' stop-opacity='.6'/%3E%3C/linearGradient%3E%3ClinearGradient id='fS2' gradientUnits='userSpaceOnUse' x1='37' y1='0' x2='48' y2='0'%3E%3Cstop offset='0' stop-color='%23021a0a' stop-opacity='.5'/%3E%3Cstop offset='1' stop-color='%23021a0a' stop-opacity='0'/%3E%3C/linearGradient%3E%3CclipPath id='fcl'%3E%3Cpath d='M-8 -8L65.08 -8L34.92 108L-8 108Z'/%3E%3C/clipPath%3E%3CclipPath id='fcr'%3E%3Cpath d='M65.08 -8L108 -8L108 108L34.92 108Z'/%3E%3C/clipPath%3E%3CclipPath id='fring'%3E%3Cpath clip-rule='evenodd' d='M50.0 0C86.0 0 100 14.0 100 50.0C100 86.0 86.0 100 50.0 100C14.0 100 0 86.0 0 50.0C0 14.0 14.0 0 50.0 0ZM50.0 24C68.72 24 76 31.28 76 50.0C76 68.72 68.72 76 50.0 76C31.28 76 24 68.72 24 50.0C24 31.28 31.28 24 50.0 24Z'/%3E%3C/clipPath%3E%3C/defs%3E%3Cg clip-path='url%28%23fring%29'%3E%3Cpath fill='url%28%23fL%29' clip-path='url%28%23fcl%29' d='M-8 -8H108V108H-8Z'/%3E%3Cpath fill='url%28%23fR%29' clip-path='url%28%23fcr%29' d='M-8 -8H108V108H-8Z'/%3E%3Cpath fill='url%28%23fS1%29' d='M54.08 -8L65.08 -8L55.20 30L44.20 30Z'/%3E%3Cpath fill='%23c8ffdc' fill-opacity='.45' d='M65.08 -8L66.18 -8L56.30 30L55.20 30Z'/%3E%3Cpath fill='url%28%23fS2%29' d='M44.80 70L55.80 70L45.92 108L34.92 108Z'/%3E%3Cpath fill='%237ff0a8' fill-opacity='.22' d='M43.70 70L44.80 70L34.92 108L33.82 108Z'/%3E%3C/g%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:ital,wght@0,400;0,500;0,700;1,400&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
 <style>
-  :root{
-    --bg:#06070b; --bg-2:#0a0c13; --surface:#0d1018; --surface-2:#121622;
-    --line:rgba(255,255,255,.07); --line-2:rgba(255,255,255,.13);
-    --text:#e8ebf5; --muted:#a3aac4; --dim:#666e8f;
-    --accent:#3dff64; --accent-2:#7dff9a; --accent-3:#29d84e; --on-accent:#03140a;
-    --cyan:#5ee7ff; --violet:#a78bfa; --amber:#f5c65b; --red:#ff6b81;
-    --glow:color-mix(in srgb, var(--accent) 38%, transparent);
-    --soft:color-mix(in srgb, var(--accent) 10%, transparent);
-    --font:'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-    --mono:'JetBrains Mono', ui-monospace, 'Cascadia Code', Consolas, monospace;
-    --ease:cubic-bezier(.2,.8,.2,1);
-    /* demo terminal (the active OXIS theme) */
-    --t-bg:#1a1b26; --t-bg1:#16161e; --t-bg2:#1f2335; --t-line:#31364a;
-    --t-text:#c0caf5; --t-muted:#7a809b; --t-dim:#565f89;
-    --t-a:#3dff64; --t-a2:#29d84e; --t-a3:#7dff9a;
-  }
-  *{box-sizing:border-box; margin:0; padding:0;}
-  html{scroll-behavior:smooth; scroll-padding-top:84px;}
-  body{
-    background:var(--bg); color:var(--text); font-family:var(--font);
-    font-size:16px; line-height:1.6; -webkit-font-smoothing:antialiased;
-    overflow-x:hidden; min-height:100vh;
-  }
-  ::selection{ background:var(--accent); color:var(--on-accent); }
-  a{ color:inherit; }
-  code, kbd, .mono{ font-family:var(--mono); }
-  img{ max-width:100%; height:auto; display:block; }
-  :focus-visible{ outline:2px solid var(--accent); outline-offset:3px; border-radius:6px; }
-  ::-webkit-scrollbar{ width:10px; height:10px; }
-  ::-webkit-scrollbar-track{ background:var(--bg); }
-  ::-webkit-scrollbar-thumb{ background:#1d2130; border-radius:8px; border:2px solid var(--bg); }
-  ::-webkit-scrollbar-thumb:hover{ background:color-mix(in srgb, var(--accent) 40%, #1d2130); }
+/* ── OXIS site — the same design system as the app ──
+   IBM Plex Sans for the interface, JetBrains Mono for anything typed,
+   the app's default theme for colour: a cool grey-navy, hairlines, and
+   the logo's greens as the one accent. */
+:root{
+  --bg:#12131b; --bg-1:#16171f; --surface:#1a1b26; --raised:#1f2130;
+  --line:rgba(192,202,245,.09); --line-2:rgba(192,202,245,.16); --line-3:rgba(192,202,245,.26);
+  --text:#d5dbf7; --text-2:#aab2d6; --muted:#7f87ab; --dim:#5b6390;
+  --accent:#2bb35e; --accent-2:#4fd47f; --accent-3:#1e9149; --on-accent:#05110a;
+  --wash:color-mix(in srgb, var(--accent) 12%, transparent);
+  --ok:#4fd47f; --err:#f7768e; --warn:#ff9e64; --info:#7aa2f7;
+  --sans:'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif;
+  --mono:'JetBrains Mono', 'Cascadia Code', Consolas, monospace;
+  --r1:4px; --r2:6px; --r3:10px;
+  --ease:cubic-bezier(.2,.7,.2,1);
+  --wrap:1160px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth;scroll-padding-top:72px;-webkit-text-size-adjust:100%}
+body{background:var(--bg);color:var(--text);font:400 16px/1.6 var(--sans);-webkit-font-smoothing:antialiased;overflow-x:hidden}
+a{color:inherit;text-decoration:none}
+img{display:block;max-width:100%;height:auto}
+button,input,select{font:inherit;color:inherit}
+button{background:none;border:none;cursor:pointer}
+code,kbd,pre{font-family:var(--mono)}
+code{font-size:.88em;color:var(--accent-2)}
+kbd{font-size:.78em;color:var(--text);padding:2px 6px;border-radius:var(--r1);background:rgba(192,202,245,.06);box-shadow:inset 0 -1px 0 var(--line-2),0 0 0 1px var(--line)}
+:focus-visible{outline:2px solid var(--accent-2);outline-offset:2px;border-radius:2px}
+::selection{background:color-mix(in srgb,var(--accent) 35%,transparent)}
+.wrap{width:min(var(--wrap),100% - 40px);margin:0 auto}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.001ms!important;transition-duration:.001ms!important}html{scroll-behavior:auto}}
 
-  .wrap{ max-width:1200px; margin:0 auto; padding:0 24px; }
-  .sr{ position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
+/* Reveal: a short rise, once. */
+.rv{opacity:0;transform:translateY(10px);transition:opacity .6s var(--ease),transform .6s var(--ease);transition-delay:var(--d,0s)}
+.rv.in{opacity:1;transform:none}
+@media (prefers-reduced-motion:reduce){.rv{opacity:1;transform:none}}
 
-  /* ── page backdrop: faint grid + noise, fixed ─────────────── */
-  .backdrop{ position:fixed; inset:0; z-index:-1; pointer-events:none; }
-  .backdrop::before{
-    content:""; position:absolute; inset:0;
-    background:
-      radial-gradient(1200px 600px at 80% -10%, color-mix(in srgb, var(--violet) 9%, transparent), transparent 60%),
-      radial-gradient(900px 500px at -10% 30%, color-mix(in srgb, var(--accent) 6%, transparent), transparent 60%);
-  }
-  .backdrop::after{
-    content:""; position:absolute; inset:0; opacity:.035;
-    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-  }
+/* ── Buttons ── */
+.btn{display:inline-flex;align-items:center;gap:9px;height:42px;padding:0 18px;border-radius:var(--r2);font:600 15px/1 var(--sans);white-space:nowrap;transition:background .15s,border-color .15s,color .15s,transform .15s}
+.btn svg{width:17px;height:17px;flex-shrink:0}
+.btn-primary{background:var(--accent);color:var(--on-accent)}
+.btn-primary:hover{background:var(--accent-2)}
+.btn-ghost{border:1px solid var(--line-2);color:var(--text);background:rgba(192,202,245,.03)}
+.btn-ghost:hover{border-color:var(--line-3);background:rgba(192,202,245,.07)}
+.btn-sm{height:34px;padding:0 14px;font-size:14px}
+.copy{font:500 12px var(--sans);color:var(--muted);padding:4px 9px;border-radius:var(--r1);border:1px solid var(--line-2)}
+.copy:hover{color:var(--text);border-color:var(--line-3)}
+.copy.done{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 50%,transparent)}
 
-  /* ── nav ───────────────────────────────────────────────────── */
-  .nav{ position:fixed; top:0; left:0; right:0; z-index:60; border-bottom:1px solid transparent;
-    transition:background .35s var(--ease), border-color .35s, backdrop-filter .35s; }
-  .nav.scrolled, .nav.open{ background:rgba(6,7,11,.74); backdrop-filter:saturate(150%) blur(16px);
-    -webkit-backdrop-filter:saturate(150%) blur(16px); border-bottom-color:var(--line); }
-  .nav-in{ max-width:1200px; margin:0 auto; padding:14px 24px; display:flex; align-items:center; gap:30px; }
-  .brand{ display:flex; align-items:center; gap:11px; text-decoration:none; font-weight:800; letter-spacing:.2em; font-size:15px; }
-  .brand svg{ width:21px; height:28px; filter:drop-shadow(0 0 12px var(--glow)); transition:transform .6s var(--ease); }
-  .brand:hover svg{ transform:rotate(60deg); }
-  .nav-links{ display:flex; gap:24px; }
-  .nav-links a{ color:var(--muted); font-size:14px; font-weight:500; text-decoration:none; position:relative; padding:4px 0; transition:color .2s; }
-  .nav-links a::after{ content:""; position:absolute; left:0; right:0; bottom:-2px; height:1.5px; background:var(--accent);
-    transform:scaleX(0); transform-origin:left; transition:transform .3s var(--ease); }
-  .nav-links a:hover{ color:var(--text); }
-  .nav-links a:hover::after{ transform:scaleX(1); }
-  .nav-right{ margin-left:auto; display:flex; align-items:center; gap:10px; }
-  .gh-pill{ display:inline-flex; align-items:center; gap:8px; border:1px solid var(--line-2); border-radius:999px;
-    padding:7px 13px; font-size:13px; font-weight:600; text-decoration:none; color:var(--text); transition:border-color .2s, background .2s; }
-  .gh-pill:hover{ border-color:color-mix(in srgb, var(--accent) 50%, transparent); background:var(--soft); }
-  .gh-pill svg{ width:16px; height:16px; }
-  .gh-pill .gh-stars{ color:var(--muted); font-weight:500; display:none; }
-  .gh-pill .gh-stars.on{ display:inline; }
-  .menu-btn{ display:none; background:none; border:1px solid var(--line-2); border-radius:10px; width:38px; height:38px;
-    color:var(--text); cursor:pointer; align-items:center; justify-content:center; }
-  @media(max-width:900px){
-    .nav-links{ display:none; }
-    .menu-btn{ display:inline-flex; }
-    .nav.open .nav-links{ display:flex; position:absolute; top:100%; left:0; right:0; flex-direction:column; gap:4px;
-      padding:10px 24px 18px; background:var(--bg); border-bottom:1px solid var(--line);
-      box-shadow:0 30px 60px -20px rgba(0,0,0,.85); }
-    .nav.open .nav-links a{ padding:10px 0; font-size:16px; }
-    .nav-right .btn-sm{ display:none; }
-  }
+/* ── Nav ── */
+.nav{position:sticky;top:0;z-index:50;background:color-mix(in srgb,var(--bg) 82%,transparent);backdrop-filter:saturate(1.4) blur(12px);-webkit-backdrop-filter:saturate(1.4) blur(12px);border-bottom:1px solid transparent;transition:border-color .2s}
+.nav.scrolled{border-bottom-color:var(--line)}
+.nav-in{display:flex;align-items:center;gap:28px;height:60px}
+.brand{display:inline-flex;align-items:center;gap:10px;font:700 15px/1 var(--mono);letter-spacing:.24em;color:var(--text)}
+.brand svg{width:24px;height:24px}
+.nav-links{display:flex;gap:2px}
+.nav-links a{padding:7px 12px;border-radius:var(--r1);font:500 14px var(--sans);color:var(--muted);transition:color .15s,background .15s}
+.nav-links a:hover,.nav-links a.on{color:var(--text);background:rgba(192,202,245,.05)}
+.nav-right{display:flex;align-items:center;gap:10px;margin-left:auto}
+.gh-pill{display:inline-flex;align-items:center;gap:8px;height:34px;padding:0 12px;border-radius:var(--r2);border:1px solid var(--line-2);font:500 14px var(--sans);color:var(--text-2)}
+.gh-pill:hover{color:var(--text);border-color:var(--line-3)}
+.gh-pill svg{width:16px;height:16px}
+.gh-stars{display:none;font:500 12px var(--mono);color:var(--muted)}
+.gh-stars.on{display:inline}
+.menu-btn{display:none;width:38px;height:38px;border-radius:var(--r2);color:var(--text);place-items:center}
+@media (max-width:900px){
+  .nav-links{position:absolute;top:60px;left:0;right:0;flex-direction:column;padding:10px 20px 18px;background:var(--bg);border-bottom:1px solid var(--line);display:none}
+  .nav.open .nav-links{display:flex}
+  .nav-links a{padding:12px}
+  .menu-btn{display:grid}
+  .gh-pill{display:none}
+}
 
-  /* ── buttons ───────────────────────────────────────────────── */
-  .btn{ position:relative; display:inline-flex; align-items:center; justify-content:center; gap:10px; overflow:hidden;
-    border-radius:12px; padding:13px 20px; font-family:var(--font); font-size:15px; font-weight:600;
-    text-decoration:none; cursor:pointer; border:1px solid transparent; white-space:nowrap;
-    transition:transform .2s var(--ease), box-shadow .3s var(--ease), background .2s, border-color .2s, color .2s; }
-  .btn svg{ width:18px; height:18px; flex-shrink:0; }
-  .btn:active{ transform:translateY(1px) scale(.99); }
-  .btn-primary{ background:var(--accent); color:var(--on-accent);
-    box-shadow:0 0 0 1px color-mix(in srgb, var(--accent) 60%, #fff 0%), 0 8px 30px -8px var(--glow), inset 0 1px 0 rgba(255,255,255,.35); }
-  .btn-primary:hover{ transform:translateY(-2px); box-shadow:0 0 0 1px var(--accent), 0 14px 44px -8px var(--glow), inset 0 1px 0 rgba(255,255,255,.35); }
-  .btn-primary::after{ content:""; position:absolute; top:0; bottom:0; width:60px; left:-80px;
-    background:linear-gradient(100deg, transparent, rgba(255,255,255,.55), transparent); transform:skewX(-18deg); }
-  .btn-primary:hover::after{ animation:shine .9s var(--ease); }
-  @keyframes shine{ to{ left:calc(100% + 80px); } }
-  .btn-ghost{ background:rgba(255,255,255,.03); color:var(--text); border-color:var(--line-2); backdrop-filter:blur(8px); }
-  .btn-ghost:hover{ transform:translateY(-2px); border-color:color-mix(in srgb, var(--accent) 45%, transparent); background:var(--soft); }
-  .btn-sm{ padding:8px 14px; font-size:13.5px; border-radius:10px; }
-  .btn-sm svg{ width:15px; height:15px; }
+/* ── Hero ── */
+.hero{padding:72px 0 40px;border-bottom:1px solid var(--line);position:relative}
+.hero::before{content:"";position:absolute;inset:0;background:linear-gradient(to bottom,rgba(192,202,245,.025),transparent 60%);pointer-events:none}
+.hero-grid{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,6fr);gap:56px;align-items:center;position:relative}
+.live{display:inline-flex;align-items:center;gap:10px;height:30px;padding:0 12px 0 8px;border-radius:15px;border:1px solid var(--line-2);font:500 13px var(--sans);color:var(--muted);margin-bottom:26px;transition:border-color .15s}
+.live:hover{border-color:var(--line-3)}
+.pulse{width:8px;height:8px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 0 var(--accent);animation:pulse 2.4s infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--accent) 60%,transparent)}70%{box-shadow:0 0 0 7px transparent}100%{box-shadow:0 0 0 0 transparent}}
+.tagv{font:600 12px var(--mono);color:var(--text)}
+h1{font:600 clamp(40px,5.4vw,66px)/1.04 var(--sans);letter-spacing:-.035em;color:#eef1fd}
+h1 em{font-style:normal;color:var(--accent-2)}
+.lede{margin-top:22px;font-size:clamp(17px,1.5vw,19px);line-height:1.6;color:var(--text-2);max-width:34em}
+.lede b{color:var(--text);font-weight:600}
+.cta{display:flex;flex-wrap:wrap;gap:10px;margin-top:30px}
+.cta-note{margin-top:16px;font-size:14px;color:var(--muted)}
+.cta-note b{color:var(--text-2);font-weight:600}
+.cta-note a{color:var(--text-2);text-decoration:underline;text-underline-offset:3px;text-decoration-color:var(--line-3)}
+.platforms{display:flex;flex-wrap:wrap;gap:6px;margin-top:22px}
+.platforms span{font:500 12px var(--mono);color:var(--muted);padding:5px 9px;border:1px solid var(--line);border-radius:var(--r1)}
+.hero-grid>*{min-width:0}
+@media (max-width:1020px){.hero-grid{grid-template-columns:minmax(0,1fr);gap:40px}.hero{padding-top:48px}}
 
-  /* ── hero ──────────────────────────────────────────────────── */
-  .hero{ position:relative; padding:150px 0 90px; overflow:hidden; isolation:isolate; }
-  .hero::after{ content:""; position:absolute; left:0; right:0; bottom:0; height:180px; z-index:-1;
-    background:linear-gradient(transparent, var(--bg)); }
-  .aurora{ position:absolute; inset:-10% -10% 0; z-index:-2; pointer-events:none; filter:blur(70px); opacity:.55; }
-  .aurora span{ position:absolute; border-radius:50%; animation:drift 20s ease-in-out infinite alternate; }
-  .aurora span:nth-child(1){ width:560px; height:560px; left:52%; top:2%; background:radial-gradient(circle, color-mix(in srgb, var(--accent) 50%, transparent), transparent 65%); }
-  .aurora span:nth-child(2){ width:520px; height:520px; left:72%; top:24%; background:radial-gradient(circle, color-mix(in srgb, var(--cyan) 40%, transparent), transparent 65%); animation-duration:26s; animation-delay:-6s; }
-  .aurora span:nth-child(3){ width:620px; height:620px; left:-8%; top:-18%; background:radial-gradient(circle, color-mix(in srgb, var(--violet) 38%, transparent), transparent 65%); animation-duration:30s; animation-delay:-12s; }
-  @keyframes drift{
-    0%{ transform:translate(0,0) scale(1); }
-    50%{ transform:translate(-60px,40px) scale(1.12); }
-    100%{ transform:translate(40px,-30px) scale(.94); }
-  }
-  .gridlines{ position:absolute; inset:0; z-index:-1; pointer-events:none;
-    background-image:linear-gradient(var(--line) 1px, transparent 1px), linear-gradient(90deg, var(--line) 1px, transparent 1px);
-    background-size:64px 64px; background-position:center top;
-    -webkit-mask-image:radial-gradient(ellipse 75% 60% at 50% 30%, #000 20%, transparent 72%);
-    mask-image:radial-gradient(ellipse 75% 60% at 50% 30%, #000 20%, transparent 72%); }
-  .stars{ position:absolute; inset:0; z-index:-1; pointer-events:none; }
-  .stars i{ position:absolute; width:2px; height:2px; border-radius:50%; background:#fff; opacity:0; animation:twinkle 4s ease-in-out infinite; }
-  @keyframes twinkle{ 0%,100%{ opacity:0; } 50%{ opacity:var(--o,.6); } }
-  .shooting{ position:absolute; top:14%; left:-10%; width:140px; height:1px; z-index:-1; pointer-events:none;
-    background:linear-gradient(90deg, transparent, #fff); opacity:0; transform:rotate(-18deg); animation:shoot 11s ease-in 3s infinite; }
-  @keyframes shoot{ 0%{ opacity:0; transform:translate(0,0) rotate(-18deg); } 2%{ opacity:.9; }
-    9%{ opacity:0; transform:translate(820px,-266px) rotate(-18deg); } 100%{ opacity:0; transform:translate(820px,-266px) rotate(-18deg); } }
+/* ── The demo window: the app's own shell, in miniature ── */
+.term-wrap{position:relative}
+.term{--t-bg:#1a1b26;--t-bg1:#16161e;--t-bg2:#1f2335;--t-line:#31364a;--t-text:#c0caf5;--t-muted:#7a809b;--t-dim:#565f89;--t-a:#2bb35e;--t-a2:#1e9149;--t-a3:#4fd47f;
+  display:flex;flex-direction:column;height:480px;border-radius:var(--r3);overflow:hidden;background:var(--t-bg);color:var(--t-text);
+  border:1px solid var(--line-2);box-shadow:0 40px 80px -30px rgba(0,0,0,.7),0 0 0 1px rgba(0,0,0,.4);font:400 13px/1.6 var(--mono);transition:border-color .2s}
+.term.focus{border-color:color-mix(in srgb,var(--t-a) 55%,transparent)}
+.term-bar{display:flex;align-items:stretch;height:36px;background:var(--t-bg1);border-bottom:1px solid color-mix(in srgb,var(--t-text) 9%,transparent);font:500 12px var(--sans);flex-shrink:0}
+.tb-brand{display:flex;align-items:center;gap:8px;padding:0 12px;border-right:1px solid color-mix(in srgb,var(--t-text) 9%,transparent);font:700 11px var(--mono);letter-spacing:.2em;color:var(--t-text)}
+.tb-brand svg{width:15px;height:15px}
+.tb-tab{display:flex;align-items:center;gap:7px;padding:0 14px;color:var(--t-dim);border-right:1px solid color-mix(in srgb,var(--t-text) 9%,transparent);position:relative}
+.tb-tab.on{color:var(--t-text);background:var(--t-bg)}
+.tb-tab.on::before{content:"";position:absolute;left:0;right:0;top:0;height:2px;background:var(--t-a)}
+.tb-tab b{font:500 10px var(--mono);color:var(--t-a3)}
+.tb-win{margin-left:auto;display:flex;align-items:center;gap:16px;padding:0 14px;color:var(--t-dim)}
+.tb-win i{width:10px;height:1.5px;background:currentColor;display:block}
+.term-body{flex:1;overflow-y:auto;padding:12px 16px;scrollbar-width:thin;scrollbar-color:var(--t-line) transparent}
+.term-body .tl{white-space:pre-wrap;word-break:break-word;min-height:1.6em}
+.term-body .p{color:var(--t-a)}
+.t-ok{color:var(--ok)} .t-err{color:var(--err)} .t-warn{color:#e0af68} .t-info{color:var(--t-muted)} .t-dim{color:var(--t-dim)} .t-mut{color:var(--t-muted)}
+.t-acc{color:var(--t-a3)} .t-cmd{color:var(--t-a3);font-weight:600} .t-link{color:var(--t-a3);text-decoration:underline dotted}
+.t-mod{color:#e0af68} .t-new{color:var(--ok)}
+.term-prompt{display:flex;align-items:center;gap:10px;height:42px;padding:0 16px;background:color-mix(in srgb,var(--t-bg1) 55%,var(--t-bg));border-top:1px solid color-mix(in srgb,var(--t-text) 16%,transparent);cursor:text;flex-shrink:0}
+.tp-label{color:var(--t-a);font-weight:700;letter-spacing:.06em;white-space:nowrap}
+.term-prompt input{flex:1;min-width:0;background:none;border:none;outline:none;color:var(--t-text);font:inherit;caret-color:var(--t-a)}
+.term-status{display:flex;align-items:stretch;height:24px;background:var(--t-bg1);border-top:1px solid color-mix(in srgb,var(--t-text) 9%,transparent);font:500 11px var(--sans);color:var(--t-muted);flex-shrink:0}
+.term-status>span{display:flex;align-items:center;gap:6px;padding:0 10px;border-right:1px solid color-mix(in srgb,var(--t-text) 9%,transparent);white-space:nowrap}
+.ts-mode{color:var(--t-text);font-weight:600;letter-spacing:.08em;font-size:10px}
+.ts-mode::before{content:"";width:7px;height:7px;border-radius:1px;background:var(--t-a)}
+.ts-conn::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--ok)}
+.ts-right{margin-left:auto;border-right:none!important;border-left:1px solid color-mix(in srgb,var(--t-text) 9%,transparent);font-family:var(--mono)}
+.ts-right span+span{margin-left:12px}
+.term-hint{margin-top:14px;text-align:center;font-size:13px;color:var(--muted);transition:opacity .3s}
+.term-hint code{font-size:12px}
+@media (max-width:600px){.term{height:420px;font-size:12px}.tb-tab:not(.on){display:none}}
 
-  .hero-grid{ display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.05fr); gap:60px; align-items:center; }
-  @media(max-width:1020px){ .hero-grid{ grid-template-columns:minmax(0,1fr); gap:56px; } .hero{ padding-top:128px; } }
+/* ── Sections ── */
+.sec{padding:110px 0;border-bottom:1px solid var(--line)}
+.sec-head{max-width:720px;margin-bottom:56px}
+.sec-head.center{margin-left:auto;margin-right:auto;text-align:center}
+.kicker{display:inline-flex;align-items:center;gap:8px;font:600 12px var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--accent-2);margin-bottom:16px}
+.kicker::before{content:"";width:7px;height:7px;border-radius:1px;background:var(--accent)}
+h2{font:600 clamp(30px,3.6vw,44px)/1.1 var(--sans);letter-spacing:-.028em;color:#eef1fd}
+.sec-head p{margin-top:18px;font-size:18px;color:var(--text-2)}
+h3{font:600 20px/1.3 var(--sans);letter-spacing:-.01em;color:var(--text)}
+@media (max-width:700px){.sec{padding:76px 0}.sec-head{margin-bottom:40px}}
 
-  .live{ display:inline-flex; align-items:center; gap:10px; padding:6px 14px 6px 8px; border-radius:999px;
-    border:1px solid var(--line-2); background:rgba(255,255,255,.03); font-size:13px; color:var(--muted);
-    text-decoration:none; font-family:var(--mono); transition:border-color .2s, background .2s; max-width:100%; }
-  .live:hover{ border-color:color-mix(in srgb, var(--accent) 50%, transparent); background:var(--soft); color:var(--text); }
-  .live .tagv{ background:var(--soft); color:var(--accent); border-radius:999px; padding:2px 8px; font-weight:700; }
-  .live .txt{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .pulse{ width:8px; height:8px; border-radius:50%; background:var(--accent); box-shadow:0 0 0 0 var(--glow); animation:pulse 2s infinite; flex-shrink:0; }
-  @keyframes pulse{ 70%{ box-shadow:0 0 0 9px transparent; } 100%{ box-shadow:0 0 0 0 transparent; } }
+/* ── Three ideas ── */
+.ideas{display:grid;grid-template-columns:repeat(3,1fr);border:1px solid var(--line-2);border-radius:var(--r3);overflow:hidden}
+.idea{padding:30px 28px 32px;background:var(--bg-1)}
+.idea+.idea{border-left:1px solid var(--line-2)}
+.idea .n{font:600 12px var(--mono);color:var(--accent-2);letter-spacing:.1em}
+.idea h3{margin:14px 0 10px}
+.idea p{color:var(--text-2);font-size:15.5px}
+.idea .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:18px}
+.idea .chips span{font:500 12px var(--mono);color:var(--muted);padding:4px 8px;border-radius:var(--r1);background:rgba(192,202,245,.05)}
+@media (max-width:900px){.ideas{grid-template-columns:1fr}.idea+.idea{border-left:none;border-top:1px solid var(--line-2)}}
 
-  h1{ font-size:clamp(40px, 5.6vw, 74px); line-height:1.02; letter-spacing:-.045em; font-weight:800; margin:24px 0 22px; }
-  .grad{ background-image:linear-gradient(92deg, var(--accent) 0%, var(--cyan) 55%, var(--violet) 100%); background-size:200% 100%;
-    -webkit-background-clip:text; background-clip:text; color:transparent; -webkit-text-fill-color:transparent;
-    -webkit-box-decoration-break:clone; box-decoration-break:clone; animation:gradmove 8s ease-in-out infinite alternate; }
-  /* Without text clipping, plain accent-coloured text instead of a box. */
-  @supports not ((-webkit-background-clip:text) or (background-clip:text)){
-    .grad{ background:none; color:var(--accent); -webkit-text-fill-color:currentColor; } }
-  @keyframes gradmove{ to{ background-position:100% 0; } }
-  /* The rotating words. The motion is on .word and the gradient on the
-     .grad inside it: a filter or transform on the element that clips its
-     background to the text made mobile browsers paint the gradient as a
-     box. */
-  .rotator{ display:inline-block; position:relative; }
-  .rotator .word{ display:inline-block; transition:transform .55s var(--ease), opacity .55s var(--ease); }
-  .rotator .word.out{ transform:translateY(-32%); opacity:0; }
-  .rotator .word.pre{ transform:translateY(32%); opacity:0; transition:none; }
-  /* Its own line, never wrapped: the phrases are long. */
-  h1 .rotator{ display:block; white-space:nowrap; font-size:.66em; letter-spacing:-.035em; margin-top:.12em; }
-  .lede{ font-size:clamp(17px, 1.6vw, 19px); color:var(--muted); max-width:540px; line-height:1.65; }
-  .lede b{ color:var(--text); font-weight:600; }
-  .cta{ display:flex; gap:12px; flex-wrap:wrap; margin-top:34px; }
-  .cta-note{ margin-top:14px; font-size:13px; color:var(--dim); }
-  .cta-note a{ color:var(--muted); }
-  .cta-note b{ color:var(--text); font-weight:600; font-variant-numeric:tabular-nums; }
-  .checks{ display:flex; flex-wrap:wrap; gap:8px 20px; margin-top:28px; font-size:13.5px; color:var(--muted); }
-  .checks span{ display:inline-flex; align-items:center; gap:7px; }
-  .checks svg{ width:15px; height:15px; color:var(--accent); }
+/* ── Product rows: a real screenshot and what it shows ── */
+.rows{display:flex;flex-direction:column;gap:110px}
+.row{display:grid;grid-template-columns:minmax(0,4fr) minmax(0,7fr);gap:56px;align-items:center}
+.row.flip{grid-template-columns:minmax(0,7fr) minmax(0,4fr)}
+.row.flip .row-text{order:2}
+.row-text h3{font-size:clamp(24px,2.4vw,30px);letter-spacing:-.022em;line-height:1.2}
+.row-text>p{margin-top:14px;color:var(--text-2);font-size:16.5px}
+.facts{list-style:none;margin-top:22px;display:flex;flex-direction:column;gap:10px}
+.facts li{position:relative;padding-left:22px;color:var(--text-2);font-size:15px;line-height:1.55}
+.facts li::before{content:"";position:absolute;left:2px;top:.62em;width:8px;height:2px;background:var(--accent)}
+.facts code{font-size:.86em}
+.frame{border-radius:var(--r3);overflow:hidden;border:1px solid var(--line-2);background:var(--surface);box-shadow:0 30px 70px -30px rgba(0,0,0,.7)}
+.frame img{width:100%}
+.frame figcaption{padding:10px 14px;font-size:13px;color:var(--muted);border-top:1px solid var(--line);background:var(--bg-1)}
+@media (max-width:1020px){.row,.row.flip{grid-template-columns:1fr;gap:28px}.row.flip .row-text{order:0}.rows{gap:80px}}
 
-  /* ── demo terminal (mirrors the app's window) ──────────────── */
-  .term-wrap{ position:relative; perspective:1600px; }
-  .term-wrap::before{ content:""; position:absolute; inset:8% 6% -4%; z-index:-1; border-radius:30px; filter:blur(50px);
-    background:radial-gradient(closest-side, color-mix(in srgb, var(--t-a) 45%, transparent), transparent); opacity:.55;
-    transition:background .6s; }
-  .term{ position:relative; border-radius:14px; overflow:hidden; background:var(--t-bg); color:var(--t-text);
-    border:1px solid color-mix(in srgb, var(--t-a) 22%, rgba(255,255,255,.08));
-    box-shadow:0 1px 0 rgba(255,255,255,.06) inset, 0 40px 120px -30px rgba(0,0,0,.9), 0 0 0 1px rgba(0,0,0,.6);
-    font-family:var(--mono); font-size:13px; line-height:1.62;
-    transform:rotateY(var(--ry,-7deg)) rotateX(var(--rx,4deg)); transform-style:preserve-3d;
-    transition:transform .6s var(--ease), background .5s, color .5s, border-color .5s; animation:float 7s ease-in-out infinite; }
-  .term:hover, .term.focus{ --ry:0deg; --rx:0deg; }
-  @keyframes float{ 0%,100%{ translate:0 0; } 50%{ translate:0 -8px; } }
-  @media(max-width:1020px){ .term{ --ry:0deg; --rx:0deg; } }
-  .term-bar{ position:relative; display:flex; align-items:center; justify-content:center; gap:9px; height:40px;
-    background:var(--t-bg1); border-bottom:1px solid var(--t-line); transition:background .5s, border-color .5s; }
-  .term-dots{ position:absolute; left:14px; display:flex; gap:8px; }
-  .term-dots i{ width:12px; height:12px; border-radius:50%; background:#ff5f57; }
-  .term-dots i:nth-child(2){ background:#febc2e; }
-  .term-title{ letter-spacing:.3em; font-size:11.5px; color:var(--t-muted); font-weight:500; }
-  .term-mode{ font-size:10px; font-weight:700; letter-spacing:.08em; padding:3px 9px; border-radius:7px;
-    background:var(--t-a); color:var(--t-bg); transition:background .5s, color .5s; }
-  .term-body{ height:330px; overflow-y:auto; padding:14px 18px 8px; scrollbar-width:none; }
-  .term-body::-webkit-scrollbar{ display:none; }
-  .tl{ white-space:pre-wrap; word-break:break-word; min-height:1.62em; animation:tlin .25s var(--ease); }
-  @keyframes tlin{ from{ opacity:0; transform:translateY(3px); } }
-  .tl .p{ color:var(--t-muted); }
-  .t-cmd{ color:var(--t-a3); }
-  .t-acc{ color:var(--t-a); font-weight:700; }
-  .t-ok{ color:var(--t-a); }
-  .t-err{ color:#ff7a8a; }
-  .t-warn{ color:#f5c65b; }
-  .t-dim{ color:var(--t-muted); }
-  .t-mut{ color:var(--t-dim); }
-  .t-info{ color:#7aa2f7; }
-  .t-mod{ color:#f5c65b; }
-  .t-new{ color:#ff7a8a; }
-  .t-link{ color:var(--t-a3); text-decoration:underline; text-underline-offset:3px; cursor:pointer; }
-  .term-prompt{ display:flex; align-items:center; gap:10px; padding:12px 18px; border-top:1px solid var(--t-line);
-    background:color-mix(in srgb, var(--t-bg2) 75%, var(--t-bg)); cursor:text; transition:background .5s, border-color .5s; }
-  .tp-label{ color:var(--t-a); font-weight:700; white-space:nowrap; transition:color .5s; }
-  .term-prompt input{ flex:1; min-width:0; background:none; border:none; outline:none; color:var(--t-text);
-    font-family:var(--mono); font-size:13.5px; caret-color:var(--t-a); }
-  .term-prompt input::placeholder{ color:var(--t-dim); }
-  .term-status{ display:flex; align-items:center; gap:14px; height:28px; font-size:11px; background:var(--t-a);
-    color:var(--t-bg); font-weight:600; padding-right:14px; transition:background .5s, color .5s; }
-  .ts-mode{ height:100%; display:flex; align-items:center; padding:0 18px 0 14px; letter-spacing:.08em; font-weight:800;
-    background:color-mix(in srgb, var(--t-bg) 12%, transparent); clip-path:polygon(0 0, 100% 0, calc(100% - 10px) 100%, 0 100%); }
-  .ts-right{ margin-left:auto; display:flex; gap:12px; opacity:.85; }
-  .term-hint{ margin-top:18px; text-align:center; font-size:13px; color:var(--dim); transition:opacity .4s; }
-  .term-hint code{ color:var(--accent); background:var(--soft); padding:2px 7px; border-radius:6px; font-size:12.5px; white-space:nowrap; }
-  @media(max-width:560px){ .term{ font-size:11.5px; } .term-body{ height:300px; padding:12px 12px 6px; } .term-prompt{ padding:11px 12px; } .ts-right #tsClock{ display:none; } }
+/* ── Everything in the box ── */
+.box{display:grid;grid-template-columns:repeat(3,1fr);gap:0;border-top:1px solid var(--line-2)}
+.box>div{padding:24px 26px 26px 0;border-bottom:1px solid var(--line)}
+.box>div:not(:nth-child(3n+1)){padding-left:26px;border-left:1px solid var(--line)}
+.box h4{font:600 15px/1.35 var(--sans);color:var(--text);margin-bottom:6px}
+.box p{font-size:14.5px;color:var(--text-2);line-height:1.55}
+@media (max-width:900px){.box{grid-template-columns:1fr 1fr}.box>div{padding:22px 20px 22px 0}.box>div:not(:nth-child(3n+1)){padding-left:0;border-left:none}.box>div:nth-child(2n){padding-left:20px;border-left:1px solid var(--line)}}
+@media (max-width:600px){.box{grid-template-columns:1fr}.box>div:nth-child(2n){padding-left:0;border-left:none}}
 
-  /* ── marquee ───────────────────────────────────────────────── */
-  .marquee{ border-top:1px solid var(--line); border-bottom:1px solid var(--line); background:rgba(255,255,255,.012);
-    padding:22px 0; overflow:hidden; position:relative; }
-  .marquee .lbl{ text-align:center; font-size:12px; letter-spacing:.2em; color:var(--dim); text-transform:uppercase; margin-bottom:16px; font-weight:600; }
-  .mq{ display:flex; gap:14px; width:max-content; animation:scrollx 38s linear infinite; }
-  .marquee:hover .mq{ animation-play-state:paused; }
-  .mq-mask{ overflow:hidden; -webkit-mask-image:linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
-    mask-image:linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent); }
-  @keyframes scrollx{ to{ transform:translateX(-50%); } }
-  .chiplg{ display:inline-flex; align-items:center; gap:9px; padding:9px 16px; border-radius:999px; border:1px solid var(--line);
-    background:var(--surface); font-family:var(--mono); font-size:13px; color:var(--muted); white-space:nowrap; }
-  .chiplg b{ color:var(--text); font-weight:500; }
-  .chiplg i{ width:7px; height:7px; border-radius:50%; background:var(--c, var(--accent)); box-shadow:0 0 10px var(--c, var(--accent)); }
+/* ── Lua: points and the code ── */
+.split{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:56px;align-items:start}
+.split>div:first-child>p{margin-top:16px;font-size:17px;color:var(--text-2)}
+.points{margin-top:30px;display:flex;flex-direction:column;border-top:1px solid var(--line)}
+.point{display:flex;gap:16px;text-align:left;padding:16px 4px 16px 0;border-bottom:1px solid var(--line);position:relative;transition:background .15s}
+.point .n{font:600 12px var(--mono);color:var(--dim);padding-top:3px}
+.point h4{font:600 15.5px var(--sans);color:var(--text-2)}
+.point p{margin-top:4px;font-size:14.5px;color:var(--muted)}
+.point.on h4{color:var(--text)}
+.point.on .n{color:var(--accent-2)}
+.point.on::before{content:"";position:absolute;left:-14px;top:16px;bottom:16px;width:2px;background:var(--accent)}
+.editor{border:1px solid var(--line-2);border-radius:var(--r3);overflow:hidden;background:#1a1b26;box-shadow:0 30px 70px -30px rgba(0,0,0,.7);position:sticky;top:90px}
+.ed-tabs{display:flex;align-items:stretch;height:38px;background:#16161e;border-bottom:1px solid var(--line);overflow-x:auto;scrollbar-width:none}
+.ed-tab{display:flex;align-items:center;padding:0 14px;font:400 12.5px var(--mono);color:var(--dim);border-right:1px solid var(--line);white-space:nowrap;position:relative}
+.ed-tab .dir{color:#41466a}
+.ed-tab.on{color:var(--text);background:#1a1b26}
+.ed-tab.on::before{content:"";position:absolute;left:0;right:0;top:0;height:2px;background:var(--accent)}
+.ed-tabs .copy{margin:auto 10px auto auto}
+.ed-body{padding:16px 0;overflow-x:auto}
+.ed-pane{display:none;counter-reset:ln;font:400 13px/1.7 var(--mono);color:#c0caf5}
+.ed-pane.on{display:block}
+.ln{display:block;padding:0 20px 0 0;white-space:pre;counter-increment:ln}
+.ln::before{content:counter(ln);display:inline-block;width:46px;padding-right:18px;text-align:right;color:#41466a}
+.ed-pane .c{color:#565f89;font-style:italic} .ed-pane .k{color:#2bb35e} .ed-pane .s{color:#4fd47f} .ed-pane .f{color:#c0caf5;font-weight:600}
+.ed-pane .pr{color:#7aa2f7} .ed-pane .o{color:#89ddff} .ed-pane .num{color:#ff9e64}
+@media (max-width:1020px){.split{grid-template-columns:1fr}.editor{position:static}}
 
-  /* ── sections ──────────────────────────────────────────────── */
-  section{ position:relative; }
-  .sec{ padding:120px 0; }
-  .sec-head{ max-width:760px; margin-bottom:56px; }
-  .sec-head.center{ margin-left:auto; margin-right:auto; text-align:center; }
-  .kicker{ display:inline-flex; align-items:center; gap:8px; font-family:var(--mono); font-size:12.5px; letter-spacing:.14em;
-    text-transform:uppercase; color:var(--accent); font-weight:500; }
-  .kicker::before{ content:""; width:18px; height:1px; background:currentColor; }
-  h2{ font-size:clamp(32px, 4.4vw, 54px); line-height:1.06; letter-spacing:-.035em; font-weight:800; margin:16px 0 18px; }
-  .sec-head p{ color:var(--muted); font-size:18px; line-height:1.65; }
-  @media(max-width:640px){ .sec{ padding:84px 0; } .sec-head p{ font-size:16.5px; } }
+/* ── Themes ── */
+.swatches{display:grid;grid-template-columns:repeat(5,1fr);gap:12px}
+.sw{display:flex;flex-direction:column;text-align:left;border-radius:var(--r2);overflow:hidden;border:1px solid var(--line-2);background:var(--sb);transition:border-color .15s,transform .15s var(--ease)}
+.sw:hover{transform:translateY(-2px);border-color:var(--line-3)}
+.sw.on{border-color:var(--sa);box-shadow:0 0 0 1px var(--sa)}
+.sw-top{height:18px;display:flex;align-items:center;gap:5px;padding:0 8px;background:var(--sb1);border-bottom:1px solid color-mix(in srgb,var(--st) 12%,transparent)}
+.sw-top i{width:6px;height:6px;border-radius:2px;background:var(--sa)}
+.sw-top i+i{width:26px;height:9px;border-radius:2px 2px 0 0;background:var(--sb);align-self:flex-end}
+.sw-body{padding:9px 10px;font:400 10.5px/1.6 var(--mono);color:var(--sm);white-space:nowrap;overflow:hidden}
+.sw-body b{color:var(--sa);font-weight:600}
+.sw-bar{height:8px;background:var(--sb1)}
+.sw-name{display:flex;justify-content:space-between;align-items:center;padding:9px 10px;font:500 13px var(--mono);color:var(--text);background:var(--bg-1);border-top:1px solid var(--line)}
+.sw-name em{font:400 11px var(--sans);font-style:normal;color:var(--muted)}
+@media (max-width:900px){.swatches{grid-template-columns:repeat(2,1fr)}}
+.theme-cols{display:grid;grid-template-columns:repeat(2,1fr);gap:24px;margin-top:40px}
+.tcell{border:1px solid var(--line-2);border-radius:var(--r3);background:var(--bg-1);overflow:hidden}
+.tcell-text{padding:24px 26px}
+.tcell-text p{margin-top:8px;color:var(--text-2);font-size:15px}
+.keys{display:flex;flex-wrap:wrap;gap:6px;margin-top:14px}
+.keys code{font-size:12px;padding:3px 7px;border-radius:var(--r1);background:rgba(192,202,245,.05);color:var(--text-2)}
+.tcell img{border-top:1px solid var(--line)}
+@media (max-width:900px){.theme-cols{grid-template-columns:1fr}}
 
-  /* reveal on scroll */
-  /* An animation on `translate`, so it never fights hover effects,
-     which use `transform`. */
-  .rv{ opacity:0; }
-  .rv.in{ animation:rise .9s var(--ease) var(--d, 0s) both; }
-  @keyframes rise{ from{ opacity:0; translate:0 26px; } to{ opacity:1; translate:0 0; } }
+/* ── Gallery ── */
+.gtabs{display:flex;flex-wrap:wrap;justify-content:center;gap:4px;margin-bottom:22px}
+.gtab{padding:7px 12px;border-radius:var(--r1);font:500 13.5px var(--sans);color:var(--muted);border:1px solid transparent;transition:color .15s,border-color .15s,background .15s}
+.gtab:hover{color:var(--text)}
+.gtab.on{color:var(--text);border-color:var(--line-2);background:rgba(192,202,245,.05)}
+.gframe{border-radius:var(--r3);overflow:hidden;border:1px solid var(--line-2);background:var(--surface);box-shadow:0 40px 80px -30px rgba(0,0,0,.7)}
+.gstage{position:relative;aspect-ratio:1650/1050}
+.gstage img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:0;transition:opacity .45s}
+.gstage img.on{opacity:1}
+.gcap{max-width:760px;margin:18px auto 0;text-align:center;color:var(--text-2);font-size:15px;min-height:3.2em}
 
-  /* ── bento ─────────────────────────────────────────────────── */
-  .bento{ display:grid; grid-template-columns:repeat(6, minmax(0,1fr)); gap:16px; }
-  .cell{ position:relative; overflow:hidden; border-radius:20px; border:1px solid var(--line); padding:28px;
-    background:linear-gradient(180deg, rgba(255,255,255,.035), rgba(255,255,255,.008)); isolation:isolate;
-    transition:border-color .3s, transform .4s var(--ease); }
-  .cell:hover{ border-color:var(--line-2); transform:translateY(-3px); }
-  .spot::before{ content:""; position:absolute; inset:0; z-index:-1; opacity:0; transition:opacity .35s;
-    background:radial-gradient(420px circle at var(--mx,50%) var(--my,50%), color-mix(in srgb, var(--accent) 13%, transparent), transparent 45%); }
-  .spot:hover::before{ opacity:1; }
-  .c2{ grid-column:span 2; } .c3{ grid-column:span 3; } .c4{ grid-column:span 4; }
-  @media(max-width:980px){ .bento{ grid-template-columns:repeat(2, minmax(0,1fr)); } .c2,.c3,.c4{ grid-column:span 1; } .cwide{ grid-column:span 2; } }
-  @media(max-width:640px){ .bento{ grid-template-columns:minmax(0,1fr); } .c2,.c3,.c4,.cwide{ grid-column:span 1; } .cell{ padding:22px; } }
-  .ico{ width:42px; height:42px; border-radius:12px; display:grid; place-items:center; margin-bottom:18px;
-    background:var(--soft); color:var(--accent); border:1px solid color-mix(in srgb, var(--accent) 25%, transparent); }
-  .ico svg{ width:21px; height:21px; }
-  .cell h3{ font-size:19px; letter-spacing:-.015em; font-weight:700; margin-bottom:8px; }
-  .cell p{ color:var(--muted); font-size:15px; line-height:1.6; }
-  .cell p code, .faq code, .sec-head code{ font-size:.88em; color:var(--accent-2); background:rgba(255,255,255,.05); padding:1px 6px; border-radius:6px; }
-  .shot{ margin-top:22px; border-radius:12px; overflow:hidden; border:1px solid var(--line-2);
-    box-shadow:0 20px 50px -20px rgba(0,0,0,.8); transform:translateY(0); transition:transform .6s var(--ease); }
-  .cell:hover .shot{ transform:translateY(-4px) scale(1.01); }
-  .shells{ display:flex; flex-wrap:wrap; gap:8px; margin-top:18px; }
-  .shells span{ font-family:var(--mono); font-size:12.5px; padding:6px 11px; border-radius:8px; border:1px solid var(--line); color:var(--text); background:rgba(0,0,0,.25); }
-  .shells span::before{ content:"✓ "; color:var(--accent); }
-  .cmds{ display:flex; flex-wrap:wrap; gap:7px; margin-top:18px; }
-  .cmds code{ font-size:12.5px; padding:5px 10px; border-radius:8px; background:rgba(0,0,0,.3); border:1px solid var(--line); color:var(--accent-2);
-    transition:transform .2s, border-color .2s; }
-  .cmds code:hover{ transform:translateY(-2px); border-color:color-mix(in srgb, var(--accent) 40%, transparent); }
-  .mini-steps{ margin-top:18px; font-family:var(--mono); font-size:12.5px; display:grid; gap:7px; }
-  .mini-steps div{ display:flex; align-items:center; gap:10px; padding:8px 12px; border-radius:9px; background:rgba(0,0,0,.28); border:1px solid var(--line); color:var(--muted); }
-  .mini-steps b{ color:var(--accent); font-weight:500; }
-  .mini-steps .bar{ margin-left:auto; height:4px; width:70px; border-radius:4px; background:rgba(255,255,255,.07); overflow:hidden; }
-  .mini-steps .bar::after{ content:""; display:block; height:100%; width:var(--w,100%); background:var(--accent); border-radius:4px;
-    transform-origin:left; animation:fill 2.4s var(--ease) infinite; animation-delay:var(--dl,0s); }
-  @keyframes fill{ 0%{ transform:scaleX(0); } 60%,100%{ transform:scaleX(1); } }
+/* ── Market ── */
+.market-shell{border:1px solid var(--line-2);border-radius:var(--r3);background:var(--bg-1);overflow:hidden}
+.cmdwrap{padding:18px 20px;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:14px}
+.cmdbar{display:flex;align-items:center;gap:12px;height:44px;padding:0 14px;border:1px solid var(--line-2);border-radius:var(--r2);background:var(--bg);transition:border-color .15s,box-shadow .15s}
+.cmdbar:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px var(--wash)}
+.cmd-label{font:600 13px var(--mono);color:var(--accent-2);white-space:nowrap}
+.cmd-label i{font-style:normal;color:var(--dim)}
+.cmdbar input{flex:1;min-width:0;background:none;border:none;outline:none;font:400 15px var(--sans)}
+.cmdbar input::placeholder{color:var(--dim)}
+.cmd-count{font:400 12px var(--mono);color:var(--muted);white-space:nowrap}
+.filters{display:flex;flex-wrap:wrap;gap:6px}
+.chip{padding:5px 11px;border-radius:14px;font:500 12.5px var(--mono);color:var(--muted);border:1px solid var(--line-2);transition:color .15s,border-color .15s,background .15s}
+.chip:hover{color:var(--text)}
+.chip.active{color:var(--on-accent);background:var(--accent);border-color:var(--accent)}
+.region-row{display:flex;flex-wrap:wrap;align-items:center;gap:10px;font-size:13px;color:var(--muted)}
+.region-label i{font-style:normal;color:var(--dim)}
+.region-row select{background:var(--bg);border:1px solid var(--line-2);border-radius:var(--r1);padding:5px 8px;font-size:13px}
+.region-hint{color:var(--dim)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:1px;background:var(--line)}
+.card{display:flex;flex-direction:column;gap:12px;padding:22px 22px 20px;background:var(--bg-1)}
+.card-top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+.card-name{font:600 16px var(--mono);color:var(--text)}
+.card-name small{margin-left:8px;font:400 12px var(--mono);color:var(--dim)}
+.badge{font:500 11px var(--mono);color:var(--muted);padding:3px 7px;border-radius:var(--r1);border:1px solid var(--line-2);white-space:nowrap}
+.badge-in{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 45%,transparent)}
+.badge-paid{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 45%,transparent)}
+.card-desc{font-size:14.5px;color:var(--text-2);line-height:1.55;flex:1}
+.card-tags{display:flex;flex-wrap:wrap;gap:6px}
+.tag{font:400 12px var(--mono);color:var(--dim)}
+.card-meta{display:flex;flex-wrap:wrap;gap:14px;font-size:13px;color:var(--muted)}
+.card-meta b{color:var(--text-2);font-weight:600}
+.card-cli{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;border-radius:var(--r1);background:var(--bg);border:1px solid var(--line)}
+.card-cli code{font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.card-cli button{font:500 12px var(--sans);color:var(--muted)}
+.card-cli button:hover{color:var(--text)}
+.mbtn{width:100%;height:36px;border-radius:var(--r2);font:600 13.5px var(--sans);color:var(--text);border:1px solid var(--line-2);background:rgba(192,202,245,.04);transition:background .15s,border-color .15s}
+.mbtn:hover:not(:disabled){border-color:var(--accent);background:var(--wash)}
+.mbtn.installed{color:var(--ok)}
+.mbtn:disabled{opacity:.5;cursor:default}
+.price{font:600 18px var(--sans)}
+.price small{font-size:13px;color:var(--muted);font-weight:400}
+.sub-count{font-size:13px;color:var(--muted)}
+.demo-toggle{align-self:flex-start;font:500 13px var(--sans);color:var(--accent-2)}
+.demo-toggle:hover{text-decoration:underline;text-underline-offset:3px}
+.demo-soon,.demo-note{font-size:13px;color:var(--dim)}
+.demo-video{position:relative;aspect-ratio:16/10;border-radius:var(--r2);overflow:hidden;border:1px solid var(--line)}
+.demo-video iframe,.demo-video video{position:absolute;inset:0;width:100%;height:100%;border:0;background:#000}
+.demo-link{font-size:13px;color:var(--accent-2)}
+.empty{display:none;padding:40px;text-align:center;color:var(--muted);font:400 14px var(--mono)}
+.market-foot{display:flex;flex-wrap:wrap;gap:8px 22px;align-items:center;padding:16px 20px;border-top:1px solid var(--line);font-size:14px;color:var(--muted)}
+.market-foot a{color:var(--accent-2)}
+.market-foot a:hover{text-decoration:underline;text-underline-offset:3px}
 
-  /* ── code tabs ─────────────────────────────────────────────── */
-  .split{ display:grid; grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr); gap:56px; align-items:center; }
-  @media(max-width:980px){ .split{ grid-template-columns:minmax(0,1fr); gap:36px; } }
-  .points{ display:grid; gap:14px; margin-top:28px; }
-  .point{ display:flex; gap:14px; padding:16px 18px; border-radius:14px; border:1px solid transparent; cursor:pointer;
-    transition:background .25s, border-color .25s; text-align:left; background:none; color:inherit; font:inherit; width:100%; }
-  .point:hover{ background:rgba(255,255,255,.025); }
-  .point.on{ background:rgba(255,255,255,.035); border-color:var(--line-2); }
-  .point .n{ font-family:var(--mono); font-size:12px; color:var(--dim); padding-top:3px; }
-  .point.on .n{ color:var(--accent); }
-  .point h4{ font-size:16.5px; font-weight:600; margin-bottom:3px; }
-  .point p{ color:var(--muted); font-size:14.5px; line-height:1.55; }
-  .editor{ border-radius:16px; border:1px solid var(--line-2); background:#0b0d14; overflow:hidden; box-shadow:0 40px 100px -40px rgba(0,0,0,.9); }
-  .ed-tabs{ display:flex; align-items:center; gap:2px; padding:8px 8px 0; background:#080a10; border-bottom:1px solid var(--line);
-    overflow-x:auto; scrollbar-width:none; }
-  .ed-tabs::-webkit-scrollbar{ display:none; }
-  .ed-tab{ white-space:nowrap; flex-shrink:0; }
-  .ed-tab .dir{ color:var(--dim); }
-  .ed-tab{ font-family:var(--mono); font-size:12.5px; color:var(--dim); padding:9px 14px; border-radius:9px 9px 0 0; border:1px solid transparent;
-    border-bottom:none; background:none; cursor:pointer; transition:color .2s, background .2s; }
-  .ed-tab.on{ color:var(--text); background:#0b0d14; border-color:var(--line); }
-  .ed-tab:hover{ color:var(--text); }
-  .copy{ margin-left:auto; font-family:var(--mono); font-size:11.5px; color:var(--muted); background:rgba(255,255,255,.04); border:1px solid var(--line);
-    border-radius:8px; padding:6px 10px; cursor:pointer; margin-bottom:6px; transition:color .2s, border-color .2s; }
-  .copy:hover{ color:var(--text); border-color:var(--line-2); }
-  .copy.done{ color:var(--accent); border-color:color-mix(in srgb, var(--accent) 40%, transparent); }
-  .ed-body{ position:relative; }
-  .ed-pane{ display:none; margin:0; padding:22px 0; overflow-x:auto; font-family:var(--mono); font-size:13.5px; line-height:1.75; counter-reset:ln; }
-  .ed-pane.on{ display:block; animation:fadein .45s var(--ease); }
-  @keyframes fadein{ from{ opacity:0; transform:translateY(6px); } }
-  .ed-pane .ln{ display:block; padding:0 22px 0 0; white-space:pre; color:#c0caf5; }
-  .ed-pane .ln::before{ counter-increment:ln; content:counter(ln); display:inline-block; width:46px; padding-right:18px; text-align:right; color:#3b4261; user-select:none; }
-  .k{ color:#bb9af7; } .s{ color:#9ece6a; } .c{ color:#565f89; font-style:italic; } .f{ color:#7aa2f7; } .num{ color:#ff9e64; } .o{ color:#89ddff; } .pr{ color:#7dcfff; }
-  @media(max-width:560px){ .ed-pane{ font-size:12px; } .ed-pane .ln::before{ width:34px; padding-right:12px; } }
+/* ── Install ── */
+.install{border:1px solid var(--line-2);border-radius:var(--r3);background:var(--bg-1);overflow:hidden}
+.itabs{display:flex;border-bottom:1px solid var(--line);overflow-x:auto;scrollbar-width:none}
+.itab{display:flex;align-items:center;gap:9px;height:52px;padding:0 22px;font:500 14.5px var(--sans);color:var(--muted);border-right:1px solid var(--line);position:relative;white-space:nowrap}
+.itab svg{width:16px;height:16px}
+.itab:hover{color:var(--text)}
+.itab.on{color:var(--text);background:var(--bg)}
+.itab.on::before{content:"";position:absolute;left:0;right:0;top:0;height:2px;background:var(--accent)}
+.ipane{display:none;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:40px;padding:34px}
+.ipane.on{display:grid}
+.ipane h3{margin-bottom:10px}
+.ipane>div>p{color:var(--text-2);font-size:15px}
+.btns{display:flex;flex-wrap:wrap;gap:10px;margin:22px 0}
+.steps{padding-left:20px;display:flex;flex-direction:column;gap:8px;color:var(--text-2);font-size:15px}
+.steps li::marker{color:var(--dim);font-family:var(--mono);font-size:13px}
+.shell{border:1px solid var(--line-2);border-radius:var(--r2);overflow:hidden;background:#16161e;align-self:start}
+.shell-top{display:flex;align-items:center;gap:10px;height:36px;padding:0 12px;border-bottom:1px solid var(--line);font:500 12px var(--sans);color:var(--muted)}
+.shell-top .copy{margin-left:auto}
+.shell pre{padding:16px 18px;font-size:13px;line-height:1.75;color:#c0caf5;white-space:pre-wrap;word-break:break-word}
+.shell .pr{color:var(--accent);user-select:none}
+.shell .c{color:var(--dim)}
+@media (max-width:900px){.ipane{grid-template-columns:1fr;padding:24px;gap:24px}}
 
-  /* ── themes ────────────────────────────────────────────────── */
-  .swatches{ display:grid; grid-template-columns:repeat(5, minmax(0,1fr)); gap:14px; }
-  @media(max-width:900px){ .swatches{ grid-template-columns:repeat(3, minmax(0,1fr)); } }
-  @media(max-width:520px){ .swatches{ grid-template-columns:repeat(2, minmax(0,1fr)); } }
-  .sw{ position:relative; border-radius:16px; overflow:hidden; border:1px solid var(--line); cursor:pointer; text-align:left;
-    background:var(--sb); color:var(--st); font-family:var(--mono); padding:0; transition:transform .35s var(--ease), border-color .3s, box-shadow .35s; }
-  .sw:hover{ transform:translateY(-4px); box-shadow:0 20px 40px -20px var(--sa); }
-  .sw.on{ border-color:var(--sa); box-shadow:0 0 0 1px var(--sa), 0 20px 50px -20px var(--sa); }
-  .sw .sw-top{ display:flex; gap:5px; padding:10px 12px; background:var(--sb1); }
-  .sw .sw-top i{ width:7px; height:7px; border-radius:50%; background:#ff5f57; } .sw .sw-top i:nth-child(2){ background:#febc2e; }
-  .sw .sw-body{ padding:12px 12px 10px; font-size:11px; line-height:1.7; }
-  .sw .sw-body b{ color:var(--sa); font-weight:700; }
-  .sw .sw-body span{ color:var(--sm); }
-  .sw .sw-bar{ height:18px; background:var(--sa); display:flex; align-items:center; padding:0 10px; font-size:9px; font-weight:800; color:var(--sb); letter-spacing:.1em; }
-  .sw .sw-name{ display:flex; justify-content:space-between; align-items:center; padding:12px 12px; font-size:13px; font-weight:600;
-    background:var(--surface); color:var(--text); border-top:1px solid var(--line); font-family:var(--font); }
-  .sw .sw-name em{ font-style:normal; font-family:var(--mono); font-size:11px; color:var(--dim); }
-  .sw.on .sw-name em{ color:var(--accent); }
-  .theme-cols{ display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:16px; margin-top:16px; }
-  @media(max-width:900px){ .theme-cols{ grid-template-columns:minmax(0,1fr); } }
-  .keys{ display:flex; flex-wrap:wrap; gap:6px; margin-top:14px; }
-  .keys code{ font-size:11.5px; padding:3px 8px; border-radius:6px; background:rgba(0,0,0,.3); border:1px solid var(--line); color:var(--muted); }
+/* ── FAQ ── */
+.faq{max-width:820px;margin:0 auto;border-top:1px solid var(--line-2)}
+.faq details{border-bottom:1px solid var(--line-2)}
+.faq summary{list-style:none;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:20px;padding:22px 4px;font:600 17px var(--sans);color:var(--text)}
+.faq summary::-webkit-details-marker{display:none}
+.faq summary::after{content:"+";font:400 22px var(--mono);color:var(--muted);transition:transform .2s}
+.faq details[open] summary::after{transform:rotate(45deg)}
+.faq .a{padding:0 4px 24px;color:var(--text-2);font-size:15.5px;line-height:1.65}
+.faq .a a{color:var(--accent-2);text-decoration:underline;text-underline-offset:3px}
 
-  /* ── gallery ───────────────────────────────────────────────── */
-  .gtabs{ display:flex; flex-wrap:wrap; justify-content:center; gap:8px; margin-bottom:28px; }
-  .gtab{ font-family:var(--font); font-size:14px; font-weight:500; color:var(--muted); padding:9px 16px; border-radius:999px;
-    border:1px solid var(--line); background:rgba(255,255,255,.02); cursor:pointer; transition:all .25s var(--ease); }
-  .gtab:hover{ color:var(--text); border-color:var(--line-2); }
-  .gtab.on{ color:var(--on-accent); background:var(--accent); border-color:var(--accent); box-shadow:0 8px 24px -10px var(--glow); }
-  .gframe{ position:relative; max-width:1040px; margin:0 auto; border-radius:18px; padding:10px; border:1px solid var(--line-2);
-    background:linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.01)); box-shadow:0 60px 140px -50px rgba(0,0,0,.95); }
-  .gframe::before{ content:""; position:absolute; inset:-1px; border-radius:19px; padding:1px; pointer-events:none;
-    background:linear-gradient(140deg, color-mix(in srgb, var(--accent) 60%, transparent), transparent 35%, transparent 65%, color-mix(in srgb, var(--violet) 55%, transparent));
-    -webkit-mask:linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite:xor; mask-composite:exclude; }
-  .gstage{ position:relative; aspect-ratio:1650/1050; border-radius:10px; overflow:hidden; background:#10121b; }
-  .gstage img{ position:absolute; inset:0; width:100%; height:100%; object-fit:cover; opacity:0; transform:scale(1.02);
-    transition:opacity .6s var(--ease), transform 1.2s var(--ease); }
-  .gstage img.on{ opacity:1; transform:none; }
-  .gcap{ text-align:center; color:var(--muted); font-size:15px; margin-top:22px; min-height:1.6em; }
+/* ── Closing ── */
+.final{text-align:center;padding:110px 0}
+.final p{margin-top:16px;font-size:18px;color:var(--text-2)}
+.final .cta{justify-content:center}
 
-  /* ── stats ─────────────────────────────────────────────────── */
-  .stats{ display:grid; grid-template-columns:repeat(5, minmax(0,1fr)); border:1px solid var(--line); border-radius:20px; overflow:hidden;
-    background:rgba(255,255,255,.015); }
-  .stat{ padding:30px 22px; border-right:1px solid var(--line); }
-  .stat:last-child{ border-right:none; }
-  .stat .v{ font-size:clamp(30px, 3.6vw, 44px); font-weight:800; letter-spacing:-.04em; line-height:1; }
-  .stat .v small{ font-size:.55em; color:var(--accent); margin-left:2px; }
-  .stat .l{ color:var(--muted); font-size:14px; margin-top:10px; }
-  @media(max-width:900px){ .stats{ grid-template-columns:repeat(2, minmax(0,1fr)); } .stat{ border-bottom:1px solid var(--line); } .stat:nth-child(2n){ border-right:none; } .stat:last-child{ grid-column:span 2; border-bottom:none; } }
+/* ── Footer ── */
+footer{border-top:1px solid var(--line);padding:56px 0 40px;background:var(--bg-1)}
+.foot{display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:40px}
+.foot p{margin-top:14px;font-size:14px;color:var(--muted);max-width:34em}
+.foot h5{font:600 12px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--dim);margin-bottom:12px}
+.foot a:not(.brand){display:block;padding:4px 0;font-size:14px;color:var(--text-2)}
+.foot a:not(.brand):hover{color:var(--text)}
+.legal{display:flex;flex-wrap:wrap;justify-content:space-between;gap:10px;margin-top:44px;padding-top:22px;border-top:1px solid var(--line);font-size:13px;color:var(--dim)}
+.legal code{font-size:12px;color:var(--muted)}
+@media (max-width:800px){.foot{grid-template-columns:1fr 1fr}.foot>div:first-child{grid-column:1/-1}}
 
-  /* ── market ────────────────────────────────────────────────── */
-  .market-shell{ border:1px solid var(--line); border-radius:22px; background:rgba(255,255,255,.015); overflow:hidden; }
-  .cmdwrap{ padding:22px; border-bottom:1px solid var(--line); background:rgba(0,0,0,.2); }
-  .cmdbar{ display:flex; align-items:center; gap:12px; border:1px solid var(--line-2); background:var(--bg-2); padding:12px 16px; border-radius:12px;
-    transition:border-color .2s, box-shadow .2s; }
-  .cmdbar:focus-within{ border-color:color-mix(in srgb, var(--accent) 55%, transparent); box-shadow:0 0 0 4px var(--soft); }
-  .cmd-label{ color:var(--accent); font-family:var(--mono); font-size:13px; white-space:nowrap; }
-  .cmd-label i{ color:var(--dim); font-style:normal; }
-  .cmdbar input{ flex:1; min-width:0; background:transparent; border:none; outline:none; color:var(--text); font-family:var(--mono); font-size:14px; caret-color:var(--accent); }
-  .cmdbar input::placeholder{ color:var(--dim); }
-  .cmd-count{ color:var(--dim); font-family:var(--mono); font-size:12px; white-space:nowrap; }
-  .filters{ display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; }
-  .chip{ border:1px solid var(--line); color:var(--muted); font-family:var(--mono); font-size:11.5px; letter-spacing:.06em; padding:7px 12px;
-    cursor:pointer; background:transparent; border-radius:999px; transition:all .2s; }
-  .chip:hover{ border-color:var(--line-2); color:var(--text); }
-  .chip.active{ border-color:var(--accent); color:var(--on-accent); background:var(--accent); }
-  .region-row{ margin-top:14px; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
-  .region-label{ color:var(--accent); font-family:var(--mono); font-size:12px; white-space:nowrap; }
-  .region-label i{ color:var(--dim); font-style:normal; }
-  #region-select{ background:var(--bg-2); border:1px solid var(--line-2); color:var(--text); font-family:var(--mono); font-size:12px;
-    padding:8px 10px; cursor:pointer; outline:none; border-radius:9px; }
-  #region-select:focus{ border-color:color-mix(in srgb, var(--accent) 55%, transparent); }
-  .region-hint{ color:var(--dim); font-size:11.5px; }
-  .grid{ padding:22px; display:grid; grid-template-columns:repeat(auto-fill, minmax(min(270px, 100%), 1fr)); gap:14px; }
-  .card{ position:relative; overflow:hidden; isolation:isolate; border:1px solid var(--line); background:var(--surface); border-radius:16px; padding:18px;
-    display:flex; flex-direction:column; gap:11px; transition:border-color .25s, transform .35s var(--ease), box-shadow .35s; animation:cardin .5s var(--ease) both; animation-delay:var(--i,0s); }
-  @keyframes cardin{ from{ opacity:0; translate:0 12px; } }
-  .card:hover{ border-color:color-mix(in srgb, var(--accent) 38%, transparent); transform:translateY(-3px); box-shadow:0 20px 40px -24px var(--glow); }
-  .card.paid{ border-color:color-mix(in srgb, var(--amber) 28%, transparent); background:linear-gradient(180deg, color-mix(in srgb, var(--amber) 6%, var(--surface)), var(--surface)); }
-  .card.paid:hover{ border-color:color-mix(in srgb, var(--amber) 60%, transparent); box-shadow:0 20px 40px -24px color-mix(in srgb, var(--amber) 40%, transparent); }
-  .card-top{ display:flex; justify-content:space-between; align-items:flex-start; gap:10px; }
-  .card-name{ color:var(--text); font-family:var(--mono); font-size:15px; font-weight:700; }
-  .card.paid .card-name{ color:var(--amber); }
-  .card-name small{ color:var(--dim); font-weight:500; font-size:11px; margin-left:7px; }
-  .badge{ font-family:var(--mono); font-size:10px; letter-spacing:.08em; padding:3px 8px; border:1px solid var(--line-2); color:var(--muted); border-radius:999px; white-space:nowrap; flex-shrink:0; }
-  .badge.badge-in{ color:var(--accent); border-color:color-mix(in srgb, var(--accent) 45%, transparent); background:var(--soft); }
-  .badge.badge-paid{ color:var(--amber); border-color:color-mix(in srgb, var(--amber) 40%, transparent); background:color-mix(in srgb, var(--amber) 8%, transparent); }
-  .card-desc{ color:var(--muted); font-size:13.5px; line-height:1.55; min-height:62px; }
-  .card-tags{ display:flex; gap:6px; flex-wrap:wrap; }
-  .tag{ font-family:var(--mono); font-size:10.5px; color:var(--accent-2); background:var(--soft); padding:2px 8px; border-radius:999px; }
-  .card.paid .tag{ color:var(--amber); background:color-mix(in srgb, var(--amber) 9%, transparent); }
-  .card-meta{ display:flex; gap:14px; color:var(--dim); font-size:12px; border-top:1px dashed var(--line-2); padding-top:10px; }
-  .card-meta b{ color:var(--text); font-weight:600; }
-  .card-cli{ display:flex; align-items:center; gap:8px; font-family:var(--mono); font-size:12px; background:rgba(0,0,0,.3); border:1px solid var(--line);
-    border-radius:9px; padding:7px 7px 7px 11px; color:var(--muted); }
-  .card-cli code{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--accent-2); }
-  .card-cli button{ font-family:var(--mono); font-size:10.5px; color:var(--muted); background:rgba(255,255,255,.05); border:1px solid var(--line);
-    border-radius:6px; padding:4px 8px; cursor:pointer; }
-  .card-cli button:hover{ color:var(--text); }
-  .card-cli button.done{ color:var(--accent); }
-  .card-actions{ display:flex; gap:8px; }
-  .mbtn{ flex:1; border:1px solid color-mix(in srgb, var(--accent) 40%, transparent); color:var(--accent); background:transparent; font-family:var(--mono);
-    font-size:12px; letter-spacing:.04em; padding:10px; cursor:pointer; border-radius:10px; transition:all .2s; }
-  .mbtn:hover{ background:var(--accent); color:var(--on-accent); }
-  .mbtn.installed, .mbtn.installed:hover{ background:var(--soft); color:var(--accent); cursor:default; }
-  .card.paid .mbtn{ border-color:color-mix(in srgb, var(--amber) 40%, transparent); color:var(--amber); }
-  .card.paid .mbtn:hover:not(:disabled){ background:var(--amber); color:#241d08; }
-  .mbtn:disabled{ opacity:.5; cursor:not-allowed; }
-  .price{ color:var(--text); font-size:16px; font-weight:700; }
-  .price small{ color:var(--dim); font-size:11px; font-weight:500; margin-left:4px; }
-  .sub-count{ color:var(--dim); font-size:11.5px; margin-top:-4px; }
-  .demo-toggle{ width:100%; border:1px dashed var(--line-2); color:var(--muted); background:transparent; font-family:var(--mono); font-size:11.5px;
-    padding:8px 10px; cursor:pointer; border-radius:9px; transition:all .2s; }
-  .demo-toggle:hover{ border-color:color-mix(in srgb, var(--accent) 40%, transparent); color:var(--text); }
-  .demo-video{ border:1px solid var(--line); background:#000; line-height:0; border-radius:10px; overflow:hidden; }
-  .demo-video video, .demo-video iframe{ display:block; width:100%; aspect-ratio:16/9; height:auto; border:none; }
-  .demo-video--file video{ aspect-ratio:auto; }
-  .demo-note{ color:var(--dim); font-size:11px; font-family:var(--mono); text-align:center; margin-top:-4px; }
-  .demo-link{ display:block; text-align:center; border:1px dashed var(--line-2); color:var(--muted); font-family:var(--mono); font-size:11.5px; padding:8px 10px; border-radius:9px; text-decoration:none; }
-  .demo-link:hover{ color:var(--text); }
-  .demo-soon{ border:1px dashed var(--line-2); color:var(--dim); font-family:var(--mono); font-size:11.5px; text-align:center; padding:8px 10px; border-radius:9px; }
-  .empty{ grid-column:1/-1; text-align:center; color:var(--dim); padding:50px 10px; font-family:var(--mono); font-size:13px; display:none; }
-  .market-foot{ padding:18px 22px; border-top:1px solid var(--line); display:flex; flex-wrap:wrap; gap:10px 24px; align-items:center; color:var(--muted); font-size:14px; }
-  .market-foot a{ color:var(--accent); text-decoration:none; }
-  .market-foot a:hover{ text-decoration:underline; }
-
-  /* ── install ───────────────────────────────────────────────── */
-  .install{ border:1px solid var(--line); border-radius:22px; overflow:hidden; background:rgba(255,255,255,.015); }
-  .itabs{ display:flex; border-bottom:1px solid var(--line); overflow-x:auto; }
-  .itab{ flex:1; min-width:0; white-space:nowrap; display:flex; align-items:center; justify-content:center; gap:10px; padding:18px; background:none; border:none;
-    border-bottom:2px solid transparent; color:var(--muted); font-family:var(--font); font-size:15px; font-weight:600; cursor:pointer; transition:all .25s; }
-  .itab svg{ width:18px; height:18px; }
-  .itab:hover{ color:var(--text); background:rgba(255,255,255,.02); }
-  .itab.on{ color:var(--text); border-bottom-color:var(--accent); background:rgba(255,255,255,.03); }
-  .ipane{ display:none; padding:34px; gap:34px; grid-template-columns:minmax(0,1fr) minmax(0,1.3fr); }
-  .ipane.on{ display:grid; animation:fadein .45s var(--ease); }
-  @media(max-width:900px){ .ipane{ grid-template-columns:minmax(0,1fr); padding:24px; } }
-  @media(max-width:520px){ .itab{ padding:15px 6px; font-size:14px; gap:7px; } .itab svg{ display:none; } .ipane{ padding:20px; } .cmd-label{ display:none; } }
-  .ipane h3{ font-size:22px; letter-spacing:-.02em; margin-bottom:10px; }
-  .ipane > div > p{ color:var(--muted); font-size:15px; margin-bottom:18px; }
-  .ipane .btns{ display:flex; gap:10px; flex-wrap:wrap; }
-  .steps{ list-style:none; display:grid; gap:12px; margin:18px 0 0; counter-reset:st; }
-  .steps li{ position:relative; padding-left:36px; color:var(--muted); font-size:14.5px; }
-  .steps li::before{ counter-increment:st; content:counter(st); position:absolute; left:0; top:0; width:24px; height:24px; border-radius:50%;
-    display:grid; place-items:center; font-size:12px; font-weight:700; color:var(--accent); background:var(--soft); border:1px solid color-mix(in srgb, var(--accent) 30%, transparent); }
-  .shell{ border-radius:14px; border:1px solid var(--line-2); background:#07080d; overflow:hidden; align-self:start; }
-  .shell-top{ display:flex; align-items:center; gap:8px; padding:10px 12px; border-bottom:1px solid var(--line); font-family:var(--mono); font-size:12px; color:var(--dim); }
-  .shell-top i{ width:10px; height:10px; border-radius:50%; background:#2a2e3d; }
-  .shell-top .copy{ margin-bottom:0; }
-  .shell pre{ margin:0; padding:18px 20px; white-space:pre-wrap; overflow-wrap:break-word; font-family:var(--mono); font-size:13.5px; line-height:1.8; color:#d6dbef; }
-  .shell pre .pr{ color:var(--accent); user-select:none; }
-  .shell pre .c{ color:#565f89; }
-
-  /* ── faq ───────────────────────────────────────────────────── */
-  .faq{ max-width:860px; margin:0 auto; display:grid; gap:12px; }
-  .faq details{ border:1px solid var(--line); border-radius:16px; background:rgba(255,255,255,.015); transition:border-color .25s, background .25s; }
-  .faq details[open]{ border-color:var(--line-2); background:rgba(255,255,255,.03); }
-  .faq summary{ list-style:none; cursor:pointer; padding:20px 24px; font-size:17px; font-weight:600; display:flex; align-items:center; gap:16px; }
-  .faq summary::-webkit-details-marker{ display:none; }
-  .faq summary::after{ content:""; margin-left:auto; width:10px; height:10px; border-right:2px solid var(--muted); border-bottom:2px solid var(--muted);
-    transform:rotate(45deg) translateY(-3px); transition:transform .3s var(--ease); flex-shrink:0; }
-  .faq details[open] summary::after{ transform:rotate(225deg) translateY(-2px); border-color:var(--accent); }
-  .faq .a{ padding:0 24px 22px; color:var(--muted); font-size:15.5px; line-height:1.7; }
-  .faq details[open] .a{ animation:fadein .4s var(--ease); }
-  .faq .a a{ color:var(--accent); }
-
-  /* ── closing CTA + footer ──────────────────────────────────── */
-  .final{ position:relative; overflow:hidden; border-radius:28px; border:1px solid var(--line-2); padding:80px 32px; text-align:center; isolation:isolate;
-    background:radial-gradient(600px 300px at 50% 0%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 70%), var(--bg-2); }
-  .final::before{ content:""; position:absolute; inset:0; z-index:-1; opacity:.5;
-    background-image:linear-gradient(var(--line) 1px, transparent 1px), linear-gradient(90deg, var(--line) 1px, transparent 1px); background-size:40px 40px;
-    -webkit-mask-image:radial-gradient(ellipse at 50% 0%, #000, transparent 70%); mask-image:radial-gradient(ellipse at 50% 0%, #000, transparent 70%); }
-  .final h2{ margin-top:0; }
-  .final p{ color:var(--muted); font-size:18px; max-width:580px; margin:0 auto 32px; }
-  .final .cta{ justify-content:center; margin-top:0; }
-  footer{ border-top:1px solid var(--line); margin-top:110px; padding:60px 0 40px; color:var(--muted); font-size:14px; }
-  .foot{ display:grid; grid-template-columns:minmax(0,1.4fr) repeat(3, minmax(0,1fr)); gap:36px; }
-  @media(max-width:900px){ .foot{ grid-template-columns:repeat(2, minmax(0,1fr)); } .foot > div:first-child{ grid-column:span 2; } }
-  .foot h5{ color:var(--text); font-size:13px; letter-spacing:.08em; text-transform:uppercase; margin-bottom:14px; }
-  .foot a{ display:block; color:var(--muted); text-decoration:none; padding:4px 0; transition:color .2s; }
-  .foot a:hover{ color:var(--accent); }
-  .foot p{ max-width:360px; line-height:1.65; margin-top:14px; }
-  .legal{ margin-top:48px; padding-top:22px; border-top:1px solid var(--line); display:flex; flex-wrap:wrap; gap:10px 24px; justify-content:space-between; color:var(--dim); font-size:13px; }
-  .legal .motto{ font-family:var(--mono); letter-spacing:.14em; }
-
-  .toast{ position:fixed; left:50%; bottom:28px; z-index:90; transform:translate(-50%, 20px); opacity:0; pointer-events:none;
-    background:var(--surface-2); border:1px solid var(--line-2); color:var(--text); padding:11px 18px; border-radius:12px; font-size:14px;
-    box-shadow:0 20px 50px -20px rgba(0,0,0,.9); transition:all .35s var(--ease); }
-  .toast.on{ opacity:1; transform:translate(-50%, 0); }
-  .toast b{ color:var(--accent); }
-
-  @media(max-width:560px){
-    .term-body{ height:230px; }
-    .marquee .lbl{ letter-spacing:.12em; font-size:11px; padding:0 16px; }
-    .sw .sw-body{ font-size:10px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-    .ed-tab .dir{ display:none; }
-    .ed-tab{ padding:9px 10px; }
-    .ed-tabs .copy{ padding:6px 8px; }
-    .grid{ padding:12px; gap:12px; }
-    .cmdwrap{ padding:14px; }
-    .market-foot{ padding:14px; }
-    .card{ padding:16px; }
-    .wrap{ padding:0 16px; }
-    .ipane{ padding:18px; }
-    .final{ padding:56px 20px; }
-  }
-  @media(max-width:640px){
-    .cmdbar input, #region-select{ font-size:16px; }
-    .chip{ padding:9px 14px; }
-    .mbtn, .demo-toggle{ padding:12px 14px; }
-    .cmd-label i{ display:none; }
-  }
-  @media(prefers-reduced-motion: reduce){
-    html{ scroll-behavior:auto; }
-    *, *::before, *::after{ animation-duration:.001ms !important; animation-iteration-count:1 !important; transition-duration:.001ms !important; }
-    .rv, .rv.in{ opacity:1; animation:none; }
-    .aurora, .shooting, .stars{ display:none; }
-    .mq{ animation:none; flex-wrap:wrap; justify-content:center; width:auto; }
-  }
-
-  /* ── scroll progress + active section ─────────────────────── */
-  .progress{ position:fixed; top:0; left:0; right:0; height:2px; z-index:70; pointer-events:none; transform-origin:0 50%;
-    transform:scaleX(var(--p, 0)); background:linear-gradient(90deg, var(--accent), var(--cyan), var(--violet)); }
-  .nav-links a.on{ color:var(--text); }
-  .nav-links a.on::after{ transform:scaleX(1); }
-
-  /* ── headings that reveal word by word ─────────────────────── */
-  .wd{ display:inline-block; overflow:hidden; vertical-align:bottom; padding-bottom:.14em; margin-bottom:-.14em; }
-  .wd > span{ display:inline-block; transform:translateY(108%); transition:transform 1s var(--ease); transition-delay:calc(var(--wi) * 42ms + var(--d, 0s)); }
-  .in .wd > span, .wd.in > span{ transform:none; }
-
-  .scroll-cue{ position:absolute; left:50%; bottom:26px; width:24px; height:38px; margin-left:-12px; border:1.5px solid var(--line-2); border-radius:14px; opacity:.7; transition:opacity .3s, border-color .3s; }
-  .scroll-cue:hover{ opacity:1; border-color:color-mix(in srgb, var(--accent) 60%, transparent); }
-  .scroll-cue span{ position:absolute; left:50%; top:8px; width:3px; height:7px; margin-left:-1.5px; border-radius:2px; background:var(--accent); animation:cue 1.8s var(--ease) infinite; }
-  @keyframes cue{ 0%{ opacity:0; transform:translateY(-3px); } 30%{ opacity:1; } 80%,100%{ opacity:0; transform:translateY(12px); } }
-  @media(max-width:1020px){ .scroll-cue{ display:none; } }
-
-  /* ── pillars ───────────────────────────────────────────────── */
-  @property --ang{ syntax:'<angle>'; inherits:false; initial-value:0deg; }
-  .pillars{ display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:16px; }
-  @media(max-width:1080px){ .pillars{ grid-template-columns:repeat(2, minmax(0,1fr)); } }
-  @media(max-width:560px){ .pillars{ grid-template-columns:minmax(0,1fr); } }
-  .pillar{ position:relative; isolation:isolate; display:flex; flex-direction:column; gap:12px; padding:26px 24px 24px; border-radius:20px;
-    border:1px solid var(--line); background:linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.008));
-    color:inherit; text-decoration:none; transition:transform .5s var(--ease), border-color .3s, box-shadow .5s var(--ease); }
-  .pillar::before{ content:""; position:absolute; inset:-1px; border-radius:21px; padding:1px; pointer-events:none;
-    background:conic-gradient(from var(--ang), transparent 0deg 220deg, var(--pc) 300deg, transparent 360deg);
-    -webkit-mask:linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite:xor; mask-composite:exclude;
-    opacity:0; transition:opacity .45s; animation:ang 3.6s linear infinite paused; }
-  .pillar::after{ content:""; position:absolute; inset:0; z-index:-1; border-radius:inherit; opacity:0; transition:opacity .45s;
-    background:radial-gradient(380px circle at var(--mx,50%) var(--my,0%), color-mix(in srgb, var(--pc) 12%, transparent), transparent 55%); }
-  .pillar:hover{ transform:translateY(-5px); border-color:color-mix(in srgb, var(--pc) 22%, transparent);
-    box-shadow:0 30px 60px -34px color-mix(in srgb, var(--pc) 55%, transparent); }
-  .pillar:hover::before{ opacity:1; animation-play-state:running; }
-  .pillar:hover::after{ opacity:1; }
-  @keyframes ang{ to{ --ang:360deg; } }
-  .pico{ width:46px; height:46px; border-radius:13px; display:grid; place-items:center; color:var(--pc);
-    background:color-mix(in srgb, var(--pc) 11%, transparent); border:1px solid color-mix(in srgb, var(--pc) 28%, transparent);
-    transition:transform .5s var(--ease); }
-  .pillar:hover .pico{ transform:rotate(-6deg) scale(1.06); }
-  .pico svg{ width:22px; height:22px; }
-  .pillar .pn{ position:absolute; top:24px; right:24px; font-family:var(--mono); font-size:12px; color:var(--dim); }
-  .pillar h3{ font-size:21px; letter-spacing:-.02em; font-weight:700; margin-top:6px; }
-  .pillar p{ color:var(--muted); font-size:14.5px; line-height:1.6; }
-  .pillar ul{ list-style:none; display:grid; gap:8px; padding-top:6px; font-size:13.5px; }
-  .pillar li{ display:flex; gap:9px; align-items:center; }
-  .pillar li::before{ content:""; width:5px; height:5px; border-radius:50%; background:var(--pc); box-shadow:0 0 8px var(--pc); flex-shrink:0; }
-  .pillar .more{ margin-top:auto; padding-top:10px; display:inline-flex; align-items:center; gap:6px; font-size:13.5px; font-weight:600; color:var(--pc); }
-  .pillar .more svg{ width:14px; height:14px; transition:transform .35s var(--ease); }
-  .pillar:hover .more svg{ transform:translateX(4px); }
-
-  /* ── story: chapters beside a pinned screen ────────────────── */
-  .story-sec{ padding-top:20px; }
-  .story{ display:grid; grid-template-columns:minmax(0,.82fr) minmax(0,1.18fr); gap:64px; }
-  .chapter{ min-height:82vh; display:flex; flex-direction:column; justify-content:center; padding:48px 0; opacity:.28;
-    transition:opacity .6s var(--ease); scroll-margin-top:90px; }
-  .chapter.on{ opacity:1; }
-  .cn{ display:inline-flex; align-items:center; gap:10px; font-family:var(--mono); font-size:12.5px; letter-spacing:.14em; text-transform:uppercase; color:var(--pc); }
-  .cn::before{ content:""; width:22px; height:1px; background:currentColor; }
-  .chapter h3{ font-size:clamp(28px, 3.3vw, 42px); line-height:1.08; letter-spacing:-.035em; font-weight:800; margin:16px 0 14px; }
-  .chapter > p{ color:var(--muted); font-size:17px; line-height:1.7; }
-  .chapter code, .chapter kbd{ font-size:.86em; color:var(--accent-2); background:rgba(255,255,255,.05); padding:1px 6px; border-radius:6px; }
-  .ticks{ list-style:none; display:grid; gap:11px; margin-top:22px; }
-  .ticks li{ position:relative; padding-left:28px; color:var(--text); font-size:15px; line-height:1.55; }
-  .ticks li::before{ content:""; position:absolute; left:0; top:.28em; width:17px; height:17px; border-radius:6px;
-    background:color-mix(in srgb, var(--pc) 14%, transparent) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 12 4 4 8-8'/%3E%3C/svg%3E") center/11px no-repeat;
-    border:1px solid color-mix(in srgb, var(--pc) 35%, transparent); }
-  .mshot{ display:none; margin-top:24px; border-radius:12px; border:1px solid var(--line-2); box-shadow:0 30px 60px -30px rgba(0,0,0,.9); }
-  .story-stage{ position:sticky; top:calc(50vh - 250px); align-self:start; margin-top:18vh; }
-  .stage-frame{ position:relative; border-radius:16px; border:1px solid var(--line-2); background:#0b0d14; overflow:hidden;
-    box-shadow:0 60px 140px -50px rgba(0,0,0,.95), 0 0 0 1px rgba(0,0,0,.5); }
-  .stage-frame::after{ content:""; position:absolute; inset:0; pointer-events:none; border-radius:inherit;
-    box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--stage-c, var(--accent)) 30%, transparent); transition:box-shadow .6s var(--ease); }
-  .stage-bar{ display:flex; align-items:center; gap:8px; height:34px; padding:0 14px; background:#080a10; border-bottom:1px solid var(--line);
-    font-family:var(--mono); font-size:11.5px; color:var(--dim); }
-  .stage-bar i{ width:10px; height:10px; border-radius:50%; background:#ff5f57; } .stage-bar i:nth-child(2){ background:#febc2e; }
-  .stage-bar span{ margin-left:auto; margin-right:auto; transform:translateX(-14px); transition:opacity .3s; }
-  .stage-shots{ position:relative; aspect-ratio:1650/1050; }
-  .stage-shots img{ position:absolute; inset:0; width:100%; height:100%; object-fit:cover; opacity:0; transform:scale(1.035) translateY(8px);
-    transition:opacity .7s var(--ease), transform 1.1s var(--ease); }
-  .stage-shots img.on{ opacity:1; transform:none; }
-  .stage-rail{ display:flex; justify-content:center; gap:8px; margin-top:20px; }
-  .stage-rail i{ position:relative; width:46px; height:3px; border-radius:3px; background:var(--line-2); overflow:hidden; }
-  .stage-rail i::after{ content:""; position:absolute; inset:0; background:var(--stage-c, var(--accent)); transform:scaleX(0); transform-origin:left; transition:transform .6s var(--ease); }
-  .stage-rail i.on::after, .stage-rail i.done::after{ transform:scaleX(1); }
-  .stage-rail i.done::after{ opacity:.45; }
-  @media(max-width:980px){
-    .story{ grid-template-columns:minmax(0,1fr); gap:0; }
-    .story-stage{ display:none; }
-    .chapter{ min-height:0; opacity:1; padding:34px 0; }
-    .mshot{ display:block; }
-  }
-
-  /* ── the sky demo ──────────────────────────────────────────── */
-  .sky-demo{ margin-top:18px; display:grid; gap:10px; }
-  #skyCanvas{ width:100%; aspect-ratio:120/58; image-rendering:pixelated; image-rendering:crisp-edges; border-radius:12px;
-    border:1px solid var(--line-2); background:var(--t-bg); display:block; }
-  .sky-ctl{ display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
-  .sky-b{ font-family:var(--mono); font-size:12px; padding:6px 12px; border-radius:8px; border:1px solid var(--line-2); background:rgba(0,0,0,.25);
-    color:var(--muted); cursor:pointer; transition:all .2s; }
-  .sky-b:hover{ color:var(--text); }
-  .sky-b.on{ color:var(--on-accent); background:var(--accent); border-color:var(--accent); }
-  .sky-r{ margin-left:auto; display:flex; align-items:center; gap:8px; font-family:var(--mono); font-size:12px; color:var(--muted); }
-  .sky-r input{ accent-color:var(--accent); width:110px; }
-  .sky-art{ display:flex; align-items:center; gap:8px; border:1px solid var(--line-2); border-radius:9px; padding:7px 10px; background:rgba(0,0,0,.25);
-    font-family:var(--mono); font-size:12px; color:var(--dim); }
-  .sky-art:focus-within{ border-color:color-mix(in srgb, var(--accent) 55%, transparent); }
-  .sky-art input{ flex:1; min-width:0; background:none; border:none; outline:none; color:var(--text); font-family:var(--mono); font-size:12.5px; }
-  .sky-art.bad{ border-color:color-mix(in srgb, var(--red) 60%, transparent); }
-  .sky-cmd{ font-size:11.5px; color:var(--accent-2); opacity:.85; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  @media(max-width:640px){ .sky-art input{ font-size:16px; } }
-
-  @media(prefers-reduced-motion: reduce){
-    .wd > span{ transform:none; transition:none; }
-    .pillar::before{ animation:none; }
-    .stage-shots img{ transition:none; }
-    .scroll-cue span{ animation:none; opacity:1; }
-  }
+/* ── Toast ── */
+.toast{position:fixed;left:50%;bottom:24px;transform:translate(-50%,20px);opacity:0;pointer-events:none;z-index:100;max-width:calc(100% - 32px);padding:11px 16px;border-radius:var(--r2);background:var(--raised);border:1px solid var(--line-2);box-shadow:0 20px 40px -10px rgba(0,0,0,.6);font-size:14px;color:var(--text-2);transition:opacity .2s,transform .2s var(--ease)}
+.toast.on{opacity:1;transform:translate(-50%,0)}
+.toast b{color:var(--text);font-family:var(--mono);font-weight:500;font-size:13px}
 </style>
 </head>
 <body>
-<div class="backdrop" aria-hidden="true"></div>
-<div class="progress" id="progress" aria-hidden="true"></div>
-
-<!-- ═════════════════ NAV ═════════════════ -->
 <header class="nav" id="nav">
-  <div class="nav-in">
-    <a class="brand" href="#top" aria-label="OXIS home">
-      <svg viewBox="0 0 100 100" aria-hidden="true"><defs><linearGradient id="o1L" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="20" y2="100"><stop offset="0" stop-color="#2bb35e"/><stop offset=".55" stop-color="#147a37"/><stop offset="1" stop-color="#073f1c"/></linearGradient><linearGradient id="o1R" gradientUnits="userSpaceOnUse" x1="80" y1="0" x2="100" y2="100"><stop offset="0" stop-color="#7dfdab"/><stop offset=".5" stop-color="#3fdc73"/><stop offset="1" stop-color="#15964a"/></linearGradient><linearGradient id="o1S1" gradientUnits="userSpaceOnUse" x1="52" y1="0" x2="63" y2="0"><stop offset="0" stop-color="#021a0a" stop-opacity="0"/><stop offset="1" stop-color="#021a0a" stop-opacity=".6"/></linearGradient><linearGradient id="o1S2" gradientUnits="userSpaceOnUse" x1="37" y1="0" x2="48" y2="0"><stop offset="0" stop-color="#021a0a" stop-opacity=".5"/><stop offset="1" stop-color="#021a0a" stop-opacity="0"/></linearGradient><clipPath id="o1cl"><path d="M-8 -8L65.08 -8L34.92 108L-8 108Z"/></clipPath><clipPath id="o1cr"><path d="M65.08 -8L108 -8L108 108L34.92 108Z"/></clipPath><clipPath id="o1ring"><path clip-rule="evenodd" d="M50.0 0C86.0 0 100 14.0 100 50.0C100 86.0 86.0 100 50.0 100C14.0 100 0 86.0 0 50.0C0 14.0 14.0 0 50.0 0ZM50.0 24C68.72 24 76 31.28 76 50.0C76 68.72 68.72 76 50.0 76C31.28 76 24 68.72 24 50.0C24 31.28 31.28 24 50.0 24Z"/></clipPath></defs><g clip-path="url(#o1ring)"><path fill="url(#o1L)" clip-path="url(#o1cl)" d="M-8 -8H108V108H-8Z"/><path fill="url(#o1R)" clip-path="url(#o1cr)" d="M-8 -8H108V108H-8Z"/><path fill="url(#o1S1)" d="M54.08 -8L65.08 -8L55.20 30L44.20 30Z"/><path fill="#c8ffdc" fill-opacity=".45" d="M65.08 -8L66.18 -8L56.30 30L55.20 30Z"/><path fill="url(#o1S2)" d="M44.80 70L55.80 70L45.92 108L34.92 108Z"/><path fill="#7ff0a8" fill-opacity=".22" d="M43.70 70L44.80 70L34.92 108L33.82 108Z"/></g></svg>
-      OXIS
-    </a>
+  <div class="wrap nav-in">
+    <a class="brand" href="#top" aria-label="OXIS home"><svg viewBox="0 0 100 100" aria-hidden="true"><defs><linearGradient id="o1xL" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="20" y2="100"><stop offset="0" stop-color="#2bb35e"/><stop offset=".55" stop-color="#147a37"/><stop offset="1" stop-color="#073f1c"/></linearGradient><linearGradient id="o1xR" gradientUnits="userSpaceOnUse" x1="80" y1="0" x2="100" y2="100"><stop offset="0" stop-color="#7dfdab"/><stop offset=".5" stop-color="#3fdc73"/><stop offset="1" stop-color="#15964a"/></linearGradient><linearGradient id="o1xS1" gradientUnits="userSpaceOnUse" x1="52" y1="0" x2="63" y2="0"><stop offset="0" stop-color="#021a0a" stop-opacity="0"/><stop offset="1" stop-color="#021a0a" stop-opacity=".6"/></linearGradient><linearGradient id="o1xS2" gradientUnits="userSpaceOnUse" x1="37" y1="0" x2="48" y2="0"><stop offset="0" stop-color="#021a0a" stop-opacity=".5"/><stop offset="1" stop-color="#021a0a" stop-opacity="0"/></linearGradient><clipPath id="o1xcl"><path d="M-8 -8L65.08 -8L34.92 108L-8 108Z"/></clipPath><clipPath id="o1xcr"><path d="M65.08 -8L108 -8L108 108L34.92 108Z"/></clipPath><clipPath id="o1xring"><path clip-rule="evenodd" d="M50.0 0C86.0 0 100 14.0 100 50.0C100 86.0 86.0 100 50.0 100C14.0 100 0 86.0 0 50.0C0 14.0 14.0 0 50.0 0ZM50.0 24C68.72 24 76 31.28 76 50.0C76 68.72 68.72 76 50.0 76C31.28 76 24 68.72 24 50.0C24 31.28 31.28 24 50.0 24Z"/></clipPath></defs><g clip-path="url(#o1xring)"><path fill="url(#o1xL)" clip-path="url(#o1xcl)" d="M-8 -8H108V108H-8Z"/><path fill="url(#o1xR)" clip-path="url(#o1xcr)" d="M-8 -8H108V108H-8Z"/><path fill="url(#o1xS1)" d="M54.08 -8L65.08 -8L55.20 30L44.20 30Z"/><path fill="#c8ffdc" fill-opacity=".45" d="M65.08 -8L66.18 -8L56.30 30L55.20 30Z"/><path fill="url(#o1xS2)" d="M44.80 70L55.80 70L45.92 108L34.92 108Z"/><path fill="#7ff0a8" fill-opacity=".22" d="M43.70 70L44.80 70L34.92 108L33.82 108Z"/></g></svg>OXIS</a>
     <nav class="nav-links" aria-label="Sections">
-      <a href="#workspace">Product</a>
-      <a href="#build">Build</a>
-      <a href="#customize">Customize</a>
+      <a href="#product">Product</a>
+      <a href="#lua">Lua</a>
+      <a href="#themes">Themes</a>
       <a href="#market">Market</a>
       <a href="#install">Install</a>
       <a href="#faq">FAQ</a>
     </nav>
     <div class="nav-right">
       <a class="gh-pill" href="https://github.com/oxlaboratory/oxis" target="_blank" rel="noopener noreferrer" aria-label="OXIS on GitHub">
-        <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
-        GitHub <span class="gh-stars" id="navStars"></span>
+        <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg> GitHub <span class="gh-stars" id="navStars"></span>
       </a>
       <a class="btn btn-primary btn-sm" href="#install">Download</a>
       <button class="menu-btn" id="menuBtn" aria-label="Menu" aria-expanded="false">
@@ -793,253 +466,170 @@
 
 <main id="top">
 
-<!-- ═════════════════ HERO ═════════════════ -->
 <section class="hero">
-  <div class="aurora" aria-hidden="true"><span></span><span></span><span></span></div>
-  <div class="gridlines" aria-hidden="true"></div>
-  <div class="stars" id="stars" aria-hidden="true"></div>
-  <div class="shooting" aria-hidden="true"></div>
-
   <div class="wrap hero-grid">
     <div>
       <a class="live rv" id="liveBadge" href="https://github.com/oxlaboratory/oxis/commits/main" target="_blank" rel="noopener noreferrer">
-        <span class="pulse"></span><span class="tagv" id="liveVer">v1.2.1</span><span class="txt" id="liveTxt">open source · Windows, Linux &amp; macOS</span>
+        <span class="pulse"></span><span class="tagv" id="liveVer">v1.2.1</span><span id="liveTxt">open source · Windows &amp; Linux</span>
       </a>
-      <h1 class="rv" style="--d:.08s">The programmable<br>workspace for <span class="rotator"><span class="word" id="rotWord"><span class="grad">automating projects.</span></span></span></h1>
-      <p class="lede rv" style="--d:.16s">OXIS is a programmable workspace for <b>automating projects</b>, <b>editing documents</b> and <b>building workflows</b> — with an entirely customizable experience. It runs your real shell and puts an editor, workspaces, tasks and Lua plugins around it. Anything can be changed.</p>
-      <div class="cta rv" style="--d:.24s">
+      <h1 class="rv" style="--d:.06s">Your real shell,<br><em>programmable.</em></h1>
+      <p class="lede rv" style="--d:.12s">OXIS is a development workspace built around the shell you already use — PowerShell, bash, zsh or fish. It adds <b>tabs and split panes</b>, a <b>built-in editor</b>, <b>per-project workspaces</b> with tasks and workflows, and <b>Lua</b> for everything else.</p>
+      <div class="cta rv" style="--d:.18s">
         <a class="btn btn-primary" id="dlPrimary" href="#install">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0-5-5m5 5 5-5M4 19h16"/></svg>
           <span id="dlLabel">Download OXIS</span>
         </a>
-        <a class="btn btn-ghost" href="https://github.com/oxlaboratory/oxis" target="_blank" rel="noopener noreferrer">
-          <svg viewBox="0 0 24 24" fill="currentColor"><path d="m12 2.8 2.8 5.8 6.3.9-4.6 4.4 1.1 6.3L12 17.2l-5.6 3 1.1-6.3L2.9 9.5l6.3-.9z"/></svg>
-          Star on GitHub <span id="heroStars" style="color:var(--muted); font-weight:500"></span>
-        </a>
+        <a class="btn btn-ghost" href="https://github.com/oxlaboratory/oxis" target="_blank" rel="noopener noreferrer"><svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg> Source on GitHub <span id="heroStars" style="color:var(--muted);font-weight:500"></span></a>
       </div>
-      <p class="cta-note rv" style="--d:.3s" id="dlNote">Free and open source · Apache 2.0 · <span id="dlCount"></span><a href="#install">all platforms &amp; source</a></p>
-      <div class="checks rv" style="--d:.36s">
-        <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5L20 7"/></svg>Windows 10 &amp; 11</span>
-        <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5L20 7"/></svg>Linux x64</span>
-        <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5L20 7"/></svg>Self-updating</span>
-        <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5L20 7"/></svg>Zero telemetry</span>
-      </div>
+      <p class="cta-note rv" style="--d:.22s" id="dlNote">Free and open source · Apache 2.0 · <span id="dlCount"></span><a href="#install">all downloads</a></p>
+      <div class="platforms rv" style="--d:.26s"><span>Windows 10 &amp; 11</span><span>Linux x64</span><span>macOS preview</span><span>self-updating</span><span>no telemetry</span></div>
     </div>
-
-    <div class="term-wrap rv" style="--d:.2s">
+    <div class="term-wrap rv" style="--d:.14s">
       <div class="term" id="term">
-        <div class="term-bar"><span class="term-dots"><i></i><i></i></span><span class="term-title">OXIS</span><span class="term-mode">SHELL</span></div>
+        <div class="term-bar" aria-hidden="true">
+          <span class="tb-brand"><svg viewBox="0 0 100 100" aria-hidden="true"><defs><linearGradient id="o2xL" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="20" y2="100"><stop offset="0" stop-color="#2bb35e"/><stop offset=".55" stop-color="#147a37"/><stop offset="1" stop-color="#073f1c"/></linearGradient><linearGradient id="o2xR" gradientUnits="userSpaceOnUse" x1="80" y1="0" x2="100" y2="100"><stop offset="0" stop-color="#7dfdab"/><stop offset=".5" stop-color="#3fdc73"/><stop offset="1" stop-color="#15964a"/></linearGradient><linearGradient id="o2xS1" gradientUnits="userSpaceOnUse" x1="52" y1="0" x2="63" y2="0"><stop offset="0" stop-color="#021a0a" stop-opacity="0"/><stop offset="1" stop-color="#021a0a" stop-opacity=".6"/></linearGradient><linearGradient id="o2xS2" gradientUnits="userSpaceOnUse" x1="37" y1="0" x2="48" y2="0"><stop offset="0" stop-color="#021a0a" stop-opacity=".5"/><stop offset="1" stop-color="#021a0a" stop-opacity="0"/></linearGradient><clipPath id="o2xcl"><path d="M-8 -8L65.08 -8L34.92 108L-8 108Z"/></clipPath><clipPath id="o2xcr"><path d="M65.08 -8L108 -8L108 108L34.92 108Z"/></clipPath><clipPath id="o2xring"><path clip-rule="evenodd" d="M50.0 0C86.0 0 100 14.0 100 50.0C100 86.0 86.0 100 50.0 100C14.0 100 0 86.0 0 50.0C0 14.0 14.0 0 50.0 0ZM50.0 24C68.72 24 76 31.28 76 50.0C76 68.72 68.72 76 50.0 76C31.28 76 24 68.72 24 50.0C24 31.28 31.28 24 50.0 24Z"/></clipPath></defs><g clip-path="url(#o2xring)"><path fill="url(#o2xL)" clip-path="url(#o2xcl)" d="M-8 -8H108V108H-8Z"/><path fill="url(#o2xR)" clip-path="url(#o2xcr)" d="M-8 -8H108V108H-8Z"/><path fill="url(#o2xS1)" d="M54.08 -8L65.08 -8L55.20 30L44.20 30Z"/><path fill="#c8ffdc" fill-opacity=".45" d="M65.08 -8L66.18 -8L56.30 30L55.20 30Z"/><path fill="url(#o2xS2)" d="M44.80 70L55.80 70L45.92 108L34.92 108Z"/><path fill="#7ff0a8" fill-opacity=".22" d="M43.70 70L44.80 70L34.92 108L33.82 108Z"/></g></svg>OXIS</span>
+          <span class="tb-tab">Home</span>
+          <span class="tb-tab on"><b>1</b>acme-web</span>
+          <span class="tb-win"><i></i><span style="font-size:15px;line-height:1">×</span></span>
+        </div>
         <div class="term-body" id="termBody" role="log" aria-label="OXIS demo output"></div>
         <label class="term-prompt" for="termInput">
           <span class="tp-label" id="tpLabel">OXIS ❯</span>
           <input id="termInput" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Try an OXIS command, for example 'help">
         </label>
-        <div class="term-status"><span class="ts-mode">SHELL</span><span>● connected · acme-web</span><span class="ts-right"><span id="tsTheme">default</span><span id="tsClock"></span></span></div>
+        <div class="term-status" aria-hidden="true"><span class="ts-mode">SHELL</span><span class="ts-conn">connected</span><span>acme-web</span><span class="ts-right"><span id="tsTheme">default</span><span id="tsClock"></span></span></div>
       </div>
-      <div class="term-hint" id="termHint">Live demo — click it and type <code>'help</code>, or try <code>'roll 4</code></div>
-    </div>
-  </div>
-  <a class="scroll-cue" href="#workspace" aria-label="Scroll to what OXIS does"><span></span></a>
-</section>
-
-<!-- ═════════════════ TOOLS MARQUEE ═════════════════ -->
-<div class="marquee" aria-label="Works with your tools">
-  <div class="lbl">Works with the shell and tools you already use</div>
-  <div class="mq-mask"><div class="mq" id="mq"></div></div>
-</div>
-
-<!-- ═════════════════ PILLARS ═════════════════ -->
-<section class="sec" id="workspace">
-  <div class="wrap">
-    <div class="sec-head center rv">
-      <span class="kicker">One workspace</span>
-      <h2>Automate, edit, build —<br><span class="grad">and change anything.</span></h2>
-      <p>Every project gets its own workspace: its folder, its git, its tasks and its plugins. The editor and your shell sit side by side, and all of it can be programmed.</p>
-    </div>
-    <div class="pillars">
-      <a class="pillar rv" href="#automate" style="--pc:var(--accent)">
-        <span class="pico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg></span>
-        <span class="pn">01</span>
-        <h3>Automate projects</h3>
-        <p>Tasks, watchers and monitors that run in the project's own folder, on its own git.</p>
-        <ul><li>Tests re-run on every save</li><li>Health checks on a timer</li><li>One git per workspace</li></ul>
-        <span class="more">How it works <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></span>
-      </a>
-      <a class="pillar rv" href="#edit" style="--pc:var(--cyan); --d:.08s">
-        <span class="pico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/></svg></span>
-        <span class="pn">02</span>
-        <h3>Edit documents</h3>
-        <p>A real editor, built in: code, Markdown, HTML with a live preview, notes and images.</p>
-        <ul><li>Mistakes caught as you type</li><li>Search across the project</li><li>Vim keys, or none</li></ul>
-        <span class="more">See the editor <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></span>
-      </a>
-      <a class="pillar rv" href="#build" style="--pc:var(--violet); --d:.16s">
-        <span class="pico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><circle cx="18" cy="6" r="2.5"/><path d="M8.5 6h7M18 8.5v7M7.8 7.8l8.4 8.4"/></svg></span>
-        <span class="pn">03</span>
-        <h3>Build workflows</h3>
-        <p>Commands, workflows and whole tools in plain Lua — with questions, timers and animation.</p>
-        <ul><li>Real Lua 5.4, LuaRocks too</li><li>Retries, conditions, parallel steps</li><li>Plugins with permissions</li></ul>
-        <span class="more">Write one <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></span>
-      </a>
-      <a class="pillar rv" href="#customize" style="--pc:var(--amber); --d:.24s">
-        <span class="pico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r="1.5"/><circle cx="17.5" cy="10.5" r="1.5"/><circle cx="8.5" cy="7.5" r="1.5"/><circle cx="6.5" cy="12.5" r="1.5"/><path d="M12 2a10 10 0 0 0 0 20c1.1 0 2-.9 2-2 0-.5-.2-1-.5-1.3-.3-.4-.5-.8-.5-1.3 0-1.1.9-2 2-2h2.4A5.6 5.6 0 0 0 22 9.8C22 5.5 17.5 2 12 2z"/></svg></span>
-        <span class="pn">04</span>
-        <h3>Customize everything</h3>
-        <p>85 theme settings, a live theme editor, your own keymaps, commands — even the art in the sky.</p>
-        <ul><li>Ten themes to start from</li><li>Sun, moon, clouds, stars</li><li>Your own pixel art</li></ul>
-        <span class="more">Make it yours <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></span>
-      </a>
+      <div class="term-hint" id="termHint">A live demo of the prompt — click it and type <code>'help</code>. It simulates OXIS; nothing runs on your machine.</div>
     </div>
   </div>
 </section>
 
-<!-- ═════════════════ STORY (sticky screenshots) ═════════════════ -->
-<section class="sec story-sec" aria-label="What OXIS does">
-  <div class="wrap story">
-    <div class="story-steps">
-      <article class="chapter" id="automate" data-shot="0" style="--pc:var(--accent)">
-        <span class="cn">01 · Automate projects</span>
-        <h3>Your project runs itself.</h3>
-        <p>A workspace is linked to the project's real folder and its own git repository, so two projects never share a remote. Tasks run in that folder, watchers react to saves, and monitors keep an eye on what's running.</p>
-        <ul class="ticks">
-          <li><code>'task test</code> runs the project's tests; <code>'autotest</code> runs them on every save</li>
-          <li><code>'healthcheck https://… every 30</code> watches a service and says when it changes</li>
-          <li><code>'mon</code>, <code>'top</code> and <code>'watch-mem</code> show the machine live — Ctrl+C stops them</li>
-          <li>Tab completes files, git branches, <code>npm run</code> scripts, SSH hosts and make targets in PowerShell, bash or cmd, and history suggests the rest as you type</li>
-          <li>Click <code>src/app.ts:12:5</code> in a compiler error to open the editor right there</li>
-          <li>PowerShell, Git Bash, WSL or cmd, tab by tab: <code>'shell gitbash</code></li>
-          <li>Fold, re-run or copy any command's output; rename, duplicate and drag tabs</li>
-          <li><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Space</kbd> puts a letter on every URL, path and hash on screen — type it to copy, no mouse</li>
-          <li><code>'broadcast</code> types into every pane at once; <code>'record</code> saves a tab as an asciinema cast; <code>'imgcat</code> shows an image right in the output</li>
-          <li>A Settings window (<kbd>Ctrl</kbd>+<kbd>,</kbd>), and sound effects you can swap for your own</li>
-          <li>Speaks modern terminal: hyperlinks, clipboard and progress from the tools that send them (OSC 8, 52, 9;4)</li>
-          <li><kbd>Win</kbd>+<kbd>`</kbd> brings OXIS to the front from any program; <em>Open in OXIS</em> on any folder in Explorer</li>
-          <li>Right-click the file tree to create, rename, duplicate or delete</li>
-        </ul>
-        <img class="mshot" src="assets/app-panes.webp" alt="OXIS with git on the left and the project's tests passing on the right" loading="lazy" width="1650" height="1050">
-      </article>
-      <article class="chapter" id="edit" data-shot="1" style="--pc:var(--cyan)">
-        <span class="cn">02 · Edit documents</span>
-        <h3>An editor where you work.</h3>
-        <p><code>'edit</code> opens any file beside your shell. Mistakes are underlined as you type, names are suggested, and <kbd>Ctrl+P</kbd> jumps to any file. HTML and Markdown get a live preview that loads your own stylesheets.</p>
-        <ul class="ticks">
-          <li>Search in files, find &amp; replace, a minimap and VS Code's editing keys</li>
-          <li>Vim's Normal, Insert and Visual modes — counts, registers, <code>dd</code>, <code>cw</code>, <code>/</code> — or turn them off</li>
-          <li>Notes, TODOs and snippets for the project, from the prompt: <code>'note</code>, <code>'todo</code>, <code>'snip</code></li>
-          <li>Pictures open in an image viewer, not as bytes</li>
-        </ul>
-        <img class="mshot" src="assets/app-editor.webp" alt="The OXIS editor catching a mistake as it is typed" loading="lazy" width="1650" height="1050">
-      </article>
-      <article class="chapter" id="build-story" data-shot="2" style="--pc:var(--violet)">
-        <span class="cn">03 · Build workflows</span>
-        <h3>Program the workspace.</h3>
-        <p>Commands, workflows, keymaps and events are plain Lua — in a plugin, a project's <code>workspace.lua</code> or your <code>config.lua</code>. Save, and it reloads. Plugins can ask questions, run on timers, animate a line and stream a program's output.</p>
-        <ul class="ticks">
-          <li>Real Lua 5.4 inside OXIS: about 7× faster than before, LuaRocks packages and C modules load, and a busy plugin never freezes the window</li>
-          <li><code>oxis.workflow</code>: steps with retries, conditions, env and parallel runs</li>
-          <li><code>oxis.ask</code> holds a conversation in the prompt; <code>oxis.line</code> redraws in place</li>
-          <li>Each plugin declares its permissions — <code>fs</code>, <code>net</code>, <code>shell</code> — and can't get more; the first use asks in the prompt</li>
-          <li><code>'plugin publish</code> sends yours to the Market</li>
-        </ul>
-        <img class="mshot" src="assets/app-autotest.webp" alt="The autotest plugin re-running tests on save" loading="lazy" width="1650" height="1050">
-      </article>
-      <article class="chapter" id="customize-story" data-shot="3" style="--pc:var(--amber)">
-        <span class="cn">04 · Customize everything</span>
-        <h3>Nothing is fixed.</h3>
-        <p>Every colour, font, glow and gradient is a theme setting you can change live. The prompt label, the status bar, the Home screen and its commands, your keymaps — all yours to change.</p>
-        <ul class="ticks">
-          <li><code>'theme edit</code>: all 85 settings with a live preview</li>
-          <li>The sky on Home: sun only, moon only, how many clouds and stars — or your own pixel art</li>
-          <li>Keymaps, Home shortcuts and new commands from <code>config.lua</code></li>
-          <li><code>'backup</code> and <code>'restore</code> take it all to another machine</li>
-        </ul>
-        <img class="mshot" src="assets/app-theme-custom.webp" alt="A customised theme with a gradient background and glow" loading="lazy" width="1650" height="1050">
-      </article>
-    </div>
-    <div class="story-stage" aria-hidden="true">
-      <div class="stage-frame">
-        <div class="stage-bar"><i></i><i></i><span id="stageTitle">acme-web — automate</span></div>
-        <div class="stage-shots" id="stageShots">
-          <img src="assets/app-panes.webp" alt="" class="on" width="1650" height="1050">
-          <img src="assets/app-editor.webp" alt="" loading="lazy" width="1650" height="1050">
-          <img src="assets/app-autotest.webp" alt="" loading="lazy" width="1650" height="1050">
-          <img src="assets/app-theme-custom.webp" alt="" loading="lazy" width="1650" height="1050">
-        </div>
-      </div>
-      <div class="stage-rail" id="stageRail"><i class="on"></i><i></i><i></i><i></i></div>
-    </div>
-  </div>
-</section>
-
-<!-- ═════════════════ REAL, NOT EMULATED ═════════════════ -->
-<section class="sec" id="features" style="padding-top:60px">
+<section class="sec" id="product">
   <div class="wrap">
     <div class="sec-head rv">
-      <span class="kicker">Real, not emulated</span>
-      <h2>Your real shell, files and tools.<br>Nothing pretends.</h2>
-      <p>OXIS starts your actual shell in a real pseudo-console, reads and writes your actual files, and runs your actual programs. It adds the pieces you'd otherwise juggle across five apps — and makes all of them programmable.</p>
+      <span class="kicker">What it is</span>
+      <h2>Not a terminal emulator.<br>A workspace around your shell.</h2>
+      <p>OXIS starts your actual shell in a real pseudo-console and leaves it alone. Around it, it puts the things you would otherwise juggle across several apps — and makes each of them scriptable.</p>
     </div>
-
-    <div class="bento">
-      <div class="cell spot c3 cwide rv">
-        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m4 17 6-6-6-6M12 19h8"/></svg></div>
+    <div class="ideas">
+      <div class="idea rv">
+        <span class="n">01 · REAL SHELLS</span>
         <h3>Your shell, unchanged</h3>
-        <p>PowerShell 7 or Windows PowerShell on Windows, your <code>$SHELL</code> on Linux. Anything that doesn't start with <code>'</code> goes straight to it — in full colour, with prompts, REPLs and full-screen programs. Tabs and split panes put a dev server beside your work, and they come back after a restart.</p>
-        <div class="shells"><span>pwsh 7</span><span>Windows PowerShell</span><span>bash</span><span>zsh</span><span>fish</span><span>OXIS_SHELL=…</span></div>
+        <p>Your profile, aliases and prompt load as usual. Anything that doesn't start with <code>'</code> goes straight to the shell — REPLs, prompts and full-screen programs like vim and htop included. Pick a different shell per tab.</p>
+        <div class="chips"><span>pwsh 7</span><span>Windows PowerShell</span><span>cmd</span><span>Git Bash</span><span>WSL</span><span>bash</span><span>zsh</span><span>fish</span></div>
       </div>
-      <div class="cell spot c3 cwide rv" style="--d:.08s">
-        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4c-1 0-2 .5-2 2v3c0 1-1 2-2 2 1 0 2 1 2 2v3c0 1.5 1 2 2 2M15 4c1 0 2 .5 2 2v3c0 1 1 2 2 2-1 0-2 1-2 2v3c0 1.5-1 2-2 2"/></svg></div>
-        <h3>50+ built-in <code>'commands</code></h3>
-        <p>Start a line with an apostrophe and OXIS takes it: open files, switch themes, run tasks and workflows, manage plugins and workspaces — with history, reverse search and readline keys in one prompt.</p>
-        <div class="cmds"><code>'edit</code><code>'task</code><code>'workflow</code><code>'workspace</code><code>'theme</code><code>'market</code><code>'plugin</code><code>'sysinfo</code><code>'update</code><code>'backup</code></div>
+      <div class="idea rv" style="--d:.06s">
+        <span class="n">02 · WORKSPACES</span>
+        <h3>One per project</h3>
+        <p>A workspace links to the project's folder and its own Git remote, and carries its tasks, workflows and plugins. Home shows its state at a glance: branch, changes, tasks and what to do next.</p>
+        <div class="chips"><span>'workspace init</span><span>'task test</span><span>'workflow check</span></div>
       </div>
-
-      <div class="cell spot c2 rv">
-        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></div>
-        <h3>Command palette</h3>
-        <p><kbd>Ctrl+Shift+P</kbd> finds any command, plugin shortcut or task as you type.</p>
-        <img class="shot" src="assets/app-palette.webp" alt="The OXIS command palette" loading="lazy" width="1650" height="1050">
-      </div>
-      <div class="cell spot c2 rv" style="--d:.06s">
-        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg></div>
-        <h3>Updates itself — safely</h3>
-        <p><code>'update install</code> fetches the newest build, swaps it in, and rolls back if it doesn't start. A new tab says when you're behind; <code>'version</code> shows the exact commit.</p>
-      </div>
-      <div class="cell spot c2 rv" style="--d:.12s">
-        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></div>
-        <h3>Private by default</h3>
-        <p>No account, no telemetry. The only network calls are the ones you can see: update checks, the Market, and what your plugins declare.</p>
-      </div>
-
-      <div class="cell spot c3 cwide rv">
-        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 4 7v6c0 4.4 3.4 7.4 8 8 4.6-.6 8-3.6 8-8V7z"/><path d="m9 12 2 2 4-4"/></svg></div>
-        <h3>Plugins that can't overreach</h3>
-        <p>Each Lua plugin runs in its own VM and declares what it touches. A plugin can't take over OXIS's own commands, and one that fails can't take your session down with it.</p>
-      </div>
-      <div class="cell spot c3 cwide rv" style="--d:.08s">
-        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M3 9h18M8 21h8"/></svg></div>
-        <h3>Desktop app — or a browser tab</h3>
-        <p>A native window on Windows, Linux and macOS (Go + WebView), and the same UI at <code>http://127.0.0.1:1420</code> while it runs. One ~14&nbsp;MB binary.</p>
+      <div class="idea rv" style="--d:.12s">
+        <span class="n">03 · LUA</span>
+        <h3>Programmable throughout</h3>
+        <p>Commands, workflows, keymaps, events and Home panels are plain Lua 5.4 — in a plugin, a project's <code>workspace.lua</code> or your <code>config.lua</code>. Save, and it reloads. Plugins declare their permissions.</p>
+        <div class="chips"><span>oxis.command</span><span>oxis.workflow</span><span>oxis.ask</span><span>oxis.every</span></div>
       </div>
     </div>
   </div>
 </section>
 
-<!-- ═════════════════ BUILD (code) ═════════════════ -->
-<section class="sec" id="build" style="padding-top:40px">
+<section class="sec" id="tour-rows">
+  <div class="wrap rows">
+    <div class="row">
+      <div class="row-text rv">
+        <span class="kicker">Home</span>
+        <h3>The project at a glance.</h3>
+        <p>Home is the workspace's start page: its folder, Git remote and plugins; the tasks you run most, one click each; and the project's Git state, today's activity and recent files beside them.</p>
+        <ul class="facts">
+          <li>Next up suggests what needs you — uncommitted changes, unpushed commits, a command that just failed</li>
+          <li>Start lists the commands and shortcuts that matter on day one</li>
+          <li>Plugins can add their own header and shortcuts with <code>oxis.dashboard</code></li>
+        </ul>
+      </div>
+      <figure class="frame rv" style="--d:.08s"><img src="assets/app-home.webp" alt="OXIS Home: the acme-web workspace with its tasks, Git state and suggestions" width="1650" height="1050" loading="lazy"></figure>
+    </div>
+    <div class="row flip">
+      <div class="row-text rv">
+        <span class="kicker">Terminal</span>
+        <h3>Tabs, splits and one prompt.</h3>
+        <p>Every tab and split pane is its own shell, opened in the folder you're working in. One prompt at the bottom sends to the focused pane, with history, reverse search and completion in any shell.</p>
+        <ul class="facts">
+          <li>Tab completes files, Git branches, <code>npm run</code> scripts, SSH hosts and make targets; history suggests the rest</li>
+          <li><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Space</kbd> labels every URL, path and hash on screen — type the letter to copy</li>
+          <li>Fold, re-run or copy any command's output; <code>'broadcast</code> types into every pane at once</li>
+          <li>Hyperlinks, clipboard and progress from the tools that send them (OSC 8, 52, 9;4)</li>
+        </ul>
+      </div>
+      <figure class="frame rv" style="--d:.08s"><img src="assets/app-panes.webp" alt="Two split panes in OXIS: Git on the left, the project's tests on the right" width="1650" height="1050" loading="lazy"></figure>
+    </div>
+    <div class="row">
+      <div class="row-text rv">
+        <span class="kicker">Editor</span>
+        <h3>An editor beside your shell.</h3>
+        <p><code>'edit</code> opens any file next to the prompt, with a file tree, tabs and a minimap. Mistakes are underlined as you type, names are suggested, and HTML and Markdown get a live preview.</p>
+        <ul class="facts">
+          <li><kbd>Ctrl</kbd>+<kbd>P</kbd> to any file, search in files, find &amp; replace, go to symbol</li>
+          <li>Vim's Normal, Insert and Visual modes — or turn them off</li>
+          <li>Click <code>src/app.ts:12:5</code> in a compiler error to open it right there</li>
+        </ul>
+      </div>
+      <figure class="frame rv" style="--d:.08s"><img src="assets/app-editor.webp" alt="The OXIS editor with the file tree open beside a TypeScript file" width="1650" height="1050" loading="lazy"></figure>
+    </div>
+    <div class="row flip">
+      <div class="row-text rv">
+        <span class="kicker">Commands</span>
+        <h3>Everything is a command.</h3>
+        <p>Start a line with an apostrophe and OXIS takes it: more than 60 built-in commands for files, themes, tasks, workflows, plugins and workspaces. <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd> finds any of them as you type.</p>
+        <ul class="facts">
+          <li>The palette also searches plugin commands, tasks and your history</li>
+          <li><kbd>Ctrl</kbd>+<kbd>,</kbd> opens Settings: every setting, grouped and searchable</li>
+          <li><code>'update install</code> swaps in the newest build and rolls back if it doesn't start</li>
+        </ul>
+      </div>
+      <figure class="frame rv" style="--d:.08s"><img src="assets/app-palette.webp" alt="The OXIS command palette searching for a command" width="1650" height="1050" loading="lazy"></figure>
+    </div>
+  </div>
+</section>
+
+<section class="sec" id="features">
+  <div class="wrap">
+    <div class="sec-head rv">
+      <span class="kicker">In the box</span>
+      <h2>Everything ships in one binary.</h2>
+      <p>About 14 MB, no runtime to install. A native window on Windows and Linux (Go and WebView), and the same interface in a browser tab while it runs.</p>
+    </div>
+    <div class="box rv">
+      <div><h4>Per-tab shells</h4><p>PowerShell, Git Bash, WSL or cmd on Windows; your <code>$SHELL</code> on Linux. <code>'shell gitbash</code> opens a tab with another.</p></div>
+      <div><h4>Session restore</h4><p>Tabs, splits, folders, recent output and unsaved editor text come back after a restart.</p></div>
+      <div><h4>Workspaces</h4><p>Per-project folder, Git remote, tasks, workflows and plugins; detects Node, Go, Rust and Python projects and suggests tasks.</p></div>
+      <div><h4>Workflows</h4><p>Steps with retries, conditions, environment and parallel runs, failing on real exit codes.</p></div>
+      <div><h4>Lua plugins</h4><p>Real Lua 5.4 with LuaRocks and C modules, each plugin in its own VM with declared permissions.</p></div>
+      <div><h4>Plugin Market</h4><p><code>'market install</code> from the terminal; <code>'plugin publish</code> files yours for review.</p></div>
+      <div><h4>Built-in editor</h4><p>Live problems, suggestions, search, minimap, Vim modes and a Markdown and HTML preview.</p></div>
+      <div><h4>Quick select &amp; images</h4><p>Copy anything on screen with two keys; <code>'imgcat</code> shows pictures in the output.</p></div>
+      <div><h4>Recording &amp; triggers</h4><p><code>'record</code> saves a tab as an asciinema cast; <code>'trigger</code> highlights the lines that matter, with a sound or notification.</p></div>
+      <div><h4>Summon key</h4><p><kbd>Win</kbd>+<kbd>`</kbd> brings OXIS to the front from anywhere; <em>Open in OXIS</em> on folders in Explorer.</p></div>
+      <div><h4>Self-updating</h4><p><code>'update install</code> installs the newest build; <code>'version</code> shows the exact commit and build.</p></div>
+      <div><h4>Private by default</h4><p>No account and no telemetry. Network use is visible: update checks, the Market, and what plugins declare.</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="sec" id="lua">
   <div class="wrap split">
     <div class="rv">
-      <span class="kicker">Programmable to the core</span>
-      <h2>Your workspace is<br>a Lua program.</h2>
-      <p style="color:var(--muted); font-size:18px">Commands, tasks, workflows, keymaps, events and the Home screen are plain Lua. Write a plugin in OXIS's own editor, save, and it's live.</p>
+      <span class="kicker">Lua</span>
+      <h2>Your workspace<br>is a program.</h2>
+      <p>Write a plugin in OXIS's own editor, save it, and it's live. The same API drives the plugins in the Market.</p>
       <div class="points" id="points">
-        <button class="point on" data-tab="0"><span class="n">01</span><div><h4>Add your own commands</h4><p><code>oxis.command</code> registers <code>'pr</code>; <code>oxis.quote</code> keeps arguments safe for PowerShell and bash alike.</p></div></button>
-        <button class="point" data-tab="1"><span class="n">02</span><div><h4>Automate the boring runs</h4><p>Workflows with retries, conditions, env and parallel steps — failing on real exit codes.</p></div></button>
+        <button class="point on" data-tab="0"><span class="n">01</span><div><h4>Add your own commands</h4><p><code>oxis.command</code> registers <code>'pr</code>; <code>oxis.quote</code> keeps arguments safe in PowerShell and bash alike.</p></div></button>
+        <button class="point" data-tab="1"><span class="n">02</span><div><h4>Automate the routine runs</h4><p>Workflows with retries, conditions, environment and parallel steps.</p></div></button>
         <button class="point" data-tab="2"><span class="n">03</span><div><h4>Ask, wait and animate</h4><p><code>oxis.ask</code> asks in the prompt, <code>oxis.every</code> runs on a timer, <code>oxis.line</code> redraws a line in place.</p></div></button>
-        <button class="point" data-tab="3"><span class="n">04</span><div><h4>Theme every pixel</h4><p>16 core colours and 69 options: fonts, glow, gradients, the prompt, the status bar, syntax colours and the sky.</p></div></button>
+        <button class="point" data-tab="3"><span class="n">04</span><div><h4>Theme every pixel</h4><p>Themes are JSON: 16 core colours and 57 options, from fonts and glow to syntax colours and the prompt.</p></div></button>
       </div>
     </div>
-    <div class="editor rv" style="--d:.1s">
+    <div class="editor rv" style="--d:.08s">
       <div class="ed-tabs" role="tablist">
         <button class="ed-tab on" data-tab="0" role="tab"><span class="dir">plugins/</span>pr.lua</button>
         <button class="ed-tab" data-tab="1" role="tab"><span class="dir">workflows/</span>release.lua</button>
@@ -1051,47 +641,36 @@
 <pre class="ed-pane on"><span class="ln"><span class="c">--[[@manifest</span></span><span class="ln"><span class="c">version: 1.0.0</span></span><span class="ln"><span class="c">description: open a pull request for a branch</span></span><span class="ln"><span class="c">permissions: shell</span></span><span class="ln"><span class="c">]]</span></span><span class="ln"></span><span class="ln"><span class="pr">oxis</span>.<span class="f">command</span>(<span class="s">"pr"</span>, <span class="k">function</span>(args, rest)</span><span class="ln">  <span class="k">local</span> branch <span class="o">=</span> rest <span class="o">~=</span> <span class="s">""</span> <span class="k">and</span> rest <span class="k">or</span> <span class="s">"HEAD"</span></span><span class="ln">  <span class="pr">oxis</span>.<span class="f">echo</span>(<span class="s">"opening a PR for "</span> <span class="o">..</span> branch)</span><span class="ln">  <span class="pr">oxis</span>.<span class="f">run</span>(<span class="s">"gh pr create --web --head "</span> <span class="o">..</span> <span class="pr">oxis</span>.<span class="f">quote</span>(branch))</span><span class="ln"><span class="k">end</span>, <span class="s">"open a GitHub PR"</span>)</span><span class="ln"></span><span class="ln"><span class="pr">oxis</span>.<span class="f">autocmd</span>(<span class="s">"ShellOpen"</span>, <span class="k">function</span>()</span><span class="ln">  <span class="pr">oxis</span>.<span class="f">echo</span>(<span class="s">"pr ready — try 'pr my-branch"</span>)</span><span class="ln"><span class="k">end</span>)</span></pre>
 <pre class="ed-pane"><span class="ln"><span class="pr">oxis</span>.<span class="f">workflow</span>(<span class="s">"release"</span>, {</span><span class="ln">  env <span class="o">=</span> { NODE_ENV <span class="o">=</span> <span class="s">"production"</span> },</span><span class="ln">  steps <span class="o">=</span> {</span><span class="ln">    { task <span class="o">=</span> <span class="s">"install"</span> },</span><span class="ln">    { run <span class="o">=</span> <span class="s">"npm run build"</span>, retry <span class="o">=</span> <span class="num">2</span> },</span><span class="ln">    { run <span class="o">=</span> <span class="s">"npm test"</span>, continueOnError <span class="o">=</span> <span class="k">true</span> },</span><span class="ln">    { command <span class="o">=</span> <span class="s">"version"</span> },            <span class="c">-- an 'command</span></span><span class="ln">    { condition <span class="o">=</span> <span class="s">"env:DEPLOY"</span>,</span><span class="ln">      run <span class="o">=</span> <span class="s">"npm run deploy"</span> },         <span class="c">-- only when DEPLOY is set</span></span><span class="ln">    { parallel <span class="o">=</span> {</span><span class="ln">        { command <span class="o">=</span> <span class="s">"plugin list"</span> },</span><span class="ln">        { command <span class="o">=</span> <span class="s">"workspace info"</span> } } },</span><span class="ln">  },</span><span class="ln">}, <span class="s">"build, test and deploy"</span>)</span><span class="ln"></span><span class="ln"><span class="c">-- 'workflow release</span></span></pre>
 <pre class="ed-pane"><span class="ln"><span class="pr">oxis</span>.<span class="f">command</span>(<span class="s">"ship"</span>, <span class="k">function</span>()</span><span class="ln">  <span class="pr">oxis</span>.<span class="f">ask</span>(<span class="s">"Deploy to production? (yes/no)"</span>, <span class="k">function</span>(answer)</span><span class="ln">    <span class="k">if</span> answer <span class="o">~=</span> <span class="s">"yes"</span> <span class="k">then</span> <span class="k">return</span> <span class="pr">oxis</span>.<span class="f">echo</span>(<span class="s">"not shipped"</span>, <span class="s">"dim"</span>) <span class="k">end</span></span><span class="ln">    <span class="k">local</span> spin, i <span class="o">=</span> { <span class="s">"⠋"</span>, <span class="s">"⠙"</span>, <span class="s">"⠹"</span>, <span class="s">"⠸"</span>, <span class="s">"⠼"</span>, <span class="s">"⠴"</span> }, <span class="num">0</span></span><span class="ln">    <span class="k">local</span> line <span class="o">=</span> <span class="pr">oxis</span>.<span class="f">line</span>(<span class="s">"⠋ deploying…"</span>, <span class="s">"accent"</span>)</span><span class="ln">    <span class="k">local</span> tick <span class="o">=</span> <span class="pr">oxis</span>.<span class="f">every</span>(<span class="num">0.08</span>, <span class="k">function</span>()</span><span class="ln">      i <span class="o">=</span> i <span class="o">+</span> <span class="num">1</span>; line:<span class="f">set</span>(spin[i <span class="o">%</span> <span class="o">#</span>spin <span class="o">+</span> <span class="num">1</span>] <span class="o">..</span> <span class="s">" deploying…"</span>)</span><span class="ln">    <span class="k">end</span>)</span><span class="ln">    <span class="pr">oxis</span>.process.<span class="f">spawn</span>({ cmd <span class="o">=</span> <span class="s">"npm"</span>, args <span class="o">=</span> { <span class="s">"run"</span>, <span class="s">"deploy"</span> } }, {</span><span class="ln">      exit <span class="o">=</span> <span class="k">function</span>(code)</span><span class="ln">        tick:<span class="f">stop</span>()</span><span class="ln">        line:<span class="f">set</span>(code <span class="o">==</span> <span class="num">0</span> <span class="k">and</span> <span class="s">"✓ deployed"</span> <span class="k">or</span> <span class="s">"✗ deploy failed"</span>,</span><span class="ln">                 code <span class="o">==</span> <span class="num">0</span> <span class="k">and</span> <span class="s">"ok"</span> <span class="k">or</span> <span class="s">"err"</span>)</span><span class="ln">      <span class="k">end</span>,</span><span class="ln">    })</span><span class="ln">  <span class="k">end</span>, { label <span class="o">=</span> <span class="s">"ship"</span> })</span><span class="ln"><span class="k">end</span>, <span class="s">"deploy, after asking"</span>)</span></pre>
-<pre class="ed-pane"><span class="ln">{</span><span class="ln">  <span class="f">"name"</span>: <span class="s">"harbour"</span>,</span><span class="ln">  <span class="f">"extends"</span>: <span class="s">"slate"</span>,</span><span class="ln">  <span class="f">"purple"</span>: <span class="s">"#5cc8ff"</span>, <span class="f">"purple2"</span>: <span class="s">"#2f8fd8"</span>,</span><span class="ln">  <span class="f">"success"</span>: <span class="s">"#7ee787"</span>, <span class="f">"statusBg"</span>: <span class="s">"#1f6fb2"</span>,</span><span class="ln">  <span class="f">"font"</span>: <span class="s">"'Fira Code', monospace"</span>,</span><span class="ln">  <span class="f">"fontSize"</span>: <span class="num">14</span>, <span class="f">"ligatures"</span>: <span class="k">true</span>,</span><span class="ln">  <span class="f">"promptText"</span>: <span class="s">"⚓ ❯"</span>, <span class="f">"glow"</span>: <span class="num">0.25</span>,</span><span class="ln">  <span class="f">"skyMode"</span>: <span class="s">"moon"</span>, <span class="f">"starCount"</span>: <span class="num">40</span>,</span><span class="ln">  <span class="f">"moonArt"</span>: <span class="s">".###./##.##/#####/.###."</span>,</span><span class="ln">  <span class="f">"backgroundGradient"</span>:</span><span class="ln">    <span class="s">"linear-gradient(160deg, #0e1018 40%, #12304a)"</span></span><span class="ln">}</span><span class="ln"></span><span class="ln"><span class="c">// 'theme import harbour.json · or tweak live:</span></span><span class="ln"><span class="c">// 'theme set glow 0.45</span></span></pre>
+<pre class="ed-pane"><span class="ln">{</span><span class="ln">  <span class="f">"name"</span>: <span class="s">"harbour"</span>,</span><span class="ln">  <span class="f">"extends"</span>: <span class="s">"slate"</span>,</span><span class="ln">  <span class="f">"purple"</span>: <span class="s">"#5cc8ff"</span>, <span class="f">"purple2"</span>: <span class="s">"#2f8fd8"</span>,</span><span class="ln">  <span class="f">"success"</span>: <span class="s">"#7ee787"</span>, <span class="f">"statusBg"</span>: <span class="s">"#1f6fb2"</span>,</span><span class="ln">  <span class="f">"font"</span>: <span class="s">"'Fira Code', monospace"</span>,</span><span class="ln">  <span class="f">"fontSize"</span>: <span class="num">14</span>, <span class="f">"ligatures"</span>: <span class="k">true</span>,</span><span class="ln">  <span class="f">"promptText"</span>: <span class="s">"⚓ ❯"</span>, <span class="f">"glow"</span>: <span class="num">0.25</span>,</span><span class="ln">  <span class="f">"cursorStyle"</span>: <span class="s">"bar"</span>, <span class="f">"radius"</span>: <span class="num">6</span>,</span><span class="ln">  <span class="f">"backgroundGradient"</span>:</span><span class="ln">    <span class="s">"linear-gradient(160deg, #0e1018 40%, #12304a)"</span></span><span class="ln">}</span><span class="ln"></span><span class="ln"><span class="c">// 'theme import harbour.json · or tweak live:</span></span><span class="ln"><span class="c">// 'theme set glow 0.45</span></span></pre>
       </div>
     </div>
   </div>
 </section>
 
-<!-- ═════════════════ CUSTOMIZE ═════════════════ -->
-<section class="sec" id="customize" style="padding-top:40px">
+<section class="sec" id="themes">
   <div class="wrap">
     <div class="sec-head center rv">
-      <span class="kicker">Customize</span>
-      <h2>Ten themes. 85 settings.<br><span class="grad">Change anything.</span></h2>
-      <p>Click one — this page and the demo above switch with it. In OXIS, <code>'theme set &lt;key&gt; &lt;value&gt;</code> changes anything live and saves your own copy.</p>
+      <span class="kicker">Themes</span>
+      <h2>Ten themes. 73 settings.<br>All of them yours to change.</h2>
+      <p>Pick one — this page and the demo above follow it. In OXIS, <code>'theme set &lt;key&gt; &lt;value&gt;</code> changes anything live and keeps your own copy.</p>
     </div>
     <div class="swatches" id="swatches"></div>
     <div class="theme-cols">
-      <div class="cell spot rv"><h3>Live theme editor</h3><p><code>'theme edit</code> opens every setting with a live preview: colours, fonts, spacing, glow, background images and gradients.</p>
-        <img class="shot" src="assets/app-theme-editor.webp" alt="The OXIS theme editor" loading="lazy" width="1650" height="1050"></div>
-      <div class="cell spot sky-cell rv" style="--d:.08s"><h3>Even the sky</h3><p>Home has a pixel-art sky. Pick the sun or the moon, how many clouds and stars — or draw your own. Try it:</p>
-        <div class="sky-demo">
-          <canvas id="skyCanvas" width="120" height="58" aria-label="A pixel-art sky like the one on OXIS's Home screen"></canvas>
-          <div class="sky-ctl" role="group" aria-label="Sky">
-            <button class="sky-b on" data-sky="sun">sun</button><button class="sky-b" data-sky="moon">moon</button>
-            <label class="sky-r">clouds <input id="skyClouds" type="range" min="0" max="8" value="4"></label>
-          </div>
-          <label class="sky-art"><span>art</span><input id="skyArt" type="text" spellcheck="false" autocomplete="off" placeholder=".##./####/####/.##." aria-label="Your own pixel art: rows split by /, # a pixel, 1 to 9 dimmer, . empty"></label>
-          <code class="sky-cmd" id="skyCmd">'theme set skyMode sun</code>
-        </div></div>
-      <div class="cell spot rv" style="--d:.16s"><h3>Themes are just JSON</h3><p>Drop files in <code>~/.oxis/themes/</code>, extend a built-in with <code>"extends"</code>, or <code>'theme import</code> one. Unknown keys are reported, never fatal.</p>
-        <div class="keys"><code>bg</code><code>purple</code><code>statusBg</code><code>promptText</code><code>glow</code><code>font</code><code>ligatures</code><code>radius</code><code>cursorStyle</code><code>synKeyword</code><code>skyMode</code><code>cloudCount</code><code>starCount</code><code>sunArt</code><code>moonArt</code><code>backgroundGradient</code><code>css</code></div>
-        <img class="shot" src="assets/app-theme-custom.webp" alt="A customised midnight theme with a gradient background and glow" loading="lazy" width="1650" height="1050"></div>
+      <div class="tcell rv"><div class="tcell-text"><h3>A live theme editor</h3><p><code>'theme edit</code> opens every setting with a live preview: colours, fonts, spacing, glow, background images and gradients.</p></div>
+        <img src="assets/app-theme-editor.webp" alt="The OXIS theme editor" loading="lazy" width="1650" height="1050"></div>
+      <div class="tcell rv" style="--d:.06s"><div class="tcell-text"><h3>Themes are just JSON</h3><p>Drop files in <code>~/.oxis/themes/</code>, extend a built-in with <code>"extends"</code>, or <code>'theme import</code> one. Unknown keys are reported, never fatal.</p>
+        <div class="keys"><code>bg</code><code>purple</code><code>statusBg</code><code>promptText</code><code>glow</code><code>font</code><code>ligatures</code><code>radius</code><code>cursorStyle</code><code>synKeyword</code><code>backgroundGradient</code><code>css</code></div></div>
+        <img src="assets/themes-grid.webp" alt="The Themes page in OXIS, each theme shown in its own colours" loading="lazy" width="1650" height="1050"></div>
     </div>
   </div>
 </section>
 
-<!-- ═════════════════ GALLERY ═════════════════ -->
-<section class="sec" id="tour" style="padding-top:40px">
+<section class="sec" id="tour">
   <div class="wrap">
     <div class="sec-head center rv">
-      <span class="kicker">Take the tour</span>
-      <h2>See it in action.</h2>
+      <span class="kicker">Screens</span>
+      <h2>Straight from the app.</h2>
+      <p>Every picture here is a screenshot or recording of OXIS itself.</p>
     </div>
     <div class="gtabs rv" id="gtabs"></div>
     <div class="gframe rv"><div class="gstage" id="gstage"></div></div>
@@ -1099,24 +678,12 @@
   </div>
 </section>
 
-<!-- ═════════════════ STATS ═════════════════ -->
-<section class="wrap" aria-label="OXIS in numbers">
-  <div class="stats rv">
-    <div class="stat"><div class="v"><span data-count="50">0</span><small>+</small></div><div class="l">built-in commands</div></div>
-    <div class="stat"><div class="v"><span data-count="9">0</span></div><div class="l">built-in plugins</div></div>
-    <div class="stat"><div class="v"><span data-count="85">0</span></div><div class="l">theme settings</div></div>
-    <div class="stat"><div class="v">~<span data-count="14">0</span><small>MB</small></div><div class="l">one binary, everything included</div></div>
-    <div class="stat"><div class="v"><span data-count="0">0</span></div><div class="l">telemetry calls</div></div>
-  </div>
-</section>
-
-<!-- ═════════════════ MARKET ═════════════════ -->
 <section class="sec" id="market">
   <div class="wrap">
     <div class="sec-head rv">
-      <span class="kicker">plugin.market</span>
+      <span class="kicker">Market</span>
       <h2>Extend your workspace.</h2>
-      <p>Every free plugin is a plain, readable Lua script — read it, fork it, or install it with <code>'market install &lt;name&gt;</code>. Publish yours with <code>'plugin publish</code>, which files it for review as a GitHub issue. Premium plugins are monthly subscriptions via Stripe — coming soon.</p>
+      <p>Every free plugin is a plain, readable Lua script — read it, fork it, or install it with <code>'market install &lt;name&gt;</code>. Publish yours with <code>'plugin publish</code>, which files it for review. Premium plugins will be monthly subscriptions via Stripe; none can be bought yet.</p>
     </div>
     <div class="market-shell rv">
       <div class="cmdwrap">
@@ -1127,9 +694,9 @@
         </div>
         <div class="filters" id="filters"></div>
         <div class="region-row">
-          <label class="region-label" for="region-select">region<i> · display currency</i></label>
+          <label class="region-label" for="region-select">Region<i> · display currency</i></label>
           <select id="region-select"></select>
-          <span class="region-hint">prices for reference — premium plugins check out through Stripe (subscriptions only)</span>
+          <span class="region-hint">prices for reference — premium plugins check out through Stripe</span>
         </div>
       </div>
       <div class="grid" id="grid"></div>
@@ -1143,8 +710,7 @@
   </div>
 </section>
 
-<!-- ═════════════════ INSTALL ═════════════════ -->
-<section class="sec" id="install" style="padding-top:40px">
+<section class="sec" id="install">
   <div class="wrap">
     <div class="sec-head center rv">
       <span class="kicker">Install</span>
@@ -1239,42 +805,38 @@
   </div>
 </section>
 
-<!-- ═════════════════ FAQ ═════════════════ -->
-<section class="sec" id="faq" style="padding-top:40px">
+<section class="sec" id="faq">
   <div class="wrap">
     <div class="sec-head center rv">
       <span class="kicker">Questions</span>
-      <h2>Switching? Good questions.</h2>
+      <h2>Good questions.</h2>
     </div>
     <div class="faq">
-      <details class="rv" open><summary>What is OXIS, exactly?</summary>
-        <div class="a">A programmable workspace for automating projects, editing documents and building workflows. It runs your real shell — not an imitation of one — beside a built-in editor, per-project workspaces, tasks, workflows and Lua plugins, and every part of it can be changed: themes, keymaps, commands, the Home screen, even the sky.</div></details>
-      <details class="rv"><summary>Do I have to change shells or relearn anything?</summary>
-        <div class="a">No. OXIS runs the shell you already use — PowerShell 7 (or Windows PowerShell) on Windows and your <code>$SHELL</code> on Linux, including zsh and fish; set <code>OXIS_SHELL</code> to pick another. Your profile, aliases and prompt load as usual, and anything not starting with <code>'</code> goes straight to the shell.</div></details>
-      <details class="rv"><summary>Does OXIS collect any data?</summary>
+      <details open><summary>What is OXIS, exactly?</summary>
+        <div class="a">A development workspace that runs your real shell — not an imitation of one — with tabs and split panes, a built-in editor, per-project workspaces, tasks, workflows and Lua plugins around it. Every part can be changed: themes, keymaps, commands and the Home screen.</div></details>
+      <details><summary>Do I have to change shells or relearn anything?</summary>
+        <div class="a">No. OXIS runs the shell you already use — PowerShell 7 (or Windows PowerShell) on Windows and your <code>$SHELL</code> on Linux, including zsh and fish; <code>'shell &lt;name&gt;</code> opens a tab with another, and <code>OXIS_SHELL</code> changes the default. Your profile, aliases and prompt load as usual, and anything not starting with <code>'</code> goes straight to the shell.</div></details>
+      <details><summary>Does OXIS collect any data?</summary>
         <div class="a">No telemetry and no account. OXIS only goes online to check GitHub for updates (<code>'config set updateCheckOnStartup false</code> turns that off), to browse the Market, and for requests your plugins make — which need the <code>net</code> permission. <code>'update install</code> counts itself in the public download total once a day (<code>'config set countInstalls false</code> turns that off).</div></details>
-      <details class="rv"><summary>Is it free?</summary>
+      <details><summary>Is it free?</summary>
         <div class="a">Yes. OXIS is open source under the <a href="https://github.com/oxlaboratory/oxis/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">Apache License 2.0</a>, and free Market plugins stay free. Premium plugins are planned as optional monthly subscriptions; none can be bought yet.</div></details>
-      <details class="rv"><summary>How do updates work — and how do I know what I'm running?</summary>
-        <div class="a"><code>'update</code> compares your build with <code>main</code> on GitHub; a new tab tells you when you're behind. <code>'update install</code> fetches the latest build, swaps it in and restores the old one if the new one fails to start. <code>'version</code> shows the version, build number, commit, release tag, channel and build date — <code>'version --copy</code> puts it on your clipboard for a bug report.</div></details>
-      <details class="rv"><summary>Can I bring my setup with me?</summary>
+      <details><summary>How do updates work — and how do I know what I'm running?</summary>
+        <div class="a"><code>'update</code> compares your build with <code>main</code> on GitHub; a new tab tells you when you're behind. <code>'update install</code> fetches the latest build, swaps it in and restores the old one if the new one fails to start. <code>'version</code> shows the version, build number, commit, release tag, channel and build date.</div></details>
+      <details><summary>Can I bring my setup with me?</summary>
         <div class="a">Your shell profile works as-is. On top of that, <code>~/.oxis/config.lua</code> runs at startup, themes are JSON files in <code>~/.oxis/themes/</code>, each project can carry a <code>.oxis/workspace.lua</code>, and <code>'backup</code> / <code>'restore</code> move everything between machines.</div></details>
-      <details class="rv"><summary>What about macOS?</summary>
-        <div class="a">There's a preview for Apple silicon: <code>OXIS.app</code> in the latest build. Every change is built and tested on macOS, but nobody has used it on a Mac yet, so issues and pull requests are very welcome. It isn't signed: right-click → Open the first time.</div></details>
+      <details><summary>What about macOS?</summary>
+        <div class="a">There's a preview for Apple silicon: <code>OXIS.app</code> in the latest build. Every change is built on macOS by CI, but it hasn't been used on a Mac by a person yet, so issues and pull requests are very welcome. It isn't signed: right-click → Open the first time.</div></details>
     </div>
   </div>
 </section>
 
-<!-- ═════════════════ CLOSING CTA ═════════════════ -->
-<section class="wrap">
-  <div class="final rv">
-    <span class="kicker">Terminals were the beginning</span>
-    <h2>Make your workspace<br>work the way you do.</h2>
-    <p>Install OXIS, keep your shell, and program the rest.</p>
-    <div class="cta">
-      <a class="btn btn-primary" href="#install"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0-5-5m5 5 5-5M4 19h16"/></svg>Download OXIS</a>
-      <a class="btn btn-ghost" href="https://github.com/oxlaboratory/oxis" target="_blank" rel="noopener noreferrer">Read the source</a>
-    </div>
+<section class="wrap final">
+  <span class="kicker">Get started</span>
+  <h2>Keep your shell.<br>Program the rest.</h2>
+  <p>Install OXIS, open your project, and type <code>'help</code>.</p>
+  <div class="cta">
+    <a class="btn btn-primary" href="#install"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0-5-5m5 5 5-5M4 19h16"/></svg>Download OXIS</a>
+    <a class="btn btn-ghost" href="https://github.com/oxlaboratory/oxis" target="_blank" rel="noopener noreferrer">Read the source</a>
   </div>
 </section>
 
@@ -1284,16 +846,14 @@
   <div class="wrap">
     <div class="foot">
       <div>
-        <a class="brand" href="#top" style="display:inline-flex; padding:0; color:var(--text)">
-          <svg viewBox="0 0 100 100" aria-hidden="true"><defs><linearGradient id="o2L" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="20" y2="100"><stop offset="0" stop-color="#2bb35e"/><stop offset=".55" stop-color="#147a37"/><stop offset="1" stop-color="#073f1c"/></linearGradient><linearGradient id="o2R" gradientUnits="userSpaceOnUse" x1="80" y1="0" x2="100" y2="100"><stop offset="0" stop-color="#7dfdab"/><stop offset=".5" stop-color="#3fdc73"/><stop offset="1" stop-color="#15964a"/></linearGradient><linearGradient id="o2S1" gradientUnits="userSpaceOnUse" x1="52" y1="0" x2="63" y2="0"><stop offset="0" stop-color="#021a0a" stop-opacity="0"/><stop offset="1" stop-color="#021a0a" stop-opacity=".6"/></linearGradient><linearGradient id="o2S2" gradientUnits="userSpaceOnUse" x1="37" y1="0" x2="48" y2="0"><stop offset="0" stop-color="#021a0a" stop-opacity=".5"/><stop offset="1" stop-color="#021a0a" stop-opacity="0"/></linearGradient><clipPath id="o2cl"><path d="M-8 -8L65.08 -8L34.92 108L-8 108Z"/></clipPath><clipPath id="o2cr"><path d="M65.08 -8L108 -8L108 108L34.92 108Z"/></clipPath><clipPath id="o2ring"><path clip-rule="evenodd" d="M50.0 0C86.0 0 100 14.0 100 50.0C100 86.0 86.0 100 50.0 100C14.0 100 0 86.0 0 50.0C0 14.0 14.0 0 50.0 0ZM50.0 24C68.72 24 76 31.28 76 50.0C76 68.72 68.72 76 50.0 76C31.28 76 24 68.72 24 50.0C24 31.28 31.28 24 50.0 24Z"/></clipPath></defs><g clip-path="url(#o2ring)"><path fill="url(#o2L)" clip-path="url(#o2cl)" d="M-8 -8H108V108H-8Z"/><path fill="url(#o2R)" clip-path="url(#o2cr)" d="M-8 -8H108V108H-8Z"/><path fill="url(#o2S1)" d="M54.08 -8L65.08 -8L55.20 30L44.20 30Z"/><path fill="#c8ffdc" fill-opacity=".45" d="M65.08 -8L66.18 -8L56.30 30L55.20 30Z"/><path fill="url(#o2S2)" d="M44.80 70L55.80 70L45.92 108L34.92 108Z"/><path fill="#7ff0a8" fill-opacity=".22" d="M43.70 70L44.80 70L34.92 108L33.82 108Z"/></g></svg>OXIS
-        </a>
-        <p>A programmable workspace for automating projects, editing documents and building workflows — with an entirely customizable experience. OXIS: Open Xenial Intelligent Shell.</p>
+        <a class="brand" href="#top"><svg viewBox="0 0 100 100" aria-hidden="true"><defs><linearGradient id="o3xL" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="20" y2="100"><stop offset="0" stop-color="#2bb35e"/><stop offset=".55" stop-color="#147a37"/><stop offset="1" stop-color="#073f1c"/></linearGradient><linearGradient id="o3xR" gradientUnits="userSpaceOnUse" x1="80" y1="0" x2="100" y2="100"><stop offset="0" stop-color="#7dfdab"/><stop offset=".5" stop-color="#3fdc73"/><stop offset="1" stop-color="#15964a"/></linearGradient><linearGradient id="o3xS1" gradientUnits="userSpaceOnUse" x1="52" y1="0" x2="63" y2="0"><stop offset="0" stop-color="#021a0a" stop-opacity="0"/><stop offset="1" stop-color="#021a0a" stop-opacity=".6"/></linearGradient><linearGradient id="o3xS2" gradientUnits="userSpaceOnUse" x1="37" y1="0" x2="48" y2="0"><stop offset="0" stop-color="#021a0a" stop-opacity=".5"/><stop offset="1" stop-color="#021a0a" stop-opacity="0"/></linearGradient><clipPath id="o3xcl"><path d="M-8 -8L65.08 -8L34.92 108L-8 108Z"/></clipPath><clipPath id="o3xcr"><path d="M65.08 -8L108 -8L108 108L34.92 108Z"/></clipPath><clipPath id="o3xring"><path clip-rule="evenodd" d="M50.0 0C86.0 0 100 14.0 100 50.0C100 86.0 86.0 100 50.0 100C14.0 100 0 86.0 0 50.0C0 14.0 14.0 0 50.0 0ZM50.0 24C68.72 24 76 31.28 76 50.0C76 68.72 68.72 76 50.0 76C31.28 76 24 68.72 24 50.0C24 31.28 31.28 24 50.0 24Z"/></clipPath></defs><g clip-path="url(#o3xring)"><path fill="url(#o3xL)" clip-path="url(#o3xcl)" d="M-8 -8H108V108H-8Z"/><path fill="url(#o3xR)" clip-path="url(#o3xcr)" d="M-8 -8H108V108H-8Z"/><path fill="url(#o3xS1)" d="M54.08 -8L65.08 -8L55.20 30L44.20 30Z"/><path fill="#c8ffdc" fill-opacity=".45" d="M65.08 -8L66.18 -8L56.30 30L55.20 30Z"/><path fill="url(#o3xS2)" d="M44.80 70L55.80 70L45.92 108L34.92 108Z"/><path fill="#7ff0a8" fill-opacity=".22" d="M43.70 70L44.80 70L34.92 108L33.82 108Z"/></g></svg>OXIS</a>
+        <p>A development workspace around your real shell: tabs and split panes, a built-in editor, per-project workspaces and Lua plugins. OXIS — Open Xenial Intelligent Shell.</p>
       </div>
-      <div><h5>Product</h5><a href="#workspace">Overview</a><a href="#build">Build workflows</a><a href="#customize">Customize</a><a href="#market">Market</a><a href="#install">Download</a></div>
+      <div><h5>Product</h5><a href="#product">Overview</a><a href="#lua">Lua</a><a href="#themes">Themes</a><a href="#market">Market</a><a href="#install">Download</a></div>
       <div><h5>Developers</h5><a href="https://github.com/oxlaboratory/oxis#lua-api" target="_blank" rel="noopener noreferrer">Lua API</a><a href="https://github.com/oxlaboratory/oxis/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener noreferrer">Contributing</a><a href="https://github.com/oxlaboratory/oxis/blob/main/CHANGELOG.md" target="_blank" rel="noopener noreferrer">Changelog</a><a href="https://github.com/oxlaboratory/oxis/issues" target="_blank" rel="noopener noreferrer">Issues</a></div>
       <div><h5>Project</h5><a href="https://github.com/oxlaboratory/oxis" target="_blank" rel="noopener noreferrer">GitHub</a><a href="https://github.com/oxlaboratory/oxis/releases/tag/latest-build" target="_blank" rel="noopener noreferrer">Latest build</a><a href="https://github.com/oxlaboratory/oxis/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">Apache 2.0</a></div>
     </div>
-    <div class="legal"><span>© OXIS contributors · Apache License 2.0 · served from this repository's <code>cloudflare/</code> folder</span><span class="motto">TERMINALS WERE THE BEGINNING.</span></div>
+    <div class="legal"><span>© OXIS contributors · Apache License 2.0 · served from this repository's <code>cloudflare/</code> folder</span><span>Built with OXIS.</span></div>
   </div>
 </footer>
 
@@ -1372,51 +932,6 @@ if('IntersectionObserver' in window && !reduced()){
   $$('.rv').forEach(el => el.classList.add('in'));
 }
 
-document.addEventListener('pointermove', e => {
-  const el = e.target.closest && e.target.closest('.spot');
-  if(!el) return;
-  const r = el.getBoundingClientRect();
-  el.style.setProperty('--mx', (e.clientX - r.left) + 'px');
-  el.style.setProperty('--my', (e.clientY - r.top) + 'px');
-}, { passive: true });
-
-(function stars(){
-  const box = $('#stars');
-  let html = '';
-  for(let i = 0; i < 70; i++){
-    const s = Math.random() < .15 ? 3 : 2;
-    html += `<i style="left:${(Math.random()*100).toFixed(2)}%;top:${(14+Math.random()*62).toFixed(2)}%;width:${s}px;height:${s}px;--o:${(.25+Math.random()*.6).toFixed(2)};animation-delay:${(Math.random()*5).toFixed(2)}s;animation-duration:${(3+Math.random()*4).toFixed(2)}s"></i>`;
-  }
-  box.innerHTML = html;
-})();
-
-(function rotator(){
-  const words = ['automating projects.', 'editing documents.', 'building workflows.', 'changing anything.'];
-  const el = $('#rotWord'), text = el.firstElementChild;
-  if(reduced()) return;
-  let i = 0;
-  setInterval(() => {
-    el.classList.add('out');
-    setTimeout(() => {
-      i = (i + 1) % words.length;
-      text.textContent = words[i];
-      el.classList.remove('out'); el.classList.add('pre');
-      void el.offsetWidth;
-      el.classList.remove('pre');
-    }, 480);
-  }, 2800);
-})();
-
-(function marquee(){
-  const items = [
-    ['PowerShell 7', '#5ea5ff'], ['Windows PowerShell', '#3b82f6'], ['bash', '#4ade80'], ['zsh', '#f59e0b'], ['fish', '#f472b6'],
-    ['git', '#f97316'], ['npm', '#ef4444'], ['node', '#84cc16'], ['go', '#22d3ee'], ['cargo', '#fb923c'], ['python', '#facc15'],
-    ['docker compose', '#38bdf8'], ['ssh', '#a78bfa'], ['kubectl', '#60a5fa'], ['vim keys', '#34d399'], ['gh', '#e5e7eb'],
-  ];
-  const one = items.map(([n, c]) => `<span class="chiplg" style="--c:${c}"><i></i><b>${n}</b></span>`).join('');
-  $('#mq').innerHTML = one + one;
-})();
-
 (function faqData(){
   const items = $$('.faq details').map(d => ({
     '@type': 'Question',
@@ -1430,216 +945,21 @@ document.addEventListener('pointermove', e => {
   document.head.appendChild(s);
 })();
 
-(function counters(){
-  const els = $$('[data-count]');
-  const run = el => {
-    const target = +el.dataset.count;
-    if(reduced() || target === 0){ el.textContent = target; return; }
-    const t0 = performance.now(), dur = 1400;
-    const tick = t => {
-      const p = Math.min(1, (t - t0) / dur);
-      el.textContent = Math.round(target * (1 - Math.pow(1 - p, 3)));
-      if(p < 1) requestAnimationFrame(tick);
-    };
-    requestAnimationFrame(tick);
-  };
-  if(!('IntersectionObserver' in window)){ els.forEach(run); return; }
-  const io = new IntersectionObserver(es => es.forEach(e => { if(e.isIntersecting){ run(e.target); io.unobserve(e.target); } }), { threshold: .6 });
-  els.forEach(el => io.observe(el));
-})();
-
 
 /* ================================================================
    Scroll progress, the section in view, word-by-word headings
    ================================================================ */
-(function progress(){
-  const bar = $('#progress');
-  let queued = false;
-  const set = () => {
-    queued = false;
-    const max = document.documentElement.scrollHeight - innerHeight;
-    bar.style.setProperty('--p', max > 0 ? Math.min(1, scrollY / max).toFixed(4) : 0);
-  };
-  addEventListener('scroll', () => { if(!queued){ queued = true; requestAnimationFrame(set); } }, { passive: true });
-  addEventListener('resize', set);
-  set();
-})();
-
 (function activeNav(){
   if(!('IntersectionObserver' in window)) return;
   const links = new Map($$('.nav-links a').map(a => [a.getAttribute('href').slice(1), a]));
-  // Chapters belong to the Product link; #build and #customize to theirs.
-  const owner = { automate: 'workspace', edit: 'workspace', 'build-story': 'workspace', 'customize-story': 'workspace', features: 'workspace', tour: 'customize' };
+  // The screenshot rows and the feature list belong to Product; the gallery to Themes.
+  const owner = { 'tour-rows': 'product', features: 'product', tour: 'themes' };
   const io = new IntersectionObserver(es => es.forEach(en => {
     if(!en.isIntersecting) return;
     const id = owner[en.target.id] || en.target.id;
     links.forEach((a, k) => a.classList.toggle('on', k === id));
   }), { rootMargin: '-45% 0px -50% 0px' });
-  $$('main section[id], main article[id]').forEach(el => io.observe(el));
-})();
-
-(function splitHeadings(){
-  if(reduced()) return;
-  // Each word of an h2 rises into place; elements inside (a gradient
-  // span) move as one word so their gradient stays whole.
-  $$('h2').forEach(h => {
-    let n = 0;
-    const wrap = node => {
-      const w = document.createElement('span'); w.className = 'wd';
-      const inner = document.createElement('span'); inner.style.setProperty('--wi', n++);
-      w.appendChild(inner); inner.appendChild(node);
-      return w;
-    };
-    [...h.childNodes].forEach(node => {
-      if(node.nodeType === 3){
-        const frag = document.createDocumentFragment();
-        node.textContent.split(/(\s+)/).forEach(part => {
-          if(!part) return;
-          if(/^\s+$/.test(part)) frag.appendChild(document.createTextNode(part));
-          else frag.appendChild(wrap(document.createTextNode(part)));
-        });
-        h.replaceChild(frag, node);
-      } else if(node.nodeType === 1 && node.tagName !== 'BR'){
-        h.replaceChild(wrap(node.cloneNode(true)), node);
-      }
-    });
-    // A heading outside any .rv reveals itself.
-    if(!h.closest('.rv')){
-      const io = new IntersectionObserver(es => es.forEach(en => { if(en.isIntersecting){ $$('.wd', h).forEach(w => w.classList.add('in')); io.disconnect(); } }), { threshold: .3 });
-      io.observe(h);
-    }
-  });
-})();
-
-/* Pillars: the glow follows the pointer. */
-document.addEventListener('pointermove', e => {
-  const el = e.target.closest && e.target.closest('.pillar');
-  if(!el) return;
-  const r = el.getBoundingClientRect();
-  el.style.setProperty('--mx', (e.clientX - r.left) + 'px');
-  el.style.setProperty('--my', (e.clientY - r.top) + 'px');
-}, { passive: true });
-
-/* ================================================================
-   Story — the pinned screen follows the chapter in view
-   ================================================================ */
-(function story(){
-  const chapters = $$('.chapter'), shots = $$('#stageShots img'), rail = $$('#stageRail i');
-  const frame = $('.stage-frame'), title = $('#stageTitle');
-  const NAMES = ['automate', 'edit', 'build', 'customize'];
-  if(!chapters.length) return;
-  const show = i => {
-    chapters.forEach((c, j) => c.classList.toggle('on', j === i));
-    shots.forEach((im, j) => im.classList.toggle('on', j === i));
-    rail.forEach((r, j) => { r.classList.toggle('on', j === i); r.classList.toggle('done', j < i); });
-    const c = getComputedStyle(chapters[i]).getPropertyValue('--pc').trim();
-    frame && frame.parentElement.style.setProperty('--stage-c', c);
-    $('#stageRail') && $('#stageRail').style.setProperty('--stage-c', c);
-    if(title) title.textContent = 'acme-web — ' + NAMES[i];
-  };
-  show(0);
-  if(!('IntersectionObserver' in window)){ chapters.forEach(c => c.classList.add('on')); return; }
-  const io = new IntersectionObserver(es => es.forEach(en => {
-    if(en.isIntersecting) show(chapters.indexOf(en.target));
-  }), { rootMargin: '-48% 0px -48% 0px' });
-  chapters.forEach(c => io.observe(c));
-})();
-
-/* ================================================================
-   The sky demo — the same rules as OXIS's Home sky: sun or moon,
-   clouds, twinkling stars, and pixel art written as rows split by
-   "/", "#" a pixel, 1–9 dimmer, "." empty.
-   ================================================================ */
-(function sky(){
-  const cv = $('#skyCanvas');
-  if(!cv || !cv.getContext) return;
-  const ctx = cv.getContext('2d'), W = cv.width, H = cv.height;
-  let mode = 'sun', clouds = 4, custom = null, raf = 0, last = 0, visible = false;
-  const circle = (r, crater) => {
-    const rows = [];
-    for(let y = -r; y <= r; y++){
-      let row = '';
-      for(let x = -r; x <= r; x++){
-        const d = x * x + y * y;
-        row += d > r * r + r * .6 ? '.' : crater && crater.some(([cx, cy]) => (x - cx) ** 2 + (y - cy) ** 2 <= 1.2) ? '6' : '#';
-      }
-      rows.push(row);
-    }
-    return rows;
-  };
-  const SUN = circle(6), MOON = circle(5, [[-2, -1], [2, 1], [-1, 3]]);
-  const CLOUD = ['..####....', '.######.##', '##########', '.########.'];
-  const parseArt = text => {
-    if(!text) return null;
-    if(text.length > 2000) return false;
-    const rows = text.split('/');
-    if(rows.length > 40 || rows.some(r => r.length > 40 || /[^#.1-9]/.test(r))) return false;
-    return rows;
-  };
-  const stars = Array.from({ length: 30 }, () => [Math.random() * W | 0, 2 + (Math.random() * (H - 8)) | 0, Math.random() * 6.28, .6 + Math.random()]);
-  let drift = [];
-  const placeClouds = () => {
-    drift = Array.from({ length: clouds }, (_, k) => ({ x: (k / Math.max(1, clouds)) * (W + 20) - 10 + Math.random() * 8, y: 4 + (k * 7) % (H - 14), v: 2 + Math.random() * 2.5 }));
-  };
-  placeClouds();
-  const vars = () => {
-    const cs = getComputedStyle($('#term') || document.documentElement);
-    return { bg: cs.getPropertyValue('--t-bg').trim() || '#1a1b26', a: cs.getPropertyValue('--t-a').trim() || '#3dff64' };
-  };
-  const drawArt = (rows, ox, oy, color) => {
-    rows.forEach((row, y) => [...row].forEach((ch, x) => {
-      if(ch === '.') return;
-      ctx.globalAlpha = ch === '#' ? 1 : (10 - +ch) / 10;
-      ctx.fillStyle = color;
-      ctx.fillRect(ox + x, oy + y, 1, 1);
-    }));
-    ctx.globalAlpha = 1;
-  };
-  const draw = t => {
-    const { bg, a } = vars();
-    ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
-    const night = mode === 'moon';
-    if(night){
-      stars.forEach(([x, y, ph, sp]) => {
-        ctx.globalAlpha = .25 + .75 * Math.abs(Math.sin(ph + t / 900 * sp));
-        ctx.fillStyle = a; ctx.fillRect(x, y, 1, 1);
-      });
-      ctx.globalAlpha = 1;
-    }
-    const art = custom || (night ? MOON : SUN);
-    const aw = Math.max(...art.map(r => r.length));
-    drawArt(art, Math.round(W * .74 - aw / 2), 7, night ? '#ffffff' : '#ffd24a');
-    if(!night) drift.forEach(c => drawArt(CLOUD, Math.round(c.x), c.y, '#ffffff'));
-  };
-  const loop = t => {
-    const dt = last ? Math.min(.1, (t - last) / 1000) : 0;
-    last = t;
-    drift.forEach(c => { c.x += c.v * dt; if(c.x > W + 2) c.x = -12; });
-    draw(t);
-    if(visible && !reduced()) raf = requestAnimationFrame(loop);
-  };
-  const kick = () => { cancelAnimationFrame(raf); last = 0; if(reduced()) draw(0); else raf = requestAnimationFrame(loop); };
-  const cmd = () => {
-    const art = $('#skyArt').value.trim();
-    $('#skyCmd').textContent = art ? `'theme set ${mode}Art ${art}` : clouds !== 4 && mode === 'sun' ? `'theme set cloudCount ${clouds}` : `'theme set skyMode ${mode}`;
-  };
-  $$('.sky-b').forEach(b => b.addEventListener('click', () => {
-    mode = b.dataset.sky;
-    $$('.sky-b').forEach(x => x.classList.toggle('on', x === b));
-    cmd(); kick();
-  }));
-  $('#skyClouds').addEventListener('input', e => { clouds = +e.target.value; placeClouds(); cmd(); kick(); });
-  $('#skyArt').addEventListener('input', e => {
-    const rows = parseArt(e.target.value.trim());
-    e.target.parentElement.classList.toggle('bad', rows === false);
-    custom = rows || null;
-    cmd(); kick();
-  });
-  window.redrawSky = () => draw(performance.now());
-  if('IntersectionObserver' in window){
-    new IntersectionObserver(es => es.forEach(en => { visible = en.isIntersecting; if(visible) kick(); else cancelAnimationFrame(raf); })).observe(cv);
-  } else { visible = true; kick(); }
-  draw(0);
+  $$('main section[id]').forEach(el => io.observe(el));
 })();
 
 /* ================================================================
@@ -1647,7 +967,7 @@ document.addEventListener('pointermove', e => {
    (frontend/src/terminal/themeManager.ts)
    ================================================================ */
 const THEMES = {
-  default:  { bg:'#1a1b26', bg1:'#16161e', bg2:'#1f2335', line:'#31364a', text:'#c0caf5', muted:'#7a809b', dim:'#565f89', a:'#3dff64', a2:'#29d84e', a3:'#7dff9a' },
+  default:  { bg:'#1a1b26', bg1:'#16161e', bg2:'#1f2335', line:'#31364a', text:'#c0caf5', muted:'#7a809b', dim:'#565f89', a:'#2bb35e', a2:'#1e9149', a3:'#4fd47f' },
   midnight: { bg:'#080810', bg1:'#0d0d18', bg2:'#121220', line:'#22223a', text:'#d0c8f0', muted:'#6a6090', dim:'#3d3660', a:'#b090f0', a2:'#7040c0', a3:'#d0b0ff' },
   slate:    { bg:'#0e1018', bg1:'#121520', bg2:'#181c28', line:'#282d42', text:'#c0c8e0', muted:'#6878a0', dim:'#404868', a:'#8090d8', a2:'#5060a8', a3:'#a8b8f0' },
   forest:   { bg:'#0d1117', bg1:'#111a14', bg2:'#162019', line:'#223326', text:'#c9d1d9', muted:'#7daa7d', dim:'#3f6040', a:'#56d364', a2:'#2ea043', a3:'#9be9a8' },
@@ -1677,7 +997,6 @@ function applyTheme(name, { demoOnly = false, remember = true } = {}){
   set('--t-text', t.text); set('--t-muted', t.muted); set('--t-dim', t.dim);
   set('--t-a', t.a); set('--t-a2', t.a2); set('--t-a3', t.a3);
   $('#tsTheme').textContent = name;
-  window.redrawSky && window.redrawSky();
   if(!demoOnly){
     const root = document.documentElement.style;
     // paper is a light theme: its deep blue is too dark for accents on
@@ -1686,7 +1005,7 @@ function applyTheme(name, { demoOnly = false, remember = true } = {}){
     root.setProperty('--accent', accent);
     root.setProperty('--accent-2', t.light ? '#a8c8ec' : t.a3);
     root.setProperty('--accent-3', t.a2);
-    root.setProperty('--on-accent', luminance(accent) > .35 ? '#05070a' : '#ffffff');
+    root.setProperty('--on-accent', luminance(accent) > .3 ? '#05110a' : '#ffffff');
     currentTheme = name;
     $$('.sw').forEach(s => s.classList.toggle('on', s.dataset.theme === name));
     if(remember) store.set('oxis-site-theme', name);
@@ -1696,10 +1015,10 @@ function applyTheme(name, { demoOnly = false, remember = true } = {}){
 
 (function swatches(){
   $('#swatches').innerHTML = Object.entries(THEMES).map(([name, t], i) => `
-    <button class="sw rv" data-theme="${name}" style="--d:${(i % 5) * .05}s;--sb:${t.bg};--sb1:${t.bg1};--st:${t.text};--sm:${t.muted};--sa:${t.a}" aria-label="Use the ${name} theme">
+    <button class="sw rv" data-theme="${name}" style="--d:${(i % 5) * .04}s;--sb:${t.bg};--sb1:${t.bg1};--st:${t.text};--sm:${t.muted};--sa:${t.a}" aria-label="Use the ${name} theme">
       <div class="sw-top"><i></i><i></i></div>
-      <div class="sw-body"><b>workspace</b> <span>= acme-web</span><br><b>tasks</b> <span>= dev, build</span><br><span>OXIS ❯</span> <b>'theme ${name}</b></div>
-      <div class="sw-bar">SHELL</div>
+      <div class="sw-body"><b>~/acme-web</b> (main)<br>$ npm test<br><b>✓</b> 4 passed<br>OXIS ❯ <b>'theme ${name}</b></div>
+      <div class="sw-bar"></div>
       <div class="sw-name">${name}<em>${name === 'paper' ? 'light' : 'dark'}</em></div>
     </button>`).join('');
   $('#swatches').addEventListener('click', e => {
@@ -1794,7 +1113,7 @@ function renderLive(){
   }
   if(LIVE.stars != null){
     $('#navStars').textContent = '★ ' + fmtStars(LIVE.stars); $('#navStars').classList.add('on');
-    $('#heroStars').textContent = '· ' + fmtStars(LIVE.stars);
+    $('#heroStars').textContent = '★ ' + fmtStars(LIVE.stars);
   }
   if(LIVE.downloads != null){
     const n = LIVE.downloads;
@@ -1855,23 +1174,20 @@ $('#codeCopy').addEventListener('click', async e => {
 });
 
 const SHOTS = [
-  ['demo', 'Recorded', 'Recorded from the app, not mocked up: Home under its pixel-art sky with its insight cards, git in the real shell, quick select copying a hash with two keys, the editor catching a mistake and finishing a name, Vim keys and the file tree, a split with the tests passing and one command broadcast to both panes, an image in the output, triggers lighting up the log lines that matter, games that animate and ask, live monitoring stopped with Ctrl+C, the Settings window, and a theme switch.', 102000],
-  ['app-home', 'Home', 'Home: the active workspace under a pixel-art sky, with insight cards that follow it — today's activity, tasks and recent files; Git, the workflow and what OXIS suggests next.'],
-  ['app-prompt', 'Prompt', "Tab completes in any shell — here cmd listing the npm scripts and finishing a folder — history suggests the rest of a command as you type, and right-clicking + opens a tab with another shell."],
-  ['app-panes', 'Split panes', 'Tabs and split panes: git on the left, the tests on the right, each its own shell. New ones open in the folder you are in.'],
-  ['app-search', 'Search', 'Search in files (Ctrl+Shift+F): every match in the project, grouped by file.'],
-  ['app-terminal', 'Terminal', 'Your real shell in full colour, with OXIS commands mixed in and one prompt at the bottom.'],
-  ['app-editor', 'Editor', 'The built-in editor: a mistake caught as you type, suggestions, a minimap, and Vim-style modes.'],
-  ['app-palette', 'Palette', 'Ctrl+Shift+P: every command, shortcut and task, searchable.'],
-  ['app-settings', 'Settings', 'Ctrl+, opens the Settings window: every setting, grouped and searchable, with switches, lists and resets. It fits the window and follows the font size.'],
-  ['app-quickselect', 'Quick select', 'Ctrl+Shift+Space puts a letter on every URL, path, file:line, hash and IP on screen: type it to copy, Shift+letter to put it in the prompt.'],
-  ['app-imgcat', 'Images', "'imgcat shows a picture right in the output; on Linux and macOS programs can show their own (iTerm2's OSC 1337)."],
-  ['app-version', 'Version', "'version: the exact build — commit, tag, build number and update status."],
-  ['app-theme-editor', 'Theme editor', "'theme edit: every option, with a live preview."],
-  ['app-autotest', 'autotest', "'autotest from the Market re-runs the tests on every save: pass, a real failure with actual versus expected, pass again."],
-  ['app-image-viewer', 'Images', 'Pictures open in an image viewer, with their size, type and zoom.'],
-  ['app-vim', 'vim', 'vim, less, htop and other full-screen programs run in a real terminal grid, in your theme.'],
-  ['browser-home', 'Browser mode', 'The same app in a browser tab at 127.0.0.1:1420 while OXIS runs.'],
+  ["demo", "Recorded", "Recorded from the app: Home, Git in the real shell, quick select, the editor catching a mistake, split panes with the tests passing and one command broadcast to both, triggers, a live monitor stopped with Ctrl+C, Settings and a theme switch.", 102000],
+  ["app-home", "Home", "Home: the workspace with its folder, Git remote and plugins, its tasks one click each, and the project's Git state, today's activity and recent files."],
+  ["app-terminal", "Terminal", "Your real shell in full colour, OXIS commands mixed in, and one prompt at the bottom."],
+  ["app-panes", "Split panes", "Tabs and split panes: Git on the left, the tests on the right, each its own shell."],
+  ["app-editor", "Editor", "The built-in editor: file tree, tabs, a breadcrumb path, a minimap and Vim modes."],
+  ["app-palette", "Palette", "Ctrl+Shift+P: every command, plugin command and task, searchable."],
+  ["app-settings", "Settings", "Ctrl+, opens Settings: every setting, grouped and searchable."],
+  ["themes-grid", "Themes", "The Themes page: each theme shown as a small window in its own colours."],
+  ["app-plugins", "Plugins", "The Plugins page: what is installed, a switch for each, and a way to the Market."],
+  ["app-theme-editor", "Theme editor", "'theme edit: every option, with a live preview."],
+  ["app-quickselect", "Quick select", "Ctrl+Shift+Space puts a letter on every URL, path, hash and IP on screen: type it to copy."],
+  ["app-search", "Search", "Search in files (Ctrl+Shift+F): every match in the project, grouped by file."],
+  ["app-autotest", "autotest", "'autotest from the Market re-runs the tests on every save: pass, a real failure, pass again."],
+  ["app-vim", "vim", "vim, less, htop and other full-screen programs run in a real terminal grid, in your theme."],
 ];
 (function gallery(){
   const stage = $('#gstage'), tabs = $('#gtabs');
@@ -2215,7 +1531,7 @@ const Demo = (() => {
     applyTheme(currentTheme, { demoOnly: true });
     body.innerHTML = '';
     print("  your turn — try 'help, 'market install games then 'roll 4, or 'theme rose", 't-acc');
-    $('#termHint').style.opacity = '.4';
+    $('#termHint').style.opacity = '.55';
     term.classList.add('focus');
   }
 
@@ -2252,19 +1568,6 @@ const Demo = (() => {
     }
   });
   term.addEventListener('click', () => input.focus());
-
-  // Tilt towards the pointer on wide screens.
-  if(!reduced() && window.matchMedia('(min-width: 1021px)').matches){
-    const wrap = $('.term-wrap');
-    wrap.addEventListener('pointermove', ev => {
-      if(term.classList.contains('focus')) return;
-      const r = wrap.getBoundingClientRect();
-      const x = (ev.clientX - r.left) / r.width - .5, y = (ev.clientY - r.top) / r.height - .5;
-      term.style.setProperty('--ry', (x * 8).toFixed(2) + 'deg');
-      term.style.setProperty('--rx', (-y * 6).toFixed(2) + 'deg');
-    });
-    wrap.addEventListener('pointerleave', () => { term.style.removeProperty('--ry'); term.style.removeProperty('--rx'); });
-  }
 
   function start(){
     if(reduced()){

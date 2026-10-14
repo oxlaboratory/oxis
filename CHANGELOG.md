@@ -6,13 +6,10 @@ All notable changes to OXIS. The format follows
 ## [Unreleased]
 
 ### Added
-- Home insights: cards beside Home that follow the workspace — today's
-  activity, tasks (click to run) and recent files on one side; Git
-  (branch, changes, last commit, push/pull, or how to connect it), the
-  workflow and its last run, and what OXIS suggests next (a failed
-  command to rerun, changes to commit, a remote to connect…) on the
-  other. They scale to the window and stack under the centre when it's
-  narrow; setting `homeInsights` hides them.
+- Home insights: Home's side column follows the workspace — Git
+  (branch, changes, last commit, or how to connect it), today's activity
+  (commands, tasks, saves and workflows run) and recent files, one at a
+  time with arrows. Setting `homeInsights` hides it.
 - `oxis.notify(title, body)` for plugins: a desktop notification while
   OXIS is in the background. monitoring 2.1.0 notifies when a
   healthcheck sees a service go down or come back, and when an alert
@@ -448,6 +445,37 @@ All notable changes to OXIS. The format follows
   of every built-in theme.
 
 ### Changed
+- **A redesigned OXIS.** One design system across the app, built from
+  each theme's own colours, so every theme — light ones too — gets the
+  same structure: surfaces, hairlines, one accent, type sizes and
+  radii. The interface is set in IBM Plex Sans and the terminal keeps
+  JetBrains Mono; both ship with the app, so nothing is fetched at
+  startup. Keyboard focus is always visible and reduced motion is
+  respected.
+  - An app bar replaces the titlebar and the tab strip: the mark, a Home
+    tab that's always there, the terminal tabs, a command search,
+    Themes, Plugins and Settings, and flat minimise/close buttons.
+  - Home is the workspace's start page: its name, folder, Git remote and
+    plugins; Start (commands and shortcuts) and Tasks (one button each,
+    and the workflow with a Run button); Git, Today and Recent files
+    beside them. It never scrolls — on a small window it's drawn a
+    little smaller instead.
+  - Themes and Plugins are full pages: each theme a small window in its
+    own colours, each plugin a row with its version, category and a
+    switch.
+  - A quieter status bar in segments, a prompt bar whose top edge lights
+    up while it has the keyboard, hairline split dividers with a wider
+    grab area, and one surface and backdrop for menus, the palette,
+    Settings, the confirm box and the theme editor.
+  - The editor's bar shows the path as a breadcrumb, with quieter
+    buttons, a mode badge coloured per mode, new editor tabs and a wider
+    file tree.
+- The default window is 1120×720 (it was 940×600).
+- The website (oxis.space) is redesigned to match the app: the same
+  type and colours, real screenshots of the redesigned app, a live demo
+  of the prompt, the Market, install instructions and FAQ.
+- The README is rewritten around the redesign, with new screenshots, a
+  new recording and a new social preview.
 - The default theme's greens are the logo's, a shade deeper than the
   old neon: the accent #2bb35e, the status bar #1e9149 and links #4fd47f
   (the background is as it was).
@@ -632,6 +660,12 @@ All notable changes to OXIS. The format follows
 - The npm launcher downloads from the GitHub `latest-build` release.
 
 ### Fixed
+- monitoring 2.1.1: Ctrl+C stops `'watch-mem`, `'mon` and `'healthcheck`
+  at once; a slow reading no longer piles up behind the next or prints
+  after the view has stopped.
+- The website's script stopped with a syntax error (an apostrophe in a
+  screenshot caption), so its Market, download counts and demo didn't
+  load.
 - The theme editor's live preview no longer drops the font size or
   cursor you set in Settings; a theme option your setting overrides says
   so, with a "use the theme's" link. The two windows don't stack.
@@ -885,6 +919,11 @@ All notable changes to OXIS. The format follows
   Windows version resource said 1.2.0.
 
 ### Removed
+- Home's pixel sky (sun, moon, clouds and stars), with the `homeSky`
+  setting and the themes' sky options (`sun`, `moon`, `cloud`, `star`,
+  `skyMode`, `cloudCount`, `cloudSpeed`, `starCount`, `sunArt`,
+  `moonArt`, `skyImage`, `showSky`).
+- Home's "OXIS suggests" / Next up card.
 - The old built-in Lua plugins (fuzzy, git_advanced, lsp_diag,
   session_notes, env_manager, benchmark, process_manager, project_init,
   clipboard, docker_compose, file_ops, system_health, ssh_manager) and
