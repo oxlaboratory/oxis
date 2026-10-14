@@ -2817,6 +2817,18 @@ function looksBinary(text: string): boolean {
   return text.slice(0, 8000).includes("\u0000");
 }
 
+/** A file's path in a bar: the folder dim (cut from the left when it's
+ *  long), the name bright. */
+function FilePath({ path }: { path: string }) {
+  const at = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
+  return (
+    <span className="editor-path" title={path}>
+      {at >= 0 && <span className="editor-path-dir"><bdi>{path.slice(0, at + 1)}</bdi></span>}
+      <span className="editor-path-name">{path.slice(at + 1)}</span>
+    </span>
+  );
+}
+
 function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(n < 10 * 1024 ? 1 : 0)} KB`;
@@ -2885,8 +2897,7 @@ function ImageViewer({ file, onClose, onEditSource }: {
     <div className="editor">
       <div className="editor-bar">
         <div className="editor-bar-left">
-          <span className="editor-icon">▣</span>
-          <span className="editor-path">{file.path}</span>
+          <FilePath path={file.path} />
         </div>
         <div className="editor-bar-right">
           <span className="editor-meta">
@@ -2900,7 +2911,7 @@ function ImageViewer({ file, onClose, onEditSource }: {
           <button className="editor-btn" onClick={() => setBackdrop(b => b === "checker" ? "dark" : b === "dark" ? "light" : "checker")}
             title="Background: checkerboard, dark or light">bg</button>
           {onEditSource && <button className="editor-btn" onClick={onEditSource} title="Edit the SVG's source">edit source</button>}
-          <button className="editor-btn editor-btn--close" onClick={onClose} title="Close (Esc)">×</button>
+          <button className="editor-btn editor-btn--close" aria-label="Close" title="Close (Esc)" onClick={onClose}>×</button>
         </div>
       </div>
       <div
@@ -2954,7 +2965,7 @@ class ErrorBoundary extends React.Component<
             </div>
             <div className="editor-bar-right">
               {this.props.onClose && (
-                <button className="editor-btn editor-btn--close" onClick={() => { this.setState({ error: null }); this.props.onClose?.(); }}>×</button>
+                <button className="editor-btn editor-btn--close" aria-label="Close" title="Close (Esc)" onClick={() => { this.setState({ error: null }); this.props.onClose?.(); }}>×</button>
               )}
             </div>
           </div>
@@ -4811,11 +4822,10 @@ function Editor({ file, onClose, onSave, onDirtyChange, pluginTarget = true }: {
       <div className="editor">
         <div className="editor-bar">
           <div className="editor-bar-left">
-            <span className="editor-icon">◻</span>
-            <span className="editor-path">{file.path}</span>
+            <FilePath path={file.path} />
           </div>
           <div className="editor-bar-right">
-            <button className="editor-btn editor-btn--close" onClick={onClose}>×</button>
+            <button className="editor-btn editor-btn--close" aria-label="Close" title="Close (Esc)" onClick={onClose}>×</button>
           </div>
         </div>
         <div className="editor-loading">loading…</div>
@@ -4828,11 +4838,10 @@ function Editor({ file, onClose, onSave, onDirtyChange, pluginTarget = true }: {
       <div className="editor">
         <div className="editor-bar">
           <div className="editor-bar-left">
-            <span className="editor-icon">◻</span>
-            <span className="editor-path">{file.path}</span>
+            <FilePath path={file.path} />
           </div>
           <div className="editor-bar-right">
-            <button className="editor-btn editor-btn--close" onClick={onClose}>×</button>
+            <button className="editor-btn editor-btn--close" aria-label="Close" title="Close (Esc)" onClick={onClose}>×</button>
           </div>
         </div>
         <div className="editor-error">
@@ -4847,8 +4856,7 @@ function Editor({ file, onClose, onSave, onDirtyChange, pluginTarget = true }: {
     <div className="editor">
       <div className="editor-bar">
         <div className="editor-bar-left">
-          <span className="editor-icon">◻</span>
-          <span className="editor-path">{file.path}</span>
+          <FilePath path={file.path} />
           {dirty && <span className="editor-dirty">●</span>}
         </div>
         <div className="editor-bar-right">
@@ -4888,7 +4896,7 @@ function Editor({ file, onClose, onSave, onDirtyChange, pluginTarget = true }: {
             </button>
           )}
           <button className="editor-btn" onClick={save}>save</button>
-          <button className="editor-btn editor-btn--close" onClick={async () => {
+          <button className="editor-btn editor-btn--close" aria-label="Close" title="Close (Esc)" onClick={async () => {
             if (dirty && !await confirmDialog("Discard unsaved changes?", { ok: "Discard", danger: true })) return;
             onClose();
           }}>×</button>
@@ -5396,7 +5404,7 @@ function ThemeEditor({ name: initName, onClose }: { name: string; onClose: () =>
             placeholder="theme-name"
             maxLength={32}
           />
-          <button className="editor-btn editor-btn--close" onClick={handleClose}>×</button>
+          <button className="editor-btn editor-btn--close" aria-label="Close" title="Close (Esc)" onClick={handleClose}>×</button>
         </div>
       </div>
 
@@ -7809,11 +7817,10 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
           <div className="editor">
             <div className="editor-bar">
               <div className="editor-bar-left">
-                <span className="editor-icon">◻</span>
-                <span className="editor-path">{activeFile.path}</span>
+                <FilePath path={activeFile.path} />
               </div>
               <div className="editor-bar-right">
-                <button className="editor-btn editor-btn--close" onClick={() => requestCloseEditorTab(activeFile.path)}>×</button>
+                <button className="editor-btn editor-btn--close" aria-label="Close" title="Close (Esc)" onClick={() => requestCloseEditorTab(activeFile.path)}>×</button>
               </div>
             </div>
             <div className="editor-empty-state">
@@ -7957,25 +7964,28 @@ function ThemeTile({ name, theme, active, isCustom, onClick, onDelete }: {
   name: string; theme: Theme; active: boolean; isCustom?: boolean;
   onClick: () => void; onDelete?: () => void;
 }) {
+  const c = (k: string, fb: string) => (typeof theme[k] === "string" ? String(theme[k]) : fb);
+  const ansi = [c("ansiRed", "#f7768e"), c("ansiGreen", "#9ece6a"), c("ansiYellow", "#e0af68"), c("ansiBlue", "#7aa2f7"), c("ansiMagenta", "#bb9af7"), c("ansiCyan", "#7dcfff")];
   return (
-    <div className={`theme-tile ${active ? "theme-tile--on" : ""}`} onClick={onClick}>
-      <div className="theme-tile-preview" style={{ background: theme.bg, borderColor: theme.border }}>
-        <div className="theme-tile-bar" style={{ background: theme.bg1 }}>
-          <span style={{ color: theme.purple, fontSize: 7, fontWeight: 700 }}>OXIS</span>
+    <div role="option" aria-selected={active} tabIndex={0} className={`theme-card${active ? " theme-card--on" : ""}`} onClick={onClick}
+      onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(); } }}>
+      <div className="theme-card-shot" style={{ background: c("bg", "#111"), color: c("text", "#ccc") }}>
+        <div className="tc-bar" style={{ background: c("bg1", "#000"), borderColor: `color-mix(in srgb, ${c("text", "#ccc")} 12%, transparent)` }}>
+          <i style={{ background: c("purple", "#888") }} /><b style={{ background: c("bg", "#111") }} /><b style={{ opacity: .5 }} />
         </div>
-        <div className="theme-tile-body">
-          <span style={{ color: theme.purple, fontSize: 8 }}>❯ </span>
-          <span style={{ color: theme.text, fontSize: 8 }}>ls</span>
-          <br />
-          <span style={{ color: theme.purple2, fontSize: 8 }}>'</span>
-          <span style={{ color: theme.dim, fontSize: 8 }}>help</span>
+        <div className="tc-lines">
+          <div><span style={{ color: c("purple", "#888") }}>~/app</span> <span style={{ color: c("dim", "#666") }}>(main)</span></div>
+          <div><span style={{ color: c("purple3", "#aaa") }}>$</span> npm test</div>
+          <div style={{ color: c("success", "#7ee787") }}>✓ 42 passed</div>
+          <div className="tc-ansi">{ansi.map((a, k) => <i key={k} style={{ background: a }} />)}</div>
         </div>
+        <div className="tc-status" style={{ background: c("bg1", "#000") }}><i style={{ background: c("purple", "#888") }} /></div>
       </div>
-      <div className="theme-tile-name" style={{ color: active ? "var(--purple3)" : "var(--muted)" }}>
-        <span>{name}{active && <span style={{ color: "var(--purple)" }}> ✓</span>}</span>
+      <div className="theme-card-foot">
+        <span className="theme-card-name">{name}</span>
+        {active ? <span className="theme-card-pill">in use</span> : isCustom ? <span className="theme-card-tag">custom</span> : null}
         {isCustom && onDelete && (
-          <button className="theme-tile-del" onClick={e => { e.stopPropagation(); onDelete(); }}
-            title="Delete theme">×</button>
+          <button className="theme-card-del" onClick={e => { e.stopPropagation(); onDelete(); }} title="Delete theme" aria-label={`Delete ${name}`}>×</button>
         )}
       </div>
     </div>
@@ -8366,6 +8376,13 @@ function Home({ currentTheme, onTheme, onOpenThemeEditor, onOpenPluginCreator, o
       const roomW = box.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
       if (!natural || room <= 0) return;
       const sides = !!inner.querySelector(".ins-col");
+      if (inner.querySelector(".hpage")) { setStacked(false); setFit(1); return; }
+      // The cards start level with the first box under the title.
+      const row = inner.querySelector<HTMLElement>(".home-row"), first = inner.querySelector(".oxis-home > .oxis-box");
+      if (row && first) {
+        const top = Math.round((first.getBoundingClientRect().top - row.getBoundingClientRect().top) / zoom);
+        if (row.style.getPropertyValue("--ins-top") !== `${top}px`) row.style.setProperty("--ins-top", `${top}px`);
+      }
       const stack = sides && roomW < HOME_WIDE * 0.8;
       setStacked(s => (s !== stack ? stack : s));
       const wide = !sides ? Infinity : stack ? HOME_NARROW : HOME_WIDE;
@@ -8465,54 +8482,70 @@ function Home({ currentTheme, onTheme, onOpenThemeEditor, onOpenPluginCreator, o
   let body: React.ReactNode;
 
   if (view === "themes") {
+    const names = Object.keys(allThemes);
     body = (
-      <div className="oxis-home">
-        <div className="nv-panel">
-          <div className="nv-panel-header"><span className="nv-panel-title">◉ Themes</span><button className="nv-back" onClick={() => setView("home")}>← back</button></div>
-          <div className="themes-grid">
-            {Object.entries(allThemes).map(([name, t]) => (
-              <ThemeTile key={name} name={name} theme={t} active={name === currentTheme}
-                isCustom={!!themeManager.customThemes()[name]}
-                onClick={() => { themeManager.apply(name); onTheme(name); }}
-                onDelete={async () => {
-                  if (!await confirmDialog(`Delete the theme "${name}"?`, { ok: "Delete", danger: true })) return;
-                  themeManager.removeCustom(name);
-                  if (currentTheme === name) { themeManager.apply("default"); onTheme("default"); }
-                  else onTheme(currentTheme);
-                }} />
-            ))}
-            <div className="theme-tile theme-tile--new" onClick={() => onOpenThemeEditor("custom")}>
-              <div className="theme-tile-preview theme-tile-add"><span>+</span></div>
-              <div className="theme-tile-name" style={{ color: "var(--dim)" }}>new theme</div>
-            </div>
+      <div className="hpage">
+        <header className="hpage-head">
+          <div>
+            <h1 className="hpage-title">Themes</h1>
+            <p className="hpage-sub">{names.length} themes. The terminal, the editor and every panel follow the one you pick — or type <code>&apos;theme &lt;name&gt;</code>.</p>
           </div>
+          <div className="hpage-actions">
+            <button className="btn" onClick={() => setView("home")}>Back to Home</button>
+            <button className="btn" onClick={() => onOpenThemeEditor(currentTheme)}>Edit current</button>
+            <button className="btn btn--primary" onClick={() => onOpenThemeEditor("custom")}>New theme</button>
+          </div>
+        </header>
+        <div className="theme-grid" role="listbox" aria-label="Themes">
+          {Object.entries(allThemes).map(([name, t]) => (
+            <ThemeTile key={name} name={name} theme={t} active={name === currentTheme}
+              isCustom={!!themeManager.customThemes()[name]}
+              onClick={() => { themeManager.apply(name); onTheme(name); }}
+              onDelete={async () => {
+                if (!await confirmDialog(`Delete the theme "${name}"?`, { ok: "Delete", danger: true })) return;
+                themeManager.removeCustom(name);
+                if (currentTheme === name) { themeManager.apply("default"); onTheme("default"); }
+                else onTheme(currentTheme);
+              }} />
+          ))}
         </div>
       </div>
     );
   } else if (view === "plugins") {
     body = (
-      <div className="oxis-home">
-        <div className="nv-panel">
-          <div className="nv-panel-header">
-            <span className="nv-panel-title">⬡ Plugins <span className="nv-count">{ec}/{plugins.length}</span></span>
-            <div className="nv-panel-actions"><button className="nv-action-btn" onClick={onOpenPluginCreator}>+ new</button><button className="nv-back" onClick={() => setView("home")}>← back</button></div>
+      <div className="hpage">
+        <header className="hpage-head">
+          <div>
+            <h1 className="hpage-title">Plugins</h1>
+            <p className="hpage-sub">{ec} of {plugins.length} on. Plugins are Lua: they add commands, tasks, live views and Home panels.</p>
           </div>
-          <div className="nv-search-wrap">
-            <span className="nv-search-icon">⌕</span>
-            <input className="nv-search-input" placeholder="filter plugins…" value={psearch} onChange={e => setPsearch(e.target.value)} spellCheck={false} autoFocus />
-            {psearch && <button className="nv-search-clear" onClick={() => setPsearch("")}>×</button>}
+          <div className="hpage-actions">
+            <button className="btn" onClick={() => setView("home")}>Back to Home</button>
+            <button className="btn" onClick={() => onRun("'market list")}>Browse the Market</button>
+            <button className="btn btn--primary" onClick={onOpenPluginCreator}>New plugin</button>
           </div>
-          <div className="nv-plugin-list">
-            {fp.length === 0 ? <div className="nv-empty">no results for "{psearch}"</div> : fp.map(p => (
-              <div key={p.name} className="nv-plugin-row">
-                <span className={`nv-plugin-dot${p.enabled ? " nv-plugin-dot--on" : ""}`}>●</span>
-                <span className="nv-plugin-name">{p.name}</span>
-                <span className="nv-plugin-cat">{p.category}</span>
-                <span className="nv-plugin-desc">{p.desc}</span>
-                <button className={`nv-plugin-tog${p.enabled ? " nv-plugin-tog--on" : ""}`} onClick={() => tog(p.name, !p.enabled)}>{p.enabled ? "on" : "off"}</button>
+        </header>
+        <label className="field field--search">
+          <Icon name="search" />
+          <input placeholder="Filter by name, category or what it does" value={psearch} onChange={e => setPsearch(e.target.value)} spellCheck={false} autoFocus aria-label="Filter plugins" />
+          {psearch && <button className="field-clear" onClick={() => setPsearch("")} aria-label="Clear the filter">×</button>}
+        </label>
+        <div className="plug-list">
+          {fp.length === 0 ? <div className="hpage-empty">No plugin matches “{psearch}”. <button className="link" onClick={() => onRun(`'market search ${psearch}`)}>Search the Market</button></div> : fp.map(p => (
+            <div key={p.name} className={`plug-row${p.enabled ? " plug-row--on" : ""}`}>
+              <div className="plug-text">
+                <div className="plug-head">
+                  <span className="plug-name">{p.name}</span>
+                  {p.version && <span className="plug-ver">v{p.version}</span>}
+                  <span className="plug-chip">{p.category}</span>
+                  {p.builtin && <span className="plug-chip plug-chip--quiet">built in</span>}
+                </div>
+                <div className="plug-desc">{p.desc}</div>
               </div>
-            ))}
-          </div>
+              <button role="switch" aria-checked={p.enabled} aria-label={`${p.name} ${p.enabled ? "on" : "off"}`}
+                className={`switch${p.enabled ? " switch--on" : ""}`} onClick={() => tog(p.name, !p.enabled)}><span /></button>
+            </div>
+          ))}
         </div>
       </div>
     );
