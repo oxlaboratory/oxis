@@ -2,15 +2,15 @@
 
 use std::time::Duration;
 
-use oxis_core::events::Event;
-use oxis_core::process::{ProcessSpec, Status};
-use oxis_core::workspace::{validate_name, WorkspaceData, WorkspaceEngine};
-use oxis_core::{Engine, Error};
+use oxide::events::Event;
+use oxide::process::{ProcessSpec, Status};
+use oxide::workspace::{validate_name, WorkspaceData, WorkspaceEngine};
+use oxide::{Engine, Error};
 
 #[test]
 fn create_list_open_rename_close() {
     let dir = tempfile::tempdir().unwrap();
-    let bus = oxis_core::events::EventBus::new();
+    let bus = oxide::events::EventBus::new();
     let rx = bus.subscribe();
     let mut ws = WorkspaceEngine::new(dir.path().join("workspaces"), bus);
     assert!(ws.list().unwrap().is_empty());

@@ -3,9 +3,9 @@
 use std::time::{Duration, Instant};
 
 use crossbeam_channel::Receiver;
-use oxis_core::events::{Event, EventBus, Stream};
-use oxis_core::ids::{ProcessId, WorkspaceId};
-use oxis_core::process::{ProcessEngine, ProcessSpec, Status};
+use oxide::events::{Event, EventBus, Stream};
+use oxide::ids::{ProcessId, WorkspaceId};
+use oxide::process::{ProcessEngine, ProcessSpec, Status};
 
 /// A shell command line, run the platform's way.
 fn shell(script: &str) -> ProcessSpec {

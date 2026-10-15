@@ -1,0 +1,26 @@
+[package]
+name = "oxis-app"
+description = "OXIS, the desktop application: the window and the Dear ImGui interface over the OXIDE Engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "oxis"
+path = "src/main.rs"
+
+[dependencies]
+oxide = { package = "oxide-engine", path = "../oxide" }
+dear-imgui-rs = "0.20"
+dear-imgui-winit = "0.20"
+dear-imgui-glow = "0.20"
+winit = "0.30"
+glutin = "0.32"
+glutin-winit = "0.5"
+raw-window-handle = "0.6"
+tracing.workspace = true
+serde.workspace = true
+crossbeam-channel.workspace = true
+png = "0.17"

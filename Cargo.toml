@@ -2,7 +2,7 @@
 # executable; the engine crates know nothing about the interface.
 [workspace]
 resolver = "2"
-members = ["crates/oxis-core"]
+members = ["crates/oxide", "crates/oxis-app"]
 
 [workspace.package]
 version = "2.0.0-dev"

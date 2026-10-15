@@ -1,4 +1,4 @@
-//! The OXIS engine.
+//! The OXIDE Engine — the engine under OXIS.
 //!
 //! Everything OXIS does that isn't drawing lives here: configuration and
 //! persistence, the event bus, workspaces, processes, and (as later phases

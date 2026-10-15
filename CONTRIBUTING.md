@@ -94,9 +94,9 @@ OXIS follows [Semantic Versioning](https://semver.org): versions are
   need users or plugin authors to change things. A large feature or a
   refactor on its own isn't one.
 
-**v2.0.0** is the new native OXIS: a Rust engine with a Dear ImGui
-interface and Lua scripting (see [docs/v2/README.md](docs/v2/README.md)).
-It's tagged only once that core is complete and tested; until then the
+**v2.0.0** is the new native OXIS: the OXIDE Engine (Rust) with a Dear
+ImGui interface and Lua scripting (see [docs/v2/README.md](docs/v2/README.md)).
+It's tagged only once the engine and interface are complete and tested; until then the
 1.x line carries on.
 
 For every release:

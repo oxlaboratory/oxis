@@ -1,6 +1,6 @@
 //! Structured logging (`tracing`). OXIS logs to stderr and, when given a
 //! folder, to `oxis.log` there. `OXIS_LOG` sets the filter (for example
-//! `OXIS_LOG=oxis_core=debug`); the default is `info`. Never log secrets:
+//! `OXIS_LOG=oxide=debug`); the default is `info`. Never log secrets:
 //! log what happened and to which thing, not tokens, passwords or input
 //! typed at a password prompt.
 

@@ -1,6 +1,6 @@
 # OXIS 2: the native rewrite
 
-OXIS 2 is a native application: a **Rust** engine, a custom **Dear ImGui**
+OXIS 2 is a native application: the **OXIDE Engine** (Rust), a custom **Dear ImGui**
 interface and **Lua** for plugins and automation, in one executable. It
 replaces the Go + Wails + TypeScript stack of OXIS 1.x. It ships as
 **v2.0.0** only when the engine and interface below are complete and
@@ -22,7 +22,7 @@ plan, and a running status. Unfinished work is listed as unfinished.
 
 | Area | Where it lives | Size | Notes for v2 |
 |---|---|---|---|
-| Desktop shell | `internal/wailsapp` (Go, Wails v2) | 5.6k lines, 14 test files | Window, bindings, file access, updates, notifications, summon key. Replaced by `oxis-app` (winit + ImGui) and `oxis-core`. |
+| Desktop shell | `internal/wailsapp` (Go, Wails v2) | 5.6k lines, 14 test files | Window, bindings, file access, updates, notifications, summon key. Replaced by `oxis-app` (winit + ImGui) and the OXIDE Engine. |
 | Terminal backend | `internal/pty` (Go) | 4.2k lines, 12 test files | ConPTY/Unix PTY sessions, a line-screen model, shell integration hooks (PowerShell, bash, zsh, fish), OSC 8/52/9;4/1337, asciinema recording. The hooks and OSC handling are reference behaviour for v2; the PTY layer is replaced by `portable-pty`, the screen model by `alacritty_terminal`. |
 | Native Lua | `internal/luanative` (Go + C, Lua 5.4.9) | 1.4k lines | Runs plugin source in real Lua; every `oxis.*` call goes over a WebSocket to the TypeScript side. In v2, `mlua` (Lua 5.4) runs inside the engine and the `oxis.*` API is implemented in Rust. |
 | Updater | `internal/update` (Go) | 0.5k lines | Downloads the `latest-build` asset, swaps it in, rolls back on a failed start. Ported to Rust. |
@@ -48,8 +48,9 @@ crates know nothing about ImGui; the app crate is the only one that draws.
 
 ```
 crates/
-  oxis-core       engine: ids, errors, config + persistence, events,
-                  workspaces, processes, projects, tasks/workflows
+  oxide           the OXIDE Engine (package oxide-engine): ids, errors,
+                  config + persistence, events, workspaces, processes,
+                  projects, tasks/workflows
   oxis-terminal   terminal sessions: PTY (portable-pty: ConPTY / Unix),
                   emulation (alacritty_terminal), shell detection
   oxis-lua        Lua 5.4 runtime (mlua), the oxis.* API, plugin loading,
@@ -100,7 +101,7 @@ Engine rules:
 | Phase | What | Done when |
 |---|---|---|
 | 1. Audit | This document. | ✅ |
-| 2. Foundation | Cargo workspace; `oxis-core`: errors, logging, versioned atomic config, event bus, workspace engine, process engine; tests against real processes. | Core tests pass on Windows and Linux CI. |
+| 2. Foundation | Cargo workspace; the OXIDE Engine (`oxide`): errors, logging, versioned atomic config, event bus, workspace engine, process engine; tests against real processes. | Core tests pass on Windows and Linux CI. |
 | 3. Native prototype | `oxis-app`: window, DPI-aware sizing, the OXIS design system on ImGui, custom title bar, sidebar, workspace switcher, terminal panel, tabs, settings. | Opens, resizes, high-DPI correct, usable on a 1366×768 laptop screen. |
 | 4. Terminals | `oxis-terminal`: real shells (PowerShell, cmd, bash, zsh, fish), resize, input, selection, clipboard, many sessions per workspace, shell integration marks. | vim, less, htop and a REPL work; output routes to the right session. |
 | 5. Editor | Documents, tabs, undo/redo, search/replace, indentation, encodings, large files; tree-sitter highlighting with fallback. | Files in at least ten languages edit and save correctly. |
@@ -115,7 +116,7 @@ Engine rules:
 Kept up to date as phases land.
 
 - **Phase 1** — done (this document).
-- **Phase 2** — in progress on the `v2` branch. `oxis-core` has typed IDs,
+- **Phase 2** — in progress on the `v2` branch. The OXIDE Engine (`oxide`) has typed IDs,
   errors, logging, versioned atomic config with corrupt-file recovery and
   migrations, the event bus, the workspace engine (create/open/close/
   rename/activate, per-workspace folder, Git remote, environment and
@@ -124,7 +125,21 @@ Kept up to date as phases land.
   job objects and Unix process groups, per-workspace ownership). 24 tests
   run against real processes and files; CI runs them on Windows and Linux
   (`.github/workflows/v2.yml`).
-- Phases 3–8 — not started.
+- **Phase 3** — started. `oxis-app` opens a frameless native window
+  (winit + OpenGL via glutin) running Dear ImGui 1.92 through
+  `dear-imgui-rs`, with the OXIS design system replacing ImGui's look
+  (IBM Plex Sans and JetBrains Mono bundled as TTFs, the default theme's
+  palette). It has a custom title bar (drag to move, double-click to
+  maximise, minimise/maximise/close), resize edges, a workspace switcher, a
+  sidebar, Home (workspaces from the engine: create, switch, link a
+  folder), a Run view (each line runs as a real process in the workspace's
+  folder and environment, output streamed, Stop cancels the tree), Settings
+  (saved through the engine) and a status bar. The window opens at about
+  four fifths of the screen it's on and remembers its size and place.
+  `oxis --snapshot <file.png> [--view=home|run|settings] [WxH]` renders a
+  view offscreen without showing a window, for docs and checks. Not yet:
+  the real terminal (phase 4), tabs and split panes, docking layouts.
+- Phases 4–8 — not started.
 
 ## 5. Plugin compatibility
 
