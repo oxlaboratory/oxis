@@ -4208,7 +4208,7 @@ function FindBar({ findMode, findQuery, setFindQuery, replaceWith, setReplaceWit
             if (e.key === "Escape") { e.preventDefault(); closeFind(); }
           }}
         />
-        <button className="find-bar-btn find-bar-btn--close" onClick={closeFind}>×</button>
+        <button className="find-bar-btn find-bar-btn--close" onClick={closeFind} aria-label="Close the find bar" title="Close (Esc)">×</button>
       </div>
     );
   }
@@ -4253,7 +4253,7 @@ function FindBar({ findMode, findQuery, setFindQuery, replaceWith, setReplaceWit
           {replacedMsg && <span className="find-bar-count">{replacedMsg}</span>}
         </>
       )}
-      <button className="find-bar-btn find-bar-btn--close" onClick={closeFind}>×</button>
+      <button className="find-bar-btn find-bar-btn--close" onClick={closeFind} aria-label="Close the find bar" title="Close (Esc)">×</button>
     </div>
   );
 }
@@ -7791,7 +7791,7 @@ function Terminal({ id, isActive, selected, first, onTitle, onActivity, restore,
               >
                 <span className="editor-tab-name">{f.path.split(/[\\/]/).pop()}</span>
                 {f.dirty && <span className="editor-tab-dirty">●</span>}
-                <span className="editor-tab-close" onClick={e => { e.stopPropagation(); requestCloseEditorTab(f.path); }}>×</span>
+                <button className="editor-tab-close" aria-label={`Close ${f.path.split(/[\\/]/).pop()}`} title="Close" onClick={e => { e.stopPropagation(); requestCloseEditorTab(f.path); }}>×</button>
               </div>
             ))}
             <button className="editor-tabs-saveall" onClick={saveAllEditorTabs} title="Save all dirty tabs">Save All</button>
@@ -9550,8 +9550,8 @@ export default function App() {
               <span className="term-tab-name" onDoubleClick={e => { e.stopPropagation(); setRenamingTab(t.id); }}>{tabTitle(t)}{t.panes.length > 1 ? <span className="term-tab-panes" title={`${t.panes.length} panes`}>{t.panes.length}</span> : null}</span>
             )}
             {t.activity && (t.id !== activeTab || isHome) && <span className="term-tab-dot" title="new output">●</span>}
-            <span className="term-tab-close" title="Close this tab and its shell (Ctrl+Shift+W)"
-              onClick={e => { e.stopPropagation(); closeTab(t.id); }}>×</span>
+            <button className="term-tab-close" title="Close this tab and its shell (Ctrl+Shift+W)" aria-label={`Close tab ${i + 1}`}
+              onMouseDown={e => e.stopPropagation()} onClick={e => { e.stopPropagation(); closeTab(t.id); }}>×</button>
           </div>
         ))}
         <button className="term-tabs-new" onClick={() => newTab()} onContextMenu={openShellMenu} title="New tab (Ctrl+T) — right-click for another shell"

@@ -145,7 +145,7 @@ export function SettingsPanel({ api, onClose, initialQuery = "" }: { api: Settin
         <div className="set-head">
           <span className="set-title">Settings</span>
           <input ref={searchRef} className="set-search" placeholder="Search settings…" value={query} onChange={e => setQuery(e.target.value)} />
-          <button className="set-close" onClick={onClose} title="Close (Esc)">✕</button>
+          <button className="set-close" onClick={onClose} title="Close (Esc)" aria-label="Close Settings">✕</button>
         </div>
         <div className="set-body">
           {groups.length === 0 && <div className="cmdp-empty">no setting matches “{query}”</div>}
