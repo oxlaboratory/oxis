@@ -475,7 +475,9 @@ All notable changes to OXIS. The format follows
   type and colours, real screenshots of the redesigned app, a live demo
   of the prompt, the Market, install instructions and FAQ.
 - The README is rewritten around the redesign, with new screenshots, a
-  new recording and a new social preview.
+  new recording and a new social preview. The recording is an animated
+  WebP at the app's full 2× resolution, lossless (`assets/demo.webp`; it
+  was a 256-colour GIF).
 - The default theme's greens are the logo's, a shade deeper than the
   old neon: the accent #2bb35e, the status bar #1e9149 and links #4fd47f
   (the background is as it was).

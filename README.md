@@ -13,22 +13,11 @@ It adds tabs and split panes, a built-in editor, per-project workspaces with tas
 **[Download](https://github.com/oxlaboratory/oxis/releases/tag/latest-build)** · **[Website](https://oxis.space)** · **[Plugin Market](https://oxis.space/#market)** · **[Documentation](#documentation)** · **[Changelog](CHANGELOG.md)**
 
 
-<a href="https://github.com/oxlaboratory/oxis/releases/tag/latest-build"><img src="https://img.shields.io/endpoint?url=https%3A%2F%2Foxis.space%2Fdownloads&style=for-the-badge&labelColor=12131b&color=2bb35e&logo=icloud&logoColor=4fd47f&cacheSeconds=600" alt="New downloads"></a>
-<a href="#auto-update"><img src="https://img.shields.io/endpoint?url=https%3A%2F%2Foxis.space%2Fdownloads%3Fkind%3Dre&style=for-the-badge&labelColor=12131b&color=2bb35e&logo=refresh&logoColor=4fd47f&cacheSeconds=600" alt="Re-downloads (updates installed with 'update install)"></a>
-<a href="https://github.com/oxlaboratory/oxis/actions/workflows/build.yml"><img src="https://img.shields.io/github/actions/workflow/status/oxlaboratory/oxis/build.yml?branch=main&style=for-the-badge&label=build&labelColor=12131b&color=2bb35e&logo=githubactions&logoColor=4fd47f" alt="Build"></a>
-<a href="https://github.com/oxlaboratory/oxis/stargazers"><img src="https://img.shields.io/github/stars/oxlaboratory/oxis?style=for-the-badge&labelColor=12131b&color=2bb35e&logo=github&logoColor=4fd47f" alt="Stars"></a>
-<a href="https://github.com/oxlaboratory/oxis"><img src="https://api.visitorbadge.io/api/visitors?path=oxlaboratory%2Foxis&label=VIEWS&labelColor=%230d1117&countColor=%237dcfff&style=for-the-badge" alt="Views"></a>
-<a href="LICENSE"><img src="https://img.shields.io/github/license/oxlaboratory/oxis?style=for-the-badge&labelColor=12131b&color=2bb35e" alt="Apache-2.0"></a>
-
-<img src="https://img.shields.io/badge/Windows-10%20%C2%B7%2011-12131b?style=flat-square&logo=windows&logoColor=4fd47f" alt="Windows 10 and 11">
-<img src="https://img.shields.io/badge/Linux-x64-12131b?style=flat-square&logo=linux&logoColor=4fd47f" alt="Linux x64">
-<img src="https://img.shields.io/badge/Go-backend-12131b?style=flat-square&logo=go&logoColor=4fd47f" alt="Go">
-<img src="https://img.shields.io/badge/React-UI-12131b?style=flat-square&logo=react&logoColor=4fd47f" alt="React">
-<img src="https://img.shields.io/badge/Lua-plugins-12131b?style=flat-square&logo=lua&logoColor=4fd47f" alt="Lua">
+<a href="https://github.com/oxlaboratory/oxis/releases/tag/latest-build"><img src="https://img.shields.io/endpoint?url=https%3A%2F%2Foxis.space%2Fdownloads&labelColor=1a1b26&color=2bb35e&style=flat-square&cacheSeconds=600" alt="New downloads"></a> <a href="#auto-update"><img src="https://img.shields.io/endpoint?url=https%3A%2F%2Foxis.space%2Fdownloads%3Fkind%3Dre&labelColor=1a1b26&color=2bb35e&style=flat-square&cacheSeconds=600" alt="Re-downloads"></a> <a href="https://github.com/oxlaboratory/oxis/actions/workflows/build.yml"><img src="https://img.shields.io/github/actions/workflow/status/oxlaboratory/oxis/build.yml?branch=main&label=build&labelColor=1a1b26&color=2bb35e&style=flat-square" alt="Build"></a> <a href="https://github.com/oxlaboratory/oxis/stargazers"><img src="https://img.shields.io/github/stars/oxlaboratory/oxis?labelColor=1a1b26&color=2bb35e&style=flat-square" alt="Stars"></a> <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-2bb35e?labelColor=1a1b26&style=flat-square" alt="Apache 2.0"></a>
 
 <br>
 
-<img src="assets/demo.gif" width="100%" alt="A recorded OXIS session: Home for the acme-web workspace, git log and status in the real shell, the project's tests run as a task, quick select labelling hashes and paths, the editor with its file tree and search in files, a split pane running the tests with one command broadcast to both panes, the command palette, and a switch to the ember theme">
+<img src="assets/demo.webp" width="100%" alt="A recorded OXIS session: Home for the acme-web workspace, git log and status in the real shell, the project's tests run as a task, quick select labelling hashes and paths, the editor with its file tree and search in files, a split pane running the tests with one command broadcast to both panes, the command palette, and a switch to the ember theme">
 
 </div>
 
