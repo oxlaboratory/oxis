@@ -2037,7 +2037,7 @@ function registerBuiltinCommands(): void {
         return;
       }
 
-      // ── premium plugins — coming in v1.2.2, see README § OXIS
+      // ── premium plugins — planned, not yet available; see README § OXIS
       // Market. The commands exist now (infrastructure is real —
       // Stripe Checkout, webhooks, KV licensing) but every listing is
       // marked comingSoon until account verification is complete.

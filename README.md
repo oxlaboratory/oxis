@@ -195,7 +195,7 @@ file and streams HTTP. See [Plugins](#plugins) and the [Lua API](#lua-api).
 - [x] A redesigned interface: app bar, Home as the workspace's start page, one design system across every theme
 - [x] A macOS build, built and tested in CI (preview)
 - [ ] The macOS build tried on a real Mac
-- [ ] Premium plugins in the Market (AI DevOps first)
+- [ ] Premium plugins in the Market (AI DevOps first) — planned, no release date yet
 
 Ideas and bug reports are welcome in [issues](https://github.com/oxlaboratory/oxis/issues).
 

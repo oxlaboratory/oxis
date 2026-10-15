@@ -80,6 +80,40 @@ their description says, declare the permissions they use, and must not
 collect data or act destructively without telling the user. Never
 include keys, tokens or passwords.
 
+## Versions and releases
+
+OXIS follows [Semantic Versioning](https://semver.org): versions are
+`MAJOR.MINOR.PATCH` and release tags are `vMAJOR.MINOR.PATCH`.
+
+- **PATCH** (`2.0.0` → `2.0.1`): bug fixes and small corrections.
+- **MINOR** (`2.0.1` → `2.1.0`, PATCH back to 0): substantial new
+  features that keep supported APIs, plugins and settings working.
+  Small features are grouped into one minor release.
+- **MAJOR** (`2.8.4` → `3.0.0`, the others back to 0): breaking
+  changes to supported APIs, plugin compatibility or configuration that
+  need users or plugin authors to change things. A large feature or a
+  refactor on its own isn't one.
+
+**v2.0.0** is the new native OXIS: a Rust engine with a Dear ImGui
+interface and Lua scripting (see [docs/v2/README.md](docs/v2/README.md)).
+It's tagged only once that core is complete and tested; until then the
+1.x line carries on.
+
+For every release:
+
+1. Read the current version from the code and the existing tags; never
+   reuse or downgrade a version.
+2. Pick the increment from what changed since the last release.
+3. Update the version everywhere it lives (`package.json`, Cargo
+   manifests, the installer, the build stamp, update checks, docs) and
+   add a dated entry to `CHANGELOG.md`.
+4. Run the tests and build the Windows and Linux artifacts; check they
+   report the new version and that the update check recognises it.
+5. Tag and publish with release notes and checksums.
+
+Commits and merged pull requests don't each get a release, and a change
+that doesn't warrant one leaves the version alone.
+
 ## Bug reports
 
 Include the OXIS version (`'version`), your OS, steps to reproduce, what

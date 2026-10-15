@@ -63,7 +63,7 @@ export interface MarketEntry {
   version?: string;
   author?: string;
   file: string;
-  /** Coming in v1.2.2 — see README § OXIS Market. Absent/false on
+  /** Planned, not yet available — see README § OXIS Market. Absent/false on
    *  every plugin actually available in v1.2.1. */
   premium?: boolean;
   priceDisplay?: string;   // e.g. "$4.99/mo" — display only, real price lives in the Stripe Price
