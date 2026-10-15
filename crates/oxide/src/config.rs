@@ -52,9 +52,7 @@ pub struct Loaded<T> {
 pub fn load<T: Document>(path: &Path) -> Result<Loaded<T>> {
     let text = match fs::read_to_string(path) {
         Ok(t) => t,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            return Ok(Loaded { value: T::default(), recovered_from: None, fresh: true })
-        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Loaded { value: T::default(), recovered_from: None, fresh: true }),
         Err(e) => return Err(Error::io("couldn't read", path, e)),
     };
 
@@ -86,10 +84,7 @@ pub fn load<T: Document>(path: &Path) -> Result<Loaded<T>> {
 }
 
 pub fn save<T: Document>(path: &Path, value: &T) -> Result<()> {
-    let env = Envelope {
-        format: T::FORMAT,
-        data: serde_json::to_value(value).map_err(|e| Error::Config { path: path.to_owned(), message: e.to_string() })?,
-    };
+    let env = Envelope { format: T::FORMAT, data: serde_json::to_value(value).map_err(|e| Error::Config { path: path.to_owned(), message: e.to_string() })? };
     let text = serde_json::to_string_pretty(&env).expect("a JSON value always serialises");
     write_atomic(path, text.as_bytes())
 }
@@ -149,13 +144,7 @@ pub struct Settings {
 
 impl Default for Settings {
     fn default() -> Self {
-        Self {
-            shell: "auto".into(),
-            theme: "default".into(),
-            font_size: 14.0,
-            restore_session: true,
-            last_workspace: None,
-        }
+        Self { shell: "auto".into(), theme: "default".into(), font_size: 14.0, restore_session: true, last_workspace: None }
     }
 }
 

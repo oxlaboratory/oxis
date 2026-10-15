@@ -8,14 +8,14 @@
 //! processes are read from the engine every frame, and process output
 //! arrives through the engine's event bus.
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::time::Instant;
 
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use dear_imgui_rs::{Condition, Context, MouseButton, MouseCursor, StyleColor, Ui, WindowFlags};
 use oxide::events::{Event, Stream};
-use oxide::ids::ProcessId;
+use oxide::ids::{ProcessId, WorkspaceId};
 use oxide::process::{ProcessSpec, Status};
 use oxide::workspace::WorkspaceData;
 use oxide::Engine;
@@ -43,6 +43,9 @@ enum View {
 
 struct Run {
     id: ProcessId,
+    /// The workspace it was started in; the Run view shows only the active
+    /// workspace's commands.
+    owner: Option<WorkspaceId>,
     command: String,
     started: Instant,
     ended: Option<(Instant, Status)>,
@@ -72,13 +75,17 @@ pub struct Shell {
     link_path: String,
     notice: Option<(String, bool, Instant)>,
     dragging_title: bool,
+    /// Where each named control was drawn this frame, for `--drive`
+    /// scripts to click by name.
+    hotspots: HashMap<String, [f32; 4]>,
+    /// The `NAME=value` being typed in the Project panel.
+    env_line: String,
+    focus_new_ws: bool,
 }
 
 impl Shell {
     pub fn new(engine: Engine) -> Self {
-        let window_state = oxide::config::load::<WindowState>(&engine.data_dir().join("window.json"))
-            .map(|l| l.value)
-            .unwrap_or_default();
+        let window_state = oxide::config::load::<WindowState>(&engine.data_dir().join("window.json")).map(|l| l.value).unwrap_or_default();
         let (tx, rx) = unbounded();
         let mut shell = Self {
             engine,
@@ -95,6 +102,9 @@ impl Shell {
             link_path: String::new(),
             notice: None,
             dragging_title: false,
+            hotspots: HashMap::new(),
+            env_line: String::new(),
+            focus_new_ws: false,
         };
         shell.restore_workspace();
         shell
@@ -107,6 +117,61 @@ impl Shell {
             "settings" => View::Settings,
             _ => View::Home,
         };
+        self.focus_cmd = self.view == View::Run;
+    }
+
+    /// The screen rectangle a named control was drawn at last frame.
+    pub fn hotspot(&self, name: &str) -> Option<[f32; 4]> {
+        self.hotspots.get(name).copied()
+    }
+
+    fn active_id(&self) -> Option<WorkspaceId> {
+        self.engine.workspaces.active().map(|w| w.id)
+    }
+
+    /// How many of the active workspace's commands are still running.
+    pub fn running(&self) -> usize {
+        let here = self.active_id();
+        self.runs.iter().filter(|r| r.ended.is_none() && r.owner == here).count()
+    }
+
+    /// Whether the active workspace's latest command has printed `line`.
+    pub fn latest_output_has(&self, line: &str) -> bool {
+        let here = self.active_id();
+        self.runs.iter().rev().find(|r| r.owner == here).is_some_and(|r| r.lines.iter().any(|(_, l)| l.trim() == line))
+    }
+
+    /// What's on screen and in the engine, as JSON (for `--drive` tests).
+    pub fn dump(&self) -> serde_json::Value {
+        let ws = |w: &oxide::workspace::Workspace| serde_json::json!({ "name": w.name, "folder": w.data.folder, "git_remote": w.data.git_remote, "env": w.data.env });
+        let mut open: Vec<_> = self.engine.workspaces.open_workspaces().map(ws).collect();
+        open.sort_by(|a, b| a["name"].as_str().cmp(&b["name"].as_str()));
+        serde_json::json!({
+            "view": match self.view { View::Home => "home", View::Run => "run", View::Settings => "settings" },
+            "active": self.engine.workspaces.active().map(ws),
+            "open": open,
+            "on_disk": self.engine.workspaces.list().unwrap_or_default(),
+            "settings": { "shell": self.engine.settings.shell, "restore_session": self.engine.settings.restore_session },
+            "notice": self.notice.as_ref().map(|n| serde_json::json!({ "text": n.0, "error": n.1 })),
+            "runs": self.runs.iter().map(|r| {
+                let owner = r.owner.and_then(|id| self.engine.workspaces.get(id)).map(|w| w.name.clone());
+                let (status, code, cancelled) = match r.ended {
+                    None => ("running", None, false),
+                    Some((_, Status::Exited { code, cancelled })) => ("exited", code, cancelled),
+                    Some((_, Status::Running)) => ("running", None, false),
+                };
+                serde_json::json!({
+                    "command": r.command, "workspace": owner, "visible": r.owner == self.active_id(), "status": status, "code": code, "cancelled": cancelled,
+                    "stdout": r.lines.iter().filter(|(s, _)| *s == Stream::Stdout).map(|(_, l)| l).collect::<Vec<_>>(),
+                    "stderr": r.lines.iter().filter(|(s, _)| *s == Stream::Stderr).map(|(_, l)| l).collect::<Vec<_>>(),
+                })
+            }).collect::<Vec<_>>(),
+        })
+    }
+
+    fn mark(&mut self, ui: &Ui, name: impl Into<String>) {
+        let (a, b) = (ui.item_rect_min(), ui.item_rect_max());
+        self.hotspots.insert(name.into(), [a[0], a[1], b[0], b[1]]);
     }
 
     pub fn window_state(&self) -> &WindowState {
@@ -160,7 +225,9 @@ impl Shell {
 
     pub fn save_window(&mut self, window: &Window) {
         self.window_state = window_state::capture(window, &self.window_state);
-        let _ = oxide::config::save(&self.engine.data_dir().join("window.json"), &self.window_state);
+        if let Err(e) = oxide::config::save(&self.engine.data_dir().join("window.json"), &self.window_state) {
+            tracing::warn!("couldn't remember the window's place: {e}");
+        }
     }
 
     /// Stops what's still running and (when `persist`) remembers the
@@ -173,7 +240,9 @@ impl Shell {
         }
         if persist {
             self.engine.settings.last_workspace = self.engine.workspaces.active().map(|w| w.name.clone());
-            let _ = self.engine.save_settings();
+            if let Err(e) = self.engine.save_settings() {
+                tracing::warn!("couldn't save the settings on the way out: {e}");
+            }
         }
     }
 
@@ -196,9 +265,12 @@ impl Shell {
 
     pub fn draw(&mut self, ui: &Ui, window: &Window) -> FrameActions {
         let mut actions = FrameActions::default();
-        let Some(fonts) = self.fonts else { return actions };
+        let Some(fonts) = self.fonts else {
+            return actions;
+        };
         let display = ui.io().display_size();
         let _font = ui.push_font_with_size(Some(fonts.ui), size::MD);
+        self.hotspots.clear();
 
         ui.window("##oxis")
             .position([0.0, 0.0], Condition::Always)
@@ -247,6 +319,7 @@ impl Shell {
         if ui.invisible_button("##ws-switch", [chip[2] - chip[0], chip[3] - chip[1]]) {
             ui.open_popup("ws-menu");
         }
+        self.mark(ui, "ws-switch");
         let hovered = ui.is_item_hovered();
         dl.add_rect([chip[0], chip[1]], [chip[2], chip[3]], col(if hovered { p.press() } else { p.hover() })).filled(true).rounding(5.0).build();
         let dot = if self.engine.workspaces.active().is_some() { p.acc } else { p.dim };
@@ -261,6 +334,7 @@ impl Shell {
         for (i, kind) in [Icon::Close, if window.is_maximized() { Icon::Restore } else { Icon::Maximize }, Icon::Minimize].into_iter().enumerate() {
             ui.set_cursor_screen_pos([x, 0.0]);
             let clicked = ui.invisible_button(format!("##win{i}"), [bw, TITLE_H - 1.0]);
+            self.mark(ui, ["win:close", "win:max", "win:min"][i]);
             let hov = ui.is_item_hovered();
             if hov {
                 let bg = if kind == Icon::Close { [0.84, 0.23, 0.23, 1.0] } else { p.hover() };
@@ -297,8 +371,12 @@ impl Shell {
     }
 
     fn workspace_menu(&mut self, ui: &Ui, fonts: Fonts) {
-        let Some(_popup) = ui.begin_popup("ws-menu") else { return };
-        let _pad = ui.push_style_var(dear_imgui_rs::StyleVar::WindowPadding([6.0, 6.0]));
+        // Style that shapes the popup window must be pushed before it begins.
+        // (It stays pushed until the popup ends: tokens drop in reverse order.)
+        let _pad = ui.push_style_var(dear_imgui_rs::StyleVar::WindowPadding([10.0, 8.0]));
+        let Some(_popup) = ui.begin_popup("ws-menu") else {
+            return;
+        };
         ui.text_disabled("WORKSPACES");
         let names = self.engine.workspaces.list().unwrap_or_default();
         let active = self.engine.workspaces.active().map(|w| w.name.clone());
@@ -308,7 +386,13 @@ impl Shell {
         for name in names {
             let is_active = active.as_deref() == Some(&name);
             let _c = is_active.then(|| ui.push_style_color(StyleColor::Text, self.pal.acc_hi));
-            if ui.selectable_config(format!("{}  {name}", if is_active { "●" } else { " " })).build() {
+            let picked = ui.selectable_config(format!("    {name}")).build();
+            self.mark(ui, format!("ws-menu:{name}"));
+            if is_active {
+                let (a, b) = (ui.item_rect_min(), ui.item_rect_max());
+                ui.get_window_draw_list().add_circle([a[0] + 6.0, (a[1] + b[1]) / 2.0], 3.2, col(self.pal.acc)).filled(true).build();
+            }
+            if picked {
                 match self.engine.workspaces.open(&name).and_then(|id| self.engine.workspaces.activate(id)) {
                     Ok(()) => self.say(format!("Switched to {name}"), false),
                     Err(e) => self.say(e.to_string(), true),
@@ -319,6 +403,7 @@ impl Shell {
         let _f = ui.push_font_with_size(Some(fonts.ui), size::SM);
         if ui.selectable("New workspace…") {
             self.view = View::Home;
+            self.focus_new_ws = true;
         }
     }
 
@@ -333,7 +418,9 @@ impl Shell {
         for (i, (view, icon, name)) in items.into_iter().enumerate() {
             let y = if view == View::Settings { bottom - 52.0 } else { top + 10.0 + i as f32 * 48.0 };
             ui.set_cursor_screen_pos([6.0, y]);
-            if ui.invisible_button(format!("##nav{i}"), [SIDEBAR_W - 12.0, 42.0]) {
+            let clicked = ui.invisible_button(format!("##nav{i}"), [SIDEBAR_W - 12.0, 42.0]);
+            self.mark(ui, format!("nav:{}", name.to_lowercase()));
+            if clicked {
                 self.view = view;
                 if view == View::Run {
                     self.focus_cmd = true;
@@ -347,7 +434,19 @@ impl Shell {
             if on {
                 dl.add_rect([0.0, y + 9.0], [2.5, y + 33.0], col(p.acc)).filled(true).rounding(2.0).build();
             }
-            draw_icon(&dl, icon, [SIDEBAR_W / 2.0, y + 21.0], 16.0, col(if on { p.acc_hi } else if hov { p.text } else { p.muted }));
+            draw_icon(
+                &dl,
+                icon,
+                [SIDEBAR_W / 2.0, y + 21.0],
+                16.0,
+                col(if on {
+                    p.acc_hi
+                } else if hov {
+                    p.text
+                } else {
+                    p.muted
+                }),
+            );
             if hov {
                 let _f = ui.push_font_with_size(Some(fonts.ui), size::SM);
                 ui.tooltip_text(name);
@@ -392,7 +491,9 @@ impl Shell {
     }
 
     fn notice_toast(&mut self, ui: &Ui, fonts: Fonts, display: [f32; 2], actions: &mut FrameActions) {
-        let Some((text, error, at)) = &self.notice else { return };
+        let Some((text, error, at)) = &self.notice else {
+            return;
+        };
         let age = at.elapsed().as_secs_f32();
         if age > 3.5 {
             self.notice = None;
@@ -442,97 +543,154 @@ impl Shell {
         let p = self.pal;
         ui.set_cursor_screen_pos([area[0], area[1]]);
         let _pad = ui.push_style_var(dear_imgui_rs::StyleVar::WindowPadding([32.0, 26.0]));
-        ui.child_window("##home").size([area[2] - area[0], area[3] - area[1]]).child_flags(dear_imgui_rs::ChildFlags::ALWAYS_USE_WINDOW_PADDING).build(ui, || {
-            let active = self.engine.workspaces.active().cloned();
-            eyebrow(ui, fonts, &p, "WORKSPACE", active.is_some());
-            {
-                let _f = ui.push_font_with_size(Some(fonts.ui_semibold), size::TITLE);
-                ui.text(active.as_ref().map(|w| w.name.as_str()).unwrap_or("No workspace open"));
-            }
-            {
-                let _f = ui.push_font_with_size(Some(fonts.ui), size::MD);
-                let _c = ui.push_style_color(StyleColor::Text, p.muted);
-                match &active {
-                    Some(w) => ui.text(match &w.data.folder {
-                        Some(f) => format!("Linked to {}", f.display()),
-                        None => "Not linked to a project folder yet.".to_owned(),
-                    }),
-                    None => ui.text("Create a workspace for a project, or open one below."),
+        ui.child_window("##home")
+            .size([area[2] - area[0], area[3] - area[1]])
+            .child_flags(dear_imgui_rs::ChildFlags::ALWAYS_USE_WINDOW_PADDING)
+            .flags(WindowFlags::NO_SCROLLBAR | WindowFlags::NO_SCROLL_WITH_MOUSE)
+            .build(ui, || {
+                let active = self.engine.workspaces.active().cloned();
+                eyebrow(ui, fonts, &p, "WORKSPACE", active.is_some());
+                {
+                    let _f = ui.push_font_with_size(Some(fonts.ui_semibold), size::TITLE);
+                    ui.text(active.as_ref().map(|w| w.name.as_str()).unwrap_or("No workspace open"));
                 }
-            }
-            ui.dummy([0.0, 14.0]);
+                {
+                    let _f = ui.push_font_with_size(Some(fonts.ui), size::MD);
+                    let _c = ui.push_style_color(StyleColor::Text, p.muted);
+                    let room = ui.content_region_avail()[0];
+                    match &active {
+                        Some(w) => ui.text(match &w.data.folder {
+                            Some(f) => elide_middle(ui, &format!("Linked to {}", f.display()), room),
+                            None => "Not linked to a project folder yet.".to_owned(),
+                        }),
+                        None => ui.text("Create a workspace for a project, or open one below."),
+                    }
+                }
+                ui.dummy([0.0, 14.0]);
 
-            let half = (ui.content_region_avail()[0] - 16.0) / 2.0;
-            panel(ui, fonts, &p, "Workspaces", half, 300.0, || {
-                let names = self.engine.workspaces.list().unwrap_or_default();
-                if names.is_empty() {
-                    let _c = ui.push_style_color(StyleColor::Text, p.dim);
-                    ui.text("No workspaces yet.");
-                }
-                let active_name = active.as_ref().map(|w| w.name.clone());
-                for name in &names {
-                    let is_active = active_name.as_deref() == Some(name.as_str());
-                    let _c = ui.push_style_color(StyleColor::Text, if is_active { p.acc_hi } else { p.text });
-                    let _f = ui.push_font_with_size(Some(fonts.mono), size::MD);
-                    if ui.selectable_config(format!("{}  {name}", if is_active { "●" } else { "○" })).selected(is_active).build() && !is_active {
-                        match self.engine.workspaces.open(name).and_then(|id| self.engine.workspaces.activate(id)) {
-                            Ok(()) => self.say(format!("Switched to {name}"), false),
+                let half = (ui.content_region_avail()[0] - 16.0) / 2.0;
+                let tall = (ui.content_region_avail()[1] - 2.0).clamp(120.0, 420.0);
+                panel(ui, fonts, &p, "Workspaces", half, tall, || {
+                    let names = self.engine.workspaces.list().unwrap_or_default();
+                    if names.is_empty() {
+                        let _c = ui.push_style_color(StyleColor::Text, p.dim);
+                        ui.text("No workspaces yet.");
+                    }
+                    let active_name = active.as_ref().map(|w| w.name.clone());
+                    for name in &names {
+                        let is_active = active_name.as_deref() == Some(name.as_str());
+                        let _c = ui.push_style_color(StyleColor::Text, if is_active { p.acc_hi } else { p.text });
+                        let _f = ui.push_font_with_size(Some(fonts.mono), size::MD);
+                        let picked = ui.selectable_config(format!("{}  {name}", if is_active { "●" } else { "○" })).selected(is_active).build();
+                        self.mark(ui, format!("ws:{name}"));
+                        if picked && !is_active {
+                            match self.engine.workspaces.open(name).and_then(|id| self.engine.workspaces.activate(id)) {
+                                Ok(()) => self.say(format!("Switched to {name}"), false),
+                                Err(e) => self.say(e.to_string(), true),
+                            }
+                        }
+                    }
+                    ui.dummy([0.0, 8.0]);
+                    ui.set_next_item_width(ui.content_region_avail()[0] - 84.0);
+                    if std::mem::take(&mut self.focus_new_ws) {
+                        ui.set_keyboard_focus_here();
+                    }
+                    let enter = ui.input_text("##new-ws", &mut self.new_ws).hint("New workspace name").enter_returns_true(true).build();
+                    self.mark(ui, "new-ws");
+                    ui.same_line();
+                    let create = button(ui, "Create", true);
+                    self.mark(ui, "create-ws");
+                    if (create || enter) && !self.new_ws.trim().is_empty() {
+                        let name = self.new_ws.trim().to_owned();
+                        match self.engine.workspaces.create(&name, WorkspaceData::default()).and_then(|id| self.engine.workspaces.activate(id)) {
+                            Ok(()) => {
+                                self.say(format!("Created {name}"), false);
+                                self.new_ws.clear();
+                            }
                             Err(e) => self.say(e.to_string(), true),
                         }
                     }
-                }
-                ui.dummy([0.0, 8.0]);
-                ui.set_next_item_width(ui.content_region_avail()[0] - 84.0);
-                let enter = ui.input_text("##new-ws", &mut self.new_ws).hint("New workspace name").enter_returns_true(true).build();
-                ui.same_line();
-                if (button(ui, "Create", true) || enter) && !self.new_ws.trim().is_empty() {
-                    let name = self.new_ws.trim().to_owned();
-                    match self.engine.workspaces.create(&name, WorkspaceData::default()).and_then(|id| self.engine.workspaces.activate(id)) {
-                        Ok(()) => {
-                            self.say(format!("Created {name}"), false);
-                            self.new_ws.clear();
-                        }
-                        Err(e) => self.say(e.to_string(), true),
-                    }
-                }
-            });
-            ui.same_line_with_spacing(0.0, 16.0);
-            panel(ui, fonts, &p, "Project folder", half, 300.0, || {
-                let Some(ws) = &active else {
-                    let _c = ui.push_style_color(StyleColor::Text, p.dim);
-                    ui.text_wrapped("Open a workspace to link it to a project folder.");
-                    return;
-                };
-                {
-                    let _c = ui.push_style_color(StyleColor::Text, p.muted);
-                    ui.text_wrapped("Commands run in this folder, with this workspace's environment.");
-                }
-                ui.dummy([0.0, 4.0]);
-                ui.set_next_item_width(ui.content_region_avail()[0] - 72.0);
-                let enter = ui.input_text("##link", &mut self.link_path).hint("C:\\path\\to\\project").enter_returns_true(true).build();
-                ui.same_line();
-                if (button(ui, "Link", true) || enter) && !self.link_path.trim().is_empty() {
-                    let path = PathBuf::from(self.link_path.trim());
-                    if path.is_dir() {
-                        let id = ws.id;
-                        match self.engine.workspaces.update(id, |d| d.folder = Some(path.clone())) {
+                });
+                ui.same_line_with_spacing(0.0, 16.0);
+                panel(ui, fonts, &p, "Project", half, tall, || {
+                    let Some(ws) = &active else {
+                        let _c = ui.push_style_color(StyleColor::Text, p.dim);
+                        ui.text_wrapped("Open a workspace to link it to a project folder.");
+                        return;
+                    };
+                    let id = ws.id;
+                    ui.set_next_item_width(ui.content_region_avail()[0] - 72.0);
+                    let hint = if cfg!(windows) { "C:\\path\\to\\project" } else { "~/path/to/project" };
+                    let enter = ui.input_text("##link", &mut self.link_path).hint(hint).enter_returns_true(true).build();
+                    self.mark(ui, "link");
+                    ui.same_line();
+                    let link = button(ui, "Link", true);
+                    self.mark(ui, "link-btn");
+                    if (link || enter) && !self.link_path.trim().is_empty() {
+                        let path = expand_home(self.link_path.trim());
+                        match self.engine.link_folder(id, &path) {
                             Ok(()) => {
-                                self.say(format!("Linked to {}", path.display()), false);
+                                let shown = self.engine.workspaces.get(id).and_then(|w| w.data.folder.clone()).unwrap_or(path);
+                                self.say(format!("Linked to {}", shown.display()), false);
                                 self.link_path.clear();
                             }
                             Err(e) => self.say(e.to_string(), true),
                         }
-                    } else {
-                        self.say(format!("{} isn't a folder", path.display()), true);
                     }
-                }
-                ui.dummy([0.0, 10.0]);
-                if button(ui, "Run a command here", false) {
-                    self.view = View::Run;
-                    self.focus_cmd = true;
-                }
+                    {
+                        let _f = ui.push_font_with_size(Some(fonts.ui), size::SM);
+                        let _c = ui.push_style_color(StyleColor::Text, p.muted);
+                        let room = ui.content_region_avail()[0];
+                        ui.text(match &ws.data.git_remote {
+                            Some(r) => elide_middle(ui, &format!("Git remote  {r}"), room),
+                            None if ws.data.folder.is_some() => "Git remote  none (not a Git repository, or no remotes)".to_owned(),
+                            None => "Git remote  link a folder to detect it".to_owned(),
+                        });
+                    }
+                    ui.dummy([0.0, 6.0]);
+                    {
+                        let _f = ui.push_font_with_size(Some(fonts.ui_semibold), size::SM);
+                        ui.text("Environment");
+                    }
+                    let mut remove = None;
+                    if ws.data.env.is_empty() {
+                        let _f = ui.push_font_with_size(Some(fonts.ui), size::SM);
+                        let _c = ui.push_style_color(StyleColor::Text, p.dim);
+                        ui.text("No variables. Commands get OXIS's own environment.");
+                    }
+                    for (key, value) in &ws.data.env {
+                        let _id = ui.push_id(key.as_str());
+                        let _f = ui.push_font_with_size(Some(fonts.mono), size::SM);
+                        if ui.small_button("×") {
+                            remove = Some(key.clone());
+                        }
+                        self.mark(ui, format!("env-rm:{key}"));
+                        ui.same_line();
+                        ui.text(format!("{key}={value}"));
+                    }
+                    if let Some(key) = remove {
+                        match self.engine.set_env(id, &key, None) {
+                            Ok(()) => self.say(format!("Removed {key}"), false),
+                            Err(e) => self.say(e.to_string(), true),
+                        }
+                    }
+                    ui.set_next_item_width(ui.content_region_avail()[0] - 72.0);
+                    let enter = ui.input_text("##env", &mut self.env_line).hint("NAME=value").enter_returns_true(true).build();
+                    self.mark(ui, "env");
+                    ui.same_line();
+                    let add = button(ui, "Set", false);
+                    self.mark(ui, "env-set");
+                    if (add || enter) && !self.env_line.trim().is_empty() {
+                        match oxide::workspace::parse_env_assignment(&self.env_line).and_then(|(k, v)| self.engine.set_env(id, &k, Some(&v)).map(|()| k)) {
+                            Ok(k) => {
+                                self.say(format!("Set {k} for {}", ws.name), false);
+                                self.env_line.clear();
+                            }
+                            Err(e) => self.say(e.to_string(), true),
+                        }
+                    }
+                });
             });
-        });
     }
 
     fn run_view(&mut self, ui: &Ui, fonts: Fonts, area: [f32; 4]) {
@@ -541,61 +699,79 @@ impl Shell {
         ui.set_cursor_screen_pos([area[0], area[1]]);
         let _pad = ui.push_style_var(dear_imgui_rs::StyleVar::WindowPadding([20.0, 14.0]));
         let mut cancel = None;
-        ui.child_window("##runs").size([area[2] - area[0], out_h]).child_flags(dear_imgui_rs::ChildFlags::ALWAYS_USE_WINDOW_PADDING).build(ui, || {
-            if self.runs.is_empty() {
-                let _c = ui.push_style_color(StyleColor::Text, p.dim);
-                ui.text(format!("Type a command below. Each line runs as its own process in {}.", self.shell_label()));
-            }
-            let at_bottom = ui.scroll_y() >= ui.scroll_max_y() - 4.0;
-            for run in &self.runs {
-                let _id = ui.push_id(run.id.raw() as i32);
-                {
-                    let _f = ui.push_font_with_size(Some(fonts.mono_bold), size::MD);
-                    let _c = ui.push_style_color(StyleColor::Text, p.acc_hi);
-                    ui.text(format!("❯ {}", run.command));
-                }
-                ui.same_line();
-                let (label, c) = match run.ended {
-                    None => (format!("running · {:.0}s", run.started.elapsed().as_secs_f32()), p.muted),
-                    Some((t, st)) => {
-                        let secs = (t - run.started).as_secs_f32();
-                        match st {
-                            Status::Exited { cancelled: true, .. } => (format!("stopped · {secs:.1}s"), p.warn),
-                            Status::Exited { code: Some(0), .. } => (format!("✓ · {secs:.1}s"), p.ok),
-                            Status::Exited { code, .. } => (format!("exit {} · {secs:.1}s", code.map(|c| c.to_string()).unwrap_or("?".into())), p.err),
-                            Status::Running => (String::new(), p.muted),
-                        }
-                    }
-                };
-                {
-                    let _f = ui.push_font_with_size(Some(fonts.ui), size::SM);
-                    let _c = ui.push_style_color(StyleColor::Text, c);
-                    ui.text(label);
-                }
-                if run.ended.is_none() {
-                    ui.same_line();
-                    let _f = ui.push_font_with_size(Some(fonts.ui), size::SM);
-                    if ui.small_button("Stop") {
-                        cancel = Some(run.id);
-                    }
-                }
-                let _f = ui.push_font_with_size(Some(fonts.mono), size::MD);
-                if run.dropped > 0 {
+        let mut stops: Vec<(String, [f32; 4])> = Vec::new();
+        ui.child_window("##runs")
+            .size([area[2] - area[0], out_h])
+            .child_flags(dear_imgui_rs::ChildFlags::ALWAYS_USE_WINDOW_PADDING)
+            .flags(WindowFlags::HORIZONTAL_SCROLLBAR)
+            .build(ui, || {
+                let here = self.active_id();
+                if !self.runs.iter().any(|r| r.owner == here) {
                     let _c = ui.push_style_color(StyleColor::Text, p.dim);
-                    ui.text(format!("… {} earlier lines not kept", run.dropped));
+                    ui.text(format!("Type a command below. Each line runs as its own process in {}.", self.shell_label()));
                 }
-                for (stream, line) in &run.lines {
-                    let _c = ui.push_style_color(StyleColor::Text, if *stream == Stream::Stderr { p.err } else { p.text });
-                    ui.text(line);
+                let at_bottom = ui.scroll_y() >= ui.scroll_max_y() - 4.0;
+                for (index, run) in self.runs.iter().filter(|r| r.owner == here).enumerate() {
+                    let _id = ui.push_id(run.id.raw() as i32);
+                    {
+                        let _f = ui.push_font_with_size(Some(fonts.mono_bold), size::MD);
+                        let _c = ui.push_style_color(StyleColor::Text, p.acc_hi);
+                        ui.text(format!("❯ {}", run.command));
+                    }
+                    ui.same_line();
+                    let (label, c) = match run.ended {
+                        None => (format!("running · {:.0}s", run.started.elapsed().as_secs_f32()), p.muted),
+                        Some((t, st)) => {
+                            let secs = (t - run.started).as_secs_f32();
+                            match st {
+                                Status::Exited { cancelled: true, .. } => (format!("stopped · {secs:.1}s"), p.warn),
+                                Status::Exited { code: Some(0), .. } => (format!("✓ · {secs:.1}s"), p.ok),
+                                Status::Exited { code, .. } => (format!("exit {} · {secs:.1}s", code.map(|c| c.to_string()).unwrap_or("?".into())), p.err),
+                                Status::Running => (String::new(), p.muted),
+                            }
+                        }
+                    };
+                    {
+                        let _f = ui.push_font_with_size(Some(fonts.ui), size::SM);
+                        let _c = ui.push_style_color(StyleColor::Text, c);
+                        ui.text(label);
+                    }
+                    if run.ended.is_none() {
+                        ui.same_line();
+                        let _f = ui.push_font_with_size(Some(fonts.ui), size::SM);
+                        if ui.small_button("Stop") {
+                            cancel = Some(run.id);
+                        }
+                        let (a, b) = (ui.item_rect_min(), ui.item_rect_max());
+                        stops.push((format!("stop:{index}"), [a[0], a[1], b[0], b[1]]));
+                    }
+                    let _f = ui.push_font_with_size(Some(fonts.mono), size::MD);
+                    if run.dropped > 0 {
+                        let _c = ui.push_style_color(StyleColor::Text, p.dim);
+                        ui.text(format!("… {} earlier lines not kept", run.dropped));
+                    }
+                    for (stream, line) in &run.lines {
+                        let _c = ui.push_style_color(StyleColor::Text, if *stream == Stream::Stderr { p.err } else { p.text });
+                        ui.text(line);
+                    }
+                    ui.dummy([0.0, 8.0]);
                 }
-                ui.dummy([0.0, 8.0]);
-            }
-            if at_bottom {
-                ui.set_scroll_here_y(1.0);
-            }
-        });
+                if at_bottom {
+                    ui.set_scroll_here_y(1.0);
+                }
+            });
+        self.hotspots.extend(stops);
+        // Ctrl+C with nothing typed stops the latest command still running.
+        if cancel.is_none() && self.cmd.is_empty() && ui.io().key_ctrl() && ui.is_key_pressed(dear_imgui_rs::Key::C) {
+            let here = self.active_id();
+            cancel = self.runs.iter().rev().find(|r| r.ended.is_none() && r.owner == here).map(|r| r.id);
+        }
         if let Some(id) = cancel {
-            let _ = self.engine.processes.cancel(id);
+            if let Err(e) = self.engine.processes.cancel(id) {
+                self.say(format!("Couldn't stop it: {e}"), true);
+            }
+            // Back to the prompt, so the next command can be typed straight away.
+            self.focus_cmd = true;
         }
 
         // The prompt.
@@ -613,7 +789,9 @@ impl Shell {
         let _f = ui.push_font_with_size(Some(fonts.mono), size::MD);
         let _bg = ui.push_style_color(StyleColor::FrameBg, [0.0; 4]);
         let _bd = ui.push_style_color(StyleColor::Border, [0.0; 4]);
-        if ui.input_text("##cmd", &mut self.cmd).enter_returns_true(true).build() {
+        let entered = ui.input_text("##cmd", &mut self.cmd).enter_returns_true(true).build();
+        self.mark(ui, "cmd");
+        if entered {
             let line = self.cmd.trim().to_owned();
             self.cmd.clear();
             self.focus_cmd = true;
@@ -627,39 +805,43 @@ impl Shell {
         let p = self.pal;
         ui.set_cursor_screen_pos([area[0], area[1]]);
         let _pad = ui.push_style_var(dear_imgui_rs::StyleVar::WindowPadding([32.0, 26.0]));
-        ui.child_window("##settings").size([area[2] - area[0], area[3] - area[1]]).child_flags(dear_imgui_rs::ChildFlags::ALWAYS_USE_WINDOW_PADDING).build(ui, || {
-            {
-                let _f = ui.push_font_with_size(Some(fonts.ui_semibold), 22.0);
-                ui.text("Settings");
-            }
-            {
-                let _c = ui.push_style_color(StyleColor::Text, p.muted);
-                ui.text(format!("Saved to {}", self.engine.data_dir().join("settings.json").display()));
-            }
-            ui.dummy([0.0, 12.0]);
-            let mut changed = false;
-            setting_row(ui, fonts, &p, "Shell", "The shell commands run in. Auto picks PowerShell on Windows and your $SHELL elsewhere.", || {
-                let choices: &[&str] = if cfg!(windows) { &["auto", "powershell", "pwsh", "cmd"] } else { &["auto", "sh", "bash", "zsh", "fish"] };
-                ui.set_next_item_width(180.0);
-                if let Some(_combo) = ui.begin_combo("##shell", &self.engine.settings.shell) {
-                    for c in choices {
-                        if ui.selectable_config(*c).selected(self.engine.settings.shell == *c).build() {
-                            self.engine.settings.shell = (*c).to_owned();
-                            changed = true;
+        ui.child_window("##settings").size([area[2] - area[0], area[3] - area[1]]).child_flags(dear_imgui_rs::ChildFlags::ALWAYS_USE_WINDOW_PADDING).build(
+            ui,
+            || {
+                {
+                    let _f = ui.push_font_with_size(Some(fonts.ui_semibold), 22.0);
+                    ui.text("Settings");
+                }
+                {
+                    let _c = ui.push_style_color(StyleColor::Text, p.muted);
+                    let room = ui.content_region_avail()[0];
+                    ui.text(elide_middle(ui, &format!("Saved to {}", self.engine.data_dir().join("settings.json").display()), room));
+                }
+                ui.dummy([0.0, 12.0]);
+                let mut changed = false;
+                setting_row(ui, fonts, &p, "Shell", "The shell commands run in. Auto picks PowerShell on Windows and your $SHELL elsewhere.", || {
+                    let choices: &[&str] = if cfg!(windows) { &["auto", "powershell", "pwsh", "cmd"] } else { &["auto", "sh", "bash", "zsh", "fish"] };
+                    ui.set_next_item_width(180.0);
+                    if let Some(_combo) = ui.begin_combo("##shell", &self.engine.settings.shell) {
+                        for c in choices {
+                            if ui.selectable_config(*c).selected(self.engine.settings.shell == *c).build() {
+                                self.engine.settings.shell = (*c).to_owned();
+                                changed = true;
+                            }
                         }
                     }
+                });
+                setting_row(ui, fonts, &p, "Restore session", "Reopen the workspace you were in when OXIS starts.", || {
+                    changed |= ui.checkbox("##restore", &mut self.engine.settings.restore_session);
+                });
+                if changed {
+                    match self.engine.save_settings() {
+                        Ok(()) => self.say("Saved", false),
+                        Err(e) => self.say(e.to_string(), true),
+                    }
                 }
-            });
-            setting_row(ui, fonts, &p, "Restore session", "Reopen the workspace you were in when OXIS starts.", || {
-                changed |= ui.checkbox("##restore", &mut self.engine.settings.restore_session);
-            });
-            if changed {
-                match self.engine.save_settings() {
-                    Ok(()) => self.say("Saved", false),
-                    Err(e) => self.say(e.to_string(), true),
-                }
-            }
-        });
+            },
+        );
     }
 
     // ── running commands ───────────────────────────────────────────────
@@ -690,12 +872,13 @@ impl Shell {
         let (program, mut args) = self.shell_program();
         args.push(line.clone());
         let spec = ProcessSpec { program, args, ..Default::default() };
-        let result = match self.engine.workspaces.active().map(|w| w.id) {
+        let owner = self.active_id();
+        let result = match owner {
             Some(ws) => self.engine.spawn_in(ws, spec),
             None => self.engine.processes.spawn(spec),
         };
         match result {
-            Ok(id) => self.runs.push(Run { id, command: line, started: Instant::now(), ended: None, lines: VecDeque::new(), dropped: 0 }),
+            Ok(id) => self.runs.push(Run { id, owner, command: line, started: Instant::now(), ended: None, lines: VecDeque::new(), dropped: 0 }),
             Err(e) => self.say(e.to_string(), true),
         }
         if self.runs.len() > 200 {
@@ -764,7 +947,17 @@ fn chevron(dl: &dear_imgui_rs::DrawListMut<'_>, c: [f32; 2], color: theme::Rgba)
 /// Text with extra space between letters (the OXIS wordmark, labels).
 /// Each glyph is measured in its own font, so proportional fonts space
 /// evenly too.
-fn spaced_text(ui: &Ui, dl: &dear_imgui_rs::DrawListMut<'_>, font: dear_imgui_rs::FontId, size: f32, pos: [f32; 2], color: theme::Rgba, text: &str, spacing: f32) -> f32 {
+#[allow(clippy::too_many_arguments)]
+fn spaced_text(
+    ui: &Ui,
+    dl: &dear_imgui_rs::DrawListMut<'_>,
+    font: dear_imgui_rs::FontId,
+    size: f32,
+    pos: [f32; 2],
+    color: theme::Rgba,
+    text: &str,
+    spacing: f32,
+) -> f32 {
     let _f = ui.push_font_with_size(Some(font), size);
     let mut x = pos[0];
     let mut buf = [0u8; 4];
@@ -790,10 +983,9 @@ fn panel(ui: &Ui, fonts: Fonts, p: &Palette, title: &str, width: f32, height: f3
     let _bg = ui.push_style_color(StyleColor::ChildBg, p.panel());
     let _bd = ui.push_style_color(StyleColor::Border, p.line2());
     let _pad = ui.push_style_var(dear_imgui_rs::StyleVar::WindowPadding([16.0, 12.0]));
-    ui.child_window(title)
-        .size([width, height])
-        .child_flags(dear_imgui_rs::ChildFlags::BORDERS | dear_imgui_rs::ChildFlags::ALWAYS_USE_WINDOW_PADDING)
-        .build(ui, || {
+    ui.child_window(title).size([width, height]).child_flags(dear_imgui_rs::ChildFlags::BORDERS | dear_imgui_rs::ChildFlags::ALWAYS_USE_WINDOW_PADDING).build(
+        ui,
+        || {
             let dl = ui.get_window_draw_list();
             let pos = ui.cursor_screen_pos();
             dl.add_rect([pos[0], pos[1] + 4.0], [pos[0] + 6.0, pos[1] + 10.0], col(p.acc)).filled(true).rounding(1.0).build();
@@ -802,7 +994,8 @@ fn panel(ui: &Ui, fonts: Fonts, p: &Palette, title: &str, width: f32, height: f3
             ui.separator();
             ui.dummy([0.0, 6.0]);
             body();
-        });
+        },
+    );
 }
 
 /// A button in the OXIS style; `primary` is the green one.
@@ -840,4 +1033,41 @@ fn setting_row(ui: &Ui, fonts: Fonts, p: &Palette, label: &str, description: &st
     dl.add_line([start[0], y], [start[0] + width, y], col(p.line())).build();
     // An item after moving the cursor, so the window grows to include it.
     ui.dummy([0.0, 0.0]);
+}
+
+/// `~/code` → `/home/me/code`; anything else as typed.
+fn expand_home(path: &str) -> PathBuf {
+    let home = std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" });
+    match (path.strip_prefix("~/").or_else(|| path.strip_prefix("~\\")), home) {
+        (Some(rest), Some(home)) => PathBuf::from(home).join(rest),
+        _ if path == "~" => std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).map(PathBuf::from).unwrap_or_else(|| path.into()),
+        _ => PathBuf::from(path),
+    }
+}
+
+/// Shortens text to fit `width` (in the current font) by cutting out its
+/// middle: `C:\\Users\\me\\…\\project`. Paths keep both ends that way.
+fn elide_middle(ui: &Ui, text: &str, width: f32) -> String {
+    if ui.calc_text_size(text)[0] <= width {
+        return text.to_owned();
+    }
+    let chars: Vec<char> = text.chars().collect();
+    let (mut lo, mut hi) = (0usize, chars.len());
+    // The most characters that fit, half from each end.
+    while lo < hi {
+        let mid = (lo + hi).div_ceil(2);
+        let keep = |n: usize| -> String {
+            let head = n.div_ceil(2);
+            let tail = n / 2;
+            chars[..head].iter().chain(std::iter::once(&'…')).chain(chars[chars.len() - tail..].iter()).collect()
+        };
+        if ui.calc_text_size(keep(mid))[0] <= width {
+            lo = mid;
+        } else {
+            hi = mid - 1;
+        }
+    }
+    let head = lo.div_ceil(2);
+    let tail = lo / 2;
+    chars[..head].iter().chain(std::iter::once(&'…')).chain(chars[chars.len() - tail..].iter()).collect()
 }

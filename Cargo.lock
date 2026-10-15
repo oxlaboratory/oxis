@@ -1183,6 +1183,8 @@ dependencies = [
  "png",
  "raw-window-handle",
  "serde",
+ "serde_json",
+ "tempfile",
  "tracing",
  "winit",
 ]

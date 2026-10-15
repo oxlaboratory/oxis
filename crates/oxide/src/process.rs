@@ -73,7 +73,10 @@ pub enum Status {
     Running,
     /// `code` is None when the process was killed by a signal or its code
     /// couldn't be read; `cancelled` means OXIS stopped it.
-    Exited { code: Option<i32>, cancelled: bool },
+    Exited {
+        code: Option<i32>,
+        cancelled: bool,
+    },
 }
 
 impl Status {
@@ -106,14 +109,26 @@ struct Entry {
 pub struct ProcessEngine {
     bus: EventBus,
     procs: Arc<Mutex<HashMap<ProcessId, Arc<Entry>>>>,
+    keep_exited: usize,
 }
 
 impl ProcessEngine {
     pub fn new(bus: EventBus) -> Self {
-        Self { bus, procs: Arc::default() }
+        Self { bus, procs: Arc::default(), keep_exited: KEEP_EXITED }
+    }
+
+    /// How many ended processes to remember (at least one).
+    pub fn set_keep_exited(&mut self, n: usize) {
+        self.keep_exited = n.max(1);
     }
 
     pub fn spawn(&self, spec: ProcessSpec) -> Result<ProcessId> {
+        // Checked here because the OS blames the program, not the folder.
+        if let Some(dir) = &spec.cwd {
+            if !dir.is_dir() {
+                return Err(Error::NotAFolder(dir.clone()));
+            }
+        }
         let mut cmd = Command::new(&spec.program);
         cmd.args(&spec.args).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
         if let Some(dir) = &spec.cwd {
@@ -134,7 +149,11 @@ impl ProcessEngine {
             stdin: Mutex::new(child.stdin.take()),
             tree,
         });
-        self.procs.lock().unwrap().insert(id, entry.clone());
+        {
+            let mut procs = self.procs.lock().unwrap();
+            forget_oldest_exited(&mut procs, self.keep_exited);
+            procs.insert(id, entry.clone());
+        }
         self.bus.publish(Event::ProcessStarted { id, owner: spec.owner, command: entry.command.clone() });
         tracing::debug!(%id, command = %entry.command, "process started");
 
@@ -146,10 +165,15 @@ impl ProcessEngine {
         .flatten()
         .map(|(r, stream)| {
             let bus = self.bus.clone();
+            let (done_tx, done_rx) = crossbeam_channel::bounded::<()>(1);
             thread::Builder::new()
                 .name(format!("{id}-{stream:?}"))
-                .spawn(move || read_lines(r, |line| bus.publish(Event::ProcessOutput { id, stream, line })))
-                .expect("couldn't start a reader thread")
+                .spawn(move || {
+                    read_lines(r, |line| bus.publish(Event::ProcessOutput { id, stream, line }));
+                    let _ = done_tx.send(());
+                })
+                .expect("couldn't start a reader thread");
+            done_rx
         })
         .collect();
 
@@ -158,8 +182,17 @@ impl ProcessEngine {
             .name(format!("{id}-wait"))
             .spawn(move || {
                 let code = child.wait().ok().and_then(|s| s.code());
-                for r in readers {
-                    let _ = r.join();
+                // All output is delivered before the exit is announced. But
+                // after a cancel, something that escaped the kill (a daemon
+                // in its own session) may hold the pipes open for ever, so
+                // then the wait for the last output is bounded.
+                let bound = Instant::now() + READER_GRACE;
+                for done in readers {
+                    if entry.cancelled.load(Ordering::SeqCst) {
+                        let _ = done.recv_deadline(bound);
+                    } else {
+                        let _ = done.recv();
+                    }
                 }
                 let cancelled = entry.cancelled.load(Ordering::SeqCst);
                 let status = Status::Exited { code, cancelled };
@@ -200,14 +233,8 @@ impl ProcessEngine {
 
     /// Stops every running process the workspace owns; returns how many.
     pub fn cancel_owned_by(&self, ws: WorkspaceId) -> usize {
-        let owned: Vec<ProcessId> = self
-            .procs
-            .lock()
-            .unwrap()
-            .iter()
-            .filter(|(_, e)| e.owner == Some(ws) && *e.status.lock().unwrap() == Status::Running)
-            .map(|(id, _)| *id)
-            .collect();
+        let owned: Vec<ProcessId> =
+            self.procs.lock().unwrap().iter().filter(|(_, e)| e.owner == Some(ws) && *e.status.lock().unwrap() == Status::Running).map(|(id, _)| *id).collect();
         for id in &owned {
             let _ = self.cancel(*id);
         }
@@ -256,6 +283,27 @@ impl ProcessEngine {
     }
 }
 
+/// How long, after a cancel, to wait for a process's last output.
+const READER_GRACE: Duration = Duration::from_secs(2);
+
+/// How many ended processes the engine remembers by default (for
+/// `status`, `wait` and `list`); older ones are forgotten as new ones
+/// start, so a long session doesn't grow without bound. Running processes
+/// are never forgotten.
+pub const KEEP_EXITED: usize = 256;
+
+/// Makes room for one more: leaves at most `keep - 1` ended processes.
+fn forget_oldest_exited(procs: &mut HashMap<ProcessId, Arc<Entry>>, keep: usize) {
+    let mut exited: Vec<ProcessId> = procs.iter().filter(|(_, e)| *e.status.lock().unwrap() != Status::Running).map(|(id, _)| *id).collect();
+    if exited.len() < keep {
+        return;
+    }
+    exited.sort();
+    for id in &exited[..exited.len() + 1 - keep] {
+        procs.remove(id);
+    }
+}
+
 /// Reads `r` line by line (any encoding: invalid UTF-8 is replaced), without
 /// line endings; a last line with no newline is still delivered.
 fn read_lines(r: Box<dyn Read + Send>, mut emit: impl FnMut(String)) {
@@ -283,8 +331,8 @@ mod platform {
 
     use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
     use windows_sys::Win32::System::JobObjects::{
-        AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation, SetInformationJobObject,
-        TerminateJobObject, JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+        AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation, SetInformationJobObject, TerminateJobObject,
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
     };
 
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -334,10 +382,7 @@ mod platform {
                 }
             }
             // No job (or it failed): stop at least the process itself.
-            let _ = std::process::Command::new("taskkill")
-                .args(["/PID", &self.fallback_pid.to_string(), "/T", "/F"])
-                .creation_flags(CREATE_NO_WINDOW)
-                .output();
+            let _ = std::process::Command::new("taskkill").args(["/PID", &self.fallback_pid.to_string(), "/T", "/F"]).creation_flags(CREATE_NO_WINDOW).output();
         }
     }
 

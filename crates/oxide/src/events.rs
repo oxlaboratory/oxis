@@ -18,20 +18,47 @@ pub enum Stream {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Event {
-    WorkspaceCreated { id: WorkspaceId, name: String },
-    WorkspaceOpened { id: WorkspaceId, name: String },
-    WorkspaceClosed { id: WorkspaceId, name: String },
-    WorkspaceRenamed { id: WorkspaceId, from: String, to: String },
+    WorkspaceCreated {
+        id: WorkspaceId,
+        name: String,
+    },
+    WorkspaceOpened {
+        id: WorkspaceId,
+        name: String,
+    },
+    WorkspaceClosed {
+        id: WorkspaceId,
+        name: String,
+    },
+    WorkspaceRenamed {
+        id: WorkspaceId,
+        from: String,
+        to: String,
+    },
     /// The active workspace changed (None: no workspace is active).
-    WorkspaceActivated { id: Option<WorkspaceId> },
+    WorkspaceActivated {
+        id: Option<WorkspaceId>,
+    },
 
-    ProcessStarted { id: ProcessId, owner: Option<WorkspaceId>, command: String },
+    ProcessStarted {
+        id: ProcessId,
+        owner: Option<WorkspaceId>,
+        command: String,
+    },
     /// One line of output, without its line ending.
-    ProcessOutput { id: ProcessId, stream: Stream, line: String },
+    ProcessOutput {
+        id: ProcessId,
+        stream: Stream,
+        line: String,
+    },
     /// The process ended. `code` is its exit code; None when it was killed
     /// by a signal or the code couldn't be read. `cancelled` says OXIS
     /// stopped it.
-    ProcessExited { id: ProcessId, code: Option<i32>, cancelled: bool },
+    ProcessExited {
+        id: ProcessId,
+        code: Option<i32>,
+        cancelled: bool,
+    },
 }
 
 /// A cheap-to-clone handle to the bus.

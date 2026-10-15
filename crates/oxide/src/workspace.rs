@@ -71,11 +71,8 @@ impl WorkspaceEngine {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
             Err(e) => return Err(Error::io("couldn't list", &self.root, e)),
         };
-        let mut names: Vec<String> = entries
-            .filter_map(|e| e.ok())
-            .filter(|e| e.path().join(FILE).is_file())
-            .filter_map(|e| e.file_name().into_string().ok())
-            .collect();
+        let mut names: Vec<String> =
+            entries.filter_map(|e| e.ok()).filter(|e| e.path().join(FILE).is_file()).filter_map(|e| e.file_name().into_string().ok()).collect();
         names.sort();
         Ok(names)
     }
@@ -167,11 +164,40 @@ impl WorkspaceEngine {
 
     /// Changes one workspace's data and saves it. Only that workspace's file
     /// is written.
+    /// Changes a workspace and saves it. If saving fails, the workspace is
+    /// left as it was, so what's in memory never drifts from what's on disk.
     pub fn update(&mut self, id: WorkspaceId, change: impl FnOnce(&mut WorkspaceData)) -> Result<()> {
         let ws = self.open.get_mut(&id).ok_or(Error::NoWorkspace(id))?;
-        change(&mut ws.data);
-        config::save(&self.root.join(&ws.name).join(FILE), &ws.data)
+        let mut data = ws.data.clone();
+        change(&mut data);
+        config::save(&self.root.join(&ws.name).join(FILE), &data)?;
+        ws.data = data;
+        Ok(())
     }
+}
+
+/// `KEY=value` → (`KEY`, `value`), for typing a variable in one line.
+pub fn parse_env_assignment(line: &str) -> Result<(String, String)> {
+    let (key, value) = line.split_once('=').ok_or_else(|| Error::BadEnvVar(line.trim().to_owned(), "write it as NAME=value"))?;
+    let key = key.trim();
+    validate_env_key(key)?;
+    Ok((key.to_owned(), value.trim().to_owned()))
+}
+
+/// An environment variable name: non-empty, no `=`, no spaces or control
+/// characters.
+pub fn validate_env_key(key: &str) -> Result<()> {
+    let bad = |why| Err(Error::BadEnvVar(key.to_owned(), why));
+    if key.is_empty() {
+        return bad("the name is empty");
+    }
+    if key.contains('=') {
+        return bad("the name can't contain =");
+    }
+    if key.chars().any(|c| c.is_whitespace() || c.is_control()) {
+        return bad("the name can't contain spaces");
+    }
+    Ok(())
 }
 
 /// A workspace name is a folder name: non-empty, at most 64 characters, no

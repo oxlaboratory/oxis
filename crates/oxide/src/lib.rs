@@ -11,6 +11,7 @@ pub mod config;
 mod engine;
 pub mod error;
 pub mod events;
+pub mod git;
 pub mod ids;
 pub mod logging;
 pub mod process;

@@ -41,6 +41,12 @@ pub enum Error {
 
     #[error("there's no process {0}")]
     NoProcess(ProcessId),
+
+    #[error("{0} isn't a folder (it may have been moved or deleted)")]
+    NotAFolder(PathBuf),
+
+    #[error("\"{0}\" isn't an environment variable: {1}")]
+    BadEnvVar(String, &'static str),
 }
 
 impl Error {

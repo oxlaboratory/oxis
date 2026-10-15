@@ -9,6 +9,7 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod drive;
 mod shell;
 mod theme;
 mod window_state;
@@ -52,18 +53,21 @@ struct App {
     proxy: EventLoopProxy<Wake>,
     /// Keep drawing for a moment after input so hover and animations settle.
     busy_until: Instant,
-    /// `--snapshot <png> [view] [WxH]`: draw a few frames in a hidden window,
-    /// save the last one and exit (for docs and checks without a visible window).
-    snapshot: Option<Snapshot>,
-    snapshot_mode: bool,
+    /// `--snapshot` and `--drive`: a hidden window, frames drawn offscreen,
+    /// input from a script (see [`drive`]).
+    headless: Option<Headless>,
+    exit_code: i32,
 }
 
-struct Snapshot {
-    path: std::path::PathBuf,
+struct Headless {
+    driver: drive::Driver,
     size: (u32, u32),
-    frames_left: u32,
     /// Frames are drawn into this, not the (hidden) window.
-    target: Option<(glow::Framebuffer, u32, u32)>,
+    target: Option<(glow::Framebuffer, glow::Texture, u32, u32)>,
+    /// Save the frame being drawn to this file.
+    shot: Option<std::path::PathBuf>,
+    /// A driven run keeps what it changes; a snapshot changes nothing.
+    persist: bool,
 }
 
 impl App {
@@ -72,16 +76,44 @@ impl App {
     fn frame(&mut self, event_loop: &ActiveEventLoop) {
         let Some(g) = self.gfx.as_mut() else { return };
         self.shell.drain_events();
+        if let Some(h) = self.headless.as_mut() {
+            match h.driver.before_frame(g.imgui.io_mut(), &mut self.shell) {
+                drive::After::Continue => {}
+                drive::After::Snapshot(path) => h.shot = Some(path),
+                drive::After::Resize(w, hgt) => {
+                    let _ = g.window.request_inner_size(winit::dpi::LogicalSize::new(w as f64, hgt as f64));
+                }
+                drive::After::Done => {
+                    event_loop.exit();
+                    return;
+                }
+                drive::After::Failed(why) => {
+                    tracing::error!("drive: {why}");
+                    eprintln!("drive: {why}");
+                    self.exit_code = 2;
+                    event_loop.exit();
+                    return;
+                }
+            }
+        }
         let _ = g.platform.prepare_frame(&mut g.imgui, &g.window);
         let ui = g.imgui.frame();
         let actions = self.shell.draw(ui, &g.window);
         let _ = g.platform.prepare_render(ui, &g.window);
         let size = g.window.inner_size();
-        if let (Some(snap), Some(gl)) = (self.snapshot.as_mut(), g.renderer.gl_context()) {
-            if snap.target.is_none() {
-                snap.target = offscreen_target(gl, size.width, size.height);
+        if let (Some(h), Some(gl)) = (self.headless.as_mut(), g.renderer.gl_context()) {
+            if h.target.is_some_and(|(_, _, w, hgt)| (w, hgt) != (size.width, size.height)) {
+                if let Some((fbo, tex, _, _)) = h.target.take() {
+                    unsafe {
+                        gl.delete_framebuffer(fbo);
+                        gl.delete_texture(tex);
+                    }
+                }
             }
-            if let Some((fbo, _, _)) = snap.target {
+            if h.target.is_none() {
+                h.target = offscreen_target(gl, size.width, size.height);
+            }
+            if let Some((fbo, _, _, _)) = h.target {
                 unsafe {
                     gl.bind_framebuffer(glow::FRAMEBUFFER, Some(fbo));
                     gl.viewport(0, 0, size.width as i32, size.height as i32);
@@ -101,16 +133,15 @@ impl App {
                 tracing::error!("render failed: {e}");
             }
         }
-        if let Some(snap) = self.snapshot.as_mut() {
-            if snap.frames_left == 0 {
-                if let Err(e) = save_snapshot(&g.renderer, size.width, size.height, &snap.path) {
+        if let Some(h) = self.headless.as_mut() {
+            if let Some(path) = h.shot.take() {
+                if let Err(e) = save_snapshot(&g.renderer, size.width, size.height, &path) {
                     tracing::error!("couldn't save the snapshot: {e}");
+                    eprintln!("drive: couldn't save {}: {e}", path.display());
+                    self.exit_code = 2;
+                    event_loop.exit();
                 }
-                self.snapshot = None;
-                event_loop.exit();
-                return;
             }
-            snap.frames_left -= 1;
             return;
         }
         let _ = g.surface.swap_buffers(&g.context);
@@ -130,13 +161,15 @@ impl ApplicationHandler<Wake> for App {
         if self.gfx.is_some() {
             return;
         }
-        match create_gfx(event_loop, &mut self.shell, self.snapshot.as_ref().map(|s| s.size)) {
+        match create_gfx(event_loop, &mut self.shell, self.headless.as_ref().map(|h| h.size)) {
             Ok(g) => {
                 self.shell.start_event_pump(self.proxy.clone());
                 self.gfx = Some(g);
             }
             Err(e) => {
                 tracing::error!("couldn't open the OXIS window: {e}");
+                eprintln!("couldn't open the OXIS window: {e}");
+                self.exit_code = 1;
                 event_loop.exit();
             }
         }
@@ -179,11 +212,11 @@ impl ApplicationHandler<Wake> for App {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-        if self.snapshot.is_some() {
-            // A hidden window gets no redraw requests: draw directly.
-            while self.snapshot.is_some() && self.gfx.is_some() {
-                self.frame(event_loop);
-            }
+        if self.headless.is_some() {
+            // A hidden window gets no redraw requests: draw directly, one
+            // frame per turn of the loop so window events (resizes) arrive.
+            self.frame(event_loop);
+            event_loop.set_control_flow(ControlFlow::Poll);
             return;
         }
         if let Some(g) = &self.gfx {
@@ -218,9 +251,7 @@ fn create_gfx(event_loop: &ActiveEventLoop, shell: &mut shell::Shell, snapshot: 
     let template = ConfigTemplateBuilder::new().with_alpha_size(8);
     let (window, gl_config) = DisplayBuilder::new()
         .with_window_attributes(Some(attrs))
-        .build(event_loop, template, |configs| {
-            configs.reduce(|a, b| if b.num_samples() > a.num_samples() { b } else { a }).expect("no OpenGL config")
-        })?;
+        .build(event_loop, template, |configs| configs.reduce(|a, b| if b.num_samples() > a.num_samples() { b } else { a }).expect("no OpenGL config"))?;
     let window = Arc::new(window.ok_or("no window")?);
     if placement.maximized {
         window.set_maximized(true);
@@ -231,11 +262,8 @@ fn create_gfx(event_loop: &ActiveEventLoop, shell: &mut shell::Shell, snapshot: 
     let ctx_attrs = ContextAttributesBuilder::new().build(Some(raw));
     let not_current = unsafe { display.create_context(&gl_config, &ctx_attrs)? };
     let size = window.inner_size();
-    let surface_attrs = SurfaceAttributesBuilder::<WindowSurface>::new().build(
-        raw,
-        NonZeroU32::new(size.width.max(1)).unwrap(),
-        NonZeroU32::new(size.height.max(1)).unwrap(),
-    );
+    let surface_attrs =
+        SurfaceAttributesBuilder::<WindowSurface>::new().build(raw, NonZeroU32::new(size.width.max(1)).unwrap(), NonZeroU32::new(size.height.max(1)).unwrap());
     let surface = unsafe { display.create_window_surface(&gl_config, &surface_attrs)? };
     let context = not_current.make_current(&surface)?;
     let _ = surface.set_swap_interval(&context, glutin::surface::SwapInterval::Wait(NonZeroU32::new(1).unwrap()));
@@ -269,35 +297,43 @@ fn main() {
         }
     };
     let args: Vec<String> = std::env::args().collect();
-    let snapshot = args.iter().position(|a| a == "--snapshot").and_then(|i| args.get(i + 1)).map(|path| {
-        let size = args
-            .iter()
-            .find_map(|a| a.split_once('x').and_then(|(w, h)| Some((w.parse().ok()?, h.parse().ok()?))))
-            .unwrap_or((1180, 760));
-        Snapshot { path: path.into(), size, frames_left: 4, target: None }
-    });
+    let value = |flag: &str| args.iter().position(|a| a == flag).and_then(|i| args.get(i + 1));
+    let size = args.iter().skip(1).find_map(|a| drive::parse_size(a)).unwrap_or((1180, 760));
+    let script = if let Some(path) = value("--drive") {
+        let text = std::fs::read_to_string(path).unwrap_or_else(|e| {
+            eprintln!("couldn't read the drive script {path}: {e}");
+            std::process::exit(2);
+        });
+        Some((drive::parse(&text), true))
+    } else {
+        value("--snapshot").map(|path| (Ok(vec![drive::Step::Frames(4), drive::Step::Snapshot(path.into()), drive::Step::Frames(1)]), false))
+    };
+    let headless = match script {
+        Some((Ok(steps), persist)) => Some(Headless { driver: drive::Driver::new(steps), size, target: None, shot: None, persist }),
+        Some((Err(e), _)) => {
+            eprintln!("drive script: {e}");
+            std::process::exit(2);
+        }
+        None => None,
+    };
     let event_loop = EventLoop::<Wake>::with_user_event().build().expect("couldn't create the event loop");
     let mut shell = shell::Shell::new(engine);
     if let Some(view) = args.iter().find_map(|a| a.strip_prefix("--view=")) {
         shell.set_view(view);
     }
-    let mut app = App {
-        gfx: None,
-        shell,
-        proxy: event_loop.create_proxy(),
-        busy_until: Instant::now(),
-        snapshot_mode: snapshot.is_some(),
-        snapshot,
-    };
+    let mut app = App { gfx: None, shell, proxy: event_loop.create_proxy(), busy_until: Instant::now(), headless, exit_code: 0 };
     if let Err(e) = event_loop.run_app(&mut app) {
         tracing::error!("the event loop stopped: {e}");
     }
-    let was_snapshot = app.snapshot_mode;
+    let persist = app.headless.as_ref().map_or(true, |h| h.persist);
     if let Some(mut g) = app.gfx.take() {
         let _ = g.renderer.shutdown(&mut g.imgui);
     }
     // A snapshot run leaves the user's settings exactly as they were.
-    app.shell.shutdown(!was_snapshot);
+    app.shell.shutdown(persist);
+    if app.exit_code != 0 {
+        std::process::exit(app.exit_code);
+    }
 }
 
 /// Where OXIS 2 keeps its settings, workspaces and logs: `OXIS_DATA` if
@@ -326,7 +362,7 @@ fn oxis_data_dir() -> std::path::PathBuf {
 }
 
 /// A framebuffer with an RGBA colour texture, for snapshot frames.
-fn offscreen_target(gl: &glow::Context, w: u32, h: u32) -> Option<(glow::Framebuffer, u32, u32)> {
+fn offscreen_target(gl: &glow::Context, w: u32, h: u32) -> Option<(glow::Framebuffer, glow::Texture, u32, u32)> {
     unsafe {
         let tex = gl.create_texture().ok()?;
         gl.bind_texture(glow::TEXTURE_2D, Some(tex));
@@ -334,7 +370,7 @@ fn offscreen_target(gl: &glow::Context, w: u32, h: u32) -> Option<(glow::Framebu
         let fbo = gl.create_framebuffer().ok()?;
         gl.bind_framebuffer(glow::FRAMEBUFFER, Some(fbo));
         gl.framebuffer_texture_2d(glow::FRAMEBUFFER, glow::COLOR_ATTACHMENT0, glow::TEXTURE_2D, Some(tex), 0);
-        (gl.check_framebuffer_status(glow::FRAMEBUFFER) == glow::FRAMEBUFFER_COMPLETE).then_some((fbo, w, h))
+        (gl.check_framebuffer_status(glow::FRAMEBUFFER) == glow::FRAMEBUFFER_COMPLETE).then_some((fbo, tex, w, h))
     }
 }
 

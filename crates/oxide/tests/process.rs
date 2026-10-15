@@ -140,3 +140,47 @@ fn environment_and_working_directory_apply() {
     let got = std::fs::canonicalize(&text[1]).unwrap();
     assert_eq!(got, want);
 }
+
+#[test]
+fn ended_processes_are_forgotten_beyond_a_limit_but_running_ones_never() {
+    let bus = EventBus::new();
+    let mut engine = ProcessEngine::new(bus);
+    engine.set_keep_exited(3);
+    let long = engine.spawn(shell(if cfg!(windows) { "ping -n 30 127.0.0.1 >NUL" } else { "sleep 30" })).unwrap();
+    let mut done = Vec::new();
+    for _ in 0..6 {
+        let id = engine.spawn(shell("exit 0")).unwrap();
+        assert!(engine.wait(id, Duration::from_secs(20)).unwrap().succeeded());
+        done.push(id);
+    }
+    let known: Vec<_> = engine.list().into_iter().map(|p| p.id).collect();
+    assert!(known.contains(&long), "a running process is never forgotten");
+    // Room is made when a process starts, so the last three ended ones remain.
+    assert_eq!(known.len(), 1 + 3, "{known:?}");
+    for id in &done[3..] {
+        assert!(known.contains(id));
+    }
+    assert!(matches!(engine.status(done[0]), Err(oxide::Error::NoProcess(_))));
+    engine.cancel(long).unwrap();
+    assert!(engine.wait(long, Duration::from_secs(10)).unwrap() != Status::Running);
+}
+
+/// A process that escapes the kill (here, a daemon in its own session)
+/// keeps the output pipe open; the cancel must still be reported.
+#[cfg(unix)]
+#[test]
+fn a_cancel_is_reported_even_if_something_escaped_with_the_output_pipe() {
+    let bus = EventBus::new();
+    let rx = bus.subscribe();
+    let engine = ProcessEngine::new(bus);
+    let id = engine.spawn(shell("setsid sleep 20 & echo started; sleep 30")).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !matches!(rx.recv_timeout(Duration::from_secs(10)), Ok(Event::ProcessOutput { id: i, .. }) if i == id) {
+        assert!(Instant::now() < deadline, "no output");
+    }
+    let started = Instant::now();
+    engine.cancel(id).unwrap();
+    let status = engine.wait(id, Duration::from_secs(10)).unwrap();
+    assert_eq!(status, Status::Exited { code: None, cancelled: true });
+    assert!(started.elapsed() < Duration::from_secs(6), "took {:?}", started.elapsed());
+}

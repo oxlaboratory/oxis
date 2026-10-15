@@ -56,10 +56,39 @@ impl Engine {
             spec.cwd = w.data.folder.clone();
         }
         let mut env: Vec<(String, String)> = w.data.env.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
-        env.extend(spec.env.drain(..));
+        env.append(&mut spec.env);
         spec.env = env;
         spec.owner = Some(ws);
         self.processes.spawn(spec)
+    }
+
+    /// Links a workspace to a project folder and records the folder's Git
+    /// remote (or forgets the old one if the new folder has none).
+    pub fn link_folder(&mut self, ws: WorkspaceId, folder: impl Into<PathBuf>) -> Result<()> {
+        let folder = folder.into();
+        if !folder.is_dir() {
+            return Err(crate::Error::NotAFolder(folder));
+        }
+        let folder = folder.canonicalize().map(strip_verbatim).unwrap_or(folder);
+        let remote = crate::git::remote_url(&folder);
+        self.workspaces.update(ws, |d| {
+            d.folder = Some(folder);
+            d.git_remote = remote;
+        })
+    }
+
+    /// Sets (or, with `None`, removes) one environment variable of a
+    /// workspace. The commands it starts from then on see the change.
+    pub fn set_env(&mut self, ws: WorkspaceId, key: &str, value: Option<&str>) -> Result<()> {
+        crate::workspace::validate_env_key(key)?;
+        self.workspaces.update(ws, |d| match value {
+            Some(v) => {
+                d.env.insert(key.to_owned(), v.to_owned());
+            }
+            None => {
+                d.env.remove(key);
+            }
+        })
     }
 
     /// Closes a workspace: stops the processes it owns, then saves and
@@ -68,5 +97,13 @@ impl Engine {
         let stopped = self.processes.cancel_owned_by(ws);
         self.workspaces.close(ws)?;
         Ok(stopped)
+    }
+}
+
+/// `\\?\C:\dev` → `C:\dev` (what `canonicalize` returns on Windows).
+fn strip_verbatim(p: PathBuf) -> PathBuf {
+    match p.to_str().and_then(|s| s.strip_prefix(r"\\?\")) {
+        Some(rest) if !rest.starts_with("UNC") => PathBuf::from(rest),
+        _ => p,
     }
 }

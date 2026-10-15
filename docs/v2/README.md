@@ -116,29 +116,64 @@ Engine rules:
 Kept up to date as phases land.
 
 - **Phase 1** — done (this document).
-- **Phase 2** — in progress on the `v2` branch. The OXIDE Engine (`oxide`) has typed IDs,
-  errors, logging, versioned atomic config with corrupt-file recovery and
-  migrations, the event bus, the workspace engine (create/open/close/
-  rename/activate, per-workspace folder, Git remote, environment and
-  settings) and the process engine (real processes, line-by-line output
-  events, input, exit codes, cancelling whole process trees through Windows
-  job objects and Unix process groups, per-workspace ownership). 24 tests
-  run against real processes and files; CI runs them on Windows and Linux
-  (`.github/workflows/v2.yml`).
-- **Phase 3** — started. `oxis-app` opens a frameless native window
-  (winit + OpenGL via glutin) running Dear ImGui 1.92 through
-  `dear-imgui-rs`, with the OXIS design system replacing ImGui's look
-  (IBM Plex Sans and JetBrains Mono bundled as TTFs, the default theme's
-  palette). It has a custom title bar (drag to move, double-click to
-  maximise, minimise/maximise/close), resize edges, a workspace switcher, a
-  sidebar, Home (workspaces from the engine: create, switch, link a
-  folder), a Run view (each line runs as a real process in the workspace's
-  folder and environment, output streamed, Stop cancels the tree), Settings
-  (saved through the engine) and a status bar. The window opens at about
-  four fifths of the screen it's on and remembers its size and place.
-  `oxis --snapshot <file.png> [--view=home|run|settings] [WxH]` renders a
-  view offscreen without showing a window, for docs and checks. Not yet:
-  the real terminal (phase 4), tabs and split panes, docking layouts.
+- **Phase 2** — done, verified on Windows and Linux CI. The OXIDE
+  Engine (`oxide`) has typed IDs, errors, logging, versioned atomic config
+  with corrupt-file recovery and migrations, the event bus, the workspace
+  engine and the process engine.
+  - Workspaces: create, open, close, rename and activate. Each has its own
+    folder, Git remote, environment and settings, in its own file.
+  - Linking a folder records the folder's Git remote (from the Git on
+    `PATH`, never installed by OXIS).
+  - Environment variables are validated.
+  - A failed save leaves the workspace as it was in memory.
+  - Processes: real processes with line-by-line output events, input and
+    exit codes. Cancelling stops the whole process tree, through Windows
+    job objects and Unix process groups. Processes are owned per workspace.
+  - Starting in a folder that has gone away gives a clear error.
+  - All output arrives before the exit event. After a cancel, that wait is
+    bounded, so something that escaped the kill can't make a command look
+    like it's running for ever.
+  - Ended processes are forgotten beyond a limit (256), so long sessions
+    don't grow without bound.
+  - 29 engine tests run against real processes, files and Git.
+- **Phase 3** — in progress. `oxis-app` opens a frameless native window
+  (winit, and OpenGL via glutin) running Dear ImGui 1.92 through
+  `dear-imgui-rs`. The OXIS design system replaces ImGui's look: IBM Plex
+  Sans and JetBrains Mono are bundled as TTFs, with the default theme's
+  palette.
+  - Window: a custom title bar (drag to move, double-click to maximise,
+    minimise, maximise and close), resize edges, a workspace switcher, a
+    sidebar and a status bar. It opens at about four fifths of the screen
+    and remembers its size and place, in logical pixels so a change of
+    display scale keeps it sensible.
+  - Home (never scrolls): workspaces from the engine (create, switch), and
+    the Project panel (link a folder, the detected Git remote, the
+    workspace's environment variables). Long paths are shortened from the
+    middle.
+  - Run view: each line runs as a real process in the active workspace's
+    folder and environment, in the chosen shell. Output is streamed,
+    stderr is shown in red, and each run shows its exit code. Stop, or
+    Ctrl+C with an empty prompt, cancels the process tree. A shell that
+    can't be started is reported. Each workspace sees only its own
+    commands; a command keeps running in the background when you switch
+    away.
+  - Settings are saved through the engine.
+  - `oxis --drive <script> [WxH]` opens a hidden window and drives the
+    real interface with mouse, keyboard and text input (see
+    `crates/oxis-app/src/drive.rs`). `oxis --snapshot <file.png>
+    [--view=…] [WxH]` renders one view.
+  - `crates/oxis-app/tests/drive.rs` uses drive mode for end-to-end tests
+    on Windows and on Linux (under Xvfb with Mesa in CI):
+    - commands, exit codes, Stop and Ctrl+C, and a missing program, all
+      through the Run view;
+    - workspace isolation: two workspaces with different folders, Git
+      remotes and environments, a background command surviving a switch,
+      and nothing leaking between them, in memory or on disk;
+    - the minimum size (720×460) and a resize to a 1366×768 laptop size,
+      with nothing blank;
+    - a missing shell.
+  - Not yet: the real terminal (phase 4), tabs and split panes, docking
+    layouts.
 - Phases 4–8 — not started.
 
 ## 5. Plugin compatibility
