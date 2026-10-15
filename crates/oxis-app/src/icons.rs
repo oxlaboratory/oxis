@@ -31,6 +31,7 @@ pub enum Icon {
     Restore,
     Trash,
     Clock,
+    Pencil,
 }
 
 /// Draws `icon` centred on `c`, `size` logical pixels across.
@@ -155,6 +156,10 @@ pub fn draw(dl: &DrawListMut<'_>, icon: Icon, c: [f32; 2], size: f32, color: Rgb
             line(&[[-6.0, -4.0], [6.0, -4.0]]);
             line(&[[-2.0, -4.0], [-2.0, -6.0], [2.0, -6.0], [2.0, -4.0]]);
             line(&[[-4.5, -4.0], [-3.8, 6.5], [3.8, 6.5], [4.5, -4.0]]);
+        }
+        Icon::Pencil => {
+            closed(&[[-5.5, 5.5], [-5.5, 2.5], [3.0, -6.0], [6.0, -3.0], [-2.5, 5.5]]);
+            line(&[[1.0, -4.0], [4.0, -1.0]]);
         }
         Icon::Clock => {
             circle(0.0, 0.0, 6.5);

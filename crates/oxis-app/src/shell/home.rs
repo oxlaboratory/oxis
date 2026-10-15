@@ -164,10 +164,76 @@ impl Shell {
         let id = ws.id;
         let width = ui.content_region_avail()[0].min(760.0);
 
-        // The title, and the actions that matter most.
-        {
+        // The title (renamed in place) and the workspace's own actions.
+        let title_top = ui.cursor_screen_pos();
+        if let Some(buf) = self.renaming.as_mut() {
+            let mut buf = std::mem::take(buf);
+            if std::mem::take(&mut self.focus_rename) {
+                ui.set_keyboard_focus_here();
+            }
+            let input = widgets::text_input(ui, fonts, "##ws-rename-input", &mut buf, "Workspace name", (width - 200.0).max(160.0), false);
+            self.mark(ui, "ws-rename-input");
+            if input.entered {
+                let to = buf.trim().to_owned();
+                self.renaming = None;
+                if !to.is_empty() && to != ws.name {
+                    match self.engine.workspaces.rename(id, &to) {
+                        Ok(()) => self.say(format!("Renamed to {to}"), false),
+                        Err(e) => self.say(e.to_string(), true),
+                    }
+                }
+            } else if ui.is_key_pressed(dear_imgui_rs::Key::Escape) {
+                self.renaming = None;
+            } else {
+                self.renaming = Some(buf);
+            }
+        } else {
             let _f = ui.push_font_with_size(Some(fonts.ui_semibold), size::TITLE);
             ui.text(&ws.name);
+        }
+        let after_title = ui.cursor_screen_pos();
+        {
+            // Rename, close and remove, at the right of the title.
+            let confirming = self.confirm_remove.is_some_and(|(cid, at)| cid == id && at.elapsed().as_secs_f32() < 4.0);
+            let remove_label = if confirming { "Click again to remove" } else { "Remove" };
+            let remove_w = {
+                let _f = ui.push_font_with_size(Some(fonts.ui_medium), size::MD);
+                ui.calc_text_size(remove_label)[0] + 2.0 * space::MD + 16.0 + space::SM
+            }
+            .max(space::CONTROL * 2.0);
+            let close_w = 72.0;
+            let x = title_top[0] + width - remove_w - close_w - space::CONTROL - 2.0 * space::SM;
+            ui.set_cursor_screen_pos([x, title_top[1]]);
+            if widgets::icon_button(ui, fonts, "##ws-rename", Icon::Pencil, "Rename", None) {
+                self.renaming = Some(ws.name.clone());
+                self.focus_rename = true;
+            }
+            self.mark(ui, "ws-rename");
+            ui.same_line_with_spacing(0.0, space::SM);
+            if widgets::button(ui, fonts, "##ws-close", "Close", None, Kind::Secondary) {
+                match self.engine.close_workspace(id) {
+                    Ok(0) => self.say(format!("Closed {}", ws.name), false),
+                    Ok(n) => self.say(format!("Closed {} and stopped {n} running", ws.name), false),
+                    Err(e) => self.say(e.to_string(), true),
+                }
+            }
+            widgets::tooltip_on_hover(ui, fonts, "Stop its terminals and commands, and set it aside", None);
+            self.mark(ui, "ws-close");
+            ui.same_line_with_spacing(0.0, space::SM);
+            if widgets::button(ui, fonts, "##ws-remove", remove_label, Some(Icon::Trash), Kind::Danger) {
+                if confirming {
+                    self.confirm_remove = None;
+                    match self.engine.remove_workspace(id) {
+                        Ok(_) => self.say(format!("Removed {} (its project folder is untouched)", ws.name), false),
+                        Err(e) => self.say(e.to_string(), true),
+                    }
+                } else {
+                    self.confirm_remove = Some((id, std::time::Instant::now()));
+                }
+            }
+            widgets::tooltip_on_hover(ui, fonts, "Take it out of OXIS. The project folder isn't touched.", None);
+            self.mark(ui, "ws-remove");
+            ui.set_cursor_screen_pos(after_title);
         }
         {
             let _f = ui.push_font_with_size(Some(fonts.mono), size::SM);

@@ -122,6 +122,24 @@ impl WorkspaceEngine {
         Ok(())
     }
 
+    /// Takes a workspace out of OXIS: closes it, then moves its record (not
+    /// the project folder, which OXIS never touches) to `.removed/` under
+    /// the workspaces folder, where it can be recovered by moving it back.
+    /// Returns where it went. Stopping what the workspace runs is the
+    /// [`Engine`](crate::Engine)'s job; use `Engine::remove_workspace`.
+    pub fn remove(&mut self, id: WorkspaceId) -> Result<PathBuf> {
+        let name = self.open.get(&id).ok_or(Error::NoWorkspace(id))?.name.clone();
+        self.close(id)?;
+        let from = self.root.join(&name);
+        let bin = self.root.join(".removed");
+        fs::create_dir_all(&bin).map_err(|e| Error::io("couldn't create", &bin, e))?;
+        let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+        let to = bin.join(format!("{name}-{stamp}"));
+        fs::rename(&from, &to).map_err(|e| Error::io("couldn't remove", &from, e))?;
+        self.bus.publish(Event::WorkspaceRemoved { name });
+        Ok(to)
+    }
+
     pub fn rename(&mut self, id: WorkspaceId, to: &str) -> Result<()> {
         validate_name(to)?;
         let from = self.open.get(&id).ok_or(Error::NoWorkspace(id))?.name.clone();
@@ -201,7 +219,8 @@ pub fn validate_env_key(key: &str) -> Result<()> {
 }
 
 /// A workspace name is a folder name: non-empty, at most 64 characters, no
-/// path separators or characters Windows forbids, and not `.` or `..`.
+/// path separators or characters Windows forbids, and no leading dot (so
+/// it can't be `.`, `..` or OXIS's own `.removed`).
 pub fn validate_name(name: &str) -> Result<()> {
     let bad = |why| Err(Error::BadWorkspaceName(name.to_owned(), why));
     if name.trim().is_empty() {
@@ -210,8 +229,8 @@ pub fn validate_name(name: &str) -> Result<()> {
     if name.chars().count() > 64 {
         return bad("it's longer than 64 characters");
     }
-    if name == "." || name == ".." {
-        return bad("it's a special folder name");
+    if name.starts_with('.') {
+        return bad("it starts with a dot (OXIS keeps its own folders there)");
     }
     if name.chars().any(|c| matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') || c.is_control()) {
         return bad("it contains / \\ : * ? \" < > | or a control character");

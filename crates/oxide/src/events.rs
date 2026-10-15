@@ -35,6 +35,10 @@ pub enum Event {
         from: String,
         to: String,
     },
+    /// A workspace was taken out of OXIS (its record kept under `.removed`).
+    WorkspaceRemoved {
+        name: String,
+    },
     /// The active workspace changed (None: no workspace is active).
     WorkspaceActivated {
         id: Option<WorkspaceId>,

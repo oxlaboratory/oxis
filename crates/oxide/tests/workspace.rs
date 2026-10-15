@@ -220,3 +220,39 @@ fn a_workspace_whose_folder_is_gone_says_so() {
     assert!(matches!(err, Error::NotAFolder(_)), "{err}");
     assert!(err.to_string().contains("isn't a folder"));
 }
+
+#[test]
+fn removing_a_workspace_keeps_its_record_and_leaves_the_project_alone() {
+    let dir = tempfile::tempdir().unwrap();
+    let project = dir.path().join("project");
+    std::fs::create_dir_all(&project).unwrap();
+    std::fs::write(project.join("main.rs"), "fn main() {}").unwrap();
+    let mut engine = Engine::open(dir.path().join("data")).unwrap();
+    let rx = engine.bus.subscribe();
+    let id = engine.workspaces.create("api", WorkspaceData::default()).unwrap();
+    engine.link_folder(id, &project).unwrap();
+    engine.workspaces.activate(id).unwrap();
+    let proc_id = engine
+        .spawn_in(
+            id,
+            if cfg!(windows) {
+                ProcessSpec::new("cmd").args(["/D", "/C", "ping -n 30 127.0.0.1 >NUL"])
+            } else {
+                ProcessSpec::new("sh").args(["-c", "sleep 30"])
+            },
+        )
+        .unwrap();
+
+    assert_eq!(engine.remove_workspace(id).unwrap(), 1);
+    assert!(engine.workspaces.list().unwrap().is_empty(), "it's gone from the list");
+    assert!(engine.workspaces.active().is_none());
+    assert!(matches!(engine.processes.wait(proc_id, Duration::from_secs(10)).unwrap(), Status::Exited { cancelled: true, .. }));
+    assert!(project.join("main.rs").is_file(), "the project folder is untouched");
+    let kept: Vec<_> = std::fs::read_dir(dir.path().join("data/workspaces/.removed")).unwrap().collect();
+    assert_eq!(kept.len(), 1, "the record is kept aside");
+    assert!(rx.try_iter().any(|e| matches!(e, Event::WorkspaceRemoved { name } if name == "api")));
+
+    // The name is free again, and names can't collide with OXIS's folder.
+    engine.workspaces.create("api", WorkspaceData::default()).unwrap();
+    assert!(validate_name(".removed").is_err());
+}

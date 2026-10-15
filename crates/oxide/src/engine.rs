@@ -125,6 +125,15 @@ impl Engine {
         self.terminals.open(ws, sh.name.clone(), cmd, cols, rows)
     }
 
+    /// Removes a workspace: stops what it runs, closes it and sets its
+    /// record aside (see [`WorkspaceEngine::remove`]). The project folder
+    /// is left alone. Returns how many processes and sessions were stopped.
+    pub fn remove_workspace(&mut self, ws: WorkspaceId) -> Result<usize> {
+        let stopped = self.processes.cancel_owned_by(ws) + self.terminals.close_owned_by(ws);
+        self.workspaces.remove(ws)?;
+        Ok(stopped)
+    }
+
     /// Closes a workspace: stops the processes and terminal sessions it
     /// owns, then saves and closes it. Returns how many were stopped.
     pub fn close_workspace(&mut self, ws: WorkspaceId) -> Result<usize> {

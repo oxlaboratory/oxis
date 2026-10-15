@@ -97,6 +97,11 @@ pub struct Shell {
     logo: Option<dear_imgui_rs::TextureId>,
     /// Run blocks whose output is folded away.
     collapsed: std::collections::HashSet<ProcessId>,
+    /// The new name while a workspace is being renamed on Home.
+    renaming: Option<String>,
+    focus_rename: bool,
+    /// A first click on "Remove": a second one within a few seconds removes.
+    confirm_remove: Option<(WorkspaceId, Instant)>,
 }
 
 impl Shell {
@@ -127,6 +132,9 @@ impl Shell {
             term: Default::default(),
             logo: None,
             collapsed: Default::default(),
+            renaming: None,
+            focus_rename: false,
+            confirm_remove: None,
         };
         shell.refresh_shell_label();
         shell.restore_workspace();

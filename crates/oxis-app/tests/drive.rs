@@ -438,3 +438,29 @@ fn settings_save_as_they_change() {
     assert_eq!(saved["data"]["font_size"], 15.0, "{saved:#}");
     assert_eq!(saved["data"]["restore_session"], false, "{saved:#}");
 }
+
+#[test]
+fn workspaces_can_be_renamed_closed_and_removed() {
+    if !has_display() {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().join("data");
+    let script = "frames 3\n\
+                  click new-ws\ntype first\nkey Enter\nframes 3\nclick new-ws\ntype second\nkey Enter\nframes 3\n\
+                  click ws-rename\nframes 2\nkey Ctrl+A\ntype renamed\nkey Enter\nframes 3\ndump renamed.json\n\
+                  click ws-close\nframes 3\ndump closed.json\n\
+                  click ws:first\nframes 3\nclick ws-remove\nframes 2\ndump confirm.json\nclick ws-remove\nframes 3\ndump removed.json\n";
+    assert_eq!(drive(&data, script, "1200x760"), 0);
+    let renamed = read(&data, "renamed.json");
+    assert_eq!(renamed["active"]["name"], "renamed", "{renamed:#}");
+    assert_eq!(renamed["on_disk"], serde_json::json!(["first", "renamed"]));
+    let closed = read(&data, "closed.json");
+    assert!(closed["active"].is_null(), "closing leaves no workspace active");
+    assert_eq!(closed["on_disk"], serde_json::json!(["first", "renamed"]), "closing keeps it");
+    // One click arms "Remove"; the second removes.
+    assert_eq!(read(&data, "confirm.json")["on_disk"], serde_json::json!(["first", "renamed"]));
+    let removed = read(&data, "removed.json");
+    assert_eq!(removed["on_disk"], serde_json::json!(["renamed"]), "{removed:#}");
+    assert!(data.join("workspaces/.removed").is_dir(), "the record is kept aside");
+}
