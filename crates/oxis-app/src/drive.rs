@@ -18,6 +18,11 @@
 //!                          is running (or fail)
 //! wait-for started         wait until the latest command printed this line
 //!                          (or fail after 20 s)
+//! wait-screen text         wait until the focused terminal shows a line
+//!                          containing this (or fail after 20 s)
+//!
+//! `type` and `key` go to the focused terminal when the Terminal view has
+//! the keyboard, through the same path as keys from the window.
 //! resize 900x600           resize the window
 //! snapshot out.png         save the next frame as a PNG
 //! dump state.json          write what's on screen and in the engine
@@ -32,7 +37,7 @@ use std::time::{Duration, Instant};
 
 use dear_imgui_rs::{Io, Key, MouseButton};
 
-use crate::shell::Shell;
+use crate::shell::{Shell, TermInput};
 
 #[derive(Debug, Clone)]
 pub enum Step {
@@ -43,6 +48,7 @@ pub enum Step {
     Wait(Duration),
     WaitIdle(Duration),
     WaitFor(String),
+    WaitScreen(String),
     /// Let a few frames render (layout settles, fonts upload).
     Frames(u32),
     Resize(u32, u32),
@@ -66,6 +72,7 @@ pub fn parse(script: &str) -> Result<Vec<Step>, String> {
             "key" => Step::Key(arg.to_owned()),
             "wait" => Step::Wait(ms(arg)?),
             "wait-for" => Step::WaitFor(arg.to_owned()),
+            "wait-screen" => Step::WaitScreen(arg.to_owned()),
             "wait-idle" => Step::WaitIdle(ms(if arg.is_empty() { "20000" } else { arg })?),
             "frames" => Step::Frames(arg.parse().map_err(|_| format!("line {}: frames needs a number", n + 1))?),
             "resize" => {
@@ -104,6 +111,7 @@ enum Until {
     Time,
     Idle,
     Output(String),
+    Screen(String),
 }
 
 pub struct Driver {
@@ -142,6 +150,7 @@ impl Driver {
                 Until::Time => false,
                 Until::Idle => shell.running() == 0,
                 Until::Output(text) => shell.latest_output_has(text),
+                Until::Screen(text) => shell.terminal_screen_has(text),
             };
             if met {
                 self.waiting = None;
@@ -152,6 +161,7 @@ impl Driver {
                     Until::Time => None,
                     Until::Idle => Some(format!("{} command(s) still running when wait-idle timed out", shell.running())),
                     Until::Output(text) => Some(format!("the latest command didn't print `{text}` in time")),
+                    Until::Screen(text) => Some(format!("the terminal didn't show `{text}` in time")),
                 };
                 self.waiting = None;
                 if let Some(why) = why {
@@ -173,7 +183,16 @@ impl Driver {
                 io.add_mouse_button_event(MouseButton::Left, true);
                 self.pending = Pending::MouseUp;
             }
+            Step::Type(text) if shell.terminal_has_keys() => {
+                shell.terminal_input(TermInput::Text(text));
+            }
             Step::Type(text) => io.add_input_characters_utf8(text),
+            Step::Key(spec) if shell.terminal_has_keys() => match term_key(&spec) {
+                Some(input) => {
+                    shell.terminal_input(input);
+                }
+                None => return After::Failed(format!("unknown key `{spec}`")),
+            },
             Step::Key(spec) => match keys(&spec) {
                 Some(keys) => {
                     for k in &keys {
@@ -186,6 +205,7 @@ impl Driver {
             Step::Wait(d) => self.waiting = Some((Instant::now() + d, Until::Time)),
             Step::WaitIdle(d) => self.waiting = Some((Instant::now() + d, Until::Idle)),
             Step::WaitFor(text) => self.waiting = Some((Instant::now() + Duration::from_secs(20), Until::Output(text))),
+            Step::WaitScreen(text) => self.waiting = Some((Instant::now() + Duration::from_secs(20), Until::Screen(text))),
             Step::Frames(n) => self.frames = n,
             Step::Resize(w, h) => {
                 self.frames = 3;
@@ -224,6 +244,40 @@ fn keys(spec: &str) -> Option<Vec<Key>> {
         });
     }
     Some(out)
+}
+
+/// `Ctrl+C` → Char('c', Ctrl); `Enter` → Key(Enter); `Shift+PageUp` → …
+fn term_key(spec: &str) -> Option<TermInput> {
+    use oxide::terminal::keys::{Key as K, Mods};
+    let mut mods = Mods::NONE;
+    let parts: Vec<&str> = spec.split('+').map(str::trim).collect();
+    let (last, modifiers) = parts.split_last()?;
+    for m in modifiers {
+        match m.to_ascii_lowercase().as_str() {
+            "ctrl" => mods.ctrl = true,
+            "shift" => mods.shift = true,
+            "alt" => mods.alt = true,
+            _ => return None,
+        }
+    }
+    let key = match last.to_ascii_lowercase().as_str() {
+        "enter" => K::Enter,
+        "tab" => K::Tab,
+        "escape" | "esc" => K::Escape,
+        "backspace" => K::Backspace,
+        "up" => K::Up,
+        "down" => K::Down,
+        "left" => K::Left,
+        "right" => K::Right,
+        "home" => K::Home,
+        "end" => K::End,
+        "pageup" => K::PageUp,
+        "pagedown" => K::PageDown,
+        "delete" => K::Delete,
+        s if s.chars().count() == 1 => return Some(TermInput::Char(s.chars().next()?, mods)),
+        _ => return None,
+    };
+    Some(TermInput::Key(key, mods))
 }
 
 #[cfg(test)]

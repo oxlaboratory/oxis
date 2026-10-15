@@ -25,6 +25,7 @@ serde.workspace = true
 serde_json.workspace = true
 crossbeam-channel.workspace = true
 png = "0.17"
+arboard = { version = "3", default-features = false }
 
 [dev-dependencies]
 tempfile.workspace = true

@@ -50,8 +50,8 @@ crates know nothing about ImGui; the app crate is the only one that draws.
 crates/
   oxide           the OXIDE Engine (package oxide-engine): ids, errors,
                   config + persistence, events, workspaces, processes,
-                  projects, tasks/workflows
-  oxis-terminal   terminal sessions: PTY (portable-pty: ConPTY / Unix),
+                  terminal sessions, projects, tasks/workflows
+  oxide-terminal  one terminal: PTY (portable-pty: ConPTY / Unix),
                   emulation (alacritty_terminal), shell detection
   oxis-lua        Lua 5.4 runtime (mlua), the oxis.* API, plugin loading,
                   permissions                                   [planned]
@@ -103,7 +103,7 @@ Engine rules:
 | 1. Audit | This document. | ✅ |
 | 2. Foundation | Cargo workspace; the OXIDE Engine (`oxide`): errors, logging, versioned atomic config, event bus, workspace engine, process engine; tests against real processes. | Core tests pass on Windows and Linux CI. |
 | 3. Native prototype | `oxis-app`: window, DPI-aware sizing, the OXIS design system on ImGui, custom title bar, sidebar, workspace switcher, terminal panel, tabs, settings. | Opens, resizes, high-DPI correct, usable on a 1366×768 laptop screen. |
-| 4. Terminals | `oxis-terminal`: real shells (PowerShell, cmd, bash, zsh, fish), resize, input, selection, clipboard, many sessions per workspace, shell integration marks. | vim, less, htop and a REPL work; output routes to the right session. |
+| 4. Terminals | `oxide-terminal` + `oxide::terminal`: real shells (PowerShell, cmd, bash, zsh, fish), resize, input, selection, clipboard, many sessions per workspace, shell integration marks. | vim, less, htop and a REPL work; output routes to the right session. |
 | 5. Editor | Documents, tabs, undo/redo, search/replace, indentation, encodings, large files; tree-sitter highlighting with fallback. | Files in at least ten languages edit and save correctly. |
 | 6. Lua and plugins | `oxis-lua`: the `oxis.*` API in Rust, permissions, plugin discovery/manifests, the Market. | The 8 Market and 5 built-in plugins run unchanged. |
 | 7. Projects and tooling | Detectors, tasks, workflows (sequence, dependencies, parallel, cancel), LSP client, Git, debugger adapters (DAP) where available. | Real projects in several languages build, run and test through their own toolchains. |
@@ -135,7 +135,7 @@ Kept up to date as phases land.
     like it's running for ever.
   - Ended processes are forgotten beyond a limit (256), so long sessions
     don't grow without bound.
-  - 29 engine tests run against real processes, files and Git.
+  - 33 engine tests run against real processes, files, Git and shells.
 - **Phase 3** — in progress. `oxis-app` opens a frameless native window
   (winit, and OpenGL via glutin) running Dear ImGui 1.92 through
   `dear-imgui-rs`. The OXIS design system replaces ImGui's look: IBM Plex
@@ -172,15 +172,45 @@ Kept up to date as phases land.
     - the minimum size (720×460) and a resize to a 1366×768 laptop size,
       with nothing blank;
     - a missing shell.
-  - Not yet: the real terminal (phase 4), tabs and split panes, docking
-    layouts.
-- Phases 4–8 — not started.
-
-## 5. Plugin compatibility
-
-v2 keeps the 1.x plugin contract: `--[[@manifest ... ]]` headers,
-declared permissions, and the `oxis.*` functions documented in the
-README's Lua API section. Each API call is ported with a test; a call that
-isn't ported yet fails with a clear message naming it, rather than doing
-nothing. Plugins that need a change get a migration note in the changelog
-before v2.0.0.
+  - Not yet: docking layouts.
+- **Phase 4** — in progress.
+  - `oxide-terminal` runs a real shell in a pseudo-terminal (ConPTY on
+    Windows, a Unix PTY elsewhere), emulated by `alacritty_terminal`.
+    - Input, xterm key encoding, paste (bracketed when the program asks,
+      with escape characters stripped), resize (the shell sees the new
+      size), 10,000 lines of scrollback, selection and copy, colours (16,
+      256 and true colour), wide characters, the alternate screen,
+      answers to programs' queries, exit codes, and kill.
+    - Terminals get OXIS's environment.
+    - Windows' inherited "ignore Ctrl+C" is reset, so Ctrl+C interrupts
+      the running command.
+    - The installed shells are detected; none is ever installed.
+  - `oxide::terminal` holds the sessions. Each has an ID and a workspace
+    owner, and publishes events (started, output, title, bell, clipboard,
+    exited, closed). A session opens in its workspace's folder with its
+    environment, and closing the workspace ends it. The engine picks the
+    shell for both terminals and the Run view.
+  - The Terminal view has tabs and split panes (side by side or stacked,
+    with draggable dividers), per workspace: switching workspaces swaps
+    the layout and the shells keep running.
+    - Keys go straight to the focused shell.
+    - Ctrl+Shift+T / W / D / E: new tab, close pane, split right, split
+      down. Ctrl+Shift+C / V: copy and paste. Ctrl+C copies when
+      something is selected. Ctrl+Tab switches tabs. Shift+PageUp and
+      PageDown scroll.
+    - Mouse: drag to select, wheel to scroll (in full-screen programs,
+      the wheel sends arrow keys). A finished shell says how it ended,
+      and Enter closes it.
+  - Tests:
+    - 11 terminal tests against cmd (Windows) and sh (Unix).
+    - 4 engine session tests.
+    - 2 end-to-end window tests: a real shell with output, Ctrl+C, a
+      split, closing panes and tabs, exit codes and reopening; and each
+      workspace with its own terminals in its own folder and environment.
+  - Still to do in this phase:
+    - mouse reporting to programs;
+    - search in the scrollback;
+    - shell integration marks;
+    - checking vim, less, htop and a REPL by hand on both systems;
+    - a font fallback for symbols that JetBrains Mono lacks.
+- Phases 5–8 — not started.

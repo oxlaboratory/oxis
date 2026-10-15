@@ -203,3 +203,17 @@ fn unicode_and_wide_characters() {
     assert!(s.cell(row, 9).flags.has(oxide_terminal::CellFlags::SPACER));
     t.kill();
 }
+
+#[test]
+fn ctrl_c_interrupts_the_running_command_not_the_shell() {
+    let (t, _) = spawn(shell(), 80, 24);
+    run(&t, if cfg!(windows) { "ping -n 30 127.0.0.1" } else { "sleep 30" });
+    std::thread::sleep(Duration::from_millis(1500));
+    t.write(&oxide_terminal::keys::encode_char('c', oxide_terminal::keys::Mods::CTRL));
+    run(&t, if cfg!(windows) { "set /a 300+33" } else { "echo $((300+33))" });
+    let started = Instant::now();
+    wait_for(&t, "the next command's output", |s| has_line(s, "333"));
+    assert!(started.elapsed() < Duration::from_secs(10), "the long command was interrupted");
+    assert_eq!(t.exit_status(), None, "the shell itself keeps running");
+    t.kill();
+}

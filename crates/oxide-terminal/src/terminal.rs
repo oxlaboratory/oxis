@@ -151,6 +151,7 @@ impl Terminal {
                 return Err(SpawnError::NotAFolder(dir.clone()));
             }
         }
+        allow_ctrl_c();
         let pty = native_pty_system();
         let pair = pty.openpty(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 }).map_err(|e| SpawnError::Pty(e.to_string()))?;
 
@@ -449,3 +450,19 @@ impl Drop for Inner {
         }
     }
 }
+
+/// Windows passes "ignore Ctrl+C" down from process to process: if
+/// whatever started OXIS set it (some launchers and test runners do),
+/// every shell OXIS starts would ignore Ctrl+C too, and a running command
+/// couldn't be interrupted. Restoring normal handling once, before the
+/// first terminal, means shells get it.
+#[cfg(windows)]
+fn allow_ctrl_c() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| unsafe {
+        windows_sys::Win32::System::Console::SetConsoleCtrlHandler(None, 0);
+    });
+}
+
+#[cfg(not(windows))]
+fn allow_ctrl_c() {}

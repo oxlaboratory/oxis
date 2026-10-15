@@ -14,5 +14,8 @@ tracing.workspace = true
 crossbeam-channel.workspace = true
 thiserror.workspace = true
 
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_Console"] }
+
 [dev-dependencies]
 tempfile.workspace = true

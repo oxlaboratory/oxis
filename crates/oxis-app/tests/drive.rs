@@ -251,3 +251,152 @@ fn a_script_that_cant_be_followed_fails() {
     let dir = tempfile::tempdir().unwrap();
     assert_eq!(drive(dir.path(), "frames 2\nclick no-such-control\n", "800x500"), 2);
 }
+
+// ── the Terminal view ───────────────────────────────────────────────────
+
+/// Terminal tests pin the shell (cmd on Windows, sh elsewhere) so what it
+/// prints is predictable.
+fn pin_shell(data: &Path) {
+    std::fs::create_dir_all(data).unwrap();
+    let shell = if cfg!(windows) { "cmd" } else { "sh" };
+    std::fs::write(data.join("settings.json"), format!("{{\"format\":1,\"data\":{{\"shell\":\"{shell}\"}}}}")).unwrap();
+}
+
+struct Term {
+    prompt: &'static str,
+    calc42: &'static str,
+    calc333: &'static str,
+    long: &'static str,
+    who: &'static str,
+    pwd: &'static str,
+}
+
+const TERM: Term = if cfg!(windows) {
+    Term { prompt: ">", calc42: "set /a 40+2", calc333: "set /a 300+33", long: "ping -n 30 127.0.0.1", who: "echo %WHO%", pwd: "cd" }
+} else {
+    Term { prompt: "$", calc42: "echo $((40+2))", calc333: "echo $((300+33))", long: "sleep 30", who: "echo $WHO", pwd: "pwd -P" }
+};
+
+fn panes(state: &Value) -> Vec<Value> {
+    state["terminal"]["tabs"].as_array().unwrap().iter().flat_map(|t| t["panes"].as_array().unwrap().clone()).collect()
+}
+
+#[test]
+fn the_terminal_runs_a_real_shell_with_tabs_and_splits() {
+    if !has_display() {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path();
+    pin_shell(data);
+    let t = TERM;
+    let script = format!(
+        "frames 3\nclick nav:terminal\nframes 5\nwait-screen {prompt}\n\
+         type {calc42}\nkey Enter\nwait-screen 42\n\
+         type {long}\nkey Enter\nwait 1500\nkey Ctrl+C\nframes 3\n\
+         type {calc333}\nkey Enter\nwait-screen 333\n\
+         dump one.json\n\
+         click term-split-right\nframes 5\nwait-screen {prompt}\ndump split.json\n\
+         key Ctrl+Shift+W\nframes 5\ndump closed.json\n\
+         key Ctrl+Shift+T\nframes 5\nwait-screen {prompt}\ndump tabs.json\n\
+         click term-tab-close:1\nframes 5\n\
+         type exit 5\nkey Enter\nwait 3000\nframes 3\ndump exited.json\n\
+         key Enter\nframes 5\ndump none.json\n\
+         click term-open\nframes 5\nwait-screen {prompt}\ndump reopened.json\n",
+        prompt = t.prompt,
+        calc42 = t.calc42,
+        calc333 = t.calc333,
+        long = t.long,
+    );
+    assert_eq!(drive(data, &script, "1200x720"), 0);
+
+    // One real shell: output, and Ctrl+C stopped the long command (the
+    // next one ran right away in the same shell).
+    let one = read(data, "one.json");
+    assert_eq!(one["view"], "terminal");
+    let p = panes(&one);
+    assert_eq!(p.len(), 1, "{one:#}");
+    let text = p[0]["text"].as_str().unwrap();
+    assert!(text.lines().any(|l| l.trim() == "42"), "{text}");
+    assert!(text.lines().any(|l| l.trim() == "333"), "{text}");
+    assert!(p[0]["exited"].is_null());
+    let full_cols = p[0]["cols"].as_u64().unwrap();
+    assert!(full_cols > 100, "the pane fills the window: {full_cols} columns");
+
+    // Split: two shells side by side, the new one focused and narrower.
+    let split = read(data, "split.json");
+    let p = panes(&split);
+    assert_eq!(p.len(), 2);
+    assert_eq!(p[1]["focused"], true);
+    assert!(p[1]["cols"].as_u64().unwrap() < full_cols / 2 + 2);
+    assert_eq!(split["terminal"]["sessions_running"], 2);
+
+    // Ctrl+Shift+W closed the focused pane (and its shell).
+    let closed = read(data, "closed.json");
+    assert_eq!(panes(&closed).len(), 1);
+    assert_eq!(closed["terminal"]["sessions_running"], 1);
+
+    // Ctrl+Shift+T opened a second tab; its close button closed it.
+    let tabs = read(data, "tabs.json");
+    assert_eq!(tabs["terminal"]["tabs"].as_array().unwrap().len(), 2);
+    assert_eq!(tabs["terminal"]["active"], 1);
+
+    // `exit` ends the shell; the pane says so; Enter closes it.
+    let exited = read(data, "exited.json");
+    let p = panes(&exited);
+    assert_eq!(p.len(), 1, "{exited:#}");
+    assert_eq!(p[0]["exited"]["code"], 5, "{exited:#}");
+    let none = read(data, "none.json");
+    assert_eq!(none["terminal"]["tabs"].as_array().unwrap().len(), 0);
+    assert_eq!(none["terminal"]["sessions_running"], 0);
+
+    // And a new one can be opened.
+    let again = read(data, "reopened.json");
+    assert_eq!(panes(&again).len(), 1);
+}
+
+#[test]
+fn each_workspace_has_its_own_terminals() {
+    if !has_display() {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().join("data");
+    pin_shell(&data);
+    let (pa, pb) = (dir.path().join("term-a"), dir.path().join("term-b"));
+    std::fs::create_dir_all(&pa).unwrap();
+    std::fs::create_dir_all(&pb).unwrap();
+    let t = TERM;
+    let script = format!(
+        "frames 3\n\
+         click new-ws\ntype a\nkey Enter\nframes 3\nclick link\ntype {pa}\nkey Enter\nframes 3\nclick env\ntype WHO=from-a\nkey Enter\nframes 3\n\
+         click new-ws\ntype b\nkey Enter\nframes 3\nclick link\ntype {pb}\nkey Enter\nframes 3\nclick env\ntype WHO=from-b\nkey Enter\nframes 3\n\
+         click ws:a\nframes 3\nclick nav:terminal\nframes 5\nwait-screen {prompt}\n\
+         type {who}\nkey Enter\nwait-screen from-a\ntype {pwd}\nkey Enter\nwait 1000\nframes 2\ndump a1.json\n\
+         click nav:home\nframes 3\nclick ws:b\nframes 3\nclick nav:terminal\nframes 5\nwait-screen {prompt}\n\
+         type {who}\nkey Enter\nwait-screen from-b\ntype {pwd}\nkey Enter\nwait 1000\nframes 2\ndump b1.json\n\
+         click nav:home\nframes 3\nclick ws:a\nframes 3\nclick nav:terminal\nframes 5\ndump a2.json\n",
+        pa = pa.display(),
+        pb = pb.display(),
+        prompt = t.prompt,
+        who = t.who,
+        pwd = t.pwd,
+    );
+    assert_eq!(drive(&data, &script, "1400x800"), 0);
+    let canon = |p: &Path| {
+        let c = p.canonicalize().unwrap().display().to_string();
+        c.strip_prefix(r"\\?\").map(str::to_owned).unwrap_or(c)
+    };
+    let text = |s: &Value| panes(s)[0]["text"].as_str().unwrap().to_owned();
+    let (a1, b1, a2) = (read(&data, "a1.json"), read(&data, "b1.json"), read(&data, "a2.json"));
+
+    assert!(text(&a1).lines().any(|l| l.trim() == "from-a"), "{}", text(&a1));
+    assert!(text(&a1).contains(&canon(&pa)), "{}", text(&a1));
+    assert!(text(&b1).lines().any(|l| l.trim() == "from-b"), "{}", text(&b1));
+    assert!(text(&b1).contains(&canon(&pb)), "{}", text(&b1));
+    assert!(!text(&b1).contains("from-a"), "b's terminal shows nothing of a's");
+    // Both shells kept running; back in a, it's a's same session.
+    assert_eq!(b1["terminal"]["sessions_running"], 2);
+    assert_eq!(panes(&a2)[0]["session"], panes(&a1)[0]["session"]);
+    assert!(text(&a2).lines().any(|l| l.trim() == "from-a"));
+}

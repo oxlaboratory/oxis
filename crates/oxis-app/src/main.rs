@@ -10,6 +10,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod drive;
+mod keyboard;
 mod shell;
 mod theme;
 mod window_state;
@@ -57,6 +58,8 @@ struct App {
     /// input from a script (see [`drive`]).
     headless: Option<Headless>,
     exit_code: i32,
+    /// Held modifier keys, for keys sent to a terminal.
+    mods: winit::keyboard::ModifiersState,
 }
 
 struct Headless {
@@ -183,6 +186,21 @@ impl ApplicationHandler<Wake> for App {
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
         let Some(g) = self.gfx.as_mut() else { return };
+        if let WindowEvent::ModifiersChanged(m) = &event {
+            self.mods = m.state();
+        }
+        // Keys for a focused terminal go to its shell, not to ImGui.
+        if let WindowEvent::KeyboardInput { event: key, .. } = &event {
+            if self.shell.terminal_has_keys() {
+                if let Some(input) = keyboard::term_input(key, self.mods) {
+                    if self.shell.terminal_input(input) {
+                        self.busy_until = Instant::now() + Duration::from_millis(250);
+                        g.window.request_redraw();
+                        return;
+                    }
+                }
+            }
+        }
         let _ = g.platform.handle_window_event(&mut g.imgui, &g.window, &event);
         match event {
             WindowEvent::CloseRequested => {
@@ -321,7 +339,7 @@ fn main() {
     if let Some(view) = args.iter().find_map(|a| a.strip_prefix("--view=")) {
         shell.set_view(view);
     }
-    let mut app = App { gfx: None, shell, proxy: event_loop.create_proxy(), busy_until: Instant::now(), headless, exit_code: 0 };
+    let mut app = App { gfx: None, shell, proxy: event_loop.create_proxy(), busy_until: Instant::now(), headless, exit_code: 0, mods: Default::default() };
     if let Err(e) = event_loop.run_app(&mut app) {
         tracing::error!("the event loop stopped: {e}");
     }

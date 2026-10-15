@@ -23,8 +23,11 @@ use winit::event_loop::EventLoopProxy;
 use winit::window::{ResizeDirection, Window};
 
 use crate::theme::{self, col, size, Fonts, Palette};
+
+mod terminal_view;
 use crate::window_state::{self, WindowState};
 use crate::Wake;
+pub use terminal_view::TermInput;
 
 const TITLE_H: f32 = 40.0;
 const SIDEBAR_W: f32 = 56.0;
@@ -38,6 +41,7 @@ const RUN_LINES: usize = 5000;
 enum View {
     Home,
     Run,
+    Terminal,
     Settings,
 }
 
@@ -82,6 +86,7 @@ pub struct Shell {
     env_line: String,
     focus_new_ws: bool,
     installed_shells: Vec<String>,
+    term: terminal_view::TermState,
 }
 
 impl Shell {
@@ -108,6 +113,7 @@ impl Shell {
             focus_new_ws: false,
             // Looked up once: probing PATH every frame would be wasteful.
             installed_shells: oxide::terminal::shells::available().into_iter().map(|s| s.name).collect(),
+            term: Default::default(),
         };
         shell.restore_workspace();
         shell
@@ -117,6 +123,7 @@ impl Shell {
     pub fn set_view(&mut self, name: &str) {
         self.view = match name {
             "run" => View::Run,
+            "terminal" => View::Terminal,
             "settings" => View::Settings,
             _ => View::Home,
         };
@@ -150,7 +157,8 @@ impl Shell {
         let mut open: Vec<_> = self.engine.workspaces.open_workspaces().map(ws).collect();
         open.sort_by(|a, b| a["name"].as_str().cmp(&b["name"].as_str()));
         serde_json::json!({
-            "view": match self.view { View::Home => "home", View::Run => "run", View::Settings => "settings" },
+            "view": match self.view { View::Home => "home", View::Run => "run", View::Terminal => "terminal", View::Settings => "settings" },
+            "terminal": self.terminal_dump(),
             "active": self.engine.workspaces.active().map(ws),
             "open": open,
             "on_disk": self.engine.workspaces.list().unwrap_or_default(),
@@ -216,6 +224,10 @@ impl Shell {
                         run.lines.push_back((stream, line));
                     }
                 }
+                Event::SessionExited { id, code } => self.term.session_exited(id, code),
+                Event::SessionClosed { id } => self.term.session_closed(id),
+                // A program copying (OSC 52); reading the clipboard is refused.
+                Event::SessionClipboard { text, .. } => self.term.copy(&text),
                 Event::ProcessExited { id, code, cancelled } => {
                     if let Some(run) = self.runs.iter_mut().find(|r| r.id == id) {
                         run.ended = Some((Instant::now(), Status::Exited { code, cancelled }));
@@ -236,6 +248,7 @@ impl Shell {
     /// Stops what's still running and (when `persist`) remembers the
     /// active workspace.
     pub fn shutdown(&mut self, persist: bool) {
+        self.engine.terminals.close_all();
         for p in self.engine.processes.list() {
             if p.status == Status::Running {
                 let _ = self.engine.processes.cancel(p.id);
@@ -292,6 +305,7 @@ impl Shell {
                 match self.view {
                     View::Home => self.home(ui, fonts, content),
                     View::Run => self.run_view(ui, fonts, content),
+                    View::Terminal => self.terminal_view(ui, fonts, content),
                     View::Settings => self.settings(ui, fonts, content),
                 }
                 self.status_bar(ui, fonts, display);
@@ -417,7 +431,12 @@ impl Shell {
         dl.add_rect([0.0, top], [SIDEBAR_W, bottom], col(p.chrome())).filled(true).build();
         dl.add_line([SIDEBAR_W - 0.5, top], [SIDEBAR_W - 0.5, bottom], col(p.line())).build();
 
-        let items = [(View::Home, Icon::Home, "Home"), (View::Run, Icon::Terminal, "Run"), (View::Settings, Icon::Gear, "Settings")];
+        let items = [
+            (View::Home, Icon::Home, "Home"),
+            (View::Run, Icon::Play, "Run"),
+            (View::Terminal, Icon::Terminal, "Terminal"),
+            (View::Settings, Icon::Gear, "Settings"),
+        ];
         for (i, (view, icon, name)) in items.into_iter().enumerate() {
             let y = if view == View::Settings { bottom - 52.0 } else { top + 10.0 + i as f32 * 48.0 };
             ui.set_cursor_screen_pos([6.0, y]);
@@ -469,6 +488,7 @@ impl Shell {
         let mode = match self.view {
             View::Home => "HOME",
             View::Run => "RUN",
+            View::Terminal => "TERMINAL",
             View::Settings => "SETTINGS",
         };
         let mut x = 10.0;
@@ -884,6 +904,7 @@ impl Shell {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Icon {
     Home,
+    Play,
     Terminal,
     Gear,
     Minimize,
@@ -906,6 +927,14 @@ fn draw_icon(dl: &dear_imgui_rs::DrawListMut<'_>, icon: Icon, c: [f32; 2], s: f3
             line([c[0] - h, c[1] - h * 0.6], [c[0] - h * 0.3, c[1]]);
             line([c[0] - h * 0.3, c[1]], [c[0] - h, c[1] + h * 0.6]);
             line([c[0] + 0.0, c[1] + h * 0.7], [c[0] + h, c[1] + h * 0.7]);
+        }
+        Icon::Play => {
+            let a = [c[0] - h * 0.55, c[1] - h * 0.75];
+            let b = [c[0] - h * 0.55, c[1] + h * 0.75];
+            let tip = [c[0] + h * 0.8, c[1]];
+            line(a, b);
+            line(b, tip);
+            line(tip, a);
         }
         Icon::Gear => {
             dl.add_circle(c, h * 0.45, color).thickness(t).build();
