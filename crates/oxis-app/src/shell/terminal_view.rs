@@ -749,12 +749,17 @@ fn tab_label(title: &str, fallback: &str) -> String {
     if title.is_empty() {
         return fallback.to_owned();
     }
-    let path = std::path::Path::new(title);
     let looks_like_program = (title.contains('\\') || title.contains('/')) && !title.contains(' ') || title.to_ascii_lowercase().ends_with(".exe");
-    match path.file_stem().and_then(|s| s.to_str()) {
-        Some(stem) if looks_like_program => stem.to_owned(),
-        _ => title.to_owned(),
+    if !looks_like_program {
+        return title.to_owned();
     }
+    // Split by hand: a Windows path must shorten on every system.
+    let name = title.rsplit(['\\', '/']).next().unwrap_or(title);
+    let stem = match name.rsplit_once('.') {
+        Some((stem, ext)) if !stem.is_empty() && ext.eq_ignore_ascii_case("exe") => stem,
+        _ => name,
+    };
+    stem.to_owned()
 }
 
 #[cfg(test)]
