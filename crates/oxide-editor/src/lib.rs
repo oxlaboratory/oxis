@@ -15,9 +15,11 @@
 //! - [`Document::undo`] and [`Document::redo`], typing grouped into words.
 //! - [`Document::find`] and [`Document::replace_all`].
 //! - Indentation detected from the file and kept when pressing Enter.
+//! - [`syntax`]: highlighting with tree-sitter grammars, plain text otherwise.
 
 mod document;
 mod encoding;
+pub mod syntax;
 
 pub use document::{Cursor, Document, Indent, Movement, Range};
 pub use encoding::{Encoding, LineEnding};

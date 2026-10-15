@@ -296,3 +296,11 @@ pub fn next_window_pos(pos: [f32; 2]) {
         );
     }
 }
+
+/// Whether the last item is the one under the mouse, as ImGui resolved it
+/// this frame. Unlike `is_item_hovered` this holds for overlappable items
+/// (large click areas with controls drawn over them).
+pub fn hovered_here(ui: &Ui) -> bool {
+    let _ = ui;
+    unsafe { dear_imgui_rs::sys::igGetHoveredID() == dear_imgui_rs::sys::igGetItemID() && dear_imgui_rs::sys::igGetItemID() != 0 }
+}

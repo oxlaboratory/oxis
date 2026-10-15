@@ -516,3 +516,21 @@ fn clicks_reach_programs_that_ask_for_the_mouse() {
     let text = read(data, "mouse.json")["terminal"]["tabs"][0]["panes"][0]["text"].as_str().unwrap().to_owned();
     assert!(text.contains("1b 5b 3c 30 3b 3"), "a left press (ESC [ < 0 ;) at a real column: {text}");
 }
+
+#[test]
+fn clicking_a_pane_focuses_it() {
+    if !has_display() {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path();
+    pin_shell(data);
+    let script = format!(
+        "frames 3\nclick nav:terminal\nframes 5\nwait-screen {p}\nclick term-split-right\nframes 5\nwait-screen {p}\ndump before.json\nclick term-pane:0\nframes 4\ndump after.json\n",
+        p = TERM.prompt
+    );
+    assert_eq!(drive(data, &script, "1100x640"), 0);
+    let focused = |f: &str| panes(&read(data, f)).iter().map(|p| p["focused"].as_bool().unwrap()).collect::<Vec<_>>();
+    assert_eq!(focused("before.json"), vec![false, true], "the new pane has the focus");
+    assert_eq!(focused("after.json"), vec![true, false], "a click moves it");
+}

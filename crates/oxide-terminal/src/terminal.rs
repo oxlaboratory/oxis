@@ -74,7 +74,12 @@ struct Inner {
 
 /// What the emulator's event listener needs: replies go back to the shell.
 struct Shared {
-    writer: Mutex<Box<dyn Write + Send>>,
+    /// Bytes for the shell, written by the writer thread. Nothing writes
+    /// to the pseudo-terminal directly: the reader thread answers the
+    /// program's queries while holding the emulator, and a direct write
+    /// could block there while the other side waits for its output to be
+    /// read (ConPTY does exactly that), freezing the terminal.
+    input: crossbeam_channel::Sender<Vec<u8>>,
     notify: Box<dyn Fn(Notice) + Send + Sync>,
     title: Mutex<String>,
     size: Mutex<(u16, u16)>,
@@ -83,10 +88,8 @@ struct Shared {
 
 impl Shared {
     fn write(&self, bytes: &[u8]) {
-        let mut w = self.writer.lock().unwrap();
-        if let Err(e) = w.write_all(bytes).and_then(|_| w.flush()) {
-            tracing::debug!("terminal write failed: {e}");
-        }
+        // Only fails once the shell has gone and the writer with it.
+        let _ = self.input.send(bytes.to_vec());
     }
 }
 
@@ -189,9 +192,21 @@ impl Terminal {
         drop(pair.slave);
 
         let reader = pair.master.try_clone_reader().map_err(|e| SpawnError::Pty(e.to_string()))?;
-        let writer = pair.master.take_writer().map_err(|e| SpawnError::Pty(e.to_string()))?;
+        let mut writer = pair.master.take_writer().map_err(|e| SpawnError::Pty(e.to_string()))?;
+        let (input, input_rx) = crossbeam_channel::unbounded::<Vec<u8>>();
+        thread::Builder::new()
+            .name("terminal-write".into())
+            .spawn(move || {
+                for bytes in input_rx {
+                    if let Err(e) = writer.write_all(&bytes).and_then(|_| writer.flush()) {
+                        tracing::debug!("terminal write failed: {e}");
+                        break;
+                    }
+                }
+            })
+            .map_err(|e| SpawnError::Pty(e.to_string()))?;
         let shared = Arc::new(Shared {
-            writer: Mutex::new(writer),
+            input,
             notify: Box::new(notify),
             title: Mutex::new(String::new()),
             size: Mutex::new((cols, rows)),

@@ -139,6 +139,8 @@ pub struct TermState {
     mouse_at: Option<(usize, usize)>,
     /// Where each pane was drawn this frame.
     pane_rects: HashMap<SessionId, [f32; 4]>,
+    /// Where the search bar was drawn last frame (it keeps its clicks).
+    search_rect: Option<[f32; 4]>,
 }
 
 struct Search {
@@ -371,7 +373,7 @@ impl Shell {
                         let (cols, rows) = t.size();
                         serde_json::json!({
                             "session": id.raw(), "focused": tab.focus == id, "label": s.label, "title": t.title(),
-                            "cols": cols, "rows": rows, "exited": self.term.exited.get(&id).map(|c| serde_json::json!({ "code": c })),
+                            "cols": cols, "rows": rows, "mouse": t.mouse_mode().is_some(), "exited": self.term.exited.get(&id).map(|c| serde_json::json!({ "code": c })),
                             "text": t.screen().text(), "selection": t.selection_text(),
                         })
                     })
@@ -595,8 +597,13 @@ impl Shell {
         ui.set_next_item_allow_overlap();
         ui.invisible_button(format!("##pane{}", id.raw()), [(r[2] - r[0]).max(1.0), (r[3] - r[1]).max(1.0)]);
         self.mark(ui, format!("term-pane:{index}"));
-        let hovered = ui.is_item_hovered();
+        // ImGui resolves which item is under the mouse; `is_item_hovered`
+        // adds checks of its own for overlappable items that made a click on
+        // a pane go unnoticed, so the hover is read directly. The search bar
+        // sits on top of the pane and keeps its own clicks.
         let m = ui.io().mouse_pos();
+        let over_bar = self.term.search_rect.is_some_and(|b| m[0] >= b[0] && m[0] <= b[2] && m[1] >= b[1] && m[1] <= b[3]);
+        let hovered = widgets::hovered_here(ui) && !over_bar;
         let cell_at = |m: [f32; 2]| -> (usize, usize) {
             let c = ((m[0] - inner[0]) / cw).floor().clamp(0.0, cols as f32 - 1.0) as usize;
             let rr = ((m[1] - inner[1]) / lh).floor().clamp(0.0, rows as f32 - 1.0) as usize;
@@ -861,7 +868,10 @@ impl Shell {
     /// searches. Typing searches as you go; Enter goes to the next (older)
     /// match, Shift+Enter the previous; Escape closes it.
     fn search_bar(&mut self, ui: &Ui, fonts: Fonts) {
-        let Some(search) = self.term.search.as_ref() else { return };
+        let Some(search) = self.term.search.as_ref() else {
+            self.term.search_rect = None;
+            return;
+        };
         let id = search.session;
         let (Some(rect), Some(session)) = (self.term.pane_rects.get(&id).copied(), self.engine.terminals.get(id)) else {
             self.term.search = None;
@@ -872,6 +882,7 @@ impl Shell {
         let (w, h) = (360.0_f32.min(rect[2] - rect[0] - 16.0), space::CONTROL + 12.0);
         let x = rect[2] - w - 10.0;
         let y = rect[1] + 8.0;
+        self.term.search_rect = Some([x, y, x + w, y + h]);
         {
             let dl = ui.get_window_draw_list();
             dl.add_rect([x, y], [x + w, y + h], p.overlay()).filled(true).rounding(6.0).build();
