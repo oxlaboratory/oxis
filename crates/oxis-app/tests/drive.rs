@@ -508,15 +508,11 @@ fn clicks_reach_programs_that_ask_for_the_mouse() {
     let dir = tempfile::tempdir().unwrap();
     let data = dir.path();
     pin_shell(data);
-    let reader = r#"bash -c 'printf "\033[?1000h\033[?1006h"; IFS= read -rsd M x; printf "\033[?1000l"; printf "got:%s\n" "${x#?}"'"#;
-    let script = format!(
-        "frames 3\nclick nav:terminal\nframes 5\nwait-screen $\ntype {reader}\nkey Enter\nwait 1500\nclick term-pane:0\nwait-screen got:[<0;\ndump mouse.json\n"
-    );
+    // Raw mode, so the bytes arrive without waiting for a newline; the
+    // first six bytes of an SGR press are ESC [ < 0 ; and a digit.
+    let reader = r#"printf '\033[?1000h\033[?1006h'; stty raw -echo; head -c 6 | od -An -tx1; stty sane; printf '\033[?1000l'"#;
+    let script = format!("frames 3\nclick nav:terminal\nframes 5\nwait-screen $\ntype {reader}\nkey Enter\nwait 1500\nclick term-pane:0\nwait-screen 1b 5b 3c 30 3b\ndump mouse.json\n");
     assert_eq!(drive(data, &script, "1000x600"), 0);
     let text = read(data, "mouse.json")["terminal"]["tabs"][0]["panes"][0]["text"].as_str().unwrap().to_owned();
-    let line = text.lines().find(|l| l.starts_with("got:")).expect("bash printed the report");
-    // got:[<0;COL;ROW — a left press at a real cell, 1-based.
-    let nums: Vec<u32> = line.trim_start_matches("got:[<").split(';').map(|n| n.parse().unwrap()).collect();
-    assert_eq!(nums[0], 0, "{line}");
-    assert!(nums[1] >= 1 && nums[2] >= 1, "{line}");
+    assert!(text.contains("1b 5b 3c 30 3b 3"), "a left press (ESC [ < 0 ;) at a real column: {text}");
 }

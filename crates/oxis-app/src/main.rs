@@ -95,6 +95,8 @@ impl App {
                 drive::After::Failed(why) => {
                     tracing::error!("drive: {why}");
                     eprintln!("drive: {why}");
+                    // What was on screen, so a failure in CI can be read without a rerun.
+                    eprintln!("drive: state at the failure:\n{}", serde_json::to_string_pretty(&self.shell.dump()).unwrap_or_default());
                     self.exit_code = 2;
                     event_loop.exit();
                     return;

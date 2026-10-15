@@ -1,0 +1,17 @@
+[package]
+name = "oxide-editor"
+description = "Text documents for the OXIDE Engine: open and save in any encoding and line ending, edit, undo, search, indent"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+ropey = "1.6"
+encoding_rs = "0.8"
+unicode-segmentation = "1.12"
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
