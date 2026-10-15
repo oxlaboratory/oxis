@@ -132,6 +132,11 @@ pub struct TermState {
     clipboard: Option<arboard::Clipboard>,
     /// Search in a terminal's scrollback (Ctrl+Shift+F).
     search: Option<Search>,
+    /// A mouse button held down in a program that takes the mouse: where
+    /// it was last reported.
+    mouse_down: Option<(SessionId, oxide::terminal::keys::MouseButton, (usize, usize))>,
+    /// The cell the mouse was last reported over (for motion reporting).
+    mouse_at: Option<(usize, usize)>,
     /// Where each pane was drawn this frame.
     pane_rects: HashMap<SessionId, [f32; 4]>,
 }
@@ -597,7 +602,63 @@ impl Shell {
             let rr = ((m[1] - inner[1]) / lh).floor().clamp(0.0, rows as f32 - 1.0) as usize;
             (rr, c)
         };
-        if hovered {
+        // A program that asked for the mouse gets it, unless Shift is held
+        // (Shift keeps OXIS's own selecting and scrolling, as elsewhere).
+        let io_mods = Mods { ctrl: ui.io().key_ctrl(), alt: ui.io().key_alt(), shift: false };
+        let program_mouse = t.mouse_mode().filter(|_| !ui.io().key_shift());
+        if let Some(mode) = program_mouse {
+            use oxide::terminal::keys::{encode_mouse, MouseAction, MouseButton as MB};
+            let send = |button: MB, action: MouseAction, at: (usize, usize)| {
+                if let Some(bytes) = encode_mouse(mode, button, action, at.0, at.1, io_mods) {
+                    t.write(&bytes);
+                }
+            };
+            let at = cell_at(m);
+            if hovered {
+                for (b, mb) in [(MouseButton::Left, MB::Left), (MouseButton::Middle, MB::Middle), (MouseButton::Right, MB::Right)] {
+                    if ui.is_mouse_clicked(b) {
+                        if b == MouseButton::Left {
+                            let l = self.layout();
+                            if let Some(tab) = l.tabs.get_mut(l.active) {
+                                tab.focus = id;
+                            }
+                        }
+                        send(mb, MouseAction::Press, at);
+                        self.term.mouse_down = Some((id, mb, at));
+                    }
+                }
+                let wheel = ui.io().mouse_wheel();
+                if wheel != 0.0 {
+                    let n = (wheel.abs() * 3.0).round().max(1.0) as usize;
+                    for _ in 0..n {
+                        send(if wheel > 0.0 { MB::WheelUp } else { MB::WheelDown }, MouseAction::Press, at);
+                    }
+                }
+            }
+            if let Some((sid, mb, last)) = self.term.mouse_down {
+                if sid == id {
+                    let released = match mb {
+                        MB::Left => !ui.is_mouse_down(MouseButton::Left),
+                        MB::Middle => !ui.is_mouse_down(MouseButton::Middle),
+                        MB::Right => !ui.is_mouse_down(MouseButton::Right),
+                        _ => true,
+                    };
+                    if released {
+                        send(mb, MouseAction::Release, at);
+                        self.term.mouse_down = None;
+                    } else if (mode.drag || mode.motion) && at != last {
+                        send(mb, MouseAction::Move, at);
+                        self.term.mouse_down = Some((sid, mb, at));
+                    }
+                }
+            } else if hovered && mode.motion && Some(at) != self.term.mouse_at {
+                send(MB::None, MouseAction::Move, at);
+            }
+            self.term.mouse_at = hovered.then_some(at);
+            if hovered {
+                ui.set_mouse_cursor(Some(MouseCursor::Arrow));
+            }
+        } else if hovered {
             ui.set_mouse_cursor(Some(MouseCursor::TextInput));
             if ui.is_mouse_clicked(MouseButton::Left) {
                 let l = self.layout();

@@ -278,3 +278,19 @@ fn scrolling_and_selecting_mark_the_screen_changed() {
     assert!(t.take_dirty());
     t.kill();
 }
+
+#[cfg(unix)]
+#[test]
+fn programs_can_ask_for_the_mouse() {
+    let (t, _) = spawn(shell(), 80, 24);
+    assert_eq!(t.mouse_mode(), None);
+    run(&t, "printf '\\033[?1002h\\033[?1006h'; sleep 30");
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while t.mouse_mode().is_none() {
+        assert!(Instant::now() < deadline, "the mouse mode never switched on");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let m = t.mouse_mode().unwrap();
+    assert!(m.drag && m.sgr && !m.motion);
+    t.kill();
+}

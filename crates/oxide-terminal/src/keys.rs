@@ -126,6 +126,64 @@ pub fn encode_char(c: char, mods: Mods) -> Vec<u8> {
     out
 }
 
+/// What a program asked to hear about the mouse.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MouseMode {
+    /// Movement with a button held.
+    pub drag: bool,
+    /// Any movement.
+    pub motion: bool,
+    /// The SGR encoding (`ESC [ < b ; x ; y M`), which has no size limit.
+    pub sgr: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MouseButton {
+    Left,
+    Middle,
+    Right,
+    WheelUp,
+    WheelDown,
+    /// Movement with no button (only reported when `motion` is on).
+    None,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MouseAction {
+    Press,
+    Release,
+    Move,
+}
+
+/// The bytes for a mouse event at a cell (row and column from 0), in the
+/// encoding the program asked for. `None` when the old encoding can't
+/// express the position (beyond column or row 222).
+pub fn encode_mouse(mode: MouseMode, button: MouseButton, action: MouseAction, row: usize, col: usize, mods: Mods) -> Option<Vec<u8>> {
+    let base: u32 = match button {
+        MouseButton::Left => 0,
+        MouseButton::Middle => 1,
+        MouseButton::Right => 2,
+        MouseButton::WheelUp => 64,
+        MouseButton::WheelDown => 65,
+        MouseButton::None => 3,
+    };
+    let mut code = base + if action == MouseAction::Move { 32 } else { 0 };
+    code += 4 * mods.shift as u32 + 8 * mods.alt as u32 + 16 * mods.ctrl as u32;
+    let (x, y) = (col + 1, row + 1);
+    if mode.sgr {
+        let end = if action == MouseAction::Release { 'm' } else { 'M' };
+        return Some(format!("\x1b[<{code};{x};{y}{end}").into_bytes());
+    }
+    // The old encoding: a release is button 3, everything offset by 32.
+    if action == MouseAction::Release {
+        code = 3 + (code & !3);
+    }
+    if x > 222 || y > 222 {
+        return None;
+    }
+    Some(vec![0x1b, b'[', b'M', (32 + code) as u8, (32 + x) as u8, (32 + y) as u8])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -157,5 +215,18 @@ mod tests {
         assert_eq!(encode_char('[', Mods::CTRL), [0x1b]);
         assert_eq!(encode_char('x', Mods { alt: true, ..Mods::NONE }), b"\x1bx");
         assert_eq!(encode_char('é', Mods::NONE), "é".as_bytes());
+    }
+
+    #[test]
+    fn mouse_reports_in_both_encodings() {
+        let sgr = MouseMode { drag: true, motion: false, sgr: true };
+        let old = MouseMode { sgr: false, ..sgr };
+        assert_eq!(encode_mouse(sgr, MouseButton::Left, MouseAction::Press, 4, 9, Mods::NONE).unwrap(), b"\x1b[<0;10;5M");
+        assert_eq!(encode_mouse(sgr, MouseButton::Left, MouseAction::Release, 4, 9, Mods::NONE).unwrap(), b"\x1b[<0;10;5m");
+        assert_eq!(encode_mouse(sgr, MouseButton::WheelDown, MouseAction::Press, 0, 0, Mods::CTRL).unwrap(), b"\x1b[<81;1;1M");
+        assert_eq!(encode_mouse(sgr, MouseButton::Left, MouseAction::Move, 1, 1, Mods::NONE).unwrap(), b"\x1b[<32;2;2M");
+        assert_eq!(encode_mouse(old, MouseButton::Right, MouseAction::Press, 0, 0, Mods::NONE).unwrap(), vec![0x1b, b'[', b'M', 34, 33, 33]);
+        assert_eq!(encode_mouse(old, MouseButton::Right, MouseAction::Release, 0, 0, Mods::NONE).unwrap(), vec![0x1b, b'[', b'M', 35, 33, 33]);
+        assert!(encode_mouse(old, MouseButton::Left, MouseAction::Press, 0, 300, Mods::NONE).is_none());
     }
 }

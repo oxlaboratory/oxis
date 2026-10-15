@@ -390,6 +390,18 @@ impl Terminal {
         self.mode().contains(TermMode::APP_CURSOR)
     }
 
+    /// What the program wants to hear about the mouse, if anything. When
+    /// this is `Some`, clicks and the wheel go to the program (see
+    /// [`crate::keys::encode_mouse`]) rather than selecting and scrolling.
+    pub fn mouse_mode(&self) -> Option<crate::keys::MouseMode> {
+        let m = self.mode();
+        m.intersects(TermMode::MOUSE_MODE).then(|| crate::keys::MouseMode {
+            drag: m.contains(TermMode::MOUSE_DRAG),
+            motion: m.contains(TermMode::MOUSE_MOTION),
+            sgr: m.contains(TermMode::SGR_MOUSE),
+        })
+    }
+
     /// Whether a full-screen program (an editor, a pager) is showing.
     pub fn alt_screen(&self) -> bool {
         self.mode().contains(TermMode::ALT_SCREEN)

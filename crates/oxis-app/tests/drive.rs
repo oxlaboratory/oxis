@@ -495,3 +495,28 @@ fn the_terminal_scrollback_can_be_searched() {
     std::fs::create_dir_all(&keep).unwrap();
     let _ = std::fs::copy(data.join("search.png"), keep.join("terminal-search.png"));
 }
+
+/// A program that asks for the mouse gets clicks as escape sequences:
+/// bash switches SGR mouse reporting on, reads up to the end of one report,
+/// and prints what it got.
+#[cfg(unix)]
+#[test]
+fn clicks_reach_programs_that_ask_for_the_mouse() {
+    if !has_display() {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path();
+    pin_shell(data);
+    let reader = r#"bash -c 'printf "\033[?1000h\033[?1006h"; IFS= read -rsd M x; printf "\033[?1000l"; printf "got:%s\n" "${x#?}"'"#;
+    let script = format!(
+        "frames 3\nclick nav:terminal\nframes 5\nwait-screen $\ntype {reader}\nkey Enter\nwait 1500\nclick term-pane:0\nwait-screen got:[<0;\ndump mouse.json\n"
+    );
+    assert_eq!(drive(data, &script, "1000x600"), 0);
+    let text = read(data, "mouse.json")["terminal"]["tabs"][0]["panes"][0]["text"].as_str().unwrap().to_owned();
+    let line = text.lines().find(|l| l.starts_with("got:")).expect("bash printed the report");
+    // got:[<0;COL;ROW — a left press at a real cell, 1-based.
+    let nums: Vec<u32> = line.trim_start_matches("got:[<").split(';').map(|n| n.parse().unwrap()).collect();
+    assert_eq!(nums[0], 0, "{line}");
+    assert!(nums[1] >= 1 && nums[2] >= 1, "{line}");
+}
