@@ -16,7 +16,7 @@ use crossbeam_channel::{unbounded, Receiver, Sender};
 use dear_imgui_rs::{Condition, Context, MouseButton, MouseCursor, StyleColor, Ui, WindowFlags};
 use oxide::events::{Event, Stream};
 use oxide::ids::{ProcessId, WorkspaceId};
-use oxide::process::{ProcessSpec, Status};
+use oxide::process::Status;
 use oxide::workspace::WorkspaceData;
 use oxide::Engine;
 use winit::event_loop::EventLoopProxy;
@@ -81,6 +81,7 @@ pub struct Shell {
     /// The `NAME=value` being typed in the Project panel.
     env_line: String,
     focus_new_ws: bool,
+    installed_shells: Vec<String>,
 }
 
 impl Shell {
@@ -105,6 +106,8 @@ impl Shell {
             hotspots: HashMap::new(),
             env_line: String::new(),
             focus_new_ws: false,
+            // Looked up once: probing PATH every frame would be wasteful.
+            installed_shells: oxide::terminal::shells::available().into_iter().map(|s| s.name).collect(),
         };
         shell.restore_workspace();
         shell
@@ -819,13 +822,24 @@ impl Shell {
                 }
                 ui.dummy([0.0, 12.0]);
                 let mut changed = false;
-                setting_row(ui, fonts, &p, "Shell", "The shell commands run in. Auto picks PowerShell on Windows and your $SHELL elsewhere.", || {
-                    let choices: &[&str] = if cfg!(windows) { &["auto", "powershell", "pwsh", "cmd"] } else { &["auto", "sh", "bash", "zsh", "fish"] };
-                    ui.set_next_item_width(180.0);
-                    if let Some(_combo) = ui.begin_combo("##shell", &self.engine.settings.shell) {
-                        for c in choices {
-                            if ui.selectable_config(*c).selected(self.engine.settings.shell == *c).build() {
-                                self.engine.settings.shell = (*c).to_owned();
+                let about = if cfg!(windows) {
+                    "The shell commands and terminals run in. Auto picks PowerShell 7 if it's installed, else Windows PowerShell."
+                } else {
+                    "The shell commands and terminals run in. Auto uses your $SHELL."
+                };
+                setting_row(ui, fonts, &p, "Shell", about, || {
+                    let mut choices: Vec<String> = std::iter::once("auto".to_owned()).chain(self.installed_shells.iter().cloned()).collect();
+                    let current = self.engine.settings.shell.clone();
+                    let missing = !choices.contains(&current);
+                    if missing {
+                        choices.push(current.clone());
+                    }
+                    ui.set_next_item_width(200.0);
+                    let shown = if missing { format!("{current} (not installed)") } else { current.clone() };
+                    if let Some(_combo) = ui.begin_combo("##shell", &shown) {
+                        for c in &choices {
+                            if ui.selectable_config(c).selected(current == *c).build() && current != *c {
+                                self.engine.settings.shell = c.clone();
                                 changed = true;
                             }
                         }
@@ -847,37 +861,15 @@ impl Shell {
     // ── running commands ───────────────────────────────────────────────
 
     fn shell_label(&self) -> String {
-        let (program, _) = self.shell_program();
-        program
-    }
-
-    fn shell_program(&self) -> (String, Vec<String>) {
-        let pick = self.engine.settings.shell.as_str();
-        if cfg!(windows) {
-            match pick {
-                "cmd" => ("cmd".into(), vec!["/D".into(), "/S".into(), "/C".into()]),
-                "pwsh" => ("pwsh".into(), vec!["-NoLogo".into(), "-NonInteractive".into(), "-Command".into()]),
-                _ => ("powershell".into(), vec!["-NoLogo".into(), "-NonInteractive".into(), "-Command".into()]),
-            }
-        } else {
-            let sh = match pick {
-                "auto" => std::env::var("SHELL").unwrap_or_else(|_| "sh".into()),
-                other => other.to_owned(),
-            };
-            (sh, vec!["-c".into()])
+        match self.engine.shell() {
+            Ok(sh) => sh.name,
+            Err(_) => self.engine.settings.shell.clone(),
         }
     }
 
     fn start_run(&mut self, line: String) {
-        let (program, mut args) = self.shell_program();
-        args.push(line.clone());
-        let spec = ProcessSpec { program, args, ..Default::default() };
         let owner = self.active_id();
-        let result = match owner {
-            Some(ws) => self.engine.spawn_in(ws, spec),
-            None => self.engine.processes.spawn(spec),
-        };
-        match result {
+        match self.engine.run_command(owner, &line) {
             Ok(id) => self.runs.push(Run { id, owner, command: line, started: Instant::now(), ended: None, lines: VecDeque::new(), dropped: 0 }),
             Err(e) => self.say(e.to_string(), true),
         }

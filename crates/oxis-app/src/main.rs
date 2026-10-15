@@ -325,7 +325,7 @@ fn main() {
     if let Err(e) = event_loop.run_app(&mut app) {
         tracing::error!("the event loop stopped: {e}");
     }
-    let persist = app.headless.as_ref().map_or(true, |h| h.persist);
+    let persist = app.headless.as_ref().is_none_or(|h| h.persist);
     if let Some(mut g) = app.gfx.take() {
         let _ = g.renderer.shutdown(&mut g.imgui);
     }

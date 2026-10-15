@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 
 use crossbeam_channel::{unbounded, Receiver, Sender};
 
-use crate::ids::{ProcessId, WorkspaceId};
+use crate::ids::{ProcessId, SessionId, WorkspaceId};
 
 /// Which stream a line of process output came from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -58,6 +58,40 @@ pub enum Event {
         id: ProcessId,
         code: Option<i32>,
         cancelled: bool,
+    },
+
+    /// A terminal session started (its shell is running).
+    SessionStarted {
+        id: SessionId,
+        owner: Option<WorkspaceId>,
+        label: String,
+    },
+    /// The session's screen changed. Sent once per change however much
+    /// output arrived, until the screen is next read.
+    SessionOutput {
+        id: SessionId,
+    },
+    /// The program in the session set its title (empty: reset).
+    SessionTitle {
+        id: SessionId,
+        title: String,
+    },
+    SessionBell {
+        id: SessionId,
+    },
+    /// The program asked to put text on the clipboard (OSC 52).
+    SessionClipboard {
+        id: SessionId,
+        text: String,
+    },
+    /// The session's shell exited. The session stays (its screen can still
+    /// be read) until it's closed.
+    SessionExited {
+        id: SessionId,
+        code: Option<i32>,
+    },
+    SessionClosed {
+        id: SessionId,
     },
 }
 

@@ -1,0 +1,18 @@
+[package]
+name = "oxide-terminal"
+description = "Terminals for the OXIDE Engine: real shells in a pseudo-terminal (ConPTY / Unix PTY), emulated by alacritty_terminal"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+portable-pty = "0.9"
+alacritty_terminal = "0.26"
+tracing.workspace = true
+crossbeam-channel.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

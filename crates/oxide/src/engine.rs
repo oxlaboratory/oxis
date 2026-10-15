@@ -8,8 +8,9 @@ use std::path::{Path, PathBuf};
 use crate::config::{self, Settings};
 use crate::error::Result;
 use crate::events::EventBus;
-use crate::ids::{ProcessId, WorkspaceId};
+use crate::ids::{ProcessId, SessionId, WorkspaceId};
 use crate::process::{ProcessEngine, ProcessSpec};
+use crate::terminal::{shells, Sessions, TerminalCommand};
 use crate::workspace::WorkspaceEngine;
 
 pub struct Engine {
@@ -17,6 +18,7 @@ pub struct Engine {
     pub settings: Settings,
     pub workspaces: WorkspaceEngine,
     pub processes: ProcessEngine,
+    pub terminals: Sessions,
     data_dir: PathBuf,
 }
 
@@ -34,6 +36,7 @@ impl Engine {
         Ok(Self {
             workspaces: WorkspaceEngine::new(data_dir.join("workspaces"), bus.clone()),
             processes: ProcessEngine::new(bus.clone()),
+            terminals: Sessions::new(bus.clone()),
             settings: loaded.value,
             bus,
             data_dir,
@@ -91,10 +94,41 @@ impl Engine {
         })
     }
 
-    /// Closes a workspace: stops the processes it owns, then saves and
-    /// closes it.
+    /// The shell the settings pick, if it's installed.
+    pub fn shell(&self) -> Result<shells::Shell> {
+        shells::resolve(&self.settings.shell).ok_or_else(|| crate::Error::NoShell(self.settings.shell.clone()))
+    }
+
+    /// A command line to run once in the chosen shell (the Run view), for
+    /// a workspace (in its folder, with its environment) or none.
+    pub fn run_command(&self, ws: Option<WorkspaceId>, line: &str) -> Result<ProcessId> {
+        let sh = self.shell()?;
+        let mut spec = ProcessSpec::new(sh.program.display().to_string());
+        spec.args = sh.command.clone();
+        spec.args.push(line.to_owned());
+        match ws {
+            Some(ws) => self.spawn_in(ws, spec),
+            None => self.processes.spawn(spec),
+        }
+    }
+
+    /// Opens a terminal session running the chosen shell, for a workspace
+    /// (in its folder, with its environment, owned by it) or none.
+    pub fn open_terminal(&self, ws: Option<WorkspaceId>, cols: u16, rows: u16) -> Result<SessionId> {
+        let sh = self.shell()?;
+        let mut cmd = TerminalCommand { program: sh.program.clone(), args: sh.interactive.clone(), ..Default::default() };
+        if let Some(ws) = ws {
+            let w = self.workspaces.get(ws).ok_or(crate::Error::NoWorkspace(ws))?;
+            cmd.cwd = w.data.folder.clone();
+            cmd.env = w.data.env.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+        }
+        self.terminals.open(ws, sh.name.clone(), cmd, cols, rows)
+    }
+
+    /// Closes a workspace: stops the processes and terminal sessions it
+    /// owns, then saves and closes it. Returns how many were stopped.
     pub fn close_workspace(&mut self, ws: WorkspaceId) -> Result<usize> {
-        let stopped = self.processes.cancel_owned_by(ws);
+        let stopped = self.processes.cancel_owned_by(ws) + self.terminals.close_owned_by(ws);
         self.workspaces.close(ws)?;
         Ok(stopped)
     }

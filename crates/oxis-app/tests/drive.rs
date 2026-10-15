@@ -126,7 +126,7 @@ fn a_shell_that_isnt_installed_is_reported() {
     let state = read(data, "state.json");
     assert_eq!(state["runs"].as_array().unwrap().len(), 0);
     assert_eq!(state["notice"]["error"], true);
-    assert!(state["notice"]["text"].as_str().unwrap().contains("couldn't start"), "{state:#}");
+    assert!(state["notice"]["text"].as_str().unwrap().contains("isn't installed"), "{state:#}");
 }
 
 #[test]

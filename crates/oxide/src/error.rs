@@ -3,7 +3,7 @@
 
 use std::path::PathBuf;
 
-use crate::ids::{ProcessId, WorkspaceId};
+use crate::ids::{ProcessId, SessionId, WorkspaceId};
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
@@ -41,6 +41,15 @@ pub enum Error {
 
     #[error("there's no process {0}")]
     NoProcess(ProcessId),
+
+    #[error("there's no terminal session {0}")]
+    NoSession(SessionId),
+
+    #[error("couldn't start a terminal with {program}: {message}")]
+    Terminal { program: String, message: String },
+
+    #[error("the shell \"{0}\" isn't installed (pick another in Settings)")]
+    NoShell(String),
 
     #[error("{0} isn't a folder (it may have been moved or deleted)")]
     NotAFolder(PathBuf),

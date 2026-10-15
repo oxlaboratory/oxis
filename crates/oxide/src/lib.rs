@@ -15,6 +15,7 @@ pub mod git;
 pub mod ids;
 pub mod logging;
 pub mod process;
+pub mod terminal;
 pub mod workspace;
 
 pub use engine::Engine;
