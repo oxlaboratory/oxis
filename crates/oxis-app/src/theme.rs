@@ -122,11 +122,50 @@ static PLEX_SEMIBOLD: &[u8] = include_bytes!("../assets/fonts/IBMPlexSans-SemiBo
 static MONO_REGULAR: &[u8] = include_bytes!("../assets/fonts/JetBrainsMono-Regular.ttf");
 static MONO_BOLD: &[u8] = include_bytes!("../assets/fonts/JetBrainsMono-Bold.ttf");
 
+/// System fonts merged behind OXIS's own, for characters they don't have
+/// (symbols, arrows, CJK): whichever of these exist here. Read through
+/// ImGui's validated TrueType loader, so a damaged file is skipped rather
+/// than trusted. Font collections (.ttc) can't be merged and aren't listed.
+fn fallback_fonts() -> Vec<dear_imgui_rs::StbTrueTypeFontData> {
+    let candidates: &[&str] = if cfg!(windows) {
+        &[r"C:\Windows\Fonts\seguisym.ttf", r"C:\Windows\Fonts\segoeui.ttf", r"C:\Windows\Fonts\malgun.ttf", r"C:\Windows\Fonts\Nirmala.ttf"]
+    } else if cfg!(target_os = "macos") {
+        &["/System/Library/Fonts/Apple Symbols.ttf", "/Library/Fonts/Arial Unicode.ttf"]
+    } else {
+        &[
+            "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+            "/usr/share/fonts/TTF/DejaVuSansMono.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf",
+            "/usr/share/fonts/truetype/noto/NotoSansSymbols2-Regular.ttf",
+        ]
+    };
+    let mut found = Vec::new();
+    for path in candidates {
+        if !std::path::Path::new(path).is_file() {
+            continue;
+        }
+        match dear_imgui_rs::StbTrueTypeFontData::from_file(path) {
+            Ok(data) => {
+                tracing::debug!("fallback font: {path}");
+                found.push(data);
+            }
+            Err(e) => tracing::warn!("skipped the fallback font {path}: {e}"),
+        }
+    }
+    found
+}
+
 pub fn load_fonts(ctx: &mut Context) -> Fonts {
+    let fallbacks = fallback_fonts();
     let atlas = ctx.font_atlas();
     // SAFETY: the font files are complete, valid TTFs embedded in the
     // binary, unchanged for the life of the program.
-    let add = |data: &'static [u8]| unsafe { atlas.add_font(&[FontSource::ttf_data_with_size(data, size::MD)]) };
+    let add = |data: &'static [u8]| {
+        let mut sources = vec![unsafe { FontSource::ttf_data_with_size(data, size::MD) }];
+        sources.extend(fallbacks.iter().cloned().map(FontSource::stb_truetype));
+        atlas.add_font(&sources)
+    };
     // The first font added is ImGui's default.
     let ui = add(PLEX_REGULAR);
     Fonts { ui, ui_medium: add(PLEX_MEDIUM), ui_semibold: add(PLEX_SEMIBOLD), mono: add(MONO_REGULAR), mono_bold: add(MONO_BOLD) }

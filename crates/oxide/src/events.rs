@@ -67,7 +67,8 @@ pub enum Event {
         label: String,
     },
     /// The session's screen changed. Sent once per change however much
-    /// output arrived, until the screen is next read.
+    /// output arrived, until whoever draws it takes the change
+    /// (`Terminal::take_dirty`).
     SessionOutput {
         id: SessionId,
     },

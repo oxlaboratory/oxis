@@ -31,8 +31,9 @@ pub struct TerminalCommand {
 /// terminal's own threads.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Notice {
-    /// New output: the screen changed. Sent once until [`Terminal::screen`]
-    /// is next taken, however much output arrives in between.
+    /// New output: the screen changed. Sent once until
+    /// [`Terminal::take_dirty`] is next called, however much output arrives
+    /// in between.
     Output,
     /// The program set the window title.
     Title(String),
@@ -367,14 +368,22 @@ impl Terminal {
         self.inner.shared.dirty.store(true, Ordering::SeqCst);
     }
 
-    /// Whether the screen changed since the last [`screen`](Self::screen).
+    /// Whether the screen changed since the last [`take_dirty`](Self::take_dirty).
     pub fn is_dirty(&self) -> bool {
         self.inner.shared.dirty.load(Ordering::SeqCst)
     }
 
+    /// Whether the screen changed since this was last called, clearing the
+    /// mark. Meant for the one thing that draws the terminal: it re-reads
+    /// the screen when this says so. Reading [`screen`](Self::screen)
+    /// elsewhere (a test, a search) doesn't touch the mark, so it can't make
+    /// the drawing miss a change.
+    pub fn take_dirty(&self) -> bool {
+        self.inner.shared.dirty.swap(false, Ordering::SeqCst)
+    }
+
     /// What's visible now.
     pub fn screen(&self) -> Screen {
-        self.inner.shared.dirty.store(false, Ordering::SeqCst);
         let palette = self.inner.palette.lock().unwrap().clone();
         let term = self.inner.term.lock().unwrap();
         let content = term.renderable_content();

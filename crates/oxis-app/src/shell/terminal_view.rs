@@ -614,8 +614,8 @@ impl Shell {
         }
 
         // The cells.
-        if t.is_dirty() || !self.term.screens.contains_key(&id) || self.term.screens[&id].cols != cols as usize || self.term.screens[&id].rows != rows as usize
-        {
+        let changed = t.take_dirty();
+        if changed || !self.term.screens.contains_key(&id) || self.term.screens[&id].cols != cols as usize || self.term.screens[&id].rows != rows as usize {
             self.term.screens.insert(id, t.screen());
         }
         let screen = &self.term.screens[&id];
