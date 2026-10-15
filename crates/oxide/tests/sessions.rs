@@ -27,6 +27,24 @@ fn wait_for_line(engine: &Engine, id: oxide::ids::SessionId, line: &str) {
     }
 }
 
+/// Waits for the shell's prompt (`>` from cmd, `$` from sh) on the last
+/// line, then types `line` — typing before the prompt shows would mix the
+/// prompt into the output line.
+fn type_at_prompt(engine: &Engine, id: oxide::ids::SessionId, line: &str) {
+    let t = engine.terminals.get(id).unwrap().terminal;
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        let text = t.screen().text();
+        let last = text.lines().last().unwrap_or("").trim_end();
+        if last.ends_with('>') || last.ends_with('$') {
+            break;
+        }
+        assert!(Instant::now() < deadline, "no prompt:\n{text}");
+        std::thread::sleep(Duration::from_millis(30));
+    }
+    t.write(format!("{line}\r").as_bytes());
+}
+
 #[test]
 fn sessions_run_in_their_workspace_and_end_with_it() {
     let dir = tempfile::tempdir().unwrap();
@@ -49,7 +67,7 @@ fn sessions_run_in_their_workspace_and_end_with_it() {
 
     let show = if cfg!(windows) { "echo %WHO%" } else { "echo $WHO" };
     for (id, who) in [(ta, "alpha"), (tb, "beta")] {
-        engine.terminals.get(id).unwrap().terminal.write(format!("{show}\r").as_bytes());
+        type_at_prompt(&engine, id, show);
         wait_for_line(&engine, id, who);
     }
 
@@ -72,9 +90,9 @@ fn an_exit_is_announced_and_the_session_stays_readable() {
     let rx = engine.bus.subscribe();
     let id = engine.open_terminal(None, 80, 24).unwrap();
     let t = engine.terminals.get(id).unwrap().terminal;
-    t.write(b"echo bye\r");
+    type_at_prompt(&engine, id, "echo bye");
     wait_for_line(&engine, id, "bye");
-    t.write(b"exit 4\r");
+    type_at_prompt(&engine, id, "exit 4");
     let deadline = Instant::now() + Duration::from_secs(20);
     loop {
         match rx.recv_timeout(Duration::from_secs(20)) {

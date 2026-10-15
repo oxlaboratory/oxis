@@ -41,7 +41,19 @@ fn has_line(s: &Screen, line: &str) -> bool {
     (0..s.rows).any(|r| s.line(r).trim() == line)
 }
 
+/// Types a command once the prompt (`>` or `$`) is on the last line, so
+/// the prompt and the command's output don't share a line.
 fn run(t: &Terminal, line: &str) {
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        let text = t.screen().text();
+        let last = text.lines().last().unwrap_or("").trim_end();
+        if last.ends_with('>') || last.ends_with('$') {
+            break;
+        }
+        assert!(Instant::now() < deadline, "no prompt:\n{text}");
+        std::thread::sleep(Duration::from_millis(30));
+    }
     t.write(format!("{line}\r").as_bytes());
 }
 
@@ -162,10 +174,9 @@ fn starting_in_the_given_folder_and_environment() {
     run(&t, if cfg!(windows) { "echo %OXIS_TEST_VAR%" } else { "echo $OXIS_TEST_VAR" });
     wait_for(&t, "the variable", |s| has_line(s, "from-oxis"));
     run(&t, if cfg!(windows) { "cd" } else { "pwd -P" });
+    // Compared as folders, not text: Windows may print a short (8.3) name.
     let want = dir.path().canonicalize().unwrap();
-    let want = want.to_string_lossy();
-    let want = want.strip_prefix(r"\\?\").unwrap_or(&want).to_owned();
-    wait_for(&t, "the folder", |s| has_line(s, &want));
+    wait_for(&t, "the folder", |s| (0..s.rows).any(|r| std::path::Path::new(s.line(r).trim()).canonicalize().is_ok_and(|p| p == want)));
     t.kill();
 }
 
