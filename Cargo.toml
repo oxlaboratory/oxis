@@ -1,0 +1,25 @@
+# OXIS 2 — the native rewrite (see docs/v2/README.md). One workspace, one
+# executable; the engine crates know nothing about the interface.
+[workspace]
+resolver = "2"
+members = ["crates/oxis-core"]
+
+[workspace.package]
+version = "2.0.0-dev"
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/oxlaboratory/oxis"
+rust-version = "1.80"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+crossbeam-channel = "0.5"
+tempfile = "3"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

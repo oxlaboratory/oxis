@@ -115,7 +115,15 @@ Engine rules:
 Kept up to date as phases land.
 
 - **Phase 1** — done (this document).
-- **Phase 2** — in progress on the `v2` branch.
+- **Phase 2** — in progress on the `v2` branch. `oxis-core` has typed IDs,
+  errors, logging, versioned atomic config with corrupt-file recovery and
+  migrations, the event bus, the workspace engine (create/open/close/
+  rename/activate, per-workspace folder, Git remote, environment and
+  settings) and the process engine (real processes, line-by-line output
+  events, input, exit codes, cancelling whole process trees through Windows
+  job objects and Unix process groups, per-workspace ownership). 24 tests
+  run against real processes and files; CI runs them on Windows and Linux
+  (`.github/workflows/v2.yml`).
 - Phases 3–8 — not started.
 
 ## 5. Plugin compatibility
