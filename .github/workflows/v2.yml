@@ -40,17 +40,34 @@ jobs:
         run: cargo build --workspace --all-targets --locked
 
       # The window tests (crates/oxis-app/tests/drive.rs) open a hidden
-      # window and drive it, so Linux gets a virtual X display with Mesa's
-      # software OpenGL; Windows runners have a desktop already.
-      - name: Test (Linux)
-        if: runner.os == 'Linux'
+      # window and drive it. CI machines have no GPU, so both get Mesa's
+      # software OpenGL: Linux on a virtual X display, Windows through
+      # Mesa's opengl32.dll placed next to the binary (Windows' own is
+      # OpenGL 1.1 only).
+      - name: Software OpenGL (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          curl.exe -sSLo mesa.7z https://github.com/pal1000/mesa-dist-win/releases/download/26.2.2/mesa3d-26.2.2-release-msvc.7z
+          7z e mesa.7z "x64\*.dll" -otarget\debug -y | Out-Null
+          Get-ChildItem target\debug\*.dll | Select-Object Name, Length
+
+      - name: Test
+        shell: bash
         env:
           LIBGL_ALWAYS_SOFTWARE: "1"
-        run: xvfb-run -a -s "-screen 0 1920x1080x24" cargo test --workspace --locked
+          GALLIUM_DRIVER: llvmpipe
+        run: |
+          set -o pipefail
+          if [ "$RUNNER_OS" = Linux ]; then run="xvfb-run -a -s '-screen 0 1920x1080x24'"; else run=""; fi
+          eval $run cargo test --workspace --locked 2>&1 | tee test.log
 
-      - name: Test (Windows)
-        if: runner.os == 'Windows'
-        run: cargo test --workspace --locked
+      # Test failures as annotations, readable without opening the log.
+      - name: Report failures
+        if: failure()
+        shell: bash
+        run: |
+          "$(command -v python3 || command -v python)" .github/scripts/test-failures.py
 
       - name: Window snapshots
         if: always()
