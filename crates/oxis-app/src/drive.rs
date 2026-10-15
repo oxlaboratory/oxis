@@ -240,6 +240,10 @@ fn keys(spec: &str) -> Option<Vec<Key>> {
             "a" => vec![Key::A],
             "c" => vec![Key::C],
             "v" => vec![Key::V],
+            "1" => vec![Key::Key1],
+            "2" => vec![Key::Key2],
+            "3" => vec![Key::Key3],
+            "," | "comma" => vec![Key::Comma],
             _ => return None,
         });
     }

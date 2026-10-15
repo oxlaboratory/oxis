@@ -400,3 +400,41 @@ fn each_workspace_has_its_own_terminals() {
     assert_eq!(panes(&a2)[0]["session"], panes(&a1)[0]["session"]);
     assert!(text(&a2).lines().any(|l| l.trim() == "from-a"));
 }
+
+// ── the shell: navigation and settings ──────────────────────────────────
+
+#[test]
+fn shortcuts_open_views_and_planned_areas_do_nothing() {
+    if !has_display() {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path();
+    let script = "frames 3\nkey Ctrl+2\nframes 3\ndump run.json\nkey Escape\nframes 2\n\
+                  click nav:home\nframes 3\nkey Ctrl+,\nframes 3\ndump settings-view.json\n\
+                  click nav:editor\nframes 3\nclick nav:plugins\nframes 3\nclick nav:language\nframes 3\ndump planned.json\n\
+                  click nav:home\nframes 3\nkey Ctrl+3\nframes 5\ndump terminal.json\n";
+    assert_eq!(drive(data, script, "1100x700"), 0);
+    // Ctrl+2 opened Run (and its prompt took the keyboard).
+    assert_eq!(read(data, "run.json")["view"], "run");
+    assert_eq!(read(data, "settings-view.json")["view"], "settings");
+    // The editor, plugins and language tools are shown but not built:
+    // clicking them leaves you where you were.
+    assert_eq!(read(data, "planned.json")["view"], "settings");
+    assert_eq!(read(data, "terminal.json")["view"], "terminal");
+}
+
+#[test]
+fn settings_save_as_they_change() {
+    if !has_display() {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path();
+    let script = "frames 3\nclick nav:settings\nframes 3\nclick setting:font+\nframes 2\nclick setting:font+\nframes 2\nclick setting:font-\nframes 2\n\
+                  click setting:restore\nframes 3\n";
+    assert_eq!(drive(data, script, "1100x700"), 0);
+    let saved: Value = serde_json::from_str(&std::fs::read_to_string(data.join("settings.json")).unwrap()).unwrap();
+    assert_eq!(saved["data"]["font_size"], 15.0, "{saved:#}");
+    assert_eq!(saved["data"]["restore_session"], false, "{saved:#}");
+}

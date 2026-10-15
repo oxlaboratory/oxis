@@ -13,8 +13,10 @@ use oxide::ids::{SessionId, WorkspaceId};
 use oxide::terminal::keys::{self, Key, Mods};
 use oxide::terminal::{CellFlags, CursorShape, Screen};
 
-use super::{draw_icon, Icon, Shell};
+use super::Shell;
+use crate::icons::{self, Icon};
 use crate::theme::{self, col, size, Fonts};
+use crate::widgets;
 
 const TABS_H: f32 = 34.0;
 const PAD: f32 = 8.0;
@@ -177,6 +179,12 @@ impl Shell {
         self.term.has_keys
     }
 
+    /// Opens a terminal tab from elsewhere (Home's "Open terminal").
+    pub(super) fn open_terminal_tab(&mut self) {
+        self.layout().opened = true;
+        self.new_tab();
+    }
+
     /// Opens a new tab with a fresh shell, sized for now; it's resized to
     /// its pane on the next frame.
     fn new_tab(&mut self) {
@@ -241,6 +249,10 @@ impl Shell {
     pub fn terminal_input(&mut self, input: TermInput) -> bool {
         if !self.term.has_keys {
             return false;
+        }
+        if let Some(view) = Self::nav_view(&input) {
+            self.go(view);
+            return true;
         }
         let Some(id) = self.focused_session() else { return false };
         let Some(session) = self.engine.terminals.get(id) else { return false };
@@ -407,39 +419,24 @@ impl Shell {
             }
             self.mark(ui, format!("term-tab-close:{i}"));
             let ch = ui.is_item_hovered();
-            draw_icon(&dl, Icon::Close, [r[2] - 15.0, r[1] + 14.0], 7.0, col(if ch { p.text } else { p.dim }));
+            icons::draw(&dl, Icon::Close, [r[2] - 15.0, r[1] + 14.0], 7.0, col(if ch { p.text } else { p.dim }));
             x = r[2] + 4.0;
         }
         // New tab, and the splits at the right.
-        let buttons: [(&str, &str); 3] = [("term-new", "+"), ("term-split-right", "▥"), ("term-split-down", "▤")];
+        // The buttons draw themselves: only one draw list handle may be alive.
+        drop(dl);
+        // New tab after the tabs; the splits at the right.
+        let buttons = [
+            ("term-new", Icon::Plus, "New terminal", "Ctrl+Shift+T"),
+            ("term-split-right", Icon::SplitRight, "Split right", "Ctrl+Shift+D"),
+            ("term-split-down", Icon::SplitDown, "Split down", "Ctrl+Shift+E"),
+        ];
         let mut actions = [false; 3];
-        for (k, (name, glyph)) in buttons.iter().enumerate() {
-            let bx = if k == 0 { x + 2.0 } else { area[2] - 8.0 - (3 - k) as f32 * 30.0 };
-            ui.set_cursor_screen_pos([bx, area[1] + 5.0]);
-            actions[k] = ui.invisible_button(format!("##{name}"), [26.0, 24.0]);
+        for (k, (name, icon, tip, keys)) in buttons.iter().enumerate() {
+            let bx = if k == 0 { x + 2.0 } else { area[2] - 6.0 - (3 - k) as f32 * 30.0 };
+            ui.set_cursor_screen_pos([bx, area[1] + (TABS_H - 28.0) / 2.0]);
+            actions[k] = widgets::icon_button(ui, fonts, &format!("##{name}"), *icon, tip, Some(keys));
             self.mark(ui, *name);
-            let hov = ui.is_item_hovered();
-            if hov {
-                dl.add_rect([bx, area[1] + 5.0], [bx + 26.0, area[1] + 29.0], col(p.hover())).filled(true).rounding(5.0).build();
-                ui.tooltip_text(["New terminal (Ctrl+Shift+T)", "Split right (Ctrl+Shift+D)", "Split down (Ctrl+Shift+E)"][k]);
-            }
-            let c = [bx + 13.0, area[1] + 17.0];
-            let ink = col(if hov { p.text } else { p.muted });
-            match k {
-                0 => {
-                    dl.add_line([c[0] - 5.0, c[1]], [c[0] + 5.0, c[1]], ink).thickness(1.4).build();
-                    dl.add_line([c[0], c[1] - 5.0], [c[0], c[1] + 5.0], ink).thickness(1.4).build();
-                }
-                _ => {
-                    dl.add_rect([c[0] - 6.0, c[1] - 5.0], [c[0] + 6.0, c[1] + 5.0], ink).rounding(1.5).thickness(1.2).build();
-                    if k == 1 {
-                        dl.add_line([c[0], c[1] - 5.0], [c[0], c[1] + 5.0], ink).thickness(1.2).build();
-                    } else {
-                        dl.add_line([c[0] - 6.0, c[1]], [c[0] + 6.0, c[1]], ink).thickness(1.2).build();
-                    }
-                }
-            }
-            let _ = glyph;
         }
         drop(_f);
         if let Some(i) = pick {
@@ -459,6 +456,7 @@ impl Shell {
         }
 
         let body = [area[0], area[1] + TABS_H, area[2], area[3]];
+        let dl = ui.get_window_draw_list();
         dl.add_rect([body[0], body[1]], [body[2], body[3]], col(p.bg)).filled(true).build();
         // Panes take their own draw list handle; only one may be alive.
         drop(dl);
@@ -471,7 +469,7 @@ impl Shell {
             ui.set_cursor_screen_pos([body[0] + 28.0, body[1] + 24.0]);
             ui.text_disabled(failed.as_deref().unwrap_or("No terminals open."));
             ui.set_cursor_screen_pos([body[0] + 28.0, body[1] + 52.0]);
-            if super::button(ui, "Open a terminal", true) {
+            if widgets::button(ui, fonts, "##term-open", "Open a terminal", Some(Icon::Terminal), widgets::Kind::Primary) {
                 self.layout().failed = None;
                 self.new_tab();
             }

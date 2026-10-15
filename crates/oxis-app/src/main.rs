@@ -10,9 +10,11 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod drive;
+mod icons;
 mod keyboard;
 mod shell;
 mod theme;
+mod widgets;
 mod window_state;
 
 use std::num::NonZeroU32;
@@ -298,7 +300,11 @@ fn create_gfx(event_loop: &ActiveEventLoop, shell: &mut shell::Shell, snapshot: 
     let mut platform = WinitPlatform::new(&mut imgui)?;
     platform.attach_window(window.clone(), HiDpiMode::Default, &mut imgui)?;
     shell.setup_imgui(&mut imgui);
-    let renderer = GlowRenderer::new(gl, &mut imgui)?;
+    let mut renderer = GlowRenderer::new(gl, &mut imgui)?;
+    match logo_rgba().and_then(|(w, h, px)| renderer.register_texture(w, h, dear_imgui_rs::TextureFormat::RGBA32, &px).ok()) {
+        Some(tex) => shell.set_logo(tex.into()),
+        None => tracing::warn!("couldn't load the logo; the title bar shows a plain mark"),
+    }
     Ok(Gfx { window, surface, context, imgui, platform, renderer })
 }
 
@@ -409,4 +415,13 @@ fn save_snapshot(renderer: &GlowRenderer, w: u32, h: u32, path: &std::path::Path
     enc.write_header()?.write_image_data(&flipped)?;
     tracing::info!("snapshot saved to {}", path.display());
     Ok(())
+}
+
+/// The OXIS logo as RGBA pixels (width, height, pixels), for the title bar.
+fn logo_rgba() -> Option<(u32, u32, Vec<u8>)> {
+    let decoder = png::Decoder::new(std::io::Cursor::new(include_bytes!("../assets/logo-128.png").as_slice()));
+    let mut reader = decoder.read_info().ok()?;
+    let mut buf = vec![0; reader.output_buffer_size()];
+    let info = reader.next_frame(&mut buf).ok()?;
+    (info.color_type == png::ColorType::Rgba).then(|| (info.width, info.height, buf[..info.buffer_size()].to_vec()))
 }

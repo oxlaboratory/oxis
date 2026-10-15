@@ -1,14 +1,15 @@
-//! The OXIS design system on Dear ImGui.
+//! The OXIS design system on Dear ImGui (see `docs/v2/DESIGN.md`).
 //!
-//! The same tokens as OXIS 1.x's redesigned interface: a cool grey-navy
-//! page, chrome a step darker, hairline lines mixed from the text colour,
-//! and the logo's greens as the one accent. The interface is set in IBM
-//! Plex Sans; anything typed (terminal, editor, commands) in JetBrains
-//! Mono. Dear ImGui's default look is fully replaced here.
+//! Dark, slightly cool surfaces in four steps — chrome, base, raised,
+//! overlay — with hairlines mixed from the text colour, and the logo's
+//! greens as the one accent: green means active, primary or done, and
+//! nothing else. The interface is set in IBM Plex Sans; anything typed or
+//! read as code (terminal, commands, paths) in JetBrains Mono. Dear
+//! ImGui's default look is fully replaced here.
 
 use dear_imgui_rs::{Context, FontId, FontSource, StyleColor};
 
-/// Colours as linear-ish sRGB floats (what ImGui's style wants).
+/// Colours as sRGB floats (what ImGui's style wants).
 pub type Rgba = [f32; 4];
 
 const fn hex(rgb: u32) -> Rgba {
@@ -29,13 +30,19 @@ pub fn col(c: Rgba) -> Rgba {
     c
 }
 
-/// The default theme's colours and the tokens derived from them.
+/// The default theme's colours. Surfaces and lines are methods so they
+/// stay consistent with the base colours.
 #[derive(Clone, Copy, Debug)]
 pub struct Palette {
+    /// The content surface: views and terminals.
     pub bg: Rgba,
+    /// The chrome: title bar, activity rail, status bar.
     pub bg1: Rgba,
+    /// Primary text.
     pub text: Rgba,
+    /// Secondary text: descriptions, metadata.
     pub muted: Rgba,
+    /// Tertiary text: hints, placeholders, inactive icons.
     pub dim: Rgba,
     pub acc: Rgba,
     pub acc_hi: Rgba,
@@ -49,51 +56,58 @@ impl Default for Palette {
     fn default() -> Self {
         Self {
             bg: hex(0x1a1b26),
-            bg1: hex(0x16161e),
-            text: hex(0xc0caf5),
-            muted: hex(0x7a809b),
-            dim: hex(0x565f89),
+            bg1: hex(0x13141c),
+            text: hex(0xd0d5ea),
+            muted: hex(0x8c92ad),
+            dim: hex(0x5d6380),
             acc: hex(0x2bb35e),
             acc_hi: hex(0x4fd47f),
             acc_lo: hex(0x1e9149),
             ok: hex(0x4fd47f),
-            err: hex(0xf7768e),
-            warn: hex(0xff9e64),
+            err: hex(0xf07185),
+            warn: hex(0xe8a65d),
         }
     }
 }
 
 impl Palette {
-    /// Title bar, sidebar and status bar.
+    /// Title bar, activity rail and status bar.
     pub fn chrome(&self) -> Rgba {
         self.bg1
     }
-    /// Bars inside the content (prompt, editor bars).
+    /// Bars inside content (tab strips, the prompt).
     pub fn chrome2(&self) -> Rgba {
-        mix(self.bg1, self.bg, 0.45)
+        mix(self.bg1, self.bg, 0.55)
     }
-    /// Panels and cards: a step off the page.
-    pub fn panel(&self) -> Rgba {
-        mix(self.bg1, self.bg, 0.38)
+    /// Panels, inputs and list surfaces: a step above the content.
+    pub fn raised(&self) -> Rgba {
+        mix(self.bg, self.text, 0.035)
     }
-    /// Popups and menus.
+    /// Menus, tooltips and toasts.
     pub fn overlay(&self) -> Rgba {
-        mix(self.bg, self.text, 0.04)
+        mix(self.bg, self.text, 0.065)
     }
+    /// A hairline separator.
     pub fn line(&self) -> Rgba {
-        alpha(self.text, 0.09)
+        alpha(self.text, 0.075)
     }
+    /// A control's border.
     pub fn line2(&self) -> Rgba {
-        alpha(self.text, 0.16)
+        alpha(self.text, 0.14)
     }
     pub fn hover(&self) -> Rgba {
-        alpha(self.text, 0.06)
+        alpha(self.text, 0.055)
     }
     pub fn press(&self) -> Rgba {
-        alpha(self.text, 0.11)
+        alpha(self.text, 0.10)
     }
+    /// The accent, faint: the background of what's selected.
     pub fn wash(&self) -> Rgba {
-        alpha(self.acc, 0.14)
+        alpha(self.acc, 0.13)
+    }
+    /// Disabled text and icons.
+    pub fn faint(&self) -> Rgba {
+        alpha(self.dim, 0.6)
     }
 }
 
@@ -108,12 +122,30 @@ pub struct Fonts {
     pub mono_bold: FontId,
 }
 
-/// Sizes in logical pixels.
+/// Type sizes in logical pixels.
 pub mod size {
+    /// Group labels (capitals, lightly tracked) and the status bar.
     pub const XS: f32 = 11.0;
-    pub const SM: f32 = 12.5;
-    pub const MD: f32 = 13.5;
-    pub const TITLE: f32 = 26.0;
+    /// Metadata, descriptions, tabs.
+    pub const SM: f32 = 12.0;
+    /// Body text and controls.
+    pub const MD: f32 = 13.0;
+    /// Section titles.
+    pub const LG: f32 = 15.0;
+    /// Page titles.
+    pub const TITLE: f32 = 20.0;
+}
+
+/// The spacing scale, on a 4px grid.
+pub mod space {
+    pub const XS: f32 = 4.0;
+    pub const SM: f32 = 8.0;
+    pub const MD: f32 = 12.0;
+    pub const LG: f32 = 16.0;
+    pub const XL: f32 = 24.0;
+    pub const XXL: f32 = 32.0;
+    /// The height of a control.
+    pub const CONTROL: f32 = 28.0;
 }
 
 static PLEX_REGULAR: &[u8] = include_bytes!("../assets/fonts/IBMPlexSans-Regular.ttf");
@@ -181,9 +213,10 @@ pub fn apply_style(ctx: &mut Context, p: &Palette) {
     style.set_child_rounding(5.0);
     style.set_child_border_size(1.0);
     style.set_popup_rounding(6.0);
+    style.set_window_padding([0.0, 0.0]);
     style.set_popup_border_size(1.0);
-    style.set_frame_padding([10.0, 6.0]);
-    style.set_frame_rounding(5.0);
+    style.set_frame_padding([10.0, 6.5]);
+    style.set_frame_rounding(4.0);
     style.set_frame_border_size(1.0);
     style.set_item_spacing([8.0, 6.0]);
     style.set_item_inner_spacing([6.0, 4.0]);
@@ -202,10 +235,23 @@ pub fn apply_style(ctx: &mut Context, p: &Palette) {
     c(style, StyleColor::ChildBg, [0.0; 4]);
     c(style, StyleColor::PopupBg, p.overlay());
     c(style, StyleColor::Border, p.line2());
+    c(style, StyleColor::TableBorderLight, p.line());
+    c(style, StyleColor::TableBorderStrong, p.line2());
+    c(style, StyleColor::TableHeaderBg, p.raised());
+    c(style, StyleColor::PlotLines, p.acc);
+    c(style, StyleColor::PlotHistogram, p.acc);
+    c(style, StyleColor::ResizeGrip, [0.0; 4]);
+    c(style, StyleColor::ResizeGripHovered, p.acc);
+    c(style, StyleColor::ResizeGripActive, p.acc_hi);
+    c(style, StyleColor::TitleBg, p.chrome());
+    c(style, StyleColor::TitleBgActive, p.chrome());
+    c(style, StyleColor::TitleBgCollapsed, p.chrome());
+    c(style, StyleColor::MenuBarBg, p.chrome());
+    c(style, StyleColor::DragDropTarget, p.acc_hi);
     c(style, StyleColor::BorderShadow, [0.0; 4]);
-    c(style, StyleColor::FrameBg, p.panel());
-    c(style, StyleColor::FrameBgHovered, mix(p.panel(), p.text, 0.04));
-    c(style, StyleColor::FrameBgActive, mix(p.panel(), p.text, 0.07));
+    c(style, StyleColor::FrameBg, p.raised());
+    c(style, StyleColor::FrameBgHovered, mix(p.raised(), p.text, 0.03));
+    c(style, StyleColor::FrameBgActive, mix(p.raised(), p.text, 0.05));
     c(style, StyleColor::ScrollbarBg, [0.0; 4]);
     c(style, StyleColor::ScrollbarGrab, p.line2());
     c(style, StyleColor::ScrollbarGrabHovered, alpha(p.text, 0.28));
@@ -233,9 +279,9 @@ pub fn apply_style(ctx: &mut Context, p: &Palette) {
     c(style, StyleColor::InputTextCursor, p.acc_hi);
 }
 
-/// The window's icon (taskbar, Alt+Tab): the OXIS mark.
+/// The window's icon (taskbar, Alt+Tab): the OXIS logo.
 pub fn window_icon() -> Option<winit::window::Icon> {
-    let decoder = png::Decoder::new(std::io::Cursor::new(include_bytes!("../assets/icon.png").as_slice()));
+    let decoder = png::Decoder::new(std::io::Cursor::new(include_bytes!("../assets/logo-256.png").as_slice()));
     let mut reader = decoder.read_info().ok()?;
     let mut buf = vec![0; reader.output_buffer_size()];
     let info = reader.next_frame(&mut buf).ok()?;

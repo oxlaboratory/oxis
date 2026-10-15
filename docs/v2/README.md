@@ -172,6 +172,17 @@ Kept up to date as phases land.
     - the minimum size (720×460) and a resize to a 1366×768 laptop size,
       with nothing blank;
     - a missing shell.
+  - Interface redesign, stage 1 (see `DESIGN.md`), done:
+    - Design tokens, a type scale, one icon set, and shared controls in
+      `widgets.rs`.
+    - The real logo in the title bar.
+    - A workspace switcher and a breadcrumb in the title bar.
+    - An activity rail with shortcuts, and the editor, plugins and
+      language tools marked "in development".
+    - Home as a workspace manager, Run as command blocks, Settings as
+      grouped rows (font size now exposed).
+    - A status bar showing the workspace, the Git remote and the shell.
+    - Tests: the shortcuts, inert planned areas, and settings saving.
   - Not yet: docking layouts.
 - **Phase 4** — in progress.
   - `oxide-terminal` runs a real shell in a pseudo-terminal (ConPTY on
