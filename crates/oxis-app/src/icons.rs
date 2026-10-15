@@ -20,6 +20,7 @@ pub enum Icon {
     Plus,
     Close,
     ChevronDown,
+    ChevronUp,
     ChevronRight,
     SplitRight,
     SplitDown,
@@ -128,6 +129,7 @@ pub fn draw(dl: &DrawListMut<'_>, icon: Icon, c: [f32; 2], size: f32, color: Rgb
             line(&[[4.5, -4.5], [-4.5, 4.5]]);
         }
         Icon::ChevronDown => line(&[[-4.0, -2.0], [0.0, 2.0], [4.0, -2.0]]),
+        Icon::ChevronUp => line(&[[-4.0, 2.0], [0.0, -2.0], [4.0, 2.0]]),
         Icon::ChevronRight => line(&[[-2.0, -4.0], [2.0, 0.0], [-2.0, 4.0]]),
         Icon::SplitRight => {
             rect(-7.0, -6.0, 7.0, 6.0, 1.5);

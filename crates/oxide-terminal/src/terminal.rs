@@ -139,6 +139,16 @@ impl Dimensions for Size {
     }
 }
 
+/// Where some text was found: a grid line (0 is the top of the screen,
+/// negative lines are in the history), the column it starts at, and how
+/// many columns it covers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Match {
+    pub line: i32,
+    pub col: usize,
+    pub len: usize,
+}
+
 /// Lines of history kept above the screen.
 pub const SCROLLBACK: usize = 10_000;
 
@@ -286,10 +296,70 @@ impl Terminal {
     /// Scrolls the view through the history: positive is up (older).
     pub fn scroll(&self, lines: i32) {
         self.inner.term.lock().unwrap().scroll_display(Scroll::Delta(lines));
+        self.changed();
+    }
+
+    /// Every place `needle` appears in the history and on the screen,
+    /// ignoring case, oldest first. Lines wrapped by the terminal are
+    /// searched as they're shown (a match can't span a wrap).
+    pub fn find(&self, needle: &str) -> Vec<Match> {
+        let needle: Vec<char> = needle.to_lowercase().chars().collect();
+        if needle.is_empty() {
+            return Vec::new();
+        }
+        let term = self.inner.term.lock().unwrap();
+        let grid = term.grid();
+        let cols = grid.columns();
+        let mut found = Vec::new();
+        for line in grid.topmost_line().0..=grid.bottommost_line().0 {
+            let row = &grid[Line(line)];
+            // The row's characters with the column each starts at (wide
+            // characters take two columns, their spacer none).
+            let mut chars: Vec<(char, usize)> = Vec::with_capacity(cols);
+            for col in 0..cols {
+                let cell = &row[Column(col)];
+                if cell.flags.intersects(alacritty_terminal::term::cell::Flags::WIDE_CHAR_SPACER) {
+                    continue;
+                }
+                for lc in cell.c.to_lowercase() {
+                    chars.push((lc, col));
+                }
+            }
+            if chars.len() < needle.len() {
+                continue;
+            }
+            let mut i = 0;
+            while i + needle.len() <= chars.len() {
+                if chars[i..i + needle.len()].iter().map(|(c, _)| *c).eq(needle.iter().copied()) {
+                    let start = chars[i].1;
+                    let end = chars[i + needle.len() - 1].1;
+                    found.push(Match { line, col: start, len: end - start + 1 });
+                    i += needle.len();
+                } else {
+                    i += 1;
+                }
+            }
+        }
+        found
+    }
+
+    /// Scrolls so that grid line `line` (negative: in the history) is on
+    /// screen, about a third of the way down.
+    pub fn reveal(&self, line: i32) {
+        let mut term = self.inner.term.lock().unwrap();
+        let rows = term.screen_lines() as i32;
+        let history = term.grid().history_size() as i32;
+        // The display offset that puts `line` a third of the way down.
+        let want = (rows / 3 - line).clamp(0, history);
+        let now = term.grid().display_offset() as i32;
+        term.scroll_display(Scroll::Delta(want - now));
+        drop(term);
+        self.changed();
     }
 
     pub fn scroll_to_bottom(&self) {
         self.inner.term.lock().unwrap().scroll_display(Scroll::Bottom);
+        self.changed();
     }
 
     /// Selects from one visible cell to another (row, column), inclusive.
@@ -300,10 +370,13 @@ impl Terminal {
         let mut sel = Selection::new(SelectionType::Simple, point(from), Side::Left);
         sel.update(point(to), Side::Right);
         term.selection = Some(sel);
+        drop(term);
+        self.changed();
     }
 
     pub fn clear_selection(&self) {
         self.inner.term.lock().unwrap().selection = None;
+        self.changed();
     }
 
     /// The selected text, if anything is selected.
@@ -365,6 +438,12 @@ impl Terminal {
 
     pub fn set_palette(&self, palette: Palette) {
         *self.inner.palette.lock().unwrap() = palette;
+        self.inner.shared.dirty.store(true, Ordering::SeqCst);
+    }
+
+    /// Marks the view as changed (scrolled, selected): what's visible is
+    /// different even though the program printed nothing.
+    fn changed(&self) {
         self.inner.shared.dirty.store(true, Ordering::SeqCst);
     }
 

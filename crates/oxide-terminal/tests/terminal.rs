@@ -228,3 +228,53 @@ fn ctrl_c_interrupts_the_running_command_not_the_shell() {
     assert_eq!(t.exit_status(), None, "the shell itself keeps running");
     t.kill();
 }
+
+#[test]
+fn searching_finds_text_in_the_history_and_reveals_it() {
+    let (t, _) = spawn(shell(), 60, 10);
+    let count = if cfg!(windows) { "for /L %i in (1,1,80) do @echo row-%i" } else { "i=1; while [ $i -le 80 ]; do echo row-$i; i=$((i+1)); done" };
+    run(&t, count);
+    wait_for(&t, "the last row", |s| has_line(s, "row-80"));
+    run(&t, "echo Needle-In-Hay");
+    wait_for(&t, "the needle", |s| has_line(s, "Needle-In-Hay"));
+
+    // "row-1" also matches row-10…row-19 and row-1 itself: 11, plus the
+    // command line that printed them.
+    let rows = t.find("ROW-1");
+    assert!(rows.len() >= 11, "{rows:?}");
+    let first = rows.iter().find(|m| m.line < 0).copied().expect("a match in the history");
+    assert_eq!(first.len, 5);
+    // Ignoring case, and found where it is on screen.
+    let needle = t.find("needle-in-hay");
+    assert!(needle.iter().any(|m| m.line >= 0), "{needle:?}");
+    assert!(t.find("not-there-at-all").is_empty());
+    assert!(t.find("").is_empty());
+
+    // Revealing a match in the history scrolls to it.
+    t.reveal(first.line);
+    let s = t.screen();
+    assert!(s.scrolled > 0);
+    let row = (first.line + s.scrolled as i32) as usize;
+    assert!(row < s.rows, "the match is on screen");
+    assert!(s.line(row).to_lowercase().contains("row-1"), "{}", s.text());
+    t.kill();
+}
+
+#[test]
+fn scrolling_and_selecting_mark_the_screen_changed() {
+    let (t, _) = spawn(shell(), 40, 8);
+    let count = if cfg!(windows) { "for /L %i in (1,1,40) do @echo n-%i" } else { "i=1; while [ $i -le 40 ]; do echo n-$i; i=$((i+1)); done" };
+    run(&t, count);
+    wait_for(&t, "the last line", |s| has_line(s, "n-40"));
+    std::thread::sleep(Duration::from_millis(300));
+    t.take_dirty();
+    t.scroll(5);
+    assert!(t.take_dirty(), "scrolling changes what's visible");
+    t.select((0, 0), (0, 2));
+    assert!(t.take_dirty(), "so does selecting");
+    t.clear_selection();
+    assert!(t.take_dirty());
+    t.scroll_to_bottom();
+    assert!(t.take_dirty());
+    t.kill();
+}

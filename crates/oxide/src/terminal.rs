@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
 use oxide_terminal::Notice;
-pub use oxide_terminal::{keys, shells, Cell, CellFlags, CursorShape, Palette, Screen, Terminal, TerminalCommand};
+pub use oxide_terminal::{keys, shells, Cell, CellFlags, CursorShape, Match, Palette, Screen, Terminal, TerminalCommand};
 
 use crate::error::{Error, Result};
 use crate::events::{Event, EventBus};

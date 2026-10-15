@@ -181,6 +181,7 @@ impl Shell {
         serde_json::json!({
             "view": match self.view { View::Home => "home", View::Run => "run", View::Terminal => "terminal", View::Settings => "settings" },
             "terminal": self.terminal_dump(),
+            "search": self.search_dump(),
             "active": self.engine.workspaces.active().map(ws),
             "open": open,
             "on_disk": self.engine.workspaces.list().unwrap_or_default(),

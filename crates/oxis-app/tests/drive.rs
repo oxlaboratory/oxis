@@ -464,3 +464,34 @@ fn workspaces_can_be_renamed_closed_and_removed() {
     assert_eq!(removed["on_disk"], serde_json::json!(["renamed"]), "{removed:#}");
     assert!(data.join("workspaces/.removed").is_dir(), "the record is kept aside");
 }
+
+#[test]
+fn the_terminal_scrollback_can_be_searched() {
+    if !has_display() {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path();
+    pin_shell(data);
+    let rows = if cfg!(windows) { "for /L %i in (1,1,90) do @echo line-%i" } else { "i=1; while [ $i -le 90 ]; do echo line-$i; i=$((i+1)); done" };
+    let script = format!(
+        "frames 3\nclick nav:terminal\nframes 5\nwait-screen {prompt}\n\
+         type echo findme-early\nkey Enter\nwait 800\n\
+         type {rows}\nkey Enter\nwait-screen line-90\nframes 3\n\
+         key Ctrl+Shift+F\nframes 4\ntype FINDME\nframes 4\ndump found.json\nsnapshot search.png\n\
+         click term-search-prev\nframes 3\ndump stepped.json\n\
+         click term-search-close\nframes 3\ndump closed.json\n",
+        prompt = TERM.prompt,
+    );
+    assert_eq!(drive(data, &script, "1100x640"), 0);
+    let found = read(data, "found.json");
+    // The command line and its output both contain it (case ignored).
+    assert_eq!(found["search"]["query"], "FINDME");
+    assert!(found["search"]["matches"].as_u64().unwrap() >= 2, "{:#}", found["search"]);
+    let stepped = read(data, "stepped.json");
+    assert_ne!(stepped["search"]["current"], found["search"]["current"], "stepping moves to another match");
+    assert!(read(data, "closed.json")["search"].is_null());
+    let keep = Path::new(env!("CARGO_TARGET_TMPDIR")).join("drive-artifacts");
+    std::fs::create_dir_all(&keep).unwrap();
+    let _ = std::fs::copy(data.join("search.png"), keep.join("terminal-search.png"));
+}

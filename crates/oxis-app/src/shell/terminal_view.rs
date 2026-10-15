@@ -13,6 +13,8 @@ use oxide::ids::{SessionId, WorkspaceId};
 use oxide::terminal::keys::{self, Key, Mods};
 use oxide::terminal::{CellFlags, CursorShape, Screen};
 
+use crate::theme::space;
+
 use super::Shell;
 use crate::icons::{self, Icon};
 use crate::theme::{self, col, size, Fonts};
@@ -128,6 +130,21 @@ pub struct TermState {
     /// Set while drawing: whether keys should go to the focused shell.
     has_keys: bool,
     clipboard: Option<arboard::Clipboard>,
+    /// Search in a terminal's scrollback (Ctrl+Shift+F).
+    search: Option<Search>,
+    /// Where each pane was drawn this frame.
+    pane_rects: HashMap<SessionId, [f32; 4]>,
+}
+
+struct Search {
+    session: SessionId,
+    query: String,
+    /// The query the matches are for.
+    searched: String,
+    matches: Vec<oxide::terminal::Match>,
+    /// Which match is current (an index into `matches`).
+    current: usize,
+    focus: bool,
 }
 
 impl TermState {
@@ -261,6 +278,10 @@ impl Shell {
         match &input {
             TermInput::Char(c, m) if cs(*m) => match c.to_ascii_lowercase() {
                 't' => self.new_tab(),
+                'f' => {
+                    self.term.search =
+                        Some(Search { session: id, query: String::new(), searched: String::new(), matches: Vec::new(), current: 0, focus: true });
+                }
                 'w' => self.close_pane(id),
                 'd' => self.split_focused(true),
                 'e' => self.split_focused(false),
@@ -477,7 +498,9 @@ impl Shell {
             return;
         };
         let mut leaf_index = 0;
+        self.term.pane_rects.clear();
         self.draw_pane_tree(ui, fonts, &root, body, focus, &mut Vec::new(), &mut leaf_index);
+        self.search_bar(ui, fonts);
         // Keys go to the shell unless an ImGui text field has them.
         self.term.has_keys = self.view == super::View::Terminal && !ui.io().want_text_input();
     }
@@ -555,6 +578,7 @@ impl Shell {
             // rounded, and that error would add up across a line.
             (ui.calc_text_size("M".repeat(100))[0] / 100.0, (fs * 1.32).round())
         };
+        self.term.pane_rects.insert(id, r);
         let inner = [r[0] + PAD, r[1] + PAD, r[2] - PAD, r[3] - PAD];
         let cols = (((inner[2] - inner[0]) / cw).floor() as i32).clamp(2, 1000) as u16;
         let rows = (((inner[3] - inner[1]) / lh).floor() as i32).clamp(1, 500) as u16;
@@ -562,6 +586,8 @@ impl Shell {
 
         // Mouse: focus, select, scroll.
         ui.set_cursor_screen_pos([r[0], r[1]]);
+        // Controls drawn over the pane later (the search bar) take clicks first.
+        ui.set_next_item_allow_overlap();
         ui.invisible_button(format!("##pane{}", id.raw()), [(r[2] - r[0]).max(1.0), (r[3] - r[1]).max(1.0)]);
         self.mark(ui, format!("term-pane:{index}"));
         let hovered = ui.is_item_hovered();
@@ -642,6 +668,15 @@ impl Shell {
                     dl.add_rect([inner[0] + c0 as f32 * cw, y], [inner[0] + c1 as f32 * cw, y + lh], rgb(bg)).filled(true).build();
                 }
                 c0 = c1;
+            }
+            // Search matches on this row: the current one in green.
+            if let Some(search) = self.term.search.as_ref().filter(|q| q.session == id) {
+                let line = row as i32 - screen.scrolled as i32;
+                for (i, m) in search.matches.iter().enumerate().filter(|(_, m)| m.line == line) {
+                    let x0 = inner[0] + m.col as f32 * cw;
+                    let c = if i == search.current { theme::alpha(p.acc, 0.55) } else { theme::alpha(p.warn, 0.32) };
+                    dl.add_rect([x0, y], [x0 + m.len as f32 * cw, y + lh], c).filled(true).rounding(2.0).build();
+                }
             }
             // Text: runs of plain ASCII in one style; anything else drawn
             // on its own at its cell, so wide and fallback glyphs line up.
@@ -758,6 +793,101 @@ fn tab_label(title: &str, fallback: &str) -> String {
         _ => name,
     };
     stem.to_owned()
+}
+
+impl Shell {
+    /// The scrollback search bar, over the top right of the pane it
+    /// searches. Typing searches as you go; Enter goes to the next (older)
+    /// match, Shift+Enter the previous; Escape closes it.
+    fn search_bar(&mut self, ui: &Ui, fonts: Fonts) {
+        let Some(search) = self.term.search.as_ref() else { return };
+        let id = search.session;
+        let (Some(rect), Some(session)) = (self.term.pane_rects.get(&id).copied(), self.engine.terminals.get(id)) else {
+            self.term.search = None;
+            return;
+        };
+        let t = session.terminal;
+        let p = self.pal;
+        let (w, h) = (360.0_f32.min(rect[2] - rect[0] - 16.0), space::CONTROL + 12.0);
+        let x = rect[2] - w - 10.0;
+        let y = rect[1] + 8.0;
+        {
+            let dl = ui.get_window_draw_list();
+            dl.add_rect([x, y], [x + w, y + h], p.overlay()).filled(true).rounding(6.0).build();
+            dl.add_rect([x, y], [x + w, y + h], p.line2()).rounding(6.0).build();
+        }
+        let mut search = self.term.search.take().expect("checked above");
+        ui.set_cursor_screen_pos([x + 6.0, y + 6.0]);
+        if std::mem::take(&mut search.focus) {
+            ui.set_keyboard_focus_here();
+        }
+        let input_w = w - 6.0 - 64.0 - 3.0 * space::CONTROL - 6.0;
+        let input = widgets::text_input(ui, fonts, "##term-search", &mut search.query, "Find in terminal", input_w, false);
+        self.mark(ui, "term-search");
+        let typing = ui.is_item_active();
+        if search.query != search.searched {
+            search.searched = search.query.clone();
+            search.matches = t.find(&search.query);
+            // Start from the newest match: the one nearest the bottom.
+            search.current = search.matches.len().saturating_sub(1);
+            if let Some(m) = search.matches.get(search.current) {
+                t.reveal(m.line);
+            }
+        }
+        // The count: "3 of 12".
+        let count = if search.query.is_empty() {
+            String::new()
+        } else if search.matches.is_empty() {
+            "No results".to_owned()
+        } else {
+            format!("{} of {}", search.current + 1, search.matches.len())
+        };
+        ui.same_line_with_spacing(0.0, 0.0);
+        let cpos = ui.cursor_screen_pos();
+        {
+            let dl = ui.get_window_draw_list();
+            let c = if !search.query.is_empty() && search.matches.is_empty() { p.err } else { p.muted };
+            dl.add_text_with_font(fonts.ui, size::SM, [cpos[0] + 8.0, cpos[1] + space::CONTROL / 2.0 - size::SM * 0.62], c, &count, 0.0, None);
+        }
+        ui.dummy([64.0, space::CONTROL]);
+        ui.same_line_with_spacing(0.0, 0.0);
+        let back = widgets::icon_button(ui, fonts, "##term-search-prev", Icon::ChevronUp, "Older match", Some("Enter"));
+        self.mark(ui, "term-search-prev");
+        ui.same_line_with_spacing(0.0, 0.0);
+        let fwd = widgets::icon_button(ui, fonts, "##term-search-next", Icon::ChevronDown, "Newer match", Some("Shift+Enter"));
+        self.mark(ui, "term-search-next");
+        ui.same_line_with_spacing(0.0, 0.0);
+        let close = widgets::icon_button(ui, fonts, "##term-search-close", Icon::Close, "Close", Some("Esc"));
+        self.mark(ui, "term-search-close");
+
+        let n = search.matches.len();
+        let shift = ui.io().key_shift();
+        // Enter in the field (it loses focus on Enter) steps too, and keeps
+        // the field focused for the next press.
+        let older = back || (input.entered && !shift);
+        let newer = fwd || (input.entered && shift);
+        if n > 0 && (older || newer) {
+            search.current = if older { (search.current + n - 1) % n } else { (search.current + 1) % n };
+            t.reveal(search.matches[search.current].line);
+        }
+        if input.entered {
+            search.focus = true;
+        }
+        let escape = (typing || input.entered) && ui.is_key_pressed(dear_imgui_rs::Key::Escape);
+        if close || escape {
+            t.scroll_to_bottom();
+            return;
+        }
+        self.term.search = Some(search);
+    }
+
+    /// The search state, for `--drive` dumps.
+    pub fn search_dump(&self) -> serde_json::Value {
+        match &self.term.search {
+            Some(s) => serde_json::json!({ "query": s.query, "matches": s.matches.len(), "current": s.current }),
+            None => serde_json::Value::Null,
+        }
+    }
 }
 
 #[cfg(test)]

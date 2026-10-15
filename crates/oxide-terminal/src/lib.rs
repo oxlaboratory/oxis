@@ -18,4 +18,4 @@ pub mod shells;
 mod terminal;
 
 pub use screen::{Cell, CellFlags, CursorShape, Palette, Screen};
-pub use terminal::{Notice, SpawnError, Terminal, TerminalCommand};
+pub use terminal::{Match, Notice, SpawnError, Terminal, TerminalCommand};
