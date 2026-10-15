@@ -436,25 +436,26 @@ button.editor-mode:hover { background: var(--hover); }
    shared by the Editor and Plugin Creator. See FindBar in App.tsx. ── */
 .find-bar {
   display: flex; align-items: center; gap: 6px;
-  height: 30px; padding: 0 10px; flex-shrink: 0;
-  background: var(--bg2); border-bottom: 1px solid var(--border);
+  height: 40px; padding: 0 10px 0 14px; flex-shrink: 0;
+  background: var(--chrome-2); border-bottom: 1px solid var(--line);
+  font-family: var(--ui-font);
 }
-.find-bar-icon { color: var(--dim); font-size: 12px; flex-shrink: 0; }
+.find-bar-icon { color: var(--dim); font-size: 13px; flex-shrink: 0; }
 .find-bar-input {
-  background: var(--bg3); border: 1px solid var(--border); border-radius: var(--r);
-  color: var(--text); font-family: var(--font); font-size: 11px;
-  padding: 3px 8px; min-width: 120px; outline: none;
+  height: 28px; min-width: 160px; padding: 0 10px;
+  background: color-mix(in srgb, var(--bg1) 62%, var(--bg)); border: 1px solid var(--line-2); border-radius: var(--r-2);
+  color: var(--text); font: 400 var(--t-sm) var(--mono); outline: none; transition: border-color .12s, box-shadow .12s;
 }
-.find-bar-input:focus { border-color: var(--purple3); }
-.find-bar-count { font-size: 10px; color: var(--dim); min-width: 40px; }
+.find-bar-input:focus { border-color: var(--acc); box-shadow: 0 0 0 3px var(--acc-wash); }
+.find-bar-count { font: 400 var(--t-2xs) var(--mono); color: var(--dim); min-width: 44px; text-align: center; }
 .find-bar-btn {
-  font-size: 10px; color: var(--dim); border: 1px solid var(--border);
-  border-radius: var(--r); padding: 2px 8px; cursor: pointer;
-  font-family: var(--font); transition: all .1s; background: none; flex-shrink: 0;
+  height: 28px; min-width: 28px; padding: 0 9px; flex-shrink: 0;
+  font: 500 var(--t-xs)/1 var(--ui-font); color: var(--muted);
+  border: 1px solid transparent; border-radius: var(--r-1); transition: background .12s, color .12s;
 }
-.find-bar-btn:hover:not(:disabled) { color: var(--muted); border-color: var(--border2); background: var(--bg3); }
+.find-bar-btn:hover:not(:disabled) { color: var(--text); background: var(--hover); }
 .find-bar-btn:disabled { opacity: .4; cursor: default; }
-.find-bar-btn--close:hover { color: var(--err); border-color: var(--err); }
+.find-bar-btn--close:hover { color: var(--text); background: var(--press); }
 
 /* ── CODE AREA — a highlighted <pre> behind a transparent <textarea>,
    stacked in the same box; the textarea's scroll is copied to the <pre>
@@ -1264,8 +1265,8 @@ input, textarea { font-family: var(--font); }
 
 /* Quick open (Ctrl+P in the editor). */
 .quickopen-item { gap: 12px; }
-.quickopen-name { color: var(--text); white-space: nowrap; }
-.quickopen-dir  { color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+.quickopen-name { color: var(--text); white-space: nowrap; font: 500 var(--t-sm) var(--mono); }
+.quickopen-dir  { color: var(--dim); font: 400 var(--t-xs) var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
 .quickopen-item b { color: var(--purple); font-weight: 700; }
 
 /* Tabs in the app bar: Home, then each terminal tab. The selected tab is
@@ -1315,14 +1316,14 @@ input, textarea { font-family: var(--font); }
 .sif-summary--err { color: var(--err); }
 .sif-list { max-height: min(60vh, 520px); }
 .sif-file {
-  display: flex; align-items: baseline; gap: 8px; padding: 7px 14px 3px;
-  font-size: 12px; position: sticky; top: 0; background: var(--bg1);
+  display: flex; align-items: baseline; gap: 8px; padding: 8px 14px 4px;
+  font-size: var(--t-sm); position: sticky; top: 0; background: var(--overlay-bg);
 }
-.sif-file-name { color: var(--text); font-weight: 600; }
+.sif-file-name { color: var(--text); font: 600 var(--t-sm) var(--mono); }
 .sif-file-dir { color: var(--dim); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
 .sif-file-count { color: var(--dim); font-size: 10px; border: 1px solid var(--border); border-radius: 8px; padding: 0 6px; }
-.sif-row { display: flex; gap: 10px; padding: 2px 14px 2px 22px; cursor: pointer; font-size: 12px; white-space: pre; }
-.sif-row--sel { background: var(--bg3); }
+.sif-row { display: flex; gap: 10px; padding: 3px 14px 3px 22px; cursor: pointer; font: 400 var(--t-sm) var(--mono); white-space: pre; border-radius: var(--r-1); }
+.sif-row--sel { background: var(--acc-wash); }
 .sif-line { color: var(--dim); min-width: 3ch; text-align: right; flex-shrink: 0; }
 .sif-text { color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
 .sif-text b { color: var(--text); background: color-mix(in srgb, var(--purple3) 28%, transparent); border-radius: 2px; font-weight: 600; }
@@ -1337,7 +1338,7 @@ input, textarea { font-family: var(--font); }
 .symp-kind--class, .symp-kind--type { color: var(--ansi-11, var(--warn)); }
 .symp-kind--method { color: var(--ansi-13, var(--purple)); }
 .symp-kind--heading { color: var(--purple3); }
-.symp-name { color: var(--text); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.symp-name { color: var(--text); font-family: var(--mono); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .symp-name b { color: var(--purple); }
 .symp-line { color: var(--dim); font-size: 11px; font-variant-numeric: tabular-nums; }
 
@@ -1554,6 +1555,6 @@ input, textarea { font-family: var(--font); }
 
 /* Ctrl+R: the history picker. */
 .hp-item { padding-top: 5px; padding-bottom: 5px; }
-.hp-cmd { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: pre; color: var(--text); font-size: 12px; }
+.hp-cmd { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: pre; color: var(--text); font: 400 var(--t-sm) var(--mono); }
 .hp-hit { background: none; color: var(--purple3); font-weight: 700; }
 
