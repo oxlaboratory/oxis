@@ -89,7 +89,6 @@ fn an_exit_is_announced_and_the_session_stays_readable() {
     let engine = engine(dir.path());
     let rx = engine.bus.subscribe();
     let id = engine.open_terminal(None, 80, 24).unwrap();
-    let t = engine.terminals.get(id).unwrap().terminal;
     type_at_prompt(&engine, id, "echo bye");
     wait_for_line(&engine, id, "bye");
     type_at_prompt(&engine, id, "exit 4");
